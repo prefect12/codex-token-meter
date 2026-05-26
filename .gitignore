@@ -1,0 +1,27 @@
+.DS_Store
+
+# Build outputs
+build/
+dist/
+*.app/
+*.dmg
+
+# Local screenshots captured during UI iteration
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+
+# Generated design explorations and reference images
+CodexReference/
+CodexStyleLogoOptions/
+LogoOptions/
+
+# Temporary iconset generated before AppIcon.icns
+Resources/AppIcon.iconset/
+
+# Local editor and system files
+.idea/
+.vscode/
+*.swp
+*.tmp
