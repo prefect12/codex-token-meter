@@ -2,6 +2,10 @@
 
 Codex Token Meter 是一个原生 macOS 状态栏工具，用来查看本机 Codex 的 token 消耗、缓存命中率和实时剩余额度。
 
+![Codex Token Meter 状态栏弹窗](docs/images/menu-popover.png)
+
+![Codex Token Meter 用量详情](docs/images/details-overview.png)
+
 它直接读取本地 Codex 会话日志：
 
 ```text
