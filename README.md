@@ -97,3 +97,7 @@ build.sh                            构建 .app
 install.sh                          安装到 /Applications
 package_dmg.sh                      打包 DMG
 ```
+
+## License
+
+MIT
