@@ -1360,7 +1360,15 @@ final class RingView: NSView {
     private func drawCentered(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
-        (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color, .paragraphStyle: paragraph]
+        let size = (text as NSString).size(withAttributes: attributes)
+        let textRect = NSRect(
+            x: rect.minX,
+            y: rect.midY - ceil(size.height) / 2,
+            width: rect.width,
+            height: ceil(size.height)
+        )
+        (text as NSString).draw(in: textRect, withAttributes: attributes)
     }
 }
 
@@ -2352,7 +2360,7 @@ final class UsageDetailsView: NSView {
             NSBezierPath(roundedRect: optionRect, xRadius: 8, yRadius: 8).fill()
             NSColor.white.withAlphaComponent(language == AppLanguage.current ? 0.18 : 0.08).setStroke()
             NSBezierPath(roundedRect: optionRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
-            drawCentered(language.displayName, rect: optionRect.insetBy(dx: 8, dy: 9), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+            drawCentered(language.displayName, rect: optionRect.insetBy(dx: 8, dy: 0), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         }
 
         drawText(t(.languageHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 104, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
@@ -2481,7 +2489,7 @@ final class UsageDetailsView: NSView {
         NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
         NSColor.white.withAlphaComponent(0.10).setStroke()
         NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7).stroke()
-        drawCentered(title, rect: rect.insetBy(dx: 6, dy: 9), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.86))
+        drawCentered(title, rect: rect.insetBy(dx: 6, dy: 0), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.86))
     }
 
     private func drawSelectablePill(_ title: String, rect: NSRect, selected: Bool) {
@@ -2493,7 +2501,7 @@ final class UsageDetailsView: NSView {
         NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
         NSColor.white.withAlphaComponent(selected ? 0.18 : 0.08).setStroke()
         NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
-        drawCentered(title, rect: rect.insetBy(dx: 8, dy: 9), font: .systemFont(ofSize: 12, weight: .semibold), color: .white)
+        drawCentered(title, rect: rect.insetBy(dx: 8, dy: 0), font: .systemFont(ofSize: 12, weight: .semibold), color: .white)
     }
 
     private func contributionColor(_ intensity: Double) -> NSColor {
@@ -2511,7 +2519,15 @@ final class UsageDetailsView: NSView {
     private func drawCentered(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
-        (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color, .paragraphStyle: paragraph]
+        let size = (text as NSString).size(withAttributes: attributes)
+        let textRect = NSRect(
+            x: rect.minX,
+            y: rect.midY - ceil(size.height) / 2,
+            width: rect.width,
+            height: ceil(size.height)
+        )
+        (text as NSString).draw(in: textRect, withAttributes: attributes)
     }
 
     private func drawRight(_ text: String, rect: NSRect, color: NSColor, font: NSFont = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)) {
