@@ -218,6 +218,8 @@ private enum L10nKey {
     case usageDetails
     case usageIntensityHint
     case usageWindow
+    case visibleWeekShare
+    case weeklyQuotaShare
     case weeklyLeft
     case fiveHourLeft
     case chinese
@@ -295,6 +297,8 @@ private enum L10nKey {
         case .usageDetails: return "Usage Details"
         case .usageIntensityHint: return "darker means more token usage"
         case .usageWindow: return "Usage window"
+        case .visibleWeekShare: return "7d share"
+        case .weeklyQuotaShare: return "Week quota"
         case .weeklyLeft: return "Weekly Left"
         case .fiveHourLeft: return "5h Left"
         case .chinese: return "Chinese"
@@ -374,6 +378,8 @@ private enum L10nKey {
         case .usageDetails: return "用量详情"
         case .usageIntensityHint: return "颜色越深代表 token 用量越高"
         case .usageWindow: return "用量窗口"
+        case .visibleWeekShare: return "占7天用量"
+        case .weeklyQuotaShare: return "占周额度"
         case .weeklyLeft: return "周额度剩余"
         case .fiveHourLeft: return "5小时剩余"
         case .chinese: return "中文"
@@ -453,6 +459,8 @@ private enum L10nKey {
         case .usageDetails: return "使用量詳細"
         case .usageIntensityHint: return "色が濃いほど token 使用量が多い"
         case .usageWindow: return "使用量ウィンドウ"
+        case .visibleWeekShare: return "7日内比率"
+        case .weeklyQuotaShare: return "週制限内"
         case .weeklyLeft: return "週制限の残り"
         case .fiveHourLeft: return "5時間残り"
         case .chinese: return "中国語"
@@ -1261,6 +1269,7 @@ final class UsageChartView: NSView {
     var selectedWindow: WindowOption = .week { didSet { needsDisplay = true } }
     var days: [DayUsage] = [] { didSet { hoveredIndex = nil; needsDisplay = true } }
     var hours: [HourUsage] = [] { didSet { hoveredIndex = nil; needsDisplay = true } }
+    var weeklyQuotaUsedPercent: Double? { didSet { needsDisplay = true } }
     private var hoveredIndex: Int?
     private var hoverPoint: CGPoint?
 
@@ -1505,16 +1514,21 @@ final class UsageChartView: NSView {
             usage = days[hoveredIndex].usage
         }
 
-        let lines = [
+        var lines = [
             title,
             "\(t(.input))       \(compact(usage.input))",
             "\(t(.output))      \(compact(usage.output))",
             "\(t(.cached))      \(compact(usage.cachedInput))",
             "\(t(.fresh))       \(compact(usage.freshInput))"
         ]
+        if let weeklyQuotaPercent = weeklyQuotaShare(for: usage) {
+            lines.append("\(t(.weeklyQuotaShare))   \(String(format: "%.1f%%", weeklyQuotaPercent))")
+        } else if let visibleWeekPercent = visibleWeekShare(for: usage) {
+            lines.append("\(t(.visibleWeekShare)) \(String(format: "%.1f%%", visibleWeekPercent))")
+        }
 
-        let width: CGFloat = 154
-        let height: CGFloat = 94
+        let width: CGFloat = 176
+        let height = CGFloat(18 + lines.count * 16)
         var origin = CGPoint(x: hoverPoint.x + 12, y: hoverPoint.y - height - 8)
         if origin.x + width > bounds.maxX - 8 {
             origin.x = hoverPoint.x - width - 12
@@ -1544,6 +1558,25 @@ final class UsageChartView: NSView {
                 ]
             )
         }
+    }
+
+    private func weeklyQuotaShare(for usage: Usage) -> Double? {
+        guard selectedWindow == .week,
+              let weeklyQuotaUsedPercent,
+              weeklyQuotaUsedPercent > 0 else {
+            return nil
+        }
+        let visibleTotal = days.reduce(Int64(0)) { $0 + $1.usage.total }
+        guard usage.total > 0, visibleTotal > 0 else { return nil }
+        let shareOfVisibleWeek = Double(usage.total) / Double(visibleTotal)
+        return shareOfVisibleWeek * weeklyQuotaUsedPercent
+    }
+
+    private func visibleWeekShare(for usage: Usage) -> Double? {
+        guard selectedWindow == .week else { return nil }
+        let visibleTotal = days.reduce(Int64(0)) { $0 + $1.usage.total }
+        guard usage.total > 0, visibleTotal > 0 else { return nil }
+        return Double(usage.total) / Double(visibleTotal) * 100
     }
 
     private func drawLabel(_ label: String, rect: NSRect) {
@@ -1630,6 +1663,7 @@ final class DashboardView: NSView {
         dayChart.selectedWindow = state.selectedWindow
         dayChart.days = report.byDay
         dayChart.hours = report.byHour
+        dayChart.weeklyQuotaUsedPercent = state.selectedWindow == .week ? weekly?.usedPercent : nil
         sessionsLabel.stringValue = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
         needsDisplay = true
     }
