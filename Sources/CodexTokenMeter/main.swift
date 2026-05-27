@@ -146,6 +146,37 @@ private enum AppLanguage: String, CaseIterable {
     }
 }
 
+private enum StatusDisplayOption: String, CaseIterable {
+    case fiveHourPercent
+    case weeklyPercent
+    case weeklyTokens
+    case dailyTokens
+
+    static let storageKey = "statusDisplayOption"
+
+    static var current: StatusDisplayOption {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: storageKey),
+                  let option = StatusDisplayOption(rawValue: raw) else {
+                return .fiveHourPercent
+            }
+            return option
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: storageKey)
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .fiveHourPercent: return t(.statusFiveHourPercent)
+        case .weeklyPercent: return t(.statusWeeklyPercent)
+        case .weeklyTokens: return t(.statusWeeklyTokens)
+        case .dailyTokens: return t(.statusDailyTokens)
+        }
+    }
+}
+
 private enum L10nKey {
     case about
     case aboutSubtitle
@@ -174,6 +205,11 @@ private enum L10nKey {
     case language
     case languageHint
     case liveLimitUnavailable
+    case logFolder
+    case logFolderHint
+    case logFolderChoose
+    case logFolderDefault
+    case logFolderOpen
     case loadingUsageDetails
     case logs
     case modelGroupingNote
@@ -210,6 +246,12 @@ private enum L10nKey {
     case spark
     case sparkDescription
     case sparkModel
+    case statusBarDisplay
+    case statusDailyTokens
+    case statusDisplayHint
+    case statusFiveHourPercent
+    case statusWeeklyPercent
+    case statusWeeklyTokens
     case tokenMeter
     case total
     case totalsObservedNote
@@ -253,6 +295,11 @@ private enum L10nKey {
         case .language: return "Language"
         case .languageHint: return "Changes apply immediately to the popover and details window."
         case .liveLimitUnavailable: return "Live limit unavailable"
+        case .logFolder: return "Log Folder"
+        case .logFolderHint: return "Choose the Codex session log folder used for scanning."
+        case .logFolderChoose: return "Choose..."
+        case .logFolderDefault: return "Default"
+        case .logFolderOpen: return "Open"
         case .loadingUsageDetails: return "Loading usage details..."
         case .logs: return "Logs"
         case .modelGroupingNote: return "Model grouping comes from turn_context.model in local Codex rollout logs."
@@ -289,6 +336,12 @@ private enum L10nKey {
         case .spark: return "Spark"
         case .sparkDescription: return "Events whose model is GPT-5.3-Codex-Spark."
         case .sparkModel: return "GPT-5.3-Codex-Spark model"
+        case .statusBarDisplay: return "Menu Bar Display"
+        case .statusDailyTokens: return "24h tokens"
+        case .statusDisplayHint: return "Choose what the menu bar item shows."
+        case .statusFiveHourPercent: return "5h %"
+        case .statusWeeklyPercent: return "Weekly %"
+        case .statusWeeklyTokens: return "7d tokens"
         case .tokenMeter: return "Token Meter"
         case .total: return "total"
         case .totalsObservedNote: return "local-observed usage, not official billing"
@@ -334,6 +387,11 @@ private enum L10nKey {
         case .language: return "语言"
         case .languageHint: return "切换后会立即应用到弹窗和详情窗口。"
         case .liveLimitUnavailable: return "实时限额不可用"
+        case .logFolder: return "日志目录"
+        case .logFolderHint: return "选择用于扫描的 Codex 会话日志目录。"
+        case .logFolderChoose: return "选择..."
+        case .logFolderDefault: return "默认"
+        case .logFolderOpen: return "打开"
         case .loadingUsageDetails: return "正在加载用量详情..."
         case .logs: return "日志"
         case .modelGroupingNote: return "模型分组来自本地 Codex rollout 日志里的 turn_context.model。"
@@ -370,6 +428,12 @@ private enum L10nKey {
         case .spark: return "Spark"
         case .sparkDescription: return "模型为 GPT-5.3-Codex-Spark 的事件。"
         case .sparkModel: return "GPT-5.3-Codex-Spark 模型"
+        case .statusBarDisplay: return "状态栏显示"
+        case .statusDailyTokens: return "24h 用量"
+        case .statusDisplayHint: return "选择菜单栏里直接展示的指标。"
+        case .statusFiveHourPercent: return "5h 百分比"
+        case .statusWeeklyPercent: return "周百分比"
+        case .statusWeeklyTokens: return "7d 用量"
         case .tokenMeter: return "Token 统计"
         case .total: return "总计"
         case .totalsObservedNote: return "本地观测用量，非官方账单"
@@ -415,6 +479,11 @@ private enum L10nKey {
         case .language: return "言語"
         case .languageHint: return "変更はポップオーバーと詳細ウィンドウにすぐ反映されます。"
         case .liveLimitUnavailable: return "リアルタイム制限を取得できません"
+        case .logFolder: return "ログフォルダ"
+        case .logFolderHint: return "スキャンに使う Codex セッションログのフォルダを選択します。"
+        case .logFolderChoose: return "選択..."
+        case .logFolderDefault: return "既定"
+        case .logFolderOpen: return "開く"
         case .loadingUsageDetails: return "使用量の詳細を読み込み中..."
         case .logs: return "ログ"
         case .modelGroupingNote: return "モデル別集計はローカル Codex rollout ログの turn_context.model から取得します。"
@@ -451,6 +520,12 @@ private enum L10nKey {
         case .spark: return "Spark"
         case .sparkDescription: return "モデルが GPT-5.3-Codex-Spark のイベント。"
         case .sparkModel: return "GPT-5.3-Codex-Spark モデル"
+        case .statusBarDisplay: return "メニューバー表示"
+        case .statusDailyTokens: return "24h 使用量"
+        case .statusDisplayHint: return "メニューバーに表示する指標を選びます。"
+        case .statusFiveHourPercent: return "5h %"
+        case .statusWeeklyPercent: return "週 %"
+        case .statusWeeklyTokens: return "7日使用量"
         case .tokenMeter: return "Token メーター"
         case .total: return "合計"
         case .totalsObservedNote: return "ローカル観測値であり公式請求ではありません"
@@ -470,6 +545,30 @@ private enum L10nKey {
 
 private func t(_ key: L10nKey) -> String {
     AppLanguage.current.text(key)
+}
+
+private enum AppSettings {
+    static let logFolderKey = "sessionLogFolder"
+
+    static var defaultLogFolderURL: URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/sessions", isDirectory: true)
+    }
+
+    static var logFolderURL: URL {
+        get {
+            guard let path = UserDefaults.standard.string(forKey: logFolderKey), !path.isEmpty else {
+                return defaultLogFolderURL
+            }
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        set {
+            UserDefaults.standard.set(newValue.path, forKey: logFolderKey)
+        }
+    }
+
+    static func resetLogFolder() {
+        UserDefaults.standard.removeObject(forKey: logFolderKey)
+    }
 }
 
 enum QuotaViewOption: String, CaseIterable {
@@ -1270,6 +1369,7 @@ final class UsageChartView: NSView {
     var days: [DayUsage] = [] { didSet { hoveredIndex = nil; needsDisplay = true } }
     var hours: [HourUsage] = [] { didSet { hoveredIndex = nil; needsDisplay = true } }
     var weeklyQuotaUsedPercent: Double? { didSet { needsDisplay = true } }
+    var weeklyQuotaReferenceTotal: Int64? { didSet { needsDisplay = true } }
     private var hoveredIndex: Int?
     private var hoverPoint: CGPoint?
 
@@ -1561,14 +1661,14 @@ final class UsageChartView: NSView {
     }
 
     private func weeklyQuotaShare(for usage: Usage) -> Double? {
-        guard selectedWindow == .week,
+        guard selectedWindow != .day,
               let weeklyQuotaUsedPercent,
               weeklyQuotaUsedPercent > 0 else {
             return nil
         }
-        let visibleTotal = days.reduce(Int64(0)) { $0 + $1.usage.total }
-        guard usage.total > 0, visibleTotal > 0 else { return nil }
-        let shareOfVisibleWeek = Double(usage.total) / Double(visibleTotal)
+        let referenceTotal = weeklyQuotaReferenceTotal ?? recentWeekTotal()
+        guard usage.total > 0, referenceTotal > 0 else { return nil }
+        let shareOfVisibleWeek = Double(usage.total) / Double(referenceTotal)
         return shareOfVisibleWeek * weeklyQuotaUsedPercent
     }
 
@@ -1577,6 +1677,13 @@ final class UsageChartView: NSView {
         let visibleTotal = days.reduce(Int64(0)) { $0 + $1.usage.total }
         guard usage.total > 0, visibleTotal > 0 else { return nil }
         return Double(usage.total) / Double(visibleTotal) * 100
+    }
+
+    private func recentWeekTotal() -> Int64 {
+        if selectedWindow == .week {
+            return days.reduce(Int64(0)) { $0 + $1.usage.total }
+        }
+        return days.suffix(7).reduce(Int64(0)) { $0 + $1.usage.total }
     }
 
     private func drawLabel(_ label: String, rect: NSRect) {
@@ -1663,7 +1770,8 @@ final class DashboardView: NSView {
         dayChart.selectedWindow = state.selectedWindow
         dayChart.days = report.byDay
         dayChart.hours = report.byHour
-        dayChart.weeklyQuotaUsedPercent = state.selectedWindow == .week ? weekly?.usedPercent : nil
+        dayChart.weeklyQuotaUsedPercent = state.selectedWindow == .day ? nil : weekly?.usedPercent
+        dayChart.weeklyQuotaReferenceTotal = state.selectedWindow == .day ? nil : report.byDay.suffix(7).reduce(Int64(0)) { $0 + $1.usage.total }
         sessionsLabel.stringValue = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
         needsDisplay = true
     }
@@ -1932,9 +2040,17 @@ final class UsageDetailsView: NSView {
     }
     var isLoading = false { didSet { needsDisplay = true } }
     fileprivate var onLanguageChanged: ((AppLanguage) -> Void)?
+    fileprivate var onStatusDisplayChanged: ((StatusDisplayOption) -> Void)?
+    fileprivate var onChooseLogFolder: (() -> Void)?
+    fileprivate var onResetLogFolder: (() -> Void)?
+    fileprivate var onOpenLogFolder: (() -> Void)?
     private var selectedSection: DetailsSection = .overview { didSet { needsDisplay = true } }
     private var sidebarItemRects: [DetailsSection: NSRect] = [:]
     private var languageOptionRects: [AppLanguage: NSRect] = [:]
+    private var statusOptionRects: [StatusDisplayOption: NSRect] = [:]
+    private var chooseLogFolderRect: NSRect?
+    private var resetLogFolderRect: NSRect?
+    private var openLogFolderRect: NSRect?
     private var contributionDayRects: [String: NSRect] = [:]
     private var selectedDay: String?
 
@@ -1949,6 +2065,22 @@ final class UsageDetailsView: NSView {
         if selectedSection == .settings {
             for (language, rect) in languageOptionRects where rect.contains(point) {
                 onLanguageChanged?(language)
+                return
+            }
+            for (option, rect) in statusOptionRects where rect.contains(point) {
+                onStatusDisplayChanged?(option)
+                return
+            }
+            if chooseLogFolderRect?.contains(point) == true {
+                onChooseLogFolder?()
+                return
+            }
+            if resetLogFolderRect?.contains(point) == true {
+                onResetLogFolder?()
+                return
+            }
+            if openLogFolderRect?.contains(point) == true {
+                onOpenLogFolder?()
                 return
             }
         }
@@ -1977,6 +2109,10 @@ final class UsageDetailsView: NSView {
         drawText(selectedSection.subtitle, rect: NSRect(x: content.minX, y: content.minY + 36, width: content.width, height: 20), font: .systemFont(ofSize: 13, weight: .medium), color: NSColor.white.withAlphaComponent(0.50))
         contributionDayRects.removeAll()
         languageOptionRects.removeAll()
+        statusOptionRects.removeAll()
+        chooseLogFolderRect = nil
+        resetLogFolderRect = nil
+        openLogFolderRect = nil
 
         guard let snapshot else {
             drawText(isLoading ? t(.loadingUsageDetails) : t(.noDataLoaded), rect: NSRect(x: content.minX, y: content.minY + 92, width: content.width, height: 24), font: .systemFont(ofSize: 15, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
@@ -2195,7 +2331,7 @@ final class UsageDetailsView: NSView {
     }
 
     private func drawSettingsPage(content: NSRect) {
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 214)
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 330)
         drawPanel(rect)
         drawText(t(.language), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.interfaceLanguage), rect: NSRect(x: rect.minX + 16, y: rect.minY + 56, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
@@ -2220,6 +2356,35 @@ final class UsageDetailsView: NSView {
         }
 
         drawText(t(.languageHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 104, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+
+        drawText(t(.logFolder), rect: NSRect(x: rect.minX + 16, y: rect.minY + 148, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        let pathRect = NSRect(x: rect.minX + 16, y: rect.minY + 176, width: rect.width - 276, height: 34)
+        NSColor.black.withAlphaComponent(0.14).setFill()
+        NSBezierPath(roundedRect: pathRect, xRadius: 7, yRadius: 7).fill()
+        drawText(AppSettings.logFolderURL.path, rect: pathRect.insetBy(dx: 12, dy: 9), font: .monospacedSystemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.62))
+
+        let logButtonW: CGFloat = 72
+        let logButtonY = rect.minY + 176
+        chooseLogFolderRect = NSRect(x: rect.maxX - 244, y: logButtonY, width: 84, height: 34)
+        resetLogFolderRect = NSRect(x: rect.maxX - 152, y: logButtonY, width: logButtonW, height: 34)
+        openLogFolderRect = NSRect(x: rect.maxX - 72, y: logButtonY, width: 56, height: 34)
+        drawSmallButton(t(.logFolderChoose), rect: chooseLogFolderRect!)
+        drawSmallButton(t(.logFolderDefault), rect: resetLogFolderRect!)
+        drawSmallButton(t(.logFolderOpen), rect: openLogFolderRect!)
+        drawText(t(.logFolderHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 216, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+
+        drawText(t(.statusBarDisplay), rect: NSRect(x: rect.minX + 16, y: rect.minY + 256, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        let statusY = rect.minY + 252
+        let statusGap: CGFloat = 10
+        let statusOptionW = max(100, (rect.width - 260 - statusGap * CGFloat(StatusDisplayOption.allCases.count - 1)) / CGFloat(StatusDisplayOption.allCases.count))
+        let statusStartX = rect.maxX - 16 - statusOptionW * CGFloat(StatusDisplayOption.allCases.count) - statusGap * CGFloat(StatusDisplayOption.allCases.count - 1)
+        for (index, option) in StatusDisplayOption.allCases.enumerated() {
+            let optionRect = NSRect(x: statusStartX + CGFloat(index) * (statusOptionW + statusGap), y: statusY, width: statusOptionW, height: 36)
+            statusOptionRects[option] = optionRect
+            drawSelectablePill(option.title, rect: optionRect, selected: option == StatusDisplayOption.current)
+        }
+        drawText(t(.statusDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 298, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+
         let noteRect = NSRect(x: content.minX, y: rect.maxY + 16, width: content.width, height: 86)
         drawPanel(noteRect)
         drawText(t(.totalsObservedNote), rect: NSRect(x: noteRect.minX + 16, y: noteRect.minY + 18, width: noteRect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.58))
@@ -2311,6 +2476,26 @@ final class UsageDetailsView: NSView {
         NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
     }
 
+    private func drawSmallButton(_ title: String, rect: NSRect) {
+        NSColor.white.withAlphaComponent(0.16).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
+        NSColor.white.withAlphaComponent(0.10).setStroke()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7).stroke()
+        drawCentered(title, rect: rect.insetBy(dx: 6, dy: 9), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.86))
+    }
+
+    private func drawSelectablePill(_ title: String, rect: NSRect, selected: Bool) {
+        if selected {
+            NSColor.systemBlue.withAlphaComponent(0.72).setFill()
+        } else {
+            NSColor.black.withAlphaComponent(0.14).setFill()
+        }
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(selected ? 0.18 : 0.08).setStroke()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+        drawCentered(title, rect: rect.insetBy(dx: 8, dy: 9), font: .systemFont(ofSize: 12, weight: .semibold), color: .white)
+    }
+
     private func contributionColor(_ intensity: Double) -> NSColor {
         if intensity <= 0 { return NSColor.white.withAlphaComponent(0.08) }
         if intensity < 0.25 { return NSColor.systemGreen.withAlphaComponent(0.30) }
@@ -2341,7 +2526,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private let dashboardController = DashboardViewController()
     private let detailsController = UsageDetailsWindowController()
-    private let scanner = CodexTokenScanner(rootURL: URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/sessions"))
+    private var scanner = CodexTokenScanner(rootURL: AppSettings.logFolderURL)
     private let rateLimitReader = LiveRateLimitReader()
     private let localFormatter = DateFormatter()
     private let scanQueue = DispatchQueue(label: "local.codex-token-meter.scan", qos: .utility)
@@ -2355,7 +2540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var activeScans: Set<ReportCacheKey> = []
     private var liveRefreshInFlight = false
     private let refreshInterval: TimeInterval = 300
-    private let statusItemWidth: CGFloat = 74
+    private let statusItemWidth: CGFloat = 86
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -2388,6 +2573,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AppLanguage.current = language
             self?.applyLanguage()
         }
+        detailsController.detailsView.onStatusDisplayChanged = { [weak self] option in
+            guard let self else { return }
+            StatusDisplayOption.current = option
+            detailsController.detailsView.needsDisplay = true
+            updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
+        }
+        detailsController.detailsView.onChooseLogFolder = { [weak self] in self?.chooseLogFolder() }
+        detailsController.detailsView.onResetLogFolder = { [weak self] in self?.resetLogFolder() }
+        detailsController.detailsView.onOpenLogFolder = { [weak self] in self?.openSessionsFolder() }
         applyLanguage()
 
         refresh(forceLive: false)
@@ -2564,6 +2758,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self.activeScans.remove(key)
                 self.reportCache[key] = report
+                self.updateStatusTitle(report: self.latestState.report, limits: self.liveLimits, quota: self.latestState.selectedQuota)
                 if self.selectedWindow == window && self.selectedQuota == quota {
                     self.latestState = DashboardState(
                         report: report,
@@ -2588,10 +2783,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func statusTitle(report: TokenReport, limits: [LiveRateLimit], quota: QuotaViewOption) -> String? {
-        if let live = selectedLimit(from: limits, quota: quota)?.primary.remainingPercent {
-            return "\(Int(round(live)))%"
+        let limit = selectedLimit(from: limits, quota: quota)
+        switch StatusDisplayOption.current {
+        case .fiveHourPercent:
+            if let live = limit?.primary.remainingPercent {
+                return "\(Int(round(live)))%"
+            }
+        case .weeklyPercent:
+            if let live = limit?.secondary.remainingPercent {
+                return "\(Int(round(live)))%"
+            }
+        case .weeklyTokens:
+            if let usage = statusUsage(window: .week, quota: quota)?.usage, usage.total > 0 {
+                return compact(usage.total)
+            }
+        case .dailyTokens:
+            if let usage = statusUsage(window: .day, quota: quota)?.usage, usage.total > 0 {
+                return compact(usage.total)
+            }
         }
         return report.usage.total > 0 ? compact(report.usage.total) : nil
+    }
+
+    private func statusUsage(window: WindowOption, quota: QuotaViewOption) -> TokenReport? {
+        let key = ReportCacheKey(window: window, quota: quota)
+        if let cached = reportCache[key] {
+            return cached
+        }
+        if latestState.selectedWindow == window && latestState.selectedQuota == quota {
+            return latestState.report
+        }
+        return nil
     }
 
     private func selectedLimit(from limits: [LiveRateLimit], quota: QuotaViewOption) -> LiveRateLimit? {
@@ -2604,7 +2826,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openSessionsFolder() {
-        NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/sessions"))
+        NSWorkspace.shared.open(AppSettings.logFolderURL)
+    }
+
+    private func chooseLogFolder() {
+        let panel = NSOpenPanel()
+        panel.title = t(.logFolder)
+        panel.message = t(.logFolderHint)
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = AppSettings.logFolderURL
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        AppSettings.logFolderURL = url
+        reloadScannerFromSettings()
+    }
+
+    private func resetLogFolder() {
+        AppSettings.resetLogFolder()
+        reloadScannerFromSettings()
+    }
+
+    private func reloadScannerFromSettings() {
+        scanner = CodexTokenScanner(rootURL: AppSettings.logFolderURL)
+        reportCache.removeAll()
+        activeScans.removeAll()
+        detailsController.detailsView.needsDisplay = true
+        refresh(forceLive: false)
     }
 
     private func openDetailsWindow() {
