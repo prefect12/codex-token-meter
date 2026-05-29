@@ -175,6 +175,14 @@ private enum StatusDisplayOption: String, CaseIterable {
         case .dailyTokens: return t(.statusDailyTokens)
         }
     }
+
+    var requiredReportWindow: WindowOption? {
+        switch self {
+        case .weeklyTokens: return .week
+        case .dailyTokens: return .day
+        case .fiveHourPercent, .weeklyPercent: return nil
+        }
+    }
 }
 
 private enum L10nKey {
@@ -2292,15 +2300,15 @@ final class UsageDetailsView: NSView {
 
         let metricRows = Int(ceil(Double(metrics.count) / Double(columns)))
         let metricsBottom = rect.minY + 24 + CGFloat(metricRows) * metricH + CGFloat(max(0, metricRows - 1)) * 10
-        let modelY = max(rect.minY + 126, metricsBottom + 20)
-        let modelRect = NSRect(x: rect.minX + 18, y: modelY, width: rect.width - 36, height: max(54, barRect.minY - modelY - 18))
+        let modelY = max(rect.minY + 116, metricsBottom + 12)
+        let modelRect = NSRect(x: rect.minX + 18, y: modelY, width: rect.width - 36, height: max(54, barRect.minY - modelY - 10))
         drawSelectedDayModels(day.modelBreakdown, rect: modelRect)
     }
 
     private func drawSelectedDayModels(_ models: [ModelUsage], rect: NSRect) {
-        drawText(t(.models), rect: NSRect(x: rect.minX, y: rect.minY, width: 120, height: 20), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
+        drawText(t(.models), rect: NSRect(x: rect.minX, y: rect.minY, width: 120, height: 18), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
         guard !models.isEmpty else {
-            drawText(t(.noModelLabelForDay), rect: NSRect(x: rect.minX, y: rect.minY + 28, width: rect.width, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
+            drawText(t(.noModelLabelForDay), rect: NSRect(x: rect.minX, y: rect.minY + 24, width: rect.width, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
             return
         }
 
@@ -2316,15 +2324,15 @@ final class UsageDetailsView: NSView {
         drawRight(t(.output), rect: NSRect(x: outputX, y: rect.minY, width: 80, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         drawRight(t(.total), rect: NSRect(x: totalX, y: rect.minY, width: 82, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         for (index, model) in visible.enumerated() {
-            let y = rect.minY + 28 + CGFloat(index) * 34
-            guard y + 28 <= rect.maxY else { break }
-            drawText(model.name, rect: NSRect(x: rect.minX, y: y, width: nameW, height: 16), font: .systemFont(ofSize: 12, weight: .semibold), color: .white)
-            drawText("\(model.events) \(t(.events).lowercased())", rect: NSRect(x: rect.minX, y: y + 16, width: nameW, height: 14), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42))
-            drawRight(compact(model.usage.input), rect: NSRect(x: inputX, y: y + 4, width: 80, height: 18), color: .systemGreen)
-            drawRight(compact(model.usage.output), rect: NSRect(x: outputX, y: y + 4, width: 80, height: 18), color: .systemCyan)
-            drawRight(compact(model.usage.total), rect: NSRect(x: totalX, y: y + 4, width: 82, height: 18), color: .white)
+            let y = rect.minY + 22 + CGFloat(index) * 22
+            guard y + 18 <= rect.maxY else { break }
+            drawText(model.name, rect: NSRect(x: rect.minX, y: y, width: nameW, height: 12), font: .systemFont(ofSize: 10, weight: .semibold), color: .white)
+            drawText("\(model.events) \(t(.events).lowercased())", rect: NSRect(x: rect.minX, y: y + 11, width: nameW, height: 11), font: .systemFont(ofSize: 8, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42))
+            drawRight(compact(model.usage.input), rect: NSRect(x: inputX, y: y + 1, width: 80, height: 16), color: .systemGreen)
+            drawRight(compact(model.usage.output), rect: NSRect(x: outputX, y: y + 1, width: 80, height: 16), color: .systemCyan)
+            drawRight(compact(model.usage.total), rect: NSRect(x: totalX, y: y + 1, width: 82, height: 16), color: .white)
 
-            let bar = NSRect(x: barX, y: y + 8, width: barW, height: 8)
+            let bar = NSRect(x: barX, y: y + 6, width: barW, height: 6)
             NSColor.white.withAlphaComponent(0.07).setFill()
             NSBezierPath(roundedRect: bar, xRadius: 4, yRadius: 4).fill()
             let totalRatio = CGFloat(Double(model.usage.total) / Double(maxTotal))
@@ -2555,6 +2563,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var refreshTimer: Timer?
     private var activeScans: Set<ReportCacheKey> = []
     private var liveRefreshInFlight = false
+    private var statusSpinnerTimer: Timer?
+    private var statusSpinnerFrame = 0
+    private var statusIsLoading = false
     private let refreshInterval: TimeInterval = 300
     private let statusItemWidth: CGFloat = 86
 
@@ -2611,15 +2622,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func configureStatusButton() {
         statusItem.length = statusItemWidth
         guard let button = statusItem.button else { return }
-        let image = NSImage(named: "StatusIconTemplate")
-        image?.isTemplate = true
-        image?.size = NSSize(width: 18, height: 18)
-        button.image = image
+        button.image = statusIconImage()
         button.imagePosition = .imageLeading
         button.title = "--%"
         button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
         button.action = #selector(togglePopover)
         button.target = self
+    }
+
+    private func statusIconImage() -> NSImage? {
+        let image = NSImage(named: "StatusIconTemplate")
+        image?.isTemplate = true
+        image?.size = NSSize(width: 18, height: 18)
+        return image
+    }
+
+    private func setStatusLoading(_ loading: Bool) {
+        guard statusIsLoading != loading else { return }
+        statusIsLoading = loading
+        statusSpinnerTimer?.invalidate()
+        statusSpinnerTimer = nil
+
+        guard let button = statusItem.button else { return }
+        if loading {
+            statusSpinnerFrame = 0
+            updateStatusSpinnerImage()
+            let timer = Timer(timeInterval: 0.12, repeats: true) { [weak self] _ in
+                self?.updateStatusSpinnerImage()
+            }
+            statusSpinnerTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        } else {
+            button.image = statusIconImage()
+        }
+    }
+
+    private func updateStatusSpinnerImage() {
+        guard let button = statusItem.button else { return }
+        button.image = spinnerImage(frame: statusSpinnerFrame)
+        statusSpinnerFrame = (statusSpinnerFrame + 1) % 12
+    }
+
+    private func spinnerImage(frame: Int) -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor.white.setStroke()
+        let center = NSPoint(x: size.width / 2, y: size.height / 2)
+        let radius: CGFloat = 6.4
+        let start = CGFloat(frame) * 30
+        let path = NSBezierPath()
+        path.appendArc(withCenter: center, radius: radius, startAngle: start, endAngle: start + 255, clockwise: false)
+        path.lineWidth = 2.2
+        path.lineCapStyle = .round
+        path.stroke()
+        image.unlockFocus()
+        image.isTemplate = true
+        return image
     }
 
     private func applyLanguage() {
@@ -2795,12 +2854,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateStatusTitle(report: TokenReport, limits: [LiveRateLimit], quota: QuotaViewOption) {
         statusItem.length = statusItemWidth
         guard let button = statusItem.button else { return }
-        button.title = statusTitle(report: report, limits: limits, quota: quota) ?? button.title
+        let option = StatusDisplayOption.current
+        requestStatusUsageIfNeeded(option: option, quota: quota)
+        let title = statusTitle(report: report, limits: limits, quota: quota, option: option)
+        let pending = latestState.isLoading || statusValueIsPending(option: option, quota: quota, limits: limits)
+        button.title = title ?? "--"
+        setStatusLoading(pending)
     }
 
-    private func statusTitle(report: TokenReport, limits: [LiveRateLimit], quota: QuotaViewOption) -> String? {
+    private func statusTitle(report: TokenReport, limits: [LiveRateLimit], quota: QuotaViewOption, option: StatusDisplayOption) -> String? {
         let limit = selectedLimit(from: limits, quota: quota)
-        switch StatusDisplayOption.current {
+        switch option {
         case .fiveHourPercent:
             if let live = limit?.primary.remainingPercent {
                 return "\(Int(round(live)))%"
@@ -2818,7 +2882,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return compact(usage.total)
             }
         }
-        return report.usage.total > 0 ? compact(report.usage.total) : nil
+        return nil
+    }
+
+    private func requestStatusUsageIfNeeded(option: StatusDisplayOption, quota: QuotaViewOption) {
+        guard let window = option.requiredReportWindow else { return }
+        let key = ReportCacheKey(window: window, quota: quota)
+        guard reportCache[key] == nil, !activeScans.contains(key) else { return }
+        prewarm(window: window, quota: quota)
+    }
+
+    private func statusValueIsPending(option: StatusDisplayOption, quota: QuotaViewOption, limits: [LiveRateLimit]) -> Bool {
+        switch option {
+        case .fiveHourPercent:
+            return selectedLimit(from: limits, quota: quota)?.primary.remainingPercent == nil && liveRefreshInFlight
+        case .weeklyPercent:
+            return selectedLimit(from: limits, quota: quota)?.secondary.remainingPercent == nil && liveRefreshInFlight
+        case .weeklyTokens, .dailyTokens:
+            guard let window = option.requiredReportWindow else { return false }
+            let key = ReportCacheKey(window: window, quota: quota)
+            return reportCache[key] == nil || activeScans.contains(key)
+        }
     }
 
     private func statusUsage(window: WindowOption, quota: QuotaViewOption) -> TokenReport? {
