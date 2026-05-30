@@ -2426,10 +2426,11 @@ private enum DetailsSection: CaseIterable {
 final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
     private func centeredRect(for bounds: NSRect) -> NSRect {
         let horizontalPadding: CGFloat = 12
-        let measuredHeight = ceil(cellSize(forBounds: bounds).height)
+        let measuredHeight = ceil(cellSize.height)
+        let centeredY = bounds.minY + floor((bounds.height - measuredHeight) / 2)
         return NSRect(
             x: bounds.minX + horizontalPadding,
-            y: bounds.minY + max(0, floor((bounds.height - measuredHeight) / 2)),
+            y: max(bounds.minY, centeredY),
             width: max(0, bounds.width - horizontalPadding * 2),
             height: min(bounds.height, measuredHeight)
         )
@@ -2567,12 +2568,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func setupControls() {
         costAmountField.isBordered = false
-        costAmountField.drawsBackground = true
+        costAmountField.drawsBackground = false
         costAmountField.focusRingType = .none
         costAmountField.font = .monospacedDigitSystemFont(ofSize: 18, weight: .bold)
         costAmountField.alignment = .center
         costAmountField.textColor = .white
-        costAmountField.backgroundColor = NSColor.black.withAlphaComponent(0.14)
         costAmountField.usesSingleLineMode = true
         costAmountField.lineBreakMode = .byTruncatingTail
         costAmountField.delegate = self
@@ -2580,12 +2580,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         addSubview(costAmountField)
 
         paymentStartDayField.isBordered = false
-        paymentStartDayField.drawsBackground = true
+        paymentStartDayField.drawsBackground = false
         paymentStartDayField.focusRingType = .none
         paymentStartDayField.font = .monospacedDigitSystemFont(ofSize: 16, weight: .semibold)
         paymentStartDayField.alignment = .center
         paymentStartDayField.textColor = .white
-        paymentStartDayField.backgroundColor = NSColor.black.withAlphaComponent(0.14)
         paymentStartDayField.usesSingleLineMode = true
         paymentStartDayField.lineBreakMode = .byTruncatingTail
         paymentStartDayField.delegate = self
@@ -3115,6 +3114,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawText(t(.paymentCurrency), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 168, width: leftColumnWidth, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         drawText(t(.displayCurrency), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 220, width: leftColumnWidth, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         drawText(t(.showPastEmptyWeeks), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 248, width: leftColumnWidth, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawInputFieldBackground(costAmountField.frame)
+        drawInputFieldBackground(paymentStartDayField.frame)
 
         let summaryY = settingsRect.maxY + 16
         let gap: CGFloat = 12
@@ -3221,20 +3222,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawText(dayMeta, rect: NSRect(x: rect.minX + 18, y: rect.minY + 90, width: 420, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
 
         typealias DayMetric = (title: String, value: String, color: NSColor, infoAnchor: Bool, footer: String?)
-        let cachedCostValue: String?
-        let freshCostValue: String?
-        if let cost, day.usage.total > 0 {
-            cachedCostValue = displayMoney(cost.selectedDayValue * Double(day.usage.cachedInput) / Double(day.usage.total))
-            freshCostValue = displayMoney(cost.selectedDayValue * Double(day.usage.freshInput) / Double(day.usage.total))
-        } else {
-            cachedCostValue = nil
-            freshCostValue = nil
-        }
         var metrics: [DayMetric] = [
             (t(.input), compact(day.usage.input), NSColor.systemGreen, false, nil),
             (t(.output), compact(day.usage.output), NSColor.systemCyan, false, nil),
-            (t(.cached), compact(day.usage.cachedInput), NSColor.systemTeal, false, cachedCostValue),
-            (t(.fresh), compact(day.usage.freshInput), NSColor.systemOrange, false, freshCostValue)
+            (t(.cached), compact(day.usage.cachedInput), NSColor.systemTeal, false, nil),
+            (t(.fresh), compact(day.usage.freshInput), NSColor.systemOrange, false, nil)
         ]
         if let cost {
             metrics.append(("\(t(.dayValue)) ?", displayMoney(cost.selectedDayValue), NSColor.systemGreen, true, nil))
@@ -3749,6 +3741,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func drawPanel(_ rect: NSRect) {
         NSColor(calibratedWhite: 0.18, alpha: 0.96).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(0.06).setStroke()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+    }
+
+    private func drawInputFieldBackground(_ rect: NSRect) {
+        guard selectedSection == .costs, !rect.isEmpty else { return }
+        NSColor.black.withAlphaComponent(0.14).setFill()
         NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
         NSColor.white.withAlphaComponent(0.06).setStroke()
         NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
