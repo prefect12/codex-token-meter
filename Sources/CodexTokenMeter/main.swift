@@ -190,6 +190,7 @@ private enum L10nKey {
     case aboutSubtitle
     case all
     case allDescription
+    case budget
     case cache
     case cacheHit
     case cached
@@ -197,6 +198,10 @@ private enum L10nKey {
     case calendarSubtitle
     case codexAppTotal
     case copy
+    case costs
+    case costsSubtitle
+    case costHistory
+    case dayValue
     case dataSource
     case dataSourceLine1
     case dataSourceLine2
@@ -204,6 +209,8 @@ private enum L10nKey {
     case details
     case detailsWindowTitle
     case displayCurrency
+    case dayValueHint
+    case displayEquivalent
     case english
     case events
     case fresh
@@ -223,12 +230,15 @@ private enum L10nKey {
     case logs
     case modelGroupingNote
     case modelMissingNote
+    case monthlySpendHistory
     case models
     case modelsSubtitle
     case next
     case noDailyTokenData
     case noDataLoaded
     case noDaySelected
+    case noUsage
+    case future
     case noModelLabelForDay
     case noModelLabelsFound
     case nonSparkUsage
@@ -249,10 +259,12 @@ private enum L10nKey {
     case planCostHint
     case planCostUnavailable
     case paymentCurrency
+    case paymentMonthly
     case quotaViews
     case quit
     case refresh
     case refreshing
+    case remaining
     case reset
     case sessions
     case settings
@@ -272,15 +284,20 @@ private enum L10nKey {
     case turns
     case todayValue
     case updated
+    case used
     case usageDetails
     case usageIntensityHint
     case usageWindow
     case visibleWeekShare
+    case week
     case weeklyBudget
     case weeklyQuotaShare
     case weeklyUnusedValue
     case weeklyUsedValue
     case weeklyLeft
+    case costHistoryHint
+    case usageRate
+    case month
     case fiveHourLeft
     case chinese
 
@@ -290,6 +307,7 @@ private enum L10nKey {
         case .aboutSubtitle: return "How the meter reads and groups Codex usage"
         case .all: return "All"
         case .allDescription: return "Everything with token detail"
+        case .budget: return "Budget"
         case .cache: return "Cache"
         case .cacheHit: return "Cache Hit"
         case .cached: return "Cached"
@@ -297,6 +315,10 @@ private enum L10nKey {
         case .calendarSubtitle: return "Daily usage intensity over the last year"
         case .codexAppTotal: return "Codex app total"
         case .copy: return "Copy"
+        case .costs: return "Costs"
+        case .costsSubtitle: return "Plan settings and estimated money usage"
+        case .costHistory: return "Spend History"
+        case .dayValue: return "Day value"
         case .dataSource: return "Data Source"
         case .dataSourceLine1: return "The app reads local Codex session logs under ~/.codex/sessions and live rate-limit data from the local Codex runtime."
         case .dataSourceLine2: return "Totals are local-observed token usage, not an official billing export."
@@ -304,6 +326,8 @@ private enum L10nKey {
         case .details: return "Details"
         case .detailsWindowTitle: return "Codex Token Meter Details"
         case .displayCurrency: return "Display currency"
+        case .dayValueHint: return "Estimated by converting that day's token usage into money based on your plan price, not official billing."
+        case .displayEquivalent: return "Display equivalent"
         case .english: return "English"
         case .events: return "events"
         case .fresh: return "Fresh"
@@ -323,12 +347,15 @@ private enum L10nKey {
         case .logs: return "Logs"
         case .modelGroupingNote: return "Model grouping comes from turn_context.model in local Codex rollout logs."
         case .modelMissingNote: return "Rows without a model label are counted in totals but cannot be assigned to a model."
+        case .monthlySpendHistory: return "Monthly spend history"
         case .models: return "Models"
         case .modelsSubtitle: return "Token cost grouped by model"
         case .next: return "next"
         case .noDailyTokenData: return "No daily token data"
         case .noDataLoaded: return "No data loaded"
         case .noDaySelected: return "No Day Selected"
+        case .noUsage: return "No usage"
+        case .future: return "Future"
         case .noModelLabelForDay: return "No model label found for this day"
         case .noModelLabelsFound: return "No model labels found in logs"
         case .nonSparkUsage: return "Non-Spark usage"
@@ -349,10 +376,12 @@ private enum L10nKey {
         case .planCostHint: return "Estimated from monthly price, local FX rates, and live weekly quota usage; this is not official billing."
         case .planCostUnavailable: return "Cost estimate needs live weekly limit data"
         case .paymentCurrency: return "Payment currency"
+        case .paymentMonthly: return "Monthly paid"
         case .quotaViews: return "Quota Views"
         case .quit: return "Quit"
         case .refresh: return "Refresh"
         case .refreshing: return "Refreshing..."
+        case .remaining: return "Remaining"
         case .reset: return "Reset"
         case .sessions: return "Sessions"
         case .settings: return "Settings"
@@ -372,15 +401,20 @@ private enum L10nKey {
         case .turns: return "turns"
         case .todayValue: return "Today value"
         case .updated: return "Updated"
+        case .used: return "Used"
         case .usageDetails: return "Usage Details"
         case .usageIntensityHint: return "darker means more token usage"
         case .usageWindow: return "Usage window"
         case .visibleWeekShare: return "7d share"
+        case .week: return "Week"
         case .weeklyBudget: return "Weekly budget"
         case .weeklyQuotaShare: return "Week quota"
-        case .weeklyUnusedValue: return "Week unused"
+        case .weeklyUnusedValue: return "Week remaining money"
         case .weeklyUsedValue: return "Week used"
         case .weeklyLeft: return "Weekly Left"
+        case .costHistoryHint: return "Hover a ring to inspect used, remaining, budget, and usage rate."
+        case .usageRate: return "Usage rate"
+        case .month: return "Month"
         case .fiveHourLeft: return "5h Left"
         case .chinese: return "Chinese"
         }
@@ -392,6 +426,7 @@ private enum L10nKey {
         case .aboutSubtitle: return "Codex 用量的读取和分组方式"
         case .all: return "全部"
         case .allDescription: return "包含 token 明细的全部记录"
+        case .budget: return "预算"
         case .cache: return "缓存"
         case .cacheHit: return "缓存命中"
         case .cached: return "缓存"
@@ -399,6 +434,10 @@ private enum L10nKey {
         case .calendarSubtitle: return "过去一年的每日使用强度"
         case .codexAppTotal: return "Codex 总用量"
         case .copy: return "复制"
+        case .costs: return "金额"
+        case .costsSubtitle: return "套餐设置和金额估算"
+        case .costHistory: return "金额历史"
+        case .dayValue: return "当日价值"
         case .dataSource: return "数据来源"
         case .dataSourceLine1: return "应用读取 ~/.codex/sessions 下的本地 Codex 会话日志，以及本地 Codex 运行时的实时限额。"
         case .dataSourceLine2: return "这里是本地观测到的 token 用量，不是官方账单导出。"
@@ -406,6 +445,8 @@ private enum L10nKey {
         case .details: return "详情"
         case .detailsWindowTitle: return "Codex Token Meter 详情"
         case .displayCurrency: return "展示币种"
+        case .dayValueHint: return "按你的套餐价格，把当天 token 开销折算成金额的估算值，不是官方账单。"
+        case .displayEquivalent: return "展示折合"
         case .english: return "英语"
         case .events: return "事件"
         case .fresh: return "新输入"
@@ -425,12 +466,15 @@ private enum L10nKey {
         case .logs: return "日志"
         case .modelGroupingNote: return "模型分组来自本地 Codex rollout 日志里的 turn_context.model。"
         case .modelMissingNote: return "没有模型标签的记录会计入总量，但无法归入单个模型。"
+        case .monthlySpendHistory: return "月度金额历史"
         case .models: return "模型"
         case .modelsSubtitle: return "按模型统计 token 开销"
         case .next: return "下次"
         case .noDailyTokenData: return "没有每日 token 数据"
         case .noDataLoaded: return "没有加载数据"
         case .noDaySelected: return "未选择日期"
+        case .noUsage: return "无用量"
+        case .future: return "未来"
         case .noModelLabelForDay: return "这一天没有模型标签"
         case .noModelLabelsFound: return "日志中没有模型标签"
         case .nonSparkUsage: return "非 Spark 用量"
@@ -448,13 +492,15 @@ private enum L10nKey {
         case .peakDay: return "峰值日"
         case .planCost: return "套餐成本"
         case .planCostChange: return "修改"
-        case .planCostHint: return "基于月费、本地近似汇率和实时周额度使用率估算，不是官方账单。"
+        case .planCostHint: return "你付费的金额"
         case .planCostUnavailable: return "成本估算需要实时周额度数据"
         case .paymentCurrency: return "付款币种"
+        case .paymentMonthly: return "月付金额"
         case .quotaViews: return "限额视图"
         case .quit: return "退出"
         case .refresh: return "刷新"
         case .refreshing: return "刷新中..."
+        case .remaining: return "剩余"
         case .reset: return "重置"
         case .sessions: return "会话"
         case .settings: return "设置"
@@ -474,15 +520,20 @@ private enum L10nKey {
         case .turns: return "轮次"
         case .todayValue: return "今日价值"
         case .updated: return "已更新"
+        case .used: return "已用"
         case .usageDetails: return "用量详情"
         case .usageIntensityHint: return "颜色越深代表 token 用量越高"
         case .usageWindow: return "用量窗口"
         case .visibleWeekShare: return "占7天用量"
+        case .week: return "周"
         case .weeklyBudget: return "周预算"
         case .weeklyQuotaShare: return "占周额度"
-        case .weeklyUnusedValue: return "本周未用"
+        case .weeklyUnusedValue: return "本周剩余金额"
         case .weeklyUsedValue: return "本周已用"
         case .weeklyLeft: return "周额度剩余"
+        case .costHistoryHint: return "悬停圆环可查看已用、剩余、预算和使用率。"
+        case .usageRate: return "使用率"
+        case .month: return "月"
         case .fiveHourLeft: return "5小时剩余"
         case .chinese: return "中文"
         }
@@ -494,6 +545,7 @@ private enum L10nKey {
         case .aboutSubtitle: return "Codex 使用量の読み取りと分類方法"
         case .all: return "すべて"
         case .allDescription: return "token 詳細を含むすべての記録"
+        case .budget: return "予算"
         case .cache: return "キャッシュ"
         case .cacheHit: return "キャッシュ率"
         case .cached: return "キャッシュ"
@@ -501,6 +553,10 @@ private enum L10nKey {
         case .calendarSubtitle: return "過去 1 年の日別使用量"
         case .codexAppTotal: return "Codex 全体使用量"
         case .copy: return "コピー"
+        case .costs: return "金額"
+        case .costsSubtitle: return "プラン設定と金額推定"
+        case .costHistory: return "金額履歴"
+        case .dayValue: return "当日の価値"
         case .dataSource: return "データソース"
         case .dataSourceLine1: return "このアプリは ~/.codex/sessions のローカル Codex セッションログと、ローカル実行環境のリアルタイム制限を読み取ります。"
         case .dataSourceLine2: return "表示値はローカルで観測した token 使用量であり、公式の請求書エクスポートではありません。"
@@ -508,6 +564,8 @@ private enum L10nKey {
         case .details: return "詳細"
         case .detailsWindowTitle: return "Codex Token Meter 詳細"
         case .displayCurrency: return "表示通貨"
+        case .dayValueHint: return "プラン料金を基準に、その日の token 使用量を金額換算した推定値であり、公式請求ではありません。"
+        case .displayEquivalent: return "表示換算"
         case .english: return "英語"
         case .events: return "イベント"
         case .fresh: return "新規入力"
@@ -527,12 +585,15 @@ private enum L10nKey {
         case .logs: return "ログ"
         case .modelGroupingNote: return "モデル別集計はローカル Codex rollout ログの turn_context.model から取得します。"
         case .modelMissingNote: return "モデル名がない行は合計に含まれますが、個別モデルには割り当てられません。"
+        case .monthlySpendHistory: return "月次金額履歴"
         case .models: return "モデル"
         case .modelsSubtitle: return "モデル別の token 使用量"
         case .next: return "次回"
         case .noDailyTokenData: return "日別 token データがありません"
         case .noDataLoaded: return "データ未読み込み"
         case .noDaySelected: return "日付未選択"
+        case .noUsage: return "使用なし"
+        case .future: return "未来"
         case .noModelLabelForDay: return "この日のモデル名は見つかりません"
         case .noModelLabelsFound: return "ログ内にモデル名が見つかりません"
         case .nonSparkUsage: return "Spark 以外の使用量"
@@ -553,10 +614,12 @@ private enum L10nKey {
         case .planCostHint: return "月額料金、ローカルの概算為替、リアルタイムの週制限使用率から推定します。公式請求ではありません。"
         case .planCostUnavailable: return "費用推定には週制限データが必要です"
         case .paymentCurrency: return "支払い通貨"
+        case .paymentMonthly: return "月額支払い"
         case .quotaViews: return "制限枠ビュー"
         case .quit: return "終了"
         case .refresh: return "更新"
         case .refreshing: return "更新中..."
+        case .remaining: return "残り"
         case .reset: return "リセット"
         case .sessions: return "セッション"
         case .settings: return "設定"
@@ -576,15 +639,20 @@ private enum L10nKey {
         case .turns: return "ターン"
         case .todayValue: return "今日の価値"
         case .updated: return "更新"
+        case .used: return "使用済み"
         case .usageDetails: return "使用量詳細"
         case .usageIntensityHint: return "色が濃いほど token 使用量が多い"
         case .usageWindow: return "使用量ウィンドウ"
         case .visibleWeekShare: return "7日内比率"
+        case .week: return "週"
         case .weeklyBudget: return "週予算"
         case .weeklyQuotaShare: return "週制限内"
-        case .weeklyUnusedValue: return "週未使用"
+        case .weeklyUnusedValue: return "週の残額"
         case .weeklyUsedValue: return "週使用済み"
         case .weeklyLeft: return "週制限の残り"
+        case .costHistoryHint: return "リングに重ねると使用額、残額、予算、使用率を確認できます。"
+        case .usageRate: return "使用率"
+        case .month: return "月"
         case .fiveHourLeft: return "5時間残り"
         case .chinese: return "中国語"
         }
@@ -597,26 +665,77 @@ private func t(_ key: L10nKey) -> String {
 
 private enum CurrencyCode: String, CaseIterable {
     case usd = "USD"
+    case eur = "EUR"
+    case gbp = "GBP"
     case jpy = "JPY"
     case cny = "CNY"
-    case eur = "EUR"
     case hkd = "HKD"
+    case aud = "AUD"
+    case cad = "CAD"
+    case sgd = "SGD"
+    case chf = "CHF"
+    case krw = "KRW"
+    case twd = "TWD"
+    case inr = "INR"
+    case aed = "AED"
+    case thb = "THB"
+    case myr = "MYR"
+    case idr = "IDR"
+    case php = "PHP"
+    case vnd = "VND"
+    case rub = "RUB"
+    case brl = "BRL"
+    case mxn = "MXN"
+    case sek = "SEK"
+    case nok = "NOK"
+    case dkk = "DKK"
+    case nzd = "NZD"
+    case tryl = "TRY"
+    case zar = "ZAR"
 
     var usdValue: Double {
         switch self {
         case .usd: return 1.0
+        case .eur: return 1.09
+        case .gbp: return 1.27
         case .jpy: return 0.0064
         case .cny: return 0.138
-        case .eur: return 1.09
         case .hkd: return 0.128
+        case .aud: return 0.66
+        case .cad: return 0.73
+        case .sgd: return 0.74
+        case .chf: return 1.11
+        case .krw: return 0.00073
+        case .twd: return 0.031
+        case .inr: return 0.012
+        case .aed: return 0.272
+        case .thb: return 0.027
+        case .myr: return 0.21
+        case .idr: return 0.000061
+        case .php: return 0.017
+        case .vnd: return 0.000039
+        case .rub: return 0.011
+        case .brl: return 0.19
+        case .mxn: return 0.055
+        case .sek: return 0.095
+        case .nok: return 0.093
+        case .dkk: return 0.146
+        case .nzd: return 0.61
+        case .tryl: return 0.026
+        case .zar: return 0.054
         }
     }
 
     var fractionDigits: Int {
         switch self {
-        case .jpy: return 0
-        case .usd, .cny, .eur, .hkd: return 2
+        case .jpy, .krw, .vnd, .idr: return 0
+        default: return 2
         }
+    }
+
+    var displayTitle: String {
+        let localized = Locale.current.localizedString(forCurrencyCode: rawValue) ?? rawValue
+        return "\(rawValue) - \(localized)"
     }
 }
 
@@ -630,6 +749,7 @@ private enum AppSettings {
     static let monthlyPlanCostKey = "monthlyPlanCost"
     static let paymentCurrencyKey = "paymentCurrency"
     static let displayCurrencyKey = "displayCurrency"
+    static let selectedCalendarDayKey = "selectedCalendarDay"
 
     static var defaultLogFolderURL: URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/sessions", isDirectory: true)
@@ -684,6 +804,20 @@ private enum AppSettings {
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: displayCurrencyKey)
+        }
+    }
+
+    static var selectedCalendarDay: String? {
+        get {
+            let value = UserDefaults.standard.string(forKey: selectedCalendarDayKey)
+            return (value?.isEmpty == false) ? value : nil
+        }
+        set {
+            if let newValue, !newValue.isEmpty {
+                UserDefaults.standard.set(newValue, forKey: selectedCalendarDayKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: selectedCalendarDayKey)
+            }
         }
     }
 }
@@ -775,11 +909,46 @@ struct DashboardState {
 struct PlanCostEstimate {
     let monthlyCost: Double
     let weeklyBudget: Double
+    let weeklyQuotaTotal: Double
     let todayValue: Double
     let selectedDayValue: Double
     let weeklyUsedValue: Double
     let weeklyUnusedValue: Double
     let selectedDayQuotaPercent: Double
+}
+
+struct MonthlySpendRow {
+    let month: String
+    let usedValue: Double
+    let usedPercentOfPlan: Double
+}
+
+private enum CostHistoryWindow: CaseIterable {
+    case week
+    case month
+
+    var title: String {
+        switch self {
+        case .week: return t(.week)
+        case .month: return t(.month)
+        }
+    }
+}
+
+struct CostPeriodRow {
+    let label: String
+    let title: String
+    let subtitle: String?
+    let usedValue: Double
+    let remainingValue: Double
+    let budgetValue: Double
+    let hasData: Bool
+    let isFuture: Bool
+
+    var usedPercent: Double {
+        guard budgetValue > 0 else { return 0 }
+        return min(999, max(0, usedValue / budgetValue * 100))
+    }
 }
 
 struct ReportCacheKey: Hashable {
@@ -1762,8 +1931,11 @@ final class UsageChartView: NSView {
         } else if let visibleWeekPercent = visibleWeekShare(for: usage) {
             lines.append("\(t(.visibleWeekShare)) \(String(format: "%.1f%%", visibleWeekPercent))")
         }
+        if let paymentValue = paymentValueForDayUsage(usage, weeklyQuotaUsedPercent: weeklyQuotaUsedPercent, weeklyQuotaReferenceTotal: weeklyQuotaReferenceTotal) {
+            lines.append("\(t(.dayValue))  \(displayMoney(paymentValue))")
+        }
 
-        let width: CGFloat = 176
+        let width: CGFloat = 214
         let height = CGFloat(18 + lines.count * 16)
         var origin = CGPoint(x: hoverPoint.x + 12, y: hoverPoint.y - height - 8)
         if origin.x + width > bounds.maxX - 8 {
@@ -1911,7 +2083,7 @@ final class DashboardView: NSView {
         dayChart.weeklyQuotaReferenceTotal = state.selectedWindow == .day ? nil : report.byDay.suffix(7).reduce(Int64(0)) { $0 + $1.usage.total }
         sessionsLabel.stringValue = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
         if let estimate = planCostEstimate(report: state.costReferenceReport ?? report, selectedDay: nil, limit: displayLimit) {
-            costLabel.stringValue = "\(t(.todayValue)) \(displayMoney(estimate.todayValue))  |  \(t(.weeklyUnusedValue)) \(displayMoney(estimate.weeklyUnusedValue))"
+            costLabel.stringValue = "\(t(.weeklyUnusedValue)) \(displayMoney(estimate.weeklyUnusedValue))"
         } else {
             costLabel.stringValue = t(.planCostUnavailable)
         }
@@ -2107,8 +2279,9 @@ struct DetailsSnapshot {
     var liveLimits: [LiveRateLimit]
 }
 
-final class UsageDetailsWindowController: NSWindowController {
+final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
     let detailsView = UsageDetailsView(frame: NSRect(x: 0, y: 0, width: 900, height: 660))
+    private let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 900, height: 660))
 
     init() {
         let window = NSWindow(
@@ -2119,8 +2292,20 @@ final class UsageDetailsWindowController: NSWindowController {
         )
         window.title = t(.detailsWindowTitle)
         window.contentMinSize = NSSize(width: 860, height: 640)
-        window.contentView = detailsView
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.documentView = detailsView
+        window.contentView = scrollView
         super.init(window: window)
+        window.delegate = self
+        detailsView.onPreferredHeightChanged = { [weak self] in
+            self?.updateDocumentLayout()
+        }
+        updateDocumentLayout()
     }
 
     required init?(coder: NSCoder) {
@@ -2132,15 +2317,31 @@ final class UsageDetailsWindowController: NSWindowController {
         showWindow(nil)
         window?.center()
         NSApp.activate(ignoringOtherApps: true)
+        updateDocumentLayout()
     }
 
     func update(snapshot: DetailsSnapshot) {
         detailsView.snapshot = snapshot
         detailsView.isLoading = false
+        updateDocumentLayout()
     }
 
     func applyLanguage() {
         window?.title = t(.detailsWindowTitle)
+        updateDocumentLayout()
+        detailsView.needsDisplay = true
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        updateDocumentLayout()
+    }
+
+    private func updateDocumentLayout() {
+        let visibleWidth = max(860, scrollView.contentSize.width)
+        let visibleHeight = max(640, scrollView.contentSize.height)
+        let targetHeight = max(visibleHeight, detailsView.preferredDocumentHeight(for: visibleWidth))
+        detailsView.frame = NSRect(x: 0, y: 0, width: visibleWidth, height: targetHeight)
+        detailsView.needsLayout = true
         detailsView.needsDisplay = true
     }
 }
@@ -2149,6 +2350,7 @@ private enum DetailsSection: CaseIterable {
     case overview
     case models
     case calendar
+    case costs
     case settings
     case about
 
@@ -2157,6 +2359,7 @@ private enum DetailsSection: CaseIterable {
         case .overview: return t(.overview)
         case .models: return t(.models)
         case .calendar: return t(.calendar)
+        case .costs: return t(.costs)
         case .settings: return t(.settings)
         case .about: return t(.about)
         }
@@ -2167,51 +2370,351 @@ private enum DetailsSection: CaseIterable {
         case .overview: return t(.overviewSubtitle)
         case .models: return t(.modelsSubtitle)
         case .calendar: return t(.calendarSubtitle)
+        case .costs: return t(.costsSubtitle)
         case .settings: return t(.settingsSubtitle)
         case .about: return t(.aboutSubtitle)
         }
     }
 }
 
-final class UsageDetailsView: NSView {
+final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
+    private func centeredRect(for bounds: NSRect) -> NSRect {
+        let horizontalPadding: CGFloat = 12
+        let measuredHeight = ceil(cellSize(forBounds: bounds).height)
+        return NSRect(
+            x: bounds.minX + horizontalPadding,
+            y: bounds.minY + max(0, floor((bounds.height - measuredHeight) / 2)),
+            width: max(0, bounds.width - horizontalPadding * 2),
+            height: min(bounds.height, measuredHeight)
+        )
+    }
+
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        centeredRect(for: rect)
+    }
+
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        centeredRect(for: rect)
+    }
+
+    override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
+        super.edit(withFrame: centeredRect(for: rect), in: controlView, editor: textObj, delegate: delegate, event: event)
+    }
+
+    override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+        super.select(withFrame: centeredRect(for: rect), in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
+    }
+}
+
+final class UsageDetailsView: NSView, NSTextFieldDelegate {
     var snapshot: DetailsSnapshot? {
         didSet {
-            if let report = snapshot?.all,
-               selectedDay == nil || !report.byDay.contains(where: { $0.day == selectedDay }) {
-                selectedDay = report.byDay.last(where: { $0.usage.total > 0 })?.day ?? report.byDay.last?.day
+            if let report = snapshot?.all {
+                selectedDay = preferredSelectedDay(in: report, fallback: selectedDay)
             }
+            onPreferredHeightChanged?()
             needsDisplay = true
+            needsLayout = true
         }
     }
-    var isLoading = false { didSet { needsDisplay = true } }
+    var isLoading = false { didSet { onPreferredHeightChanged?(); needsDisplay = true; needsLayout = true } }
     fileprivate var onLanguageChanged: ((AppLanguage) -> Void)?
     fileprivate var onStatusDisplayChanged: ((StatusDisplayOption) -> Void)?
-    fileprivate var onPlanCostChanged: (() -> Void)?
+    fileprivate var onPlanCostChanged: ((Double) -> Void)?
     fileprivate var onPaymentCurrencyChanged: ((CurrencyCode) -> Void)?
     fileprivate var onDisplayCurrencyChanged: ((CurrencyCode) -> Void)?
     fileprivate var onChooseLogFolder: (() -> Void)?
     fileprivate var onResetLogFolder: (() -> Void)?
     fileprivate var onOpenLogFolder: (() -> Void)?
-    private var selectedSection: DetailsSection = .overview { didSet { needsDisplay = true } }
+    fileprivate var onPreferredHeightChanged: (() -> Void)?
+    private var selectedSection: DetailsSection = .overview {
+        didSet {
+            if selectedSection != .costs {
+                hoveredCostHistoryIndex = nil
+                hoveredCostHistoryPoint = nil
+            }
+            onPreferredHeightChanged?()
+            needsDisplay = true
+            needsLayout = true
+        }
+    }
     private var sidebarItemRects: [DetailsSection: NSRect] = [:]
     private var languageOptionRects: [AppLanguage: NSRect] = [:]
     private var statusOptionRects: [StatusDisplayOption: NSRect] = [:]
-    private var paymentCurrencyRects: [CurrencyCode: NSRect] = [:]
-    private var displayCurrencyRects: [CurrencyCode: NSRect] = [:]
-    private var planCostChangeRect: NSRect?
+    private var costWindowRects: [CostHistoryWindow: NSRect] = [:]
     private var chooseLogFolderRect: NSRect?
     private var resetLogFolderRect: NSRect?
     private var openLogFolderRect: NSRect?
     private var contributionDayRects: [String: NSRect] = [:]
+    private var costHistoryBarRects: [Int: NSRect] = [:]
+    private var costHistoryRows: [CostPeriodRow] = []
+    private var dayValueInfoRect: NSRect?
     private var selectedDay: String?
+    private var hoveredCostHistoryIndex: Int?
+    private var hoveredCostHistoryPoint: CGPoint?
+    private var isHoveringDayValueInfo = false
+    private var selectedCostWindow: CostHistoryWindow = .week
+    private var selectedCostYear = Calendar.current.component(.year, from: Date())
+    private let costAmountField: NSTextField = {
+        let field = NSTextField()
+        field.cell = VerticallyCenteredTextFieldCell(textCell: "")
+        return field
+    }()
+    private let paymentCurrencyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let displayCurrencyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let costWindowSegment = NSSegmentedControl(labels: CostHistoryWindow.allCases.map { $0.title }, trackingMode: .selectOne, target: nil, action: nil)
+    private let costMonthPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let costYearPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var isUpdatingCostControls = false
+    private var detailsTrackingArea: NSTrackingArea?
+    private var selectedCostMonth: Int?
+
+    private var visibleCostControlFrames: [NSRect] {
+        guard selectedSection == .costs else { return [] }
+        var frames: [NSRect] = [costWindowSegment.frame, costYearPopup.frame]
+        if !costMonthPopup.isHidden {
+            frames.append(costMonthPopup.frame)
+        }
+        return frames.filter { !$0.isEmpty }
+    }
 
     override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupControls()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupControls()
+    }
+
+    override func layout() {
+        super.layout()
+        layoutCostControls()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let detailsTrackingArea {
+            removeTrackingArea(detailsTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        detailsTrackingArea = trackingArea
+    }
+
+    private func setupControls() {
+        costAmountField.isBordered = false
+        costAmountField.drawsBackground = true
+        costAmountField.focusRingType = .none
+        costAmountField.font = .monospacedDigitSystemFont(ofSize: 18, weight: .bold)
+        costAmountField.alignment = .center
+        costAmountField.textColor = .white
+        costAmountField.backgroundColor = NSColor.black.withAlphaComponent(0.14)
+        costAmountField.usesSingleLineMode = true
+        costAmountField.lineBreakMode = .byTruncatingTail
+        costAmountField.delegate = self
+        costAmountField.isHidden = true
+        addSubview(costAmountField)
+
+        costWindowSegment.segmentStyle = .rounded
+        costWindowSegment.controlSize = .regular
+        costWindowSegment.font = .systemFont(ofSize: 12, weight: .semibold)
+        costWindowSegment.isHidden = true
+        costWindowSegment.target = self
+        costWindowSegment.action = #selector(costWindowSegmentChanged)
+        addSubview(costWindowSegment)
+
+        for popup in [paymentCurrencyPopup, displayCurrencyPopup, costMonthPopup, costYearPopup] {
+            popup.controlSize = .regular
+            popup.font = .systemFont(ofSize: 12, weight: .semibold)
+            popup.isBordered = false
+            popup.isHidden = true
+            popup.wantsLayer = true
+            popup.layer?.cornerRadius = 8
+            popup.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.14).cgColor
+            popup.appearance = NSAppearance(named: .darkAqua)
+            addSubview(popup)
+        }
+        paymentCurrencyPopup.removeAllItems()
+        paymentCurrencyPopup.addItems(withTitles: CurrencyCode.allCases.map(\.displayTitle))
+        displayCurrencyPopup.removeAllItems()
+        displayCurrencyPopup.addItems(withTitles: CurrencyCode.allCases.map(\.displayTitle))
+        costYearPopup.removeAllItems()
+        paymentCurrencyPopup.target = self
+        paymentCurrencyPopup.action = #selector(paymentCurrencyPopupChanged)
+        displayCurrencyPopup.target = self
+        displayCurrencyPopup.action = #selector(displayCurrencyPopupChanged)
+        costMonthPopup.target = self
+        costMonthPopup.action = #selector(costMonthPopupChanged)
+        costYearPopup.target = self
+        costYearPopup.action = #selector(costYearPopupChanged)
+    }
+
+    private func layoutCostControls() {
+        let visible = selectedSection == .costs
+        costAmountField.isHidden = !visible
+        paymentCurrencyPopup.isHidden = !visible
+        displayCurrencyPopup.isHidden = !visible
+        costWindowSegment.isHidden = !visible
+        costMonthPopup.isHidden = !visible || selectedCostWindow != .week
+        costYearPopup.isHidden = !visible
+        guard visible else { return }
+
+        let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
+        let settingsRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 214)
+        let controlWidth = min(300, max(252, settingsRect.width * 0.34))
+        let controlX = settingsRect.maxX - controlWidth - 16
+        costAmountField.frame = NSRect(x: controlX, y: settingsRect.minY + 38, width: controlWidth, height: 44)
+        paymentCurrencyPopup.frame = NSRect(x: controlX, y: settingsRect.minY + 102, width: controlWidth, height: 36)
+        displayCurrencyPopup.frame = NSRect(x: controlX, y: settingsRect.minY + 156, width: controlWidth, height: 36)
+        let gap: CGFloat = 12
+        let cardWidth = max(120, (content.width - gap * 3) / 4)
+        let summaryCardHeight: CGFloat = cardWidth < 170 ? 98 : 82
+        let summaryY = settingsRect.maxY + 16
+        let chartY = summaryY + summaryCardHeight + 16
+        let chartRect = NSRect(x: content.minX, y: chartY, width: content.width, height: 332)
+        costWindowSegment.frame = NSRect(x: chartRect.maxX - 428, y: chartRect.minY + 10, width: 156, height: 28)
+        if selectedCostWindow == .week {
+            costMonthPopup.frame = NSRect(x: chartRect.maxX - 264, y: chartRect.minY + 10, width: 88, height: 28)
+            costYearPopup.frame = NSRect(x: chartRect.maxX - 168, y: chartRect.minY + 10, width: 152, height: 28)
+        } else {
+            costYearPopup.frame = NSRect(x: chartRect.maxX - 168, y: chartRect.minY + 10, width: 152, height: 28)
+        }
+        updateCostControlsFromSettings()
+    }
+
+    private func updateCostControlsFromSettings() {
+        guard selectedSection == .costs else { return }
+        isUpdatingCostControls = true
+        defer { isUpdatingCostControls = false }
+        costAmountField.stringValue = paymentAmount(AppSettings.monthlyPlanCost)
+        for (index, option) in CostHistoryWindow.allCases.enumerated() {
+            costWindowSegment.setLabel(option.title, forSegment: index)
+        }
+        costWindowSegment.selectedSegment = CostHistoryWindow.allCases.firstIndex(of: selectedCostWindow) ?? 0
+        if let paymentIndex = CurrencyCode.allCases.firstIndex(of: AppSettings.paymentCurrency) {
+            paymentCurrencyPopup.selectItem(at: paymentIndex)
+        }
+        if let displayIndex = CurrencyCode.allCases.firstIndex(of: AppSettings.displayCurrency) {
+            displayCurrencyPopup.selectItem(at: displayIndex)
+        }
+        let years = availableCostYears(from: snapshot?.all)
+        if !years.contains(selectedCostYear), let last = years.last {
+            selectedCostYear = last
+        }
+        costMonthPopup.removeAllItems()
+        costMonthPopup.addItems(withTitles: [t(.all)] + (1...12).map { String(format: "%02d", $0) })
+        costMonthPopup.selectItem(at: (selectedCostMonth ?? 0))
+        costYearPopup.removeAllItems()
+        costYearPopup.addItems(withTitles: years.map(String.init))
+        if let yearIndex = years.firstIndex(of: selectedCostYear) {
+            costYearPopup.selectItem(at: yearIndex)
+        }
+    }
+
+    func preferredDocumentHeight(for width: CGFloat) -> CGFloat {
+        let minHeight: CGFloat = 660
+        let normalizedWidth = max(860, width)
+        let contentWidth = normalizedWidth - 220 - 56
+        let cardGap: CGFloat = 12
+        let cardWidth = max(120, (contentWidth - cardGap * 3) / 4)
+        let summaryCardHeight: CGFloat = cardWidth < 170 ? 98 : 82
+
+        let targetHeight: CGFloat
+        switch selectedSection {
+        case .overview:
+            targetHeight = 760
+        case .models:
+            targetHeight = 660
+        case .calendar:
+            targetHeight = 760
+        case .costs:
+            let monthlyRows = min(monthlySpendRows(
+                report: snapshot?.all ?? TokenReport(),
+                limit: snapshot?.liveLimits.first { $0.id == QuotaViewOption.all.liveLimitID },
+                year: selectedCostYear
+            ).count, 6)
+            let monthlyTableHeight = max(140, 54 + CGFloat(max(monthlyRows, 1)) * 18 + 28)
+            let annualChartHeight: CGFloat = 332
+            let topOffset: CGFloat = 78
+            let settingsHeight: CGFloat = 214
+            let sectionGap: CGFloat = 16
+            let bottomPadding: CGFloat = 44
+            let firstBlock = topOffset + settingsHeight + sectionGap + summaryCardHeight
+            let secondBlock = sectionGap + annualChartHeight + sectionGap + monthlyTableHeight
+            targetHeight = firstBlock + secondBlock + bottomPadding
+        case .settings:
+            targetHeight = 470
+        case .about:
+            targetHeight = 580
+        }
+        return max(minHeight, targetHeight)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if selectedSection == .costs {
+            updateCostHistoryHover(at: point)
+        } else {
+            if hoveredCostHistoryIndex != nil {
+                hoveredCostHistoryIndex = nil
+                hoveredCostHistoryPoint = nil
+                needsDisplay = true
+            }
+        }
+        updateDayValueInfoHover(at: point)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoveredCostHistoryIndex = nil
+        hoveredCostHistoryPoint = nil
+        isHoveringDayValueInfo = false
+        needsDisplay = true
+    }
+
+    private func updateCostHistoryHover(at point: CGPoint) {
+        let match = costHistoryBarRects.first { $0.value.insetBy(dx: -4, dy: -4).contains(point) }
+        let newIndex = match?.key
+        if hoveredCostHistoryIndex != newIndex || hoveredCostHistoryPoint != point {
+            hoveredCostHistoryIndex = newIndex
+            hoveredCostHistoryPoint = newIndex == nil ? nil : point
+            needsDisplay = true
+        }
+    }
+
+    private func updateDayValueInfoHover(at point: CGPoint) {
+        let hovering = selectedSection == .calendar && (dayValueInfoRect?.contains(point) == true)
+        if hovering != isHoveringDayValueInfo {
+            isHoveringDayValueInfo = hovering
+            needsDisplay = true
+        }
+    }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         for (section, rect) in sidebarItemRects where rect.contains(point) {
             selectedSection = section
+            if section == .calendar, let report = snapshot?.all {
+                selectedDay = preferredSelectedDay(in: report, fallback: selectedDay)
+            }
             return
+        }
+        if selectedSection == .costs {
+            for (window, rect) in costWindowRects where rect.contains(point) {
+                selectedCostWindow = window
+                hoveredCostHistoryIndex = nil
+                hoveredCostHistoryPoint = nil
+                needsDisplay = true
+                return
+            }
         }
         if selectedSection == .settings {
             for (language, rect) in languageOptionRects where rect.contains(point) {
@@ -2220,18 +2723,6 @@ final class UsageDetailsView: NSView {
             }
             for (option, rect) in statusOptionRects where rect.contains(point) {
                 onStatusDisplayChanged?(option)
-                return
-            }
-            if planCostChangeRect?.contains(point) == true {
-                onPlanCostChanged?()
-                return
-            }
-            for (currency, rect) in paymentCurrencyRects where rect.contains(point) {
-                onPaymentCurrencyChanged?(currency)
-                return
-            }
-            for (currency, rect) in displayCurrencyRects where rect.contains(point) {
-                onDisplayCurrencyChanged?(currency)
                 return
             }
             if chooseLogFolderRect?.contains(point) == true {
@@ -2249,10 +2740,85 @@ final class UsageDetailsView: NSView {
         }
         for (day, rect) in contributionDayRects where rect.insetBy(dx: -2, dy: -2).contains(point) {
             selectedDay = day
+            AppSettings.selectedCalendarDay = day
             selectedSection = .calendar
             return
         }
         super.mouseDown(with: event)
+    }
+
+    private func preferredSelectedDay(in report: TokenReport, fallback: String?) -> String? {
+        if let global = AppSettings.selectedCalendarDay,
+           report.byDay.contains(where: { $0.day == global }) {
+            return global
+        }
+        if let fallback,
+           report.byDay.contains(where: { $0.day == fallback }) {
+            return fallback
+        }
+        return report.byDay.last(where: { $0.usage.total > 0 })?.day ?? report.byDay.last?.day
+    }
+
+    @objc private func paymentCurrencyPopupChanged() {
+        guard !isUpdatingCostControls,
+              paymentCurrencyPopup.indexOfSelectedItem >= 0 else { return }
+        let currency = CurrencyCode.allCases[paymentCurrencyPopup.indexOfSelectedItem]
+        onPaymentCurrencyChanged?(currency)
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    @objc private func displayCurrencyPopupChanged() {
+        guard !isUpdatingCostControls,
+              displayCurrencyPopup.indexOfSelectedItem >= 0 else { return }
+        let currency = CurrencyCode.allCases[displayCurrencyPopup.indexOfSelectedItem]
+        onDisplayCurrencyChanged?(currency)
+        needsDisplay = true
+    }
+
+    @objc private func costWindowSegmentChanged() {
+        guard !isUpdatingCostControls,
+              costWindowSegment.selectedSegment >= 0,
+              costWindowSegment.selectedSegment < CostHistoryWindow.allCases.count else { return }
+        selectedCostWindow = CostHistoryWindow.allCases[costWindowSegment.selectedSegment]
+        hoveredCostHistoryIndex = nil
+        hoveredCostHistoryPoint = nil
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    @objc private func costMonthPopupChanged() {
+        guard !isUpdatingCostControls,
+              costMonthPopup.indexOfSelectedItem >= 0 else { return }
+        selectedCostMonth = costMonthPopup.indexOfSelectedItem == 0 ? nil : costMonthPopup.indexOfSelectedItem
+        hoveredCostHistoryIndex = nil
+        hoveredCostHistoryPoint = nil
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    @objc private func costYearPopupChanged() {
+        guard !isUpdatingCostControls,
+              costYearPopup.indexOfSelectedItem >= 0,
+              let title = costYearPopup.selectedItem?.title,
+              let year = Int(title) else { return }
+        selectedCostYear = year
+        hoveredCostHistoryIndex = nil
+        hoveredCostHistoryPoint = nil
+        needsDisplay = true
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        guard obj.object as? NSTextField === costAmountField else { return }
+        let sanitized = String(costAmountField.stringValue.filter { "0123456789.".contains($0) })
+        guard let value = Double(sanitized), value >= 0 else {
+            updateCostControlsFromSettings()
+            return
+        }
+        onPlanCostChanged?(value)
+        costAmountField.stringValue = paymentAmount(value)
+        needsDisplay = true
+        needsLayout = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -2271,11 +2837,12 @@ final class UsageDetailsView: NSView {
         drawText(t(.usageDetails), rect: NSRect(x: content.minX, y: content.minY, width: content.width, height: 34), font: .systemFont(ofSize: 26, weight: .bold), color: .white)
         drawText(selectedSection.subtitle, rect: NSRect(x: content.minX, y: content.minY + 36, width: content.width, height: 20), font: .systemFont(ofSize: 13, weight: .medium), color: NSColor.white.withAlphaComponent(0.50))
         contributionDayRects.removeAll()
+        costHistoryBarRects.removeAll()
+        costHistoryRows.removeAll()
+        dayValueInfoRect = nil
         languageOptionRects.removeAll()
         statusOptionRects.removeAll()
-        paymentCurrencyRects.removeAll()
-        displayCurrencyRects.removeAll()
-        planCostChangeRect = nil
+        costWindowRects.removeAll()
         chooseLogFolderRect = nil
         resetLogFolderRect = nil
         openLogFolderRect = nil
@@ -2292,10 +2859,18 @@ final class UsageDetailsView: NSView {
             drawModelsPage(snapshot: snapshot, content: content)
         case .calendar:
             drawCalendarPage(snapshot: snapshot, content: content)
+        case .costs:
+            drawCostPage(snapshot: snapshot, content: content)
         case .settings:
             drawSettingsPage(content: content)
         case .about:
             drawAboutPage(snapshot: snapshot, content: content)
+        }
+
+        if selectedSection == .costs {
+            drawCostHistoryTooltip()
+        } else if selectedSection == .calendar {
+            drawDayValueInfoTooltip()
         }
     }
 
@@ -2316,10 +2891,14 @@ final class UsageDetailsView: NSView {
     }
 
     private func drawOverview(snapshot: DetailsSnapshot, content: NSRect) {
+        let cardsY = content.minY + 78
+        let quotaY = cardsY + 98
+        let modelsY = quotaY + 136
+        let gridY = modelsY + 146
         drawMetricCards(snapshot: snapshot, content: content)
-        drawQuotaRows(snapshot: snapshot, content: content, y: content.minY + 168, height: 120)
-        drawModelRows(snapshot: snapshot, content: content, y: content.minY + 304, height: 122, maxRows: 4)
-        let gridRect = NSRect(x: content.minX, y: content.minY + 442, width: content.width, height: max(132, content.maxY - (content.minY + 442)))
+        drawQuotaRows(snapshot: snapshot, content: content, y: quotaY, height: 120)
+        drawModelRows(snapshot: snapshot, content: content, y: modelsY, height: 130, maxRows: 4)
+        let gridRect = NSRect(x: content.minX, y: gridY, width: content.width, height: max(168, content.maxY - gridY))
         drawContributionGrid(report: snapshot.all, rect: gridRect, title: t(.pastYear), compact: true)
     }
 
@@ -2377,6 +2956,26 @@ final class UsageDetailsView: NSView {
         }
     }
 
+    private func drawMonthlySpendPanel(snapshot: DetailsSnapshot, content: NSRect, y: CGFloat, height: CGFloat) {
+        let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
+        drawPanel(rect)
+        drawText(t(.monthlySpendHistory), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 220, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+        let rows = monthlySpendRows(report: snapshot.all, limit: snapshot.liveLimits.first { $0.id == QuotaViewOption.all.liveLimitID })
+        guard !rows.isEmpty else {
+            drawText(t(.planCostUnavailable), rect: NSRect(x: rect.minX + 16, y: rect.minY + 48, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+        let visible = Array(rows.prefix(4))
+        drawRight(t(.total), rect: NSRect(x: rect.maxX - 210, y: rect.minY + 24, width: 110, height: 14), color: NSColor.white.withAlphaComponent(0.40), font: .systemFont(ofSize: 10, weight: .bold))
+        drawRight("%", rect: NSRect(x: rect.maxX - 84, y: rect.minY + 24, width: 68, height: 14), color: NSColor.white.withAlphaComponent(0.40), font: .systemFont(ofSize: 10, weight: .bold))
+        for (index, row) in visible.enumerated() {
+            let rowY = rect.minY + 42 + CGFloat(index) * 16
+            drawText(row.month, rect: NSRect(x: rect.minX + 16, y: rowY, width: 72, height: 14), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold), color: .white)
+            drawRight(displayMoney(row.usedValue), rect: NSRect(x: rect.maxX - 210, y: rowY, width: 110, height: 14), color: .white, font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
+            drawRight(String(format: "%.0f%%", row.usedPercentOfPlan), rect: NSRect(x: rect.maxX - 84, y: rowY, width: 68, height: 14), color: NSColor.white.withAlphaComponent(0.52), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
+        }
+    }
+
     private func drawModelsPage(snapshot: DetailsSnapshot, content: NSRect) {
         drawQuotaRows(snapshot: snapshot, content: content, y: content.minY + 78, height: 128)
         drawModelRows(snapshot: snapshot, content: content, y: content.minY + 222, height: 264, maxRows: 10)
@@ -2391,8 +2990,94 @@ final class UsageDetailsView: NSView {
         let gridRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: gridHeight)
         drawContributionGrid(report: snapshot.all, rect: gridRect, title: t(.pastYear), compact: false)
 
-        let detailRect = NSRect(x: content.minX, y: gridRect.maxY + 16, width: content.width, height: max(150, content.maxY - gridRect.maxY - 16))
+        let available = max(260, content.maxY - gridRect.maxY - 16)
+        let detailRect = NSRect(x: content.minX, y: gridRect.maxY + 16, width: content.width, height: min(360, available))
         drawSelectedDayPanel(snapshot: snapshot, rect: detailRect)
+    }
+
+    private func drawCostPage(snapshot: DetailsSnapshot, content: NSRect) {
+        let limit = snapshot.liveLimits.first { $0.id == QuotaViewOption.all.liveLimitID }
+        let estimate = planCostEstimate(report: snapshot.all, selectedDay: nil, limit: limit)
+
+        let settingsRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 214)
+        let leftColumnWidth = max(240, settingsRect.width - (min(300, max(252, settingsRect.width * 0.34)) + 56))
+        drawPanel(settingsRect)
+        drawText(t(.planCost), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 14, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
+        drawText(t(.paymentMonthly), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 52, width: leftColumnWidth, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawMultilineText(t(.planCostHint), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 74, width: leftColumnWidth, height: 32), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+
+        drawText(t(.paymentCurrency), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 122, width: leftColumnWidth, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.displayCurrency), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 176, width: leftColumnWidth, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+
+        let summaryY = settingsRect.maxY + 16
+        let gap: CGFloat = 12
+        let cardW = (content.width - gap * 3) / 4
+        let summaryCardHeight: CGFloat = cardW < 170 ? 98 : 82
+        let summaryCards: [(String, String, NSColor)] = [
+            (t(.paymentMonthly), paymentMoney(AppSettings.monthlyPlanCost), .white),
+            (t(.displayEquivalent), displayMoney(AppSettings.monthlyPlanCost), NSColor.white.withAlphaComponent(0.88)),
+            (t(.weeklyUsedValue), estimate.map { displayMoney($0.weeklyUsedValue) } ?? "--", costUsedColor),
+            (t(.weeklyUnusedValue), estimate.map { displayMoney($0.weeklyUnusedValue) } ?? "--", costRemainingColor)
+        ]
+        for (index, card) in summaryCards.enumerated() {
+            let rect = NSRect(x: content.minX + CGFloat(index) * (cardW + gap), y: summaryY, width: cardW, height: summaryCardHeight)
+            drawPanel(rect)
+            drawText(card.0, rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
+            drawText(card.1, rect: NSRect(x: rect.minX + 16, y: rect.minY + 34, width: rect.width - 32, height: 30), font: .monospacedDigitSystemFont(ofSize: 20, weight: .bold), color: card.2)
+        }
+
+        let chartY = summaryY + summaryCardHeight + 16
+        let chartRect = NSRect(x: content.minX, y: chartY, width: content.width, height: 332)
+        drawPanel(chartRect)
+        drawText(t(.costHistory), rect: NSRect(x: chartRect.minX + 16, y: chartRect.minY + 12, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
+        drawText(t(.costHistoryHint), rect: NSRect(x: chartRect.minX + 16, y: chartRect.minY + 36, width: 430, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.44))
+
+        let costRows: [CostPeriodRow]
+        switch selectedCostWindow {
+        case .week:
+            costRows = weeklySpendRows(report: snapshot.all, limit: limit, year: selectedCostYear, month: selectedCostMonth)
+        case .month:
+            costRows = monthlyCostRows(report: snapshot.all, limit: limit, year: selectedCostYear)
+        }
+        drawCostRings(rows: costRows, rect: NSRect(x: chartRect.minX + 16, y: chartRect.minY + 60, width: chartRect.width - 32, height: chartRect.height - 78), year: selectedCostYear, month: selectedCostMonth, mode: selectedCostWindow)
+
+        let tableY = chartRect.maxY + 16
+        let tableRect = NSRect(x: content.minX, y: tableY, width: content.width, height: max(120, content.maxY - tableY))
+        drawPanel(tableRect)
+        drawText(t(.monthlySpendHistory), rect: NSRect(x: tableRect.minX + 16, y: tableRect.minY + 12, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
+        let rows = monthlySpendRows(report: snapshot.all, limit: limit, year: selectedCostYear)
+        if rows.isEmpty {
+            drawText(t(.planCostUnavailable), rect: NSRect(x: tableRect.minX + 16, y: tableRect.minY + 48, width: tableRect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+        } else {
+            let visible = Array(rows.prefix(6))
+            let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+            let headerFont = NSFont.systemFont(ofSize: 10, weight: .bold)
+            let percentW = max(
+                measuredTextWidth("%", font: headerFont),
+                visible.map { measuredTextWidth(String(format: "%.0f%%", $0.usedPercentOfPlan), font: valueFont) }.max() ?? 0
+            ) + 12
+            let usedW = max(
+                measuredTextWidth(t(.used), font: headerFont),
+                visible.map { measuredTextWidth(displayMoney($0.usedValue), font: valueFont) }.max() ?? 0
+            ) + 14
+            let remainingW = max(
+                measuredTextWidth(t(.remaining), font: headerFont),
+                visible.map { measuredTextWidth(displayMoney(max(0, AppSettings.monthlyPlanCost - $0.usedValue)), font: valueFont) }.max() ?? 0
+            ) + 14
+            let percentX = tableRect.maxX - 18 - percentW
+            let remainingX = percentX - 18 - remainingW
+            let usedX = remainingX - 24 - usedW
+            drawRight(t(.used), rect: NSRect(x: usedX, y: tableRect.minY + 20, width: usedW, height: 16), color: NSColor.white.withAlphaComponent(0.40), font: headerFont)
+            drawRight(t(.remaining), rect: NSRect(x: remainingX, y: tableRect.minY + 20, width: remainingW, height: 16), color: NSColor.white.withAlphaComponent(0.40), font: headerFont)
+            drawRight("%", rect: NSRect(x: percentX, y: tableRect.minY + 20, width: percentW, height: 16), color: NSColor.white.withAlphaComponent(0.40), font: headerFont)
+            for (index, row) in visible.enumerated() {
+                let rowY = tableRect.minY + 44 + CGFloat(index) * 18
+                drawText(row.month, rect: NSRect(x: tableRect.minX + 16, y: rowY, width: max(90, usedX - tableRect.minX - 32), height: 16), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold), color: .white)
+                drawRight(displayMoney(row.usedValue), rect: NSRect(x: usedX, y: rowY, width: usedW, height: 16), color: .white, font: valueFont)
+                drawRight(displayMoney(max(0, AppSettings.monthlyPlanCost - row.usedValue)), rect: NSRect(x: remainingX, y: rowY, width: remainingW, height: 16), color: NSColor.white.withAlphaComponent(0.60), font: valueFont)
+                drawRight(String(format: "%.0f%%", row.usedPercentOfPlan), rect: NSRect(x: percentX, y: rowY, width: percentW, height: 16), color: NSColor.white.withAlphaComponent(0.52), font: valueFont)
+            }
+        }
     }
 
     private func drawSelectedDayPanel(snapshot: DetailsSnapshot, rect: NSRect) {
@@ -2418,51 +3103,63 @@ final class UsageDetailsView: NSView {
         }
         drawText(dayMeta, rect: NSRect(x: rect.minX + 18, y: rect.minY + 90, width: 420, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
 
-        var metrics: [(String, String, NSColor)] = [
-            (t(.input), compact(day.usage.input), .systemGreen),
-            (t(.output), compact(day.usage.output), .systemCyan),
-            (t(.cached), compact(day.usage.cachedInput), .systemTeal),
-            (t(.fresh), compact(day.usage.freshInput), .systemOrange)
+        var metrics: [(String, String, NSColor, Bool)] = [
+            (t(.input), compact(day.usage.input), NSColor.systemGreen, false),
+            (t(.output), compact(day.usage.output), NSColor.systemCyan, false),
+            (t(.cached), compact(day.usage.cachedInput), NSColor.systemTeal, false),
+            (t(.fresh), compact(day.usage.freshInput), NSColor.systemOrange, false)
         ]
         if let cost {
-            metrics.append((t(.todayValue), displayMoney(cost.selectedDayValue), .systemGreen))
-            metrics.append((t(.weeklyUnusedValue), displayMoney(cost.weeklyUnusedValue), .systemOrange))
+            metrics.append(("\(t(.dayValue)) ?", displayMoney(cost.selectedDayValue), NSColor.systemGreen, true))
         }
         let startX = rect.minX + 310
         let gap: CGFloat = 12
         let availableMetricWidth = max(180, rect.maxX - startX - 18)
-        let columns = availableMetricWidth >= 460 ? 4 : 2
+        let columns: Int
+        if metrics.count > 4 {
+            columns = availableMetricWidth >= 360 ? 3 : 2
+        } else {
+            columns = availableMetricWidth >= 460 ? 4 : 2
+        }
         let metricW = (availableMetricWidth - gap * CGFloat(columns - 1)) / CGFloat(columns)
-        let metricH: CGFloat = columns == 4 ? 82 : 48
+        let metricH: CGFloat
+        switch columns {
+        case 4:
+            metricH = 60
+        case 3:
+            metricH = 50
+        default:
+            metricH = 44
+        }
         for (index, metric) in metrics.enumerated() {
             let col = index % columns
             let row = index / columns
             let card = NSRect(x: startX + CGFloat(col) * (metricW + gap), y: rect.minY + 24 + CGFloat(row) * (metricH + 10), width: metricW, height: metricH)
+            if metric.3 {
+                dayValueInfoRect = card
+            }
             NSColor.black.withAlphaComponent(0.12).setFill()
             NSBezierPath(roundedRect: card, xRadius: 7, yRadius: 7).fill()
             let labelH: CGFloat = 16
-            let valueH: CGFloat = columns == 4 ? 24 : 20
-            let innerGap: CGFloat = columns == 4 ? 6 : 2
+            let valueH: CGFloat = columns >= 3 ? 20 : 18
+            let innerGap: CGFloat = columns >= 3 ? 3 : 1
             let blockH = labelH + innerGap + valueH
             let blockY = card.midY - blockH / 2
-            drawText(metric.0, rect: NSRect(x: card.minX + 12, y: blockY, width: card.width - 24, height: labelH), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
-            drawText(metric.1, rect: NSRect(x: card.minX + 12, y: blockY + labelH + innerGap, width: card.width - 24, height: valueH), font: .monospacedDigitSystemFont(ofSize: columns == 4 ? 18 : 14, weight: .bold), color: metric.2)
+            drawText(metric.0, rect: NSRect(x: card.minX + 12, y: blockY, width: card.width - 24, height: labelH), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
+            drawText(metric.1, rect: NSRect(x: card.minX + 12, y: blockY + labelH + innerGap, width: card.width - 24, height: valueH), font: .monospacedDigitSystemFont(ofSize: columns >= 3 ? 15 : 13, weight: .bold), color: metric.2)
         }
-
-        let barRect = NSRect(x: rect.minX + 18, y: rect.maxY - 28, width: rect.width - 36, height: 10)
-        NSColor.white.withAlphaComponent(0.08).setFill()
-        NSBezierPath(roundedRect: barRect, xRadius: 5, yRadius: 5).fill()
-        let totalInputOutput = max(day.usage.input + day.usage.output, 1)
-        let inputWidth = barRect.width * CGFloat(day.usage.input) / CGFloat(totalInputOutput)
-        NSColor.systemGreen.withAlphaComponent(0.90).setFill()
-        NSBezierPath(roundedRect: NSRect(x: barRect.minX, y: barRect.minY, width: inputWidth, height: barRect.height), xRadius: 5, yRadius: 5).fill()
-        NSColor.systemCyan.withAlphaComponent(0.90).setFill()
-        NSBezierPath(roundedRect: NSRect(x: barRect.minX + inputWidth, y: barRect.minY, width: max(0, barRect.width - inputWidth), height: barRect.height), xRadius: 5, yRadius: 5).fill()
 
         let metricRows = Int(ceil(Double(metrics.count) / Double(columns)))
         let metricsBottom = rect.minY + 24 + CGFloat(metricRows) * metricH + CGFloat(max(0, metricRows - 1)) * 10
-        let modelY = max(rect.minY + 116, metricsBottom + 12)
-        let modelRect = NSRect(x: rect.minX + 18, y: modelY, width: rect.width - 36, height: max(54, barRect.minY - modelY - 10))
+        let visibleModelRows = max(1, min(day.modelBreakdown.count, 5))
+        let minimumModelHeight = 22 + CGFloat(visibleModelRows) * 22
+        let modelY = max(rect.minY + 112, metricsBottom + 12)
+        let modelRect = NSRect(
+            x: rect.minX + 18,
+            y: modelY,
+            width: rect.width - 36,
+            height: max(minimumModelHeight, rect.maxY - modelY - 18)
+        )
         drawSelectedDayModels(day.modelBreakdown, rect: modelRect)
     }
 
@@ -2508,7 +3205,7 @@ final class UsageDetailsView: NSView {
     }
 
     private func drawSettingsPage(content: NSRect) {
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(500, content.height - 78))
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(360, content.height - 78))
         drawPanel(rect)
         drawText(t(.language), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.interfaceLanguage), rect: NSRect(x: rect.minX + 16, y: rect.minY + 56, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
@@ -2534,38 +3231,24 @@ final class UsageDetailsView: NSView {
 
         drawText(t(.languageHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 104, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.planCost), rect: NSRect(x: rect.minX + 16, y: rect.minY + 136, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let costRect = NSRect(x: rect.maxX - 268, y: rect.minY + 128, width: 172, height: 36)
-        NSColor.black.withAlphaComponent(0.14).setFill()
-        NSBezierPath(roundedRect: costRect, xRadius: 8, yRadius: 8).fill()
-        drawCentered("\(paymentMoney(AppSettings.monthlyPlanCost))/mo", rect: costRect.insetBy(dx: 8, dy: 0), font: .monospacedDigitSystemFont(ofSize: 13, weight: .semibold), color: .white)
-        planCostChangeRect = NSRect(x: rect.maxX - 84, y: rect.minY + 128, width: 68, height: 36)
-        drawSmallButton(t(.planCostChange), rect: planCostChangeRect!)
-        drawText(t(.planCostHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 170, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
-
-        drawText(t(.paymentCurrency), rect: NSRect(x: rect.minX + 16, y: rect.minY + 202, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawCurrencyOptions(rect: rect, y: rect.minY + 196, selected: AppSettings.paymentCurrency, store: &paymentCurrencyRects)
-        drawText(t(.displayCurrency), rect: NSRect(x: rect.minX + 16, y: rect.minY + 252, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawCurrencyOptions(rect: rect, y: rect.minY + 246, selected: AppSettings.displayCurrency, store: &displayCurrencyRects)
-
-        drawText(t(.logFolder), rect: NSRect(x: rect.minX + 16, y: rect.minY + 304, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let pathRect = NSRect(x: rect.minX + 16, y: rect.minY + 332, width: rect.width - 276, height: 34)
+        drawText(t(.logFolder), rect: NSRect(x: rect.minX + 16, y: rect.minY + 136, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        let pathRect = NSRect(x: rect.minX + 16, y: rect.minY + 164, width: rect.width - 276, height: 34)
         NSColor.black.withAlphaComponent(0.14).setFill()
         NSBezierPath(roundedRect: pathRect, xRadius: 7, yRadius: 7).fill()
         drawText(AppSettings.logFolderURL.path, rect: pathRect.insetBy(dx: 12, dy: 9), font: .monospacedSystemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.62))
 
         let logButtonW: CGFloat = 72
-        let logButtonY = rect.minY + 332
+        let logButtonY = rect.minY + 164
         chooseLogFolderRect = NSRect(x: rect.maxX - 244, y: logButtonY, width: 84, height: 34)
         resetLogFolderRect = NSRect(x: rect.maxX - 152, y: logButtonY, width: logButtonW, height: 34)
         openLogFolderRect = NSRect(x: rect.maxX - 72, y: logButtonY, width: 56, height: 34)
         drawSmallButton(t(.logFolderChoose), rect: chooseLogFolderRect!)
         drawSmallButton(t(.logFolderDefault), rect: resetLogFolderRect!)
         drawSmallButton(t(.logFolderOpen), rect: openLogFolderRect!)
-        drawText(t(.logFolderHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 372, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        drawText(t(.logFolderHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 204, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.statusBarDisplay), rect: NSRect(x: rect.minX + 16, y: rect.minY + 420, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let statusY = rect.minY + 416
+        drawText(t(.statusBarDisplay), rect: NSRect(x: rect.minX + 16, y: rect.minY + 252, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        let statusY = rect.minY + 248
         let statusGap: CGFloat = 10
         let statusOptionW = max(100, (rect.width - 260 - statusGap * CGFloat(StatusDisplayOption.allCases.count - 1)) / CGFloat(StatusDisplayOption.allCases.count))
         let statusStartX = rect.maxX - 16 - statusOptionW * CGFloat(StatusDisplayOption.allCases.count) - statusGap * CGFloat(StatusDisplayOption.allCases.count - 1)
@@ -2574,7 +3257,19 @@ final class UsageDetailsView: NSView {
             statusOptionRects[option] = optionRect
             drawSelectablePill(option.title, rect: optionRect, selected: option == StatusDisplayOption.current)
         }
-        drawText(t(.statusDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 458, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        drawText(t(.statusDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 296, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+    }
+
+    private var costUsedColor: NSColor {
+        NSColor(calibratedRed: 0.24, green: 0.82, blue: 0.42, alpha: 0.96)
+    }
+
+    private var costRemainingColor: NSColor {
+        NSColor(calibratedRed: 0.34, green: 0.44, blue: 0.58, alpha: 0.92)
+    }
+
+    private var costRemainingMutedColor: NSColor {
+        NSColor(calibratedRed: 0.23, green: 0.27, blue: 0.34, alpha: 1.0)
     }
 
     private func drawCurrencyOptions(rect: NSRect, y: CGFloat, selected: CurrencyCode, store: inout [CurrencyCode: NSRect]) {
@@ -2587,6 +3282,257 @@ final class UsageDetailsView: NSView {
             store[currency] = optionRect
             drawSelectablePill(currency.rawValue, rect: optionRect, selected: currency == selected)
         }
+    }
+
+    private func drawCostHistoryBars(rows: [CostPeriodRow], rect: NSRect) {
+        costHistoryRows = rows
+        guard !rows.isEmpty else {
+            drawText(t(.planCostUnavailable), rect: NSRect(x: rect.minX, y: rect.minY + 48, width: rect.width, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+        let legendY = rect.minY
+        drawText(t(.used), rect: NSRect(x: rect.minX, y: legendY, width: 48, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.78))
+        costUsedColor.setFill()
+        NSBezierPath(roundedRect: NSRect(x: rect.minX + 54, y: legendY + 4, width: 18, height: 8), xRadius: 4, yRadius: 4).fill()
+        drawText(t(.remaining), rect: NSRect(x: rect.minX + 88, y: legendY, width: 58, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62))
+        costRemainingColor.setFill()
+        NSBezierPath(roundedRect: NSRect(x: rect.minX + 154, y: legendY + 4, width: 18, height: 8), xRadius: 4, yRadius: 4).fill()
+
+        let chart = NSRect(x: rect.minX, y: rect.minY + 24, width: rect.width, height: rect.height - 44)
+        let maxValue = max(rows.map { max($0.usedValue + $0.remainingValue, $0.budgetValue) }.max() ?? 1, 1)
+        let barWidth = max(34, min(58, (chart.width - CGFloat(rows.count - 1) * 12) / CGFloat(max(rows.count, 1))))
+        let gap = max(12, (chart.width - barWidth * CGFloat(rows.count)) / CGFloat(max(rows.count - 1, 1)))
+        for (index, row) in rows.enumerated() {
+            let x = chart.minX + CGFloat(index) * (barWidth + gap)
+            let totalHeight = chart.height - 28
+            let usedHeight = totalHeight * CGFloat(row.usedValue / maxValue)
+            let remainingHeight = totalHeight * CGFloat(row.remainingValue / maxValue)
+            let baseY = chart.maxY - 10
+            let fullBarRect = NSRect(x: x, y: baseY - usedHeight - remainingHeight, width: barWidth, height: max(6, usedHeight + remainingHeight))
+            costHistoryBarRects[index] = fullBarRect.insetBy(dx: -4, dy: -4)
+
+            costRemainingMutedColor.setFill()
+            NSBezierPath(roundedRect: NSRect(x: x, y: baseY - totalHeight, width: barWidth, height: totalHeight), xRadius: 6, yRadius: 6).fill()
+            if remainingHeight > 0 {
+                costRemainingColor.setFill()
+                NSBezierPath(roundedRect: NSRect(x: x, y: baseY - usedHeight - remainingHeight, width: barWidth, height: remainingHeight), xRadius: 5, yRadius: 5).fill()
+            }
+            costUsedColor.setFill()
+            NSBezierPath(roundedRect: NSRect(x: x, y: baseY - usedHeight, width: barWidth, height: max(6, usedHeight)), xRadius: 5, yRadius: 5).fill()
+
+            if hoveredCostHistoryIndex == index {
+                NSColor.white.withAlphaComponent(0.22).setStroke()
+                let focusRect = fullBarRect.insetBy(dx: -3, dy: -3)
+                let focusPath = NSBezierPath(roundedRect: focusRect, xRadius: 8, yRadius: 8)
+                focusPath.lineWidth = 1.5
+                focusPath.stroke()
+            }
+
+            drawCentered(row.label, rect: NSRect(x: x - 8, y: chart.maxY + 2, width: barWidth + 16, height: 14), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
+        }
+    }
+
+    private func drawCostRings(rows: [CostPeriodRow], rect: NSRect, year: Int, month: Int?, mode: CostHistoryWindow) {
+        costHistoryRows = rows
+        guard !rows.isEmpty else {
+            drawText(t(.planCostUnavailable), rect: NSRect(x: rect.minX, y: rect.minY + 32, width: rect.width, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        let isMonthly = mode == .month
+        let columns: Int
+        if isMonthly {
+            columns = 6
+        } else if month != nil {
+            columns = min(max(rows.count, 1), 6)
+        } else {
+            columns = 13
+        }
+        let rowCount = Int(ceil(Double(rows.count) / Double(columns)))
+        let ringGapX: CGFloat = isMonthly ? 28 : 12
+        let ringGapY: CGFloat = isMonthly ? 22 : 18
+        let availableWidth = rect.width
+        let availableHeight = rect.height - 36
+        let ringSize = floor(min(
+            (availableWidth - CGFloat(columns - 1) * ringGapX) / CGFloat(columns),
+            (availableHeight - CGFloat(max(rowCount - 1, 0)) * ringGapY) / CGFloat(max(rowCount, 1))
+        ))
+        let totalGridWidth = CGFloat(columns) * ringSize + CGFloat(columns - 1) * ringGapX
+        let startX = rect.minX + max(0, (rect.width - totalGridWidth) / 2)
+        let totalGridHeight = CGFloat(rowCount) * ringSize + CGFloat(max(rowCount - 1, 0)) * ringGapY
+        let startY = rect.minY + max(20, (rect.height - totalGridHeight) / 2)
+
+        let scopeTitle = month.map { String(format: "%04d-%02d", year, $0) } ?? String(year)
+        drawText(scopeTitle, rect: NSRect(x: rect.minX, y: rect.minY, width: 86, height: 16), font: .monospacedDigitSystemFont(ofSize: 11, weight: .bold), color: NSColor.white.withAlphaComponent(0.52))
+        drawCostRingLegend(rect: NSRect(x: rect.minX + 96, y: rect.minY, width: 260, height: 16))
+
+        for (index, row) in rows.enumerated() {
+            let gridRow = index / columns
+            let gridColumn = index % columns
+            let cell = NSRect(
+                x: startX + CGFloat(gridColumn) * (ringSize + ringGapX),
+                y: startY + CGFloat(gridRow) * (ringSize + ringGapY),
+                width: ringSize,
+                height: ringSize
+            )
+            costHistoryBarRects[index] = cell.insetBy(dx: -4, dy: -4)
+            drawCostRing(row: row, rect: cell, showLabel: isMonthly, highlighted: hoveredCostHistoryIndex == index)
+        }
+
+        let footer = NSRect(x: rect.minX, y: rect.maxY - 18, width: rect.width, height: 14)
+        drawRight(t(.costHistoryHint), rect: footer, color: NSColor.white.withAlphaComponent(0.34), font: .systemFont(ofSize: 10, weight: .medium))
+    }
+
+    private func drawCostRingLegend(rect: NSRect) {
+        let items: [(String, NSColor)] = [
+            (t(.used), costUsedColor),
+            (t(.remaining), costRemainingColor),
+            (t(.noUsage), NSColor.white.withAlphaComponent(0.18)),
+            (t(.future), NSColor.white.withAlphaComponent(0.08))
+        ]
+        var x = rect.minX
+        for item in items {
+            item.1.setFill()
+            NSBezierPath(ovalIn: NSRect(x: x, y: rect.minY + 4, width: 8, height: 8)).fill()
+            drawText(item.0, rect: NSRect(x: x + 12, y: rect.minY, width: 56, height: rect.height), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.44))
+            x += 70
+        }
+    }
+
+    private func drawCostRing(row: CostPeriodRow, rect: NSRect, showLabel: Bool, highlighted: Bool) {
+        let labelHeight: CGFloat = showLabel ? 14 : 0
+        let inset: CGFloat = 4
+        let ringRect = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - labelHeight)
+        let circleRect = rect.insetBy(dx: inset, dy: inset)
+            .offsetBy(dx: 0, dy: -labelHeight / 2)
+        let center = CGPoint(x: circleRect.midX, y: circleRect.midY)
+        let radius = min(circleRect.width, circleRect.height) / 2 - 3
+        let lineWidth: CGFloat = max(5, min(8, rect.width * 0.14))
+        let start = -CGFloat.pi / 2
+        let fullCircleRect = NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+        let baseColor = NSColor.white.withAlphaComponent(row.isFuture ? 0.06 : (row.hasData ? 0.09 : 0.12))
+
+        fillDonut(in: fullCircleRect, thickness: lineWidth, color: baseColor)
+
+        if row.hasData {
+            fillDonut(in: fullCircleRect, thickness: lineWidth, color: costRemainingColor)
+
+            let progress = min(1.0, max(0.0, row.usedPercent / 100))
+            let ringColor: NSColor = row.usedPercent > 100 ? .systemOrange : costUsedColor
+            if progress >= 0.999 {
+                fillDonut(in: fullCircleRect, thickness: lineWidth, color: ringColor)
+            } else if progress > 0.001 {
+                fillDonutSegment(
+                    center: center,
+                    outerRadius: radius,
+                    thickness: lineWidth,
+                    startAngle: start,
+                    endAngle: start + CGFloat.pi * 2 * CGFloat(progress),
+                    color: ringColor
+                )
+            }
+        } else if row.isFuture {
+            fillDonut(in: fullCircleRect, thickness: lineWidth, color: NSColor.white.withAlphaComponent(0.08))
+        } else {
+            fillDonut(in: fullCircleRect, thickness: max(3, lineWidth * 0.72), color: NSColor.white.withAlphaComponent(0.16))
+        }
+
+        let ringColor: NSColor = row.usedPercent > 100 ? .systemOrange : costUsedColor
+
+        if highlighted {
+            NSColor.white.withAlphaComponent(0.18).setFill()
+            NSBezierPath(ovalIn: ringRect.insetBy(dx: 0.5, dy: 0.5)).fill()
+            ringColor.setStroke()
+            let focus = NSBezierPath(ovalIn: ringRect.insetBy(dx: 1.5, dy: 1.5))
+            focus.lineWidth = 1.5
+            focus.stroke()
+        }
+
+        if showLabel {
+            drawCentered(row.label, rect: NSRect(x: rect.minX - 4, y: rect.maxY - 12, width: rect.width + 8, height: 12), font: .monospacedDigitSystemFont(ofSize: 9, weight: .semibold), color: NSColor.white.withAlphaComponent(row.isFuture ? 0.22 : 0.46))
+        }
+    }
+
+    private func drawCostHistoryTooltip() {
+        guard let hoveredCostHistoryIndex,
+              costHistoryRows.indices.contains(hoveredCostHistoryIndex),
+              let anchorRect = costHistoryBarRects[hoveredCostHistoryIndex] else {
+            return
+        }
+        let row = costHistoryRows[hoveredCostHistoryIndex]
+        let lines: [(String, String, NSColor)] = [
+            (t(.used), displayMoney(row.usedValue), costUsedColor),
+            (t(.remaining), displayMoney(row.remainingValue), costRemainingColor),
+            (t(.budget), displayMoney(row.budgetValue), .white),
+            (t(.usageRate), String(format: "%.1f%%", row.usedPercent), NSColor.white.withAlphaComponent(0.82))
+        ]
+
+        let width: CGFloat = 282
+        let titleHeight: CGFloat = row.subtitle == nil ? 24 : 38
+        let rowHeight: CGFloat = 20
+        let height: CGFloat = titleHeight + 18 + CGFloat(lines.count) * rowHeight
+        var origin = CGPoint(x: anchorRect.midX - width / 2, y: anchorRect.minY - height - 12)
+        var rect = NSRect(origin: origin, size: CGSize(width: width, height: height))
+        if visibleCostControlFrames.contains(where: { $0.intersects(rect) }) {
+            origin.y = anchorRect.maxY + 12
+            rect.origin = origin
+        }
+        if origin.y < bounds.minY + 12 {
+            origin.y = anchorRect.maxY + 12
+        }
+        origin.x = max(bounds.minX + 12, min(origin.x, bounds.maxX - width - 12))
+        origin.y = max(bounds.minY + 12, min(origin.y, bounds.maxY - height - 12))
+
+        rect = NSRect(origin: origin, size: CGSize(width: width, height: height))
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 9, yRadius: 9).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        let border = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
+        border.lineWidth = 1
+        border.stroke()
+
+        drawText(row.title, rect: NSRect(x: rect.minX + 12, y: rect.minY + 10, width: rect.width - 24, height: 16), font: .monospacedDigitSystemFont(ofSize: 11, weight: .bold), color: .white)
+        if let subtitle = row.subtitle {
+            drawText(subtitle, rect: NSRect(x: rect.minX + 12, y: rect.minY + 26, width: rect.width - 24, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.45))
+        }
+
+        let startY = rect.minY + titleHeight + 6
+        let labelWidth: CGFloat = 76
+        let valueX = rect.minX + labelWidth + 28
+        let valueWidth = rect.maxX - valueX - 14
+        for (index, line) in lines.enumerated() {
+            let y = startY + CGFloat(index) * rowHeight
+            drawText(line.0, rect: NSRect(x: rect.minX + 12, y: y, width: labelWidth, height: 16), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62))
+            drawRight(line.1, rect: NSRect(x: valueX, y: y, width: valueWidth, height: 16), color: line.2, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
+        }
+    }
+
+    private func drawDayValueInfoTooltip() {
+        guard isHoveringDayValueInfo, let anchorRect = dayValueInfoRect else { return }
+        let width: CGFloat = 300
+        let height: CGFloat = 74
+        var origin = CGPoint(x: anchorRect.midX - width / 2, y: anchorRect.maxY + 8)
+        if origin.x < bounds.minX + 12 {
+            origin.x = bounds.minX + 12
+        }
+        if origin.x + width > bounds.maxX - 12 {
+            origin.x = bounds.maxX - width - 12
+        }
+        if origin.y + height > bounds.maxY - 12 {
+            origin.y = anchorRect.minY - height - 8
+        }
+        origin.y = max(bounds.minY + 12, origin.y)
+
+        let rect = NSRect(origin: origin, size: CGSize(width: width, height: height))
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 9, yRadius: 9).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        let border = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
+        border.lineWidth = 1
+        border.stroke()
+
+        drawText(t(.dayValue), rect: NSRect(x: rect.minX + 12, y: rect.minY + 10, width: rect.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: .white)
+        drawMultilineText(t(.dayValueHint), rect: NSRect(x: rect.minX + 12, y: rect.minY + 30, width: rect.width - 24, height: 34), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.58))
     }
 
     private func drawAboutPage(snapshot: DetailsSnapshot, content: NSRect) {
@@ -2707,6 +3653,39 @@ final class UsageDetailsView: NSView {
         (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color])
     }
 
+    private func drawMultilineText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineSpacing = 2
+        (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+    }
+
+    private func fillDonut(in outerRect: NSRect, thickness: CGFloat, color: NSColor) {
+        let innerRect = outerRect.insetBy(dx: thickness, dy: thickness)
+        let path = NSBezierPath()
+        path.windingRule = .evenOdd
+        path.appendOval(in: outerRect)
+        path.appendOval(in: innerRect)
+        color.setFill()
+        path.fill()
+    }
+
+    private func fillDonutSegment(center: CGPoint, outerRadius: CGFloat, thickness: CGFloat, startAngle: CGFloat, endAngle: CGFloat, color: NSColor) {
+        let innerRadius = max(0, outerRadius - thickness)
+        let path = NSBezierPath()
+        let startDegrees = startAngle * 180 / .pi
+        let endDegrees = endAngle * 180 / .pi
+        path.appendArc(withCenter: center, radius: outerRadius, startAngle: startDegrees, endAngle: endDegrees, clockwise: false)
+        path.appendArc(withCenter: center, radius: innerRadius, startAngle: endDegrees, endAngle: startDegrees, clockwise: true)
+        path.close()
+        color.setFill()
+        path.fill()
+    }
+
+    private func measuredTextWidth(_ text: String, font: NSFont) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
+
     private func drawCentered(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
@@ -2750,7 +3729,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusSpinnerFrame = 0
     private var statusIsLoading = false
     private let refreshInterval: TimeInterval = 300
-    private let statusItemWidth: CGFloat = 86
+    private let statusIconSize = NSSize(width: 14, height: 14)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -2789,7 +3768,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             detailsController.detailsView.needsDisplay = true
             updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
         }
-        detailsController.detailsView.onPlanCostChanged = { [weak self] in self?.editPlanCost() }
+        detailsController.detailsView.onPlanCostChanged = { [weak self] value in self?.changePlanCost(value) }
         detailsController.detailsView.onPaymentCurrencyChanged = { [weak self] currency in self?.changePaymentCurrency(currency) }
         detailsController.detailsView.onDisplayCurrencyChanged = { [weak self] currency in self?.changeDisplayCurrency(currency) }
         detailsController.detailsView.onChooseLogFolder = { [weak self] in self?.chooseLogFolder() }
@@ -2806,10 +3785,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureStatusButton() {
-        statusItem.length = statusItemWidth
+        statusItem.length = NSStatusItem.variableLength
         guard let button = statusItem.button else { return }
         button.image = statusIconImage()
         button.imagePosition = .imageLeading
+        button.imageHugsTitle = true
         button.title = "--%"
         button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
         button.action = #selector(togglePopover)
@@ -2819,7 +3799,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func statusIconImage() -> NSImage? {
         let image = NSImage(named: "StatusIconTemplate")
         image?.isTemplate = true
-        image?.size = NSSize(width: 18, height: 18)
+        image?.size = statusIconSize
         return image
     }
 
@@ -2850,16 +3830,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func spinnerImage(frame: Int) -> NSImage {
-        let size = NSSize(width: 18, height: 18)
+        let size = statusIconSize
         let image = NSImage(size: size)
         image.lockFocus()
         NSColor.white.setStroke()
         let center = NSPoint(x: size.width / 2, y: size.height / 2)
-        let radius: CGFloat = 6.4
+        let radius: CGFloat = 4.8
         let start = CGFloat(frame) * 30
         let path = NSBezierPath()
         path.appendArc(withCenter: center, radius: radius, startAngle: start, endAngle: start + 255, clockwise: false)
-        path.lineWidth = 2.2
+        path.lineWidth = 1.8
         path.lineCapStyle = .round
         path.stroke()
         image.unlockFocus()
@@ -3050,7 +4030,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatusTitle(report: TokenReport, limits: [LiveRateLimit], quota: QuotaViewOption) {
-        statusItem.length = statusItemWidth
+        statusItem.length = NSStatusItem.variableLength
         guard let button = statusItem.button else { return }
         let option = StatusDisplayOption.current
         requestStatusUsageIfNeeded(option: option, quota: quota)
@@ -3145,20 +4125,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         reloadScannerFromSettings()
     }
 
-    private func editPlanCost() {
-        let alert = NSAlert()
-        alert.messageText = t(.planCost)
-        alert.informativeText = t(.planCostHint)
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
-        input.stringValue = AppSettings.paymentCurrency == .jpy ? String(format: "%.0f", AppSettings.monthlyPlanCost) : String(format: "%.2f", AppSettings.monthlyPlanCost)
-        alert.accessoryView = input
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let sanitized = String(input.stringValue.filter { "0123456789.".contains($0) })
-        guard let value = Double(sanitized), value >= 0 else { return }
+    private func changePlanCost(_ value: Double) {
         AppSettings.monthlyPlanCost = value
         detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
     }
 
@@ -3171,12 +4141,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.displayCurrency = currency
         }
         detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
     }
 
     private func changeDisplayCurrency(_ currency: CurrencyCode) {
         AppSettings.displayCurrency = currency
         detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
     }
 
@@ -3265,6 +4237,18 @@ private func paymentMoney(_ value: Double) -> String {
     money(value, currency: AppSettings.paymentCurrency)
 }
 
+private func paymentAmount(_ value: Double) -> String {
+    let currency = AppSettings.paymentCurrency
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.groupingSeparator = ","
+    formatter.usesGroupingSeparator = true
+    formatter.minimumFractionDigits = value >= 100 ? 0 : min(currency.fractionDigits, 2)
+    formatter.maximumFractionDigits = value >= 100 ? 0 : currency.fractionDigits
+    return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
+}
+
 private func displayMoney(_ paymentValue: Double) -> String {
     let converted = convertCurrency(paymentValue, from: AppSettings.paymentCurrency, to: AppSettings.displayCurrency)
     return money(converted, currency: AppSettings.displayCurrency)
@@ -3276,6 +4260,184 @@ private func todayKey() -> String {
     formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
     formatter.dateFormat = "yyyy-MM-dd"
     return formatter.string(from: Date())
+}
+
+private func appCalendar() -> Calendar {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+    calendar.locale = Locale(identifier: "en_US_POSIX")
+    calendar.firstWeekday = 2
+    return calendar
+}
+
+private func dayFormatter() -> DateFormatter {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter
+}
+
+private func shortMonthDayFormatter() -> DateFormatter {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+    formatter.dateFormat = "MM-dd"
+    return formatter
+}
+
+private func currentWeeklyBudgetPaymentValue() -> Double {
+    AppSettings.monthlyPlanCost * 12 / 52
+}
+
+private func paymentValueForDayUsage(_ usage: Usage, weeklyQuotaUsedPercent: Double?, weeklyQuotaReferenceTotal: Int64?) -> Double? {
+    guard let weeklyQuotaUsedPercent,
+          weeklyQuotaUsedPercent > 0,
+          let weeklyQuotaReferenceTotal,
+          weeklyQuotaReferenceTotal > 0,
+          usage.total > 0 else {
+        return nil
+    }
+    let shareOfVisibleWeek = Double(usage.total) / Double(weeklyQuotaReferenceTotal)
+    return currentWeeklyBudgetPaymentValue() * shareOfVisibleWeek * weeklyQuotaUsedPercent / 100
+}
+
+private func availableCostYears(from report: TokenReport?) -> [Int] {
+    guard let report, !report.byDay.isEmpty else {
+        return [Calendar.current.component(.year, from: Date())]
+    }
+    let years = Set(report.byDay.compactMap { Int($0.day.prefix(4)) })
+    let sorted = years.sorted()
+    return sorted.isEmpty ? [Calendar.current.component(.year, from: Date())] : sorted
+}
+
+private func weekStarts(for year: Int) -> [Date] {
+    let calendar = appCalendar()
+    guard let firstWeek = calendar.date(from: DateComponents(weekday: calendar.firstWeekday, weekOfYear: 1, yearForWeekOfYear: year)) else {
+        return []
+    }
+    var starts: [Date] = []
+    var current = firstWeek
+    while calendar.component(.yearForWeekOfYear, from: current) == year {
+        starts.append(current)
+        guard let next = calendar.date(byAdding: .weekOfYear, value: 1, to: current) else { break }
+        current = next
+    }
+    return starts
+}
+
+private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, month: Int? = nil) -> [CostPeriodRow] {
+    guard let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit),
+          estimate.weeklyBudget > 0 else {
+        return []
+    }
+    let paymentPerToken = estimate.weeklyBudget / max(estimate.weeklyQuotaTotal, 1)
+    let calendar = appCalendar()
+    let parser = dayFormatter()
+    let labelFormatter = shortMonthDayFormatter()
+    let titleFormatter = dayFormatter()
+    var buckets: [Date: Int64] = [:]
+    for day in report.byDay where day.usage.total > 0 {
+        guard let date = parser.date(from: day.day),
+              let start = calendar.dateInterval(of: .weekOfYear, for: date)?.start else { continue }
+        buckets[start, default: 0] += day.usage.total
+    }
+    let starts: [Date]
+    if let year {
+        let allStarts = Array(weekStarts(for: year).prefix(52))
+        if let month,
+           let monthStart = calendar.date(from: DateComponents(year: year, month: month, day: 1)),
+           let monthInterval = calendar.dateInterval(of: .month, for: monthStart) {
+            starts = allStarts.filter { start in
+                guard let end = calendar.date(byAdding: .day, value: 6, to: start) else { return false }
+                return start < monthInterval.end && end >= monthInterval.start
+            }
+        } else {
+            starts = allStarts
+        }
+    } else {
+        starts = Array(buckets.keys.sorted().reversed().prefix(8).reversed())
+    }
+    let currentWeekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? calendar.startOfDay(for: Date())
+    return starts.map { start in
+        let total = buckets[start] ?? 0
+        let usedValue = paymentPerToken * Double(total)
+        let remainingValue = max(0, estimate.weeklyBudget - usedValue)
+        let end = calendar.date(byAdding: .day, value: 6, to: start) ?? start
+        let weekNumber = calendar.component(.weekOfYear, from: start)
+        return CostPeriodRow(
+            label: labelFormatter.string(from: start),
+            title: "\(titleFormatter.string(from: start)) - \(titleFormatter.string(from: end))",
+            subtitle: "\(t(.week)) \(weekNumber)",
+            usedValue: usedValue,
+            remainingValue: remainingValue,
+            budgetValue: estimate.weeklyBudget,
+            hasData: total > 0,
+            isFuture: start > currentWeekStart
+        )
+    }
+}
+
+private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil) -> [CostPeriodRow] {
+    guard let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit),
+          estimate.weeklyBudget > 0 else {
+        return []
+    }
+    let paymentPerToken = estimate.weeklyBudget / max(estimate.weeklyQuotaTotal, 1)
+    var byMonth: [String: Int64] = [:]
+    for day in report.byDay where day.usage.total > 0 {
+        let monthKey = String(day.day.prefix(7))
+        byMonth[monthKey, default: 0] += day.usage.total
+    }
+    let months: [String]
+    if let year {
+        months = (1...12).map { String(format: "%04d-%02d", year, $0) }
+    } else {
+        months = Array(byMonth.keys.sorted().reversed().prefix(6).reversed())
+    }
+    let currentMonth = String(dayFormatter().string(from: Date()).prefix(7))
+    return months.map { month in
+        let total = byMonth[month] ?? 0
+        let usedValue = paymentPerToken * Double(total)
+        let remainingValue = max(0, AppSettings.monthlyPlanCost - usedValue)
+        return CostPeriodRow(
+            label: String(month.suffix(2)),
+            title: month,
+            subtitle: t(.month),
+            usedValue: usedValue,
+            remainingValue: remainingValue,
+            budgetValue: max(AppSettings.monthlyPlanCost, usedValue),
+            hasData: total > 0,
+            isFuture: month > currentMonth
+        )
+    }
+}
+
+private func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil) -> [MonthlySpendRow] {
+    guard let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit),
+          estimate.weeklyBudget > 0 else {
+        return []
+    }
+    let paymentPerToken = estimate.weeklyBudget / max(estimate.weeklyQuotaTotal, 1)
+    var byMonth: [String: Int64] = [:]
+    for day in report.byDay where day.usage.total > 0 {
+        let monthKey = String(day.day.prefix(7))
+        byMonth[monthKey, default: 0] += day.usage.total
+    }
+    let months = byMonth.keys
+        .filter { month in
+            guard let year else { return true }
+            return month.hasPrefix(String(format: "%04d-", year))
+        }
+        .sorted()
+        .reversed()
+        .prefix(12)
+    return months.map { month in
+        let total = byMonth[month] ?? 0
+        let usedValue = paymentPerToken * Double(total)
+        let planPercent = AppSettings.monthlyPlanCost > 0 ? usedValue / AppSettings.monthlyPlanCost * 100 : 0
+        return MonthlySpendRow(month: month, usedValue: usedValue, usedPercentOfPlan: planPercent)
+    }
 }
 
 private func planCostEstimate(report: TokenReport, selectedDay: DayUsage?, limit: LiveRateLimit?) -> PlanCostEstimate? {
@@ -3302,6 +4464,7 @@ private func planCostEstimate(report: TokenReport, selectedDay: DayUsage?, limit
     return PlanCostEstimate(
         monthlyCost: monthlyCost,
         weeklyBudget: weeklyBudget,
+        weeklyQuotaTotal: weeklyQuotaTotal,
         todayValue: todayValue,
         selectedDayValue: selectedValue,
         weeklyUsedValue: weeklyBudget * weekly.usedPercent / 100,
