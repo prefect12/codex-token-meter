@@ -4876,12 +4876,7 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
     let startDate = parser.date(from: startDay) ?? calendar.startOfDay(for: Date())
     let startWeek = calendar.dateInterval(of: .weekOfYear, for: startDate)?.start ?? startDate
     let startWeekYear = calendar.component(.yearForWeekOfYear, from: startDate)
-    var buckets: [Date: Int64] = [:]
-    for day in report.byDay where day.day >= startDay && day.usage.total > 0 {
-        guard let date = parser.date(from: day.day),
-              let start = calendar.dateInterval(of: .weekOfYear, for: date)?.start else { continue }
-        buckets[start, default: 0] += day.usage.total
-    }
+    let buckets = weeklyUsageBuckets(report: report)
     let starts: [Date]
     if let year {
         guard year >= startWeekYear else { return [] }
@@ -4982,16 +4977,14 @@ private func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: 
 
 private func planCostEstimate(report: TokenReport, selectedDay: DayUsage?, limit: LiveRateLimit?) -> PlanCostEstimate? {
     let monthlyCost = AppSettings.monthlyPlanCost
-    guard monthlyCost > 0,
-          let weekly = limit?.secondary,
-          weekly.usedPercent > 0 else {
+    guard monthlyCost > 0 else {
         return nil
     }
+    let weekly = limit?.secondary
     let recentDays = Array(report.byDay.suffix(7))
     let recentWeekTotal = recentDays.reduce(Int64(0)) { $0 + $1.usage.total }
-    guard recentWeekTotal > 0 else { return nil }
-
-    let weeklyQuotaTotal = Double(recentWeekTotal) / max(weekly.usedPercent / 100, 0.0001)
+    guard recentWeekTotal > 0,
+          let weeklyQuotaTotal = historicalWeeklyUsageReferenceTotal(report: report, weekly: weekly) else { return nil }
     guard weeklyQuotaTotal > 0 else { return nil }
 
     let today = report.byDay.first { $0.day == todayKey() } ?? recentDays.last
@@ -5019,12 +5012,50 @@ private func planCostEstimate(report: TokenReport, selectedDay: DayUsage?, limit
         weeklyQuotaTotal: weeklyQuotaTotal,
         todayValue: todayValue,
         selectedDayValue: selectedValue,
-        weeklyUsedValue: weeklyBudget * weekly.usedPercent / 100,
-        weeklyUnusedValue: weeklyBudget * weekly.remainingPercent / 100,
+        weeklyUsedValue: weekly.map { weeklyBudget * $0.usedPercent / 100 } ?? min(weeklyBudget, weeklyBudget * Double(recentWeekTotal) / weeklyQuotaTotal),
+        weeklyUnusedValue: weekly.map { weeklyBudget * $0.remainingPercent / 100 } ?? max(0, weeklyBudget - min(weeklyBudget, weeklyBudget * Double(recentWeekTotal) / weeklyQuotaTotal)),
         totalSpentValue: totalSpentValue,
         totalWastedValue: totalWastedValue,
         selectedDayQuotaPercent: selectedPercent
     )
+}
+
+private func weeklyUsageBuckets(report: TokenReport) -> [Date: Int64] {
+    let calendar = appCalendar()
+    let parser = dayFormatter()
+    let startDay = effectivePaymentStartDay(in: report)
+    var buckets: [Date: Int64] = [:]
+    for day in report.byDay where day.day >= startDay && day.usage.total > 0 {
+        guard let date = parser.date(from: day.day),
+              let start = calendar.dateInterval(of: .weekOfYear, for: date)?.start else { continue }
+        buckets[start, default: 0] += day.usage.total
+    }
+    return buckets
+}
+
+private func historicalWeeklyUsageReferenceTotal(report: TokenReport, weekly: RateWindow?) -> Double? {
+    let buckets = weeklyUsageBuckets(report: report)
+    guard let peakHistoricalTotal = buckets.values.max(), peakHistoricalTotal > 0 else {
+        return nil
+    }
+
+    let calendar = appCalendar()
+    let currentWeekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? calendar.startOfDay(for: Date())
+    let currentWeekTotal = buckets[currentWeekStart] ?? 0
+    if buckets.count <= 1,
+       currentWeekTotal > 0,
+       let weekly,
+       weekly.usedPercent > 0 {
+        return Double(currentWeekTotal) / max(weekly.usedPercent / 100, 0.0001)
+    }
+
+    guard let weekly,
+          weekly.usedPercent >= 10,
+          currentWeekTotal > 0 else {
+        return Double(peakHistoricalTotal)
+    }
+    let liveCalibratedTotal = Double(currentWeekTotal) / max(weekly.usedPercent / 100, 0.0001)
+    return max(Double(peakHistoricalTotal), liveCalibratedTotal)
 }
 
 private func relative(_ date: Date?) -> String {
