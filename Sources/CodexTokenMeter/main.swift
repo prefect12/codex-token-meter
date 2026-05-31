@@ -2995,6 +2995,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private var costHistoryBarRects: [Int: NSRect] = [:]
     private var costHistoryRows: [CostPeriodRow] = []
     private var dayValueInfoRect: NSRect?
+    private var showHistoricalEmptyWeeksToggleRect: NSRect?
     private var selectedDay: String?
     private var hoveredCostHistoryIndex: Int?
     private var isHoveringDayValueInfo = false
@@ -3023,11 +3024,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private var visibleCostControlFrames: [NSRect] {
         guard selectedSection == .costs else { return [] }
-        var frames: [NSRect] = [costYearPopup.frame]
-        if !showHistoricalEmptyWeeksSwitch.isHidden {
-            frames.append(showHistoricalEmptyWeeksSwitch.frame)
-        }
-        return frames.filter { !$0.isEmpty }
+        return [costYearPopup.frame].filter { !$0.isEmpty }
     }
 
     private var appBackgroundTop: NSColor {
@@ -3180,7 +3177,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         paymentCurrencyPopup.isHidden = !visible
         displayCurrencyPopup.isHidden = !visible
         costYearPopup.isHidden = !visible
-        showHistoricalEmptyWeeksSwitch.isHidden = !visible
+        showHistoricalEmptyWeeksSwitch.isHidden = true
+        showHistoricalEmptyWeeksToggleRect = nil
         guard visible else { return }
 
         let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
@@ -3198,10 +3196,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let summaryHeight = summaryCardHeight * 2 + gap
         let chartY = summaryY + summaryHeight + 16
         let chartRect = NSRect(x: content.minX, y: chartY, width: content.width, height: 332)
-        let controlsY = chartRect.minY + 12
-        let yearWidth: CGFloat = 152
-        costYearPopup.frame = NSRect(x: chartRect.maxX - 16 - yearWidth, y: controlsY, width: yearWidth, height: 28)
-        showHistoricalEmptyWeeksSwitch.frame = historicalEmptyWeeksControlLayout(chartRect: chartRect).switchRect
+        let headerLayout = costHistoryHeaderLayout(chartRect: chartRect)
+        costYearPopup.frame = headerLayout.yearRect
         updateCostControlsFromSettings()
     }
 
@@ -3422,6 +3418,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 return
             }
         }
+        if selectedSection == .costs,
+           showHistoricalEmptyWeeksToggleRect?.insetBy(dx: -8, dy: -6).contains(point) == true {
+            onShowHistoricalEmptyWeeksChanged?(!AppSettings.showHistoricalEmptyWeeks)
+            hoveredCostHistoryIndex = nil
+            needsDisplay = true
+            needsLayout = true
+            return
+        }
         for (day, rect) in contributionDayRects where rect.insetBy(dx: -2, dy: -2).contains(point) {
             selectedDay = day
             AppSettings.selectedCalendarDay = day
@@ -3588,7 +3592,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawMetricCards(snapshot: snapshot, content: content)
         drawQuotaRows(snapshot: snapshot, content: content, y: quotaY, height: 120)
         drawModelRows(snapshot: snapshot, content: content, y: modelsY, height: 130, maxRows: 4)
-        let gridRect = NSRect(x: content.minX, y: gridY, width: content.width, height: min(260, max(168, content.maxY - gridY)))
+        let gridHeight = contributionGridPreferredHeight(report: snapshot.all, width: content.width, compact: true)
+        let gridRect = NSRect(x: content.minX, y: gridY, width: content.width, height: min(gridHeight, max(168, content.maxY - gridY)))
         drawContributionGrid(report: snapshot.all, rect: gridRect, title: t(.pastYear), compact: true)
     }
 
@@ -3676,7 +3681,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func drawCalendarPage(snapshot: DetailsSnapshot, content: NSRect) {
-        let gridHeight = min(236, max(214, content.height * 0.36))
+        let preferredGridHeight = contributionGridPreferredHeight(report: snapshot.all, width: content.width, compact: false)
+        let gridHeight = min(preferredGridHeight, max(214, content.height * 0.36))
         let gridRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: gridHeight)
         drawContributionGrid(report: snapshot.all, rect: gridRect, title: t(.pastYear), compact: false)
 
@@ -3799,20 +3805,80 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawRight(value, rect: NSRect(x: rect.minX + rect.width * 0.34, y: rect.minY, width: rect.width * 0.66, height: 20), color: color, font: .monospacedDigitSystemFont(ofSize: 15, weight: .bold))
     }
 
-    private func historicalEmptyWeeksControlLayout(chartRect: NSRect) -> (labelRect: NSRect, switchRect: NSRect) {
-        let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        let labelWidth = min(190, max(92, measuredTextWidth(t(.showPastEmptyWeeks), font: font) + 2))
+    private func drawToggle(rect: NSRect, isOn: Bool) {
+        let trackColor = isOn ? accentTeal.withAlphaComponent(0.72) : NSColor.white.withAlphaComponent(0.13)
+        trackColor.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2).fill()
+        NSColor.white.withAlphaComponent(0.12).setStroke()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: rect.height / 2, yRadius: rect.height / 2).stroke()
+
+        let knobSize = rect.height - 4
+        let knobX = isOn ? rect.maxX - knobSize - 2 : rect.minX + 2
+        let knobRect = NSRect(x: knobX, y: rect.minY + 2, width: knobSize, height: knobSize)
+        NSColor.white.withAlphaComponent(0.88).setFill()
+        NSBezierPath(ovalIn: knobRect).fill()
+    }
+
+    private struct CostHistoryHeaderLayout {
+        let hintRect: NSRect
+        let emptyWeeksLabelRect: NSRect
+        let emptyWeeksSwitchRect: NSRect
+        let yearRect: NSRect
+        let ringsRect: NSRect
+    }
+
+    private func costHistoryHeaderLayout(chartRect: NSRect) -> CostHistoryHeaderLayout {
+        let inset: CGFloat = 16
+        let rowGap: CGFloat = 12
+        let labelSwitchGap: CGFloat = 6
         let switchWidth: CGFloat = 40
         let switchHeight: CGFloat = 22
-        let gap: CGFloat = 10
-        let groupWidth = labelWidth + gap + switchWidth
-        let yearGap: CGFloat = 14
-        let preferredX = costYearPopup.frame.minX - yearGap - groupWidth
-        let minX = chartRect.minX + 16
-        let groupX = max(minX, preferredX)
-        let switchRect = NSRect(x: groupX + labelWidth + gap, y: chartRect.minY + 14, width: switchWidth, height: switchHeight)
-        let labelRect = NSRect(x: groupX, y: chartRect.minY + 18, width: labelWidth, height: 14)
-        return (labelRect, switchRect)
+        let yearWidth: CGFloat = 152
+        let controlY = chartRect.minY + 42
+        let labelFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let labelWidth = ceil(measuredTextWidth(t(.showPastEmptyWeeks), font: labelFont)) + 2
+
+        let yearRect = NSRect(
+            x: chartRect.maxX - inset - yearWidth,
+            y: controlY,
+            width: yearWidth,
+            height: 28
+        )
+        let groupWidth = labelWidth + labelSwitchGap + switchWidth
+        let groupX = max(chartRect.minX + inset, yearRect.minX - rowGap - groupWidth)
+        let labelRect = NSRect(
+            x: groupX,
+            y: controlY + 7,
+            width: labelWidth,
+            height: 14
+        )
+        let switchRect = NSRect(
+            x: labelRect.maxX + labelSwitchGap,
+            y: controlY + 3,
+            width: switchWidth,
+            height: switchHeight
+        )
+        let maxHintWidth = max(0, labelRect.minX - chartRect.minX - inset - rowGap)
+        let hintWidth = min(430, maxHintWidth)
+        let hintRect = NSRect(
+            x: chartRect.minX + inset,
+            y: chartRect.minY + 36,
+            width: hintWidth,
+            height: 16
+        )
+        let ringsRect = NSRect(
+            x: chartRect.minX + inset,
+            y: chartRect.minY + 84,
+            width: chartRect.width - inset * 2,
+            height: chartRect.height - 102
+        )
+        return CostHistoryHeaderLayout(
+            hintRect: hintRect,
+            emptyWeeksLabelRect: labelRect,
+            emptyWeeksSwitchRect: switchRect,
+            yearRect: yearRect,
+            ringsRect: ringsRect
+        )
     }
 
     private func drawCostPage(snapshot: DetailsSnapshot, content: NSRect) {
@@ -3841,12 +3907,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let chartY = summaryRect.maxY + 16
         let chartRect = NSRect(x: content.minX, y: chartY, width: content.width, height: 332)
         drawPanel(chartRect)
+        let headerLayout = costHistoryHeaderLayout(chartRect: chartRect)
+        showHistoricalEmptyWeeksToggleRect = headerLayout.emptyWeeksSwitchRect
         drawText(t(.costHistory), rect: NSRect(x: chartRect.minX + 16, y: chartRect.minY + 12, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
-        drawText(t(.costHistoryHint), rect: NSRect(x: chartRect.minX + 16, y: chartRect.minY + 36, width: 430, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.44))
-        let emptyWeeksLayout = historicalEmptyWeeksControlLayout(chartRect: chartRect)
-        drawText(t(.showPastEmptyWeeks), rect: emptyWeeksLayout.labelRect, font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.50))
+        drawText(t(.costHistoryHint), rect: headerLayout.hintRect, font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.44))
+        drawRight(t(.showPastEmptyWeeks), rect: headerLayout.emptyWeeksLabelRect, color: NSColor.white.withAlphaComponent(0.50), font: .systemFont(ofSize: 11, weight: .semibold))
+        drawToggle(rect: headerLayout.emptyWeeksSwitchRect, isOn: AppSettings.showHistoricalEmptyWeeks)
 
-        drawCostRings(rows: costData.weeklyRows, rect: NSRect(x: chartRect.minX + 16, y: chartRect.minY + 60, width: chartRect.width - 32, height: chartRect.height - 78), year: selectedCostYear)
+        drawCostRings(rows: costData.weeklyRows, rect: headerLayout.ringsRect, year: selectedCostYear)
 
         let tableY = chartRect.maxY + 16
         let tableRect = NSRect(x: content.minX, y: tableY, width: content.width, height: max(120, content.maxY - tableY))
@@ -4468,7 +4536,26 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let labelY = min(startY + gridH + 10, rect.maxY - 38)
         let hintY = min(labelY + 18, rect.maxY - 20)
         drawContributionMonthLabels(days: days, useCalendarGrid: useCalendarGrid, columns: columns, square: square, gap: gap, startX: startX, y: labelY, compact: compact)
-        drawText(t(.usageIntensityHint), rect: NSRect(x: rect.maxX - 280, y: hintY, width: 260, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+        drawText(t(.usageIntensityHint), rect: NSRect(x: startX, y: hintY, width: min(320, rect.maxX - startX - right), height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+    }
+
+    private func contributionGridPreferredHeight(report: TokenReport, width: CGFloat, compact: Bool) -> CGFloat {
+        let days = report.byDay
+        guard !days.isEmpty else {
+            return compact ? 112 : 128
+        }
+        let useCalendarGrid = !compact || days.count > 90
+        let columns = useCalendarGrid ? Int(ceil(Double(days.count) / 7.0)) : min(days.count, 15)
+        let rows = useCalendarGrid ? 7 : Int(ceil(Double(days.count) / Double(max(columns, 1))))
+        let gap: CGFloat = useCalendarGrid ? (compact ? 2 : 3) : 6
+        let left: CGFloat = compact ? 18 : 26
+        let right: CGFloat = compact ? 18 : 26
+        let top: CGFloat = compact ? 42 : 48
+        let availableW = max(40, width - left - right)
+        let square = floor((availableW - gap * CGFloat(max(columns - 1, 0))) / CGFloat(max(columns, 1)))
+        let gridH = CGFloat(rows) * max(6, square) + CGFloat(max(rows - 1, 0)) * gap
+        let labelAndHintHeight: CGFloat = compact ? 48 : 54
+        return ceil(top + gridH + labelAndHintHeight)
     }
 
     private func drawContributionMonthLabels(days: [DayUsage], useCalendarGrid: Bool, columns: Int, square: CGFloat, gap: CGFloat, startX: CGFloat, y: CGFloat, compact: Bool) {
