@@ -1094,7 +1094,7 @@ struct CostEstimator {
     let recentWeekTotal: Int64
     let startDay: String
 
-    init?(report: TokenReport, limit: LiveRateLimit?) {
+    init?(report: TokenReport, limit: LiveRateLimit?, quotaReferenceReport: TokenReport? = nil) {
         let monthlyCost = AppSettings.monthlyPlanCost
         guard monthlyCost > 0 else { return nil }
         let startDay = effectivePaymentStartDay(in: report)
@@ -1102,7 +1102,7 @@ struct CostEstimator {
         let weeklyBuckets = Self.weeklyUsageBuckets(days: report.byDay, startDay: startDay)
         let recentWeekTotal = Array(report.byDay.suffix(7)).reduce(Int64(0)) { $0 + $1.usage.total }
         guard recentWeekTotal > 0,
-              let weeklyReferenceTotal = Self.weeklyReferenceTotal(days: report.byDay, startDay: startDay, weekly: weekly),
+              let weeklyReferenceTotal = Self.weeklyReferenceTotal(days: report.byDay, startDay: startDay, weekly: weekly, quotaReferenceTotal: quotaReferenceReport?.usage.total),
               weeklyReferenceTotal > 0 else {
             return nil
         }
@@ -1128,10 +1128,18 @@ struct CostEstimator {
         return buckets
     }
 
-    static func weeklyReferenceTotal(days: [DayUsage], startDay: String? = nil, weekly: RateWindow?) -> Double? {
+    static func weeklyReferenceTotal(days: [DayUsage], startDay: String? = nil, weekly: RateWindow?, quotaReferenceTotal: Int64? = nil) -> Double? {
         let buckets = weeklyUsageBuckets(days: days, startDay: startDay)
         guard let peakHistoricalTotal = buckets.values.max(), peakHistoricalTotal > 0 else {
             return nil
+        }
+
+        let quotaReferenceTotal = quotaReferenceTotal ?? 0
+        if quotaReferenceTotal > 0,
+           let weekly,
+           weekly.usedPercent > 0 {
+            let liveCalibratedTotal = Double(quotaReferenceTotal) / max(weekly.usedPercent / 100, 0.0001)
+            return max(Double(peakHistoricalTotal), liveCalibratedTotal)
         }
 
         let calendar = appCalendar()
@@ -1278,6 +1286,10 @@ final class CodexTokenScanner {
         let dayCount = max(days, 1)
         let start = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -(dayCount - 1), to: now) ?? now)
         return scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, fillDayCount: dayCount)
+    }
+
+    func scan(from start: Date, to now: Date = Date(), limitID: String? = nil, excludedLimitID: String? = nil, includedModelName: String? = nil, excludedModelName: String? = nil) -> TokenReport {
+        scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, fillDayCount: nil)
     }
 
     private func scan(start: Date, now: Date, limitID: String?, excludedLimitID: String?, includedModelName: String?, excludedModelName: String?, fillDayCount: Int?) -> TokenReport {
@@ -2527,6 +2539,7 @@ struct DetailsSnapshot {
     var spark: TokenReport
     var other: TokenReport
     var liveLimits: [LiveRateLimit]
+    var costReferenceReport: TokenReport?
 }
 
 final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
@@ -2577,9 +2590,12 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
         updateDocumentLayout()
     }
 
-    func updateLiveLimits(_ limits: [LiveRateLimit]) {
+    func updateLiveLimits(_ limits: [LiveRateLimit], costReferenceReport: TokenReport?) {
         guard var snapshot = detailsView.snapshot else { return }
         snapshot.liveLimits = limits
+        if let costReferenceReport {
+            snapshot.costReferenceReport = costReferenceReport
+        }
         detailsView.snapshot = snapshot
         updateDocumentLayout()
     }
@@ -2927,7 +2943,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let controlsY = chartRect.minY + 12
         let yearWidth: CGFloat = 152
         costYearPopup.frame = NSRect(x: chartRect.maxX - 16 - yearWidth, y: controlsY, width: yearWidth, height: 28)
-        showHistoricalEmptyWeeksSwitch.frame = NSRect(x: costYearPopup.frame.minX - 56, y: controlsY + 2, width: 40, height: 22)
+        showHistoricalEmptyWeeksSwitch.frame = historicalEmptyWeeksControlLayout(chartRect: chartRect).switchRect
         updateCostControlsFromSettings()
     }
 
@@ -3036,7 +3052,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         guard let day else { return 160 }
 
         let limit = costEstimateLimit(from: snapshot.liveLimits)
-        let cost = planCostEstimate(report: report, selectedDay: day, limit: limit)
+        let cost = planCostEstimate(report: report, selectedDay: day, limit: limit, quotaReferenceReport: snapshot.costReferenceReport)
         let metricsCount = cost == nil ? 4 : 5
         let startX: CGFloat = 310
         let horizontalPadding: CGFloat = 36
@@ -3457,6 +3473,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             String(format: "%.4f", weekly?.usedPercent ?? -1),
             String(format: "%.4f", weekly?.remainingPercent ?? -1),
             "\(weekly?.windowMinutes ?? 0)",
+            "\(snapshot.costReferenceReport?.usage.total ?? -1)",
+            String(format: "%.3f", snapshot.costReferenceReport?.scannedAt.timeIntervalSince1970 ?? -1),
             todayKey()
         ].joined(separator: "|")
     }
@@ -3468,9 +3486,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
         let data = CostPageData(
             key: key,
-            estimate: planCostEstimate(report: snapshot.all, selectedDay: nil, limit: limit),
-            weeklyRows: weeklySpendRows(report: snapshot.all, limit: limit, year: year),
-            monthlyRows: monthlySpendRows(report: snapshot.all, limit: limit, year: year)
+            estimate: planCostEstimate(report: snapshot.all, selectedDay: nil, limit: limit, quotaReferenceReport: snapshot.costReferenceReport),
+            weeklyRows: weeklySpendRows(report: snapshot.all, limit: limit, year: year, quotaReferenceReport: snapshot.costReferenceReport),
+            monthlyRows: monthlySpendRows(report: snapshot.all, limit: limit, year: year, quotaReferenceReport: snapshot.costReferenceReport)
         )
         costPageDataCache = data
         return data
@@ -3523,6 +3541,22 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawRight(value, rect: NSRect(x: rect.minX + rect.width * 0.34, y: rect.minY, width: rect.width * 0.66, height: 20), color: color, font: .monospacedDigitSystemFont(ofSize: 15, weight: .bold))
     }
 
+    private func historicalEmptyWeeksControlLayout(chartRect: NSRect) -> (labelRect: NSRect, switchRect: NSRect) {
+        let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let labelWidth = min(190, max(92, measuredTextWidth(t(.showPastEmptyWeeks), font: font) + 2))
+        let switchWidth: CGFloat = 40
+        let switchHeight: CGFloat = 22
+        let gap: CGFloat = 10
+        let groupWidth = labelWidth + gap + switchWidth
+        let yearGap: CGFloat = 14
+        let preferredX = costYearPopup.frame.minX - yearGap - groupWidth
+        let minX = chartRect.minX + 16
+        let groupX = max(minX, preferredX)
+        let switchRect = NSRect(x: groupX + labelWidth + gap, y: chartRect.minY + 14, width: switchWidth, height: switchHeight)
+        let labelRect = NSRect(x: groupX, y: chartRect.minY + 18, width: labelWidth, height: 14)
+        return (labelRect, switchRect)
+    }
+
     private func drawCostPage(snapshot: DetailsSnapshot, content: NSRect) {
         let limit = costEstimateLimit(from: snapshot.liveLimits)
         let costData = costPageData(for: snapshot, limit: limit, year: selectedCostYear)
@@ -3551,7 +3585,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawPanel(chartRect)
         drawText(t(.costHistory), rect: NSRect(x: chartRect.minX + 16, y: chartRect.minY + 12, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.costHistoryHint), rect: NSRect(x: chartRect.minX + 16, y: chartRect.minY + 36, width: 430, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.44))
-        drawText(t(.showPastEmptyWeeks), rect: NSRect(x: costYearPopup.frame.minX - 192, y: chartRect.minY + 16, width: 132, height: 14), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.50))
+        let emptyWeeksLayout = historicalEmptyWeeksControlLayout(chartRect: chartRect)
+        drawText(t(.showPastEmptyWeeks), rect: emptyWeeksLayout.labelRect, font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.50))
 
         drawCostRings(rows: costData.weeklyRows, rect: NSRect(x: chartRect.minX + 16, y: chartRect.minY + 60, width: chartRect.width - 32, height: chartRect.height - 78), year: selectedCostYear)
 
@@ -3611,7 +3646,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawText(day.day, rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: 180, height: 24), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold), color: .white)
         drawText("\(compact(day.usage.total)) \(t(.total))", rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: 260, height: 34), font: .monospacedDigitSystemFont(ofSize: 28, weight: .bold), color: .systemGreen)
         let limit = costEstimateLimit(from: snapshot.liveLimits)
-        let cost = planCostEstimate(report: report, selectedDay: day, limit: limit)
+        let cost = planCostEstimate(report: report, selectedDay: day, limit: limit, quotaReferenceReport: snapshot.costReferenceReport)
         var dayMeta = "\(day.turns) \(t(.turns).lowercased())  |  \(Int(round(intensity * 100)))% \(t(.peakDay))"
         if let cost {
             dayMeta += "  |  \(String(format: "%.1f%%", cost.selectedDayQuotaPercent)) \(t(.weeklyQuotaShare))"
@@ -4595,6 +4630,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveRefreshInFlight = true
         liveQueue.async {
             let limits = self.rateLimitReader.read()
+            let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             DispatchQueue.main.async {
                 self.liveRefreshInFlight = false
                 guard !limits.isEmpty else { return }
@@ -4603,7 +4639,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.latestState.error = nil
                 self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
                 self.dashboardController.dashboardView.update(self.latestState)
-                self.detailsController.updateLiveLimits(limits)
+                self.detailsController.updateLiveLimits(limits, costReferenceReport: costReferenceReport)
             }
         }
     }
@@ -4649,6 +4685,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func costReferenceReport(quota: QuotaViewOption, fallback: TokenReport?) -> TokenReport? {
         reportCache[ReportCacheKey(window: .week, quota: quota)] ?? fallback
+    }
+
+    private func liveCostReferenceReport(limits: [LiveRateLimit]) -> TokenReport? {
+        guard let weekly = costEstimateLimit(from: limits)?.secondary,
+              weekly.usedPercent > 0,
+              weekly.windowMinutes > 0,
+              let resetsAt = weekly.resetsAt else {
+            return nil
+        }
+        let start = resetsAt.addingTimeInterval(-TimeInterval(weekly.windowMinutes) * 60)
+        let now = Date()
+        guard start < now else { return nil }
+        return scanner.scan(from: start, to: now)
     }
 
     private func updateStatusTitle(report: TokenReport, limits: [LiveRateLimit], quota: QuotaViewOption) {
@@ -4806,7 +4855,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let all = self.scanner.scan(days: 365)
             let spark = self.scanner.scan(days: 365, includedModelName: QuotaViewOption.spark.includedModelName)
             let other = self.scanner.scan(days: 365, excludedModelName: QuotaViewOption.other.excludedModelName)
-            let snapshot = DetailsSnapshot(all: all, spark: spark, other: other, liveLimits: limits)
+            let costReferenceReport = self.liveCostReferenceReport(limits: limits)
+            let snapshot = DetailsSnapshot(all: all, spark: spark, other: other, liveLimits: limits, costReferenceReport: costReferenceReport)
             DispatchQueue.main.async {
                 self.detailsController.update(snapshot: snapshot)
             }
@@ -4974,8 +5024,8 @@ private func weekStarts(for year: Int) -> [Date] {
     return starts
 }
 
-private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil) -> [CostPeriodRow] {
-    guard let estimator = CostEstimator(report: report, limit: limit),
+private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil) -> [CostPeriodRow] {
+    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport),
           estimator.weeklyBudget > 0 else {
         return []
     }
@@ -5021,8 +5071,8 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
     return rows.filter { $0.hasData || $0.isFuture }
 }
 
-private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil) -> [CostPeriodRow] {
-    guard let estimator = CostEstimator(report: report, limit: limit),
+private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil) -> [CostPeriodRow] {
+    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport),
           estimator.weeklyBudget > 0 else {
         return []
     }
@@ -5055,8 +5105,8 @@ private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: I
     }
 }
 
-private func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil) -> [MonthlySpendRow] {
-    guard let estimator = CostEstimator(report: report, limit: limit),
+private func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil) -> [MonthlySpendRow] {
+    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport),
           estimator.weeklyBudget > 0 else {
         return []
     }
@@ -5081,8 +5131,8 @@ private func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: 
     }
 }
 
-private func planCostEstimate(report: TokenReport, selectedDay: DayUsage?, limit: LiveRateLimit?) -> PlanCostEstimate? {
-    guard let estimator = CostEstimator(report: report, limit: limit) else { return nil }
+private func planCostEstimate(report: TokenReport, selectedDay: DayUsage?, limit: LiveRateLimit?, quotaReferenceReport: TokenReport? = nil) -> PlanCostEstimate? {
+    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport) else { return nil }
 
     let today = report.byDay.first { $0.day == todayKey() } ?? report.byDay.suffix(7).last
     let selected = selectedDay ?? today
