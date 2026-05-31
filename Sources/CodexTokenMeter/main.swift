@@ -868,6 +868,18 @@ private enum AppSettings {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/sessions", isDirectory: true)
     }
 
+    static var appSupportDirectoryURL: URL {
+        if let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            return url.appendingPathComponent("Codex Token Meter", isDirectory: true)
+        }
+        return URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/Codex Token Meter", isDirectory: true)
+    }
+
+    static var costHistoryURL: URL {
+        appSupportDirectoryURL.appendingPathComponent("cost-history.json")
+    }
+
     static var logFolderURL: URL {
         get {
             guard let path = UserDefaults.standard.string(forKey: logFolderKey), !path.isEmpty else {
@@ -1034,6 +1046,140 @@ struct LiveRateLimit {
     let planType: String?
 }
 
+struct CostHistoryWeekSnapshot: Codable {
+    var limitID: String
+    var limitName: String
+    var weekStart: String
+    var maxUsedPercent: Double
+    var lastUsedPercent: Double
+    var lastRemainingPercent: Double
+    var observedCount: Int
+    var firstSeenAt: String
+    var updatedAt: String
+    var resetAt: String?
+}
+
+struct CostHistoryEvent: Codable {
+    var type: String
+    var limitID: String
+    var weekStart: String
+    var previousUsedPercent: Double
+    var currentUsedPercent: Double
+    var observedAt: String
+    var note: String
+}
+
+struct CostHistoryFile: Codable {
+    var version: Int = 1
+    var updatedAt: String?
+    var weeks: [String: CostHistoryWeekSnapshot] = [:]
+    var events: [CostHistoryEvent] = []
+}
+
+final class CostHistoryStore {
+    static let shared = CostHistoryStore(url: AppSettings.costHistoryURL)
+
+    private let url: URL
+    private var file: CostHistoryFile
+    private let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    init(url: URL) {
+        self.url = url
+        if let data = try? Data(contentsOf: url),
+           let decoded = try? JSONDecoder().decode(CostHistoryFile.self, from: data) {
+            self.file = decoded
+        } else {
+            self.file = CostHistoryFile()
+        }
+    }
+
+    func maxUsedPercent(limitID: String, weekStart: Date) -> Double? {
+        let key = snapshotKey(limitID: limitID, weekStart: weekStart)
+        return file.weeks[key]?.maxUsedPercent
+    }
+
+    func record(limits: [LiveRateLimit], observedAt: Date = Date()) {
+        guard !limits.isEmpty else { return }
+        var changed = false
+        let observedAtText = isoFormatter.string(from: observedAt)
+        for limit in limits {
+            let weekStart = appCalendar().dateInterval(of: .weekOfYear, for: observedAt)?.start ?? appCalendar().startOfDay(for: observedAt)
+            let key = snapshotKey(limitID: limit.id, weekStart: weekStart)
+            let usedPercent = max(0, min(100, limit.secondary.usedPercent))
+            let remainingPercent = max(0, min(100, limit.secondary.remainingPercent))
+            let resetAtText = limit.secondary.resetsAt.map { isoFormatter.string(from: $0) }
+
+            if var snapshot = file.weeks[key] {
+                if snapshot.lastUsedPercent - usedPercent >= 20 {
+                    file.events.append(CostHistoryEvent(
+                        type: "weekly_usage_percent_drop",
+                        limitID: limit.id,
+                        weekStart: snapshot.weekStart,
+                        previousUsedPercent: snapshot.lastUsedPercent,
+                        currentUsedPercent: usedPercent,
+                        observedAt: observedAtText,
+                        note: "OpenAI live quota usage dropped; treating this as a reset/refresh observation."
+                    ))
+                }
+                snapshot.limitName = limit.name
+                snapshot.maxUsedPercent = max(snapshot.maxUsedPercent, usedPercent)
+                snapshot.lastUsedPercent = usedPercent
+                snapshot.lastRemainingPercent = remainingPercent
+                snapshot.observedCount += 1
+                snapshot.updatedAt = observedAtText
+                snapshot.resetAt = resetAtText
+                file.weeks[key] = snapshot
+                changed = true
+            } else {
+                file.weeks[key] = CostHistoryWeekSnapshot(
+                    limitID: limit.id,
+                    limitName: limit.name,
+                    weekStart: dayFormatter().string(from: weekStart),
+                    maxUsedPercent: usedPercent,
+                    lastUsedPercent: usedPercent,
+                    lastRemainingPercent: remainingPercent,
+                    observedCount: 1,
+                    firstSeenAt: observedAtText,
+                    updatedAt: observedAtText,
+                    resetAt: resetAtText
+                )
+                changed = true
+            }
+        }
+        if changed {
+            file.updatedAt = observedAtText
+            file.events = Array(file.events.suffix(200))
+            save()
+        }
+    }
+
+    private func snapshotKey(limitID: String, weekStart: Date) -> String {
+        "\(limitID)|\(dayFormatter().string(from: weekStart))"
+    }
+
+    private func save() {
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try JSONEncoder.prettySorted.encode(file)
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            NSLog("Codex Token Meter failed to save cost history: \(error)")
+        }
+    }
+}
+
+private extension JSONEncoder {
+    static var prettySorted: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return encoder
+    }
+}
+
 private func costEstimateLimit(from limits: [LiveRateLimit]) -> LiveRateLimit? {
     limits.first { $0.id == QuotaViewOption.all.liveLimitID }
 }
@@ -1092,6 +1238,7 @@ struct CostEstimator {
     let weeklyBudget: Double
     let weeklyReferenceTotal: Double
     let weekly: RateWindow?
+    let limitID: String?
     let weeklyBuckets: [Date: Int64]
     let weeklyActiveDays: [Date: Int]
     let recentWeekTotal: Int64
@@ -1115,6 +1262,7 @@ struct CostEstimator {
         self.weeklyBudget = monthlyCost * 12 / 52
         self.weeklyReferenceTotal = weeklyReferenceTotal
         self.weekly = weekly
+        self.limitID = limit?.id
         self.weeklyBuckets = weeklyBuckets
         self.weeklyActiveDays = weeklyActiveDays
         self.recentWeekTotal = recentWeekTotal
@@ -1269,14 +1417,21 @@ struct CostEstimator {
     }
 
     private func currentWeeklyUsedValue(total: Int64) -> Double {
-        let localValue = localWeeklyUsedValue(forWeekStart: currentWeekStart, total: total)
-        guard let weekly else { return localValue }
+        guard let weekly else {
+            return localWeeklyUsedValue(forWeekStart: currentWeekStart, total: total)
+        }
         let liveValue = weeklyBudget * max(0, weekly.usedPercent) / 100
-        return min(weeklyBudget, max(localValue, liveValue))
+        return min(weeklyBudget, liveValue)
     }
 
     private func localWeeklyUsedValue(forWeekStart start: Date, total: Int64) -> Double {
         guard total > 0 else { return 0 }
+        if start < currentWeekStart,
+           let limitID,
+           let recordedPercent = CostHistoryStore.shared.maxUsedPercent(limitID: limitID, weekStart: start),
+           recordedPercent > 0 {
+            return weeklyBudget * min(100, recordedPercent) / 100
+        }
         if isHistoricalFullWeek(start: start, total: total) {
             return weeklyBudget
         }
@@ -4697,6 +4852,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scanQueue.async {
             let report = self.scanner.scan(window: window, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
             let limits = forceLive ? self.rateLimitReader.read() : currentLimits
+            if forceLive, !limits.isEmpty {
+                CostHistoryStore.shared.record(limits: limits)
+            }
             let nextRefresh = Date().addingTimeInterval(self.refreshInterval)
             DispatchQueue.main.async {
                 self.activeScans.remove(key)
@@ -4733,6 +4891,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveRefreshInFlight = true
         liveQueue.async {
             let limits = self.rateLimitReader.read()
+            CostHistoryStore.shared.record(limits: limits)
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             DispatchQueue.main.async {
                 self.liveRefreshInFlight = false
@@ -5269,6 +5428,7 @@ private func relative(_ date: Date) -> String {
 
 if CommandLine.arguments.contains("--print-live") {
     let limits = LiveRateLimitReader().read()
+    CostHistoryStore.shared.record(limits: limits)
     let payload = limits.map { limit in
         [
             "id": limit.id,
