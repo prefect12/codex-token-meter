@@ -4976,8 +4976,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             }
         }
 
-        drawContributionMonthLabels(days: days, useCalendarGrid: useCalendarGrid, columns: columns, square: square, gap: gap, startX: startX, y: startY + gridH + 10, compact: compact)
-        drawText(t(.usageIntensityHint), rect: NSRect(x: startX, y: rect.maxY - 26, width: rect.width - left - right, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+        let monthLabelY = startY + gridH + 10
+        drawContributionMonthLabels(days: days, useCalendarGrid: useCalendarGrid, columns: columns, square: square, gap: gap, startX: startX, y: monthLabelY, compact: compact)
+        drawText(t(.usageIntensityHint), rect: NSRect(x: startX, y: monthLabelY + 26, width: rect.width - left - right, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
     }
 
     private func drawContributionMonthLabels(days: [DayUsage], useCalendarGrid: Bool, columns: Int, square: CGFloat, gap: CGFloat, startX: CGFloat, y: CGFloat, compact: Bool) {
