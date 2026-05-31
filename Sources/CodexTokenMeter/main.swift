@@ -184,10 +184,8 @@ private enum AppLanguage: String, CaseIterable {
             return key.chinese
         case .japanese:
             return key.japanese
-        case .traditionalChinese:
-            return localizedTextOverrides[.traditionalChinese]?[key] ?? key.chinese
         default:
-            return localizedTextOverrides[self]?[key] ?? key.english
+            return key.english
         }
     }
 }
@@ -237,12 +235,19 @@ private enum NumberUnitStyle: String, CaseIterable {
 
     static let storageKey = "numberUnitStyle"
 
+    static var availableCases: [NumberUnitStyle] {
+        usesChineseUnits ? [.english, .chinese] : [.english]
+    }
+
+    static var effective: NumberUnitStyle {
+        usesChineseUnits ? current : .english
+    }
+
     static var current: NumberUnitStyle {
         get {
             guard let raw = UserDefaults.standard.string(forKey: storageKey),
                   let style = NumberUnitStyle(rawValue: raw) else {
-                let language = AppLanguage.current
-                return (language == .chinese || language == .traditionalChinese) ? .chinese : .english
+                return usesChineseUnits ? .chinese : .english
             }
             return style
         }
@@ -257,9 +262,13 @@ private enum NumberUnitStyle: String, CaseIterable {
         case .chinese: return "中文"
         }
     }
+
+    private static var usesChineseUnits: Bool {
+        AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese
+    }
 }
 
-private enum L10nKey: Hashable {
+private enum L10nKey {
     case about
     case aboutSubtitle
     case all
@@ -267,7 +276,7 @@ private enum L10nKey: Hashable {
     case budget
     case cache
     case cacheHit
-    case cacheHitDefinition
+    case cacheHitDescription
     case cached
     case calendar
     case calendarSubtitle
@@ -296,7 +305,6 @@ private enum L10nKey: Hashable {
     case language
     case languageHint
     case liveLimitUnavailable
-    case liveQuota
     case logFolder
     case logFolderHint
     case logFolderChoose
@@ -392,7 +400,7 @@ private enum L10nKey: Hashable {
         case .budget: return "Budget"
         case .cache: return "Cache"
         case .cacheHit: return "Cache Hit"
-        case .cacheHitDefinition: return "Cached input divided by total input for the selected window."
+        case .cacheHitDescription: return "Cached input divided by total input for the selected window."
         case .cached: return "Cached"
         case .calendar: return "Calendar"
         case .calendarSubtitle: return "Daily usage intensity over the last year"
@@ -421,7 +429,6 @@ private enum L10nKey: Hashable {
         case .language: return "Language"
         case .languageHint: return "Changes apply immediately to the popover and details window."
         case .liveLimitUnavailable: return "Live limit unavailable"
-        case .liveQuota: return "quota"
         case .logFolder: return "Log Folder"
         case .logFolderHint: return "Choose the Codex session log folder used for scanning."
         case .logFolderChoose: return "Choose..."
@@ -515,11 +522,11 @@ private enum L10nKey: Hashable {
         case .about: return "关于"
         case .aboutSubtitle: return "Codex 用量的读取和分组方式"
         case .all: return "全部"
-        case .allDescription: return "所有包含 token 明细的本地 Codex 用量事件。"
+        case .allDescription: return "包含 token 明细的全部记录"
         case .budget: return "预算"
         case .cache: return "缓存"
         case .cacheHit: return "缓存命中"
-        case .cacheHitDefinition: return "选中时间窗口内，缓存输入占总输入的比例。"
+        case .cacheHitDescription: return "选定时间范围内，缓存输入占总输入的比例。"
         case .cached: return "缓存"
         case .calendar: return "日历"
         case .calendarSubtitle: return "过去一年的每日使用强度"
@@ -548,7 +555,6 @@ private enum L10nKey: Hashable {
         case .language: return "语言"
         case .languageHint: return "切换后会立即应用到弹窗和详情窗口。"
         case .liveLimitUnavailable: return "实时限额不可用"
-        case .liveQuota: return "额度"
         case .logFolder: return "日志目录"
         case .logFolderHint: return "选择用于扫描的 Codex 会话日志目录。"
         case .logFolderChoose: return "选择..."
@@ -646,7 +652,7 @@ private enum L10nKey: Hashable {
         case .budget: return "予算"
         case .cache: return "キャッシュ"
         case .cacheHit: return "キャッシュ率"
-        case .cacheHitDefinition: return "選択した期間で、キャッシュ入力を総入力で割った比率です。"
+        case .cacheHitDescription: return "選択した期間の総入力に対するキャッシュ入力の割合。"
         case .cached: return "キャッシュ"
         case .calendar: return "カレンダー"
         case .calendarSubtitle: return "過去 1 年の日別使用量"
@@ -675,7 +681,6 @@ private enum L10nKey: Hashable {
         case .language: return "言語"
         case .languageHint: return "変更はポップオーバーと詳細ウィンドウにすぐ反映されます。"
         case .liveLimitUnavailable: return "リアルタイム制限を取得できません"
-        case .liveQuota: return "制限"
         case .logFolder: return "ログフォルダ"
         case .logFolderHint: return "スキャンに使う Codex セッションログのフォルダを選択します。"
         case .logFolderChoose: return "選択..."
@@ -764,928 +769,6 @@ private enum L10nKey: Hashable {
         }
     }
 }
-
-private let localizedTextOverrides: [AppLanguage: [L10nKey: String]] = [
-    .traditionalChinese: [
-        .about: "關於",
-        .aboutSubtitle: "Codex 用量的讀取和分組方式",
-        .all: "全部",
-        .allDescription: "所有包含 token 明細的本地 Codex 用量事件。",
-        .budget: "預算",
-        .cache: "快取",
-        .cacheHit: "快取命中",
-        .cached: "快取",
-        .calendar: "日曆",
-        .calendarSubtitle: "過去一年的每日使用強度",
-        .codexAppTotal: "Codex 總用量",
-        .copy: "複製",
-        .costs: "金額",
-        .costsSubtitle: "套餐設定和金額估算",
-        .costHistory: "金額歷史",
-        .dayValue: "當日價值",
-        .dataSource: "資料來源",
-        .definitions: "定義",
-        .details: "詳情",
-        .detailsWindowTitle: "Codex Token Meter 詳情",
-        .displayCurrency: "顯示幣別",
-        .displayEquivalent: "顯示折合",
-        .english: "英文",
-        .events: "事件",
-        .fresh: "新輸入",
-        .inShort: "輸入",
-        .input: "輸入",
-        .interfaceLanguage: "介面語言",
-        .japanese: "日文",
-        .language: "語言",
-        .languageHint: "切換後會立即套用到彈窗和詳情視窗。",
-        .liveLimitUnavailable: "即時限額不可用",
-        .liveQuota: "額度",
-        .logFolder: "日誌目錄",
-        .logFolderHint: "選擇用於掃描的 Codex 會話日誌目錄。",
-        .logFolderChoose: "選擇...",
-        .logFolderDefault: "預設",
-        .loadingUsageDetails: "正在載入用量詳情...",
-        .logs: "日誌",
-        .monthlySpendHistory: "月度金額歷史",
-        .models: "模型",
-        .next: "下次",
-        .noDataLoaded: "沒有載入資料",
-        .noUsage: "無用量",
-        .future: "未來",
-        .nonSparkUsage: "非 Spark 用量",
-        .numberUnits: "數字單位",
-        .numberUnitsHint: "只影響 token 數字縮寫；金額格式不變。",
-        .other: "其他",
-        .outShort: "輸出",
-        .output: "輸出",
-        .overview: "概覽",
-        .past24Hours: "過去 24 小時",
-        .past30Days: "過去 30 天",
-        .past7Days: "過去 7 天",
-        .pastYear: "過去一年",
-        .planCost: "套餐成本",
-        .planCostChange: "修改",
-        .planCostUnavailable: "成本估算需要即時週額度資料",
-        .paymentCurrency: "付款幣別",
-        .paymentMonthly: "月付金額",
-        .paymentStartDate: "付費開始日期",
-        .quotaViews: "限額視圖",
-        .quit: "退出",
-        .refresh: "重新整理",
-        .refreshing: "重新整理中...",
-        .remaining: "剩餘",
-        .reset: "重置",
-        .sessions: "會話",
-        .settings: "設定",
-        .settingsSubtitle: "語言和顯示偏好",
-        .spark: "Spark",
-        .tokenMeter: "Token 統計",
-        .total: "總計",
-        .turns: "輪次",
-        .todayValue: "今日價值",
-        .updated: "已更新",
-        .used: "已用",
-        .usageDetails: "用量詳情",
-        .usageWindow: "用量窗口",
-        .week: "週",
-        .weeklyBudget: "週預算",
-        .weeklyUnusedValue: "本週剩餘金額",
-        .weeklyUsedValue: "本週已用",
-        .weeklyLeft: "週額度剩餘",
-        .usageRate: "使用率",
-        .month: "月",
-        .fiveHourLeft: "5 小時剩餘",
-        .chinese: "中文"
-    ],
-    .german: [
-        .about: "Info",
-        .all: "Alle",
-        .budget: "Budget",
-        .cache: "Cache",
-        .cached: "Cache",
-        .calendar: "Kalender",
-        .codexAppTotal: "Codex gesamt",
-        .copy: "Kopieren",
-        .costs: "Kosten",
-        .costHistory: "Kostenverlauf",
-        .details: "Details",
-        .detailsWindowTitle: "Codex Token Meter Details",
-        .displayCurrency: "Anzeigewährung",
-        .english: "Englisch",
-        .events: "Ereignisse",
-        .fresh: "Neu",
-        .inShort: "ein",
-        .input: "Eingabe",
-        .interfaceLanguage: "Oberflächensprache",
-        .japanese: "Japanisch",
-        .language: "Sprache",
-        .languageHint: "Änderungen gelten sofort für Popover und Detailfenster.",
-        .liveLimitUnavailable: "Live-Limit nicht verfügbar",
-        .liveQuota: "Limit",
-        .logFolder: "Log-Ordner",
-        .logFolderHint: "Wähle den Codex Sitzungsordner für den Scan.",
-        .logFolderChoose: "Wählen...",
-        .logFolderDefault: "Standard",
-        .loadingUsageDetails: "Nutzungsdetails werden geladen...",
-        .logs: "Logs",
-        .monthlySpendHistory: "Monatlicher Kostenverlauf",
-        .models: "Modelle",
-        .next: "nächste",
-        .noDataLoaded: "Keine Daten geladen",
-        .noUsage: "Keine Nutzung",
-        .future: "Zukunft",
-        .nonSparkUsage: "Nicht-Spark-Nutzung",
-        .numberUnits: "Zahleneinheiten",
-        .other: "Andere",
-        .outShort: "aus",
-        .output: "Ausgabe",
-        .overview: "Übersicht",
-        .past24Hours: "Letzte 24 Stunden",
-        .past30Days: "Letzte 30 Tage",
-        .past7Days: "Letzte 7 Tage",
-        .pastYear: "Letztes Jahr",
-        .planCost: "Tarifkosten",
-        .planCostChange: "Ändern",
-        .planCostUnavailable: "Kosten brauchen Live-Wochenlimitdaten",
-        .paymentCurrency: "Zahlungswährung",
-        .paymentMonthly: "Monatlich bezahlt",
-        .paymentStartDate: "Bezahlt seit",
-        .quotaViews: "Limitansichten",
-        .quit: "Beenden",
-        .refresh: "Aktualisieren",
-        .refreshing: "Aktualisiere...",
-        .remaining: "Verbleibend",
-        .reset: "Zurücksetzen",
-        .sessions: "Sitzungen",
-        .settings: "Einstellungen",
-        .settingsSubtitle: "Sprache und Anzeige",
-        .tokenMeter: "Token-Zähler",
-        .total: "gesamt",
-        .turns: "Runden",
-        .todayValue: "Tageswert",
-        .updated: "Aktualisiert",
-        .used: "Verwendet",
-        .usageDetails: "Nutzungsdetails",
-        .usageWindow: "Zeitraum",
-        .week: "Woche",
-        .weeklyBudget: "Wochenbudget",
-        .weeklyUnusedValue: "Restbetrag der Woche",
-        .weeklyUsedValue: "Diese Woche genutzt",
-        .weeklyLeft: "Wochenlimit übrig",
-        .usageRate: "Nutzungsrate",
-        .month: "Monat",
-        .fiveHourLeft: "5 Std. übrig",
-        .chinese: "Chinesisch"
-    ],
-    .spanish: [
-        .about: "Acerca de",
-        .all: "Todo",
-        .budget: "Presupuesto",
-        .cache: "Caché",
-        .cached: "Caché",
-        .calendar: "Calendario",
-        .codexAppTotal: "Total de Codex",
-        .copy: "Copiar",
-        .costs: "Costes",
-        .costHistory: "Historial de costes",
-        .details: "Detalles",
-        .detailsWindowTitle: "Detalles de Codex Token Meter",
-        .displayCurrency: "Moneda de visualización",
-        .english: "Inglés",
-        .events: "eventos",
-        .fresh: "Nuevo",
-        .inShort: "entrada",
-        .input: "Entrada",
-        .interfaceLanguage: "Idioma de interfaz",
-        .japanese: "Japonés",
-        .language: "Idioma",
-        .languageHint: "Los cambios se aplican al instante.",
-        .liveLimitUnavailable: "Límite en vivo no disponible",
-        .liveQuota: "cuota",
-        .logFolder: "Carpeta de logs",
-        .logFolderChoose: "Elegir...",
-        .logFolderDefault: "Predeterminado",
-        .loadingUsageDetails: "Cargando detalles...",
-        .logs: "Logs",
-        .monthlySpendHistory: "Historial mensual",
-        .models: "Modelos",
-        .next: "siguiente",
-        .noDataLoaded: "No hay datos",
-        .noUsage: "Sin uso",
-        .future: "Futuro",
-        .nonSparkUsage: "Uso no Spark",
-        .numberUnits: "Unidades numéricas",
-        .other: "Otros",
-        .outShort: "salida",
-        .output: "Salida",
-        .overview: "Resumen",
-        .past24Hours: "Últimas 24 horas",
-        .past30Days: "Últimos 30 días",
-        .past7Days: "Últimos 7 días",
-        .pastYear: "Último año",
-        .planCost: "Coste del plan",
-        .planCostChange: "Cambiar",
-        .paymentCurrency: "Moneda de pago",
-        .paymentMonthly: "Pago mensual",
-        .paymentStartDate: "Pagado desde",
-        .quotaViews: "Vistas de cuota",
-        .quit: "Salir",
-        .refresh: "Actualizar",
-        .refreshing: "Actualizando...",
-        .remaining: "Restante",
-        .reset: "Restablecer",
-        .sessions: "Sesiones",
-        .settings: "Ajustes",
-        .tokenMeter: "Medidor de tokens",
-        .total: "total",
-        .turns: "turnos",
-        .todayValue: "Valor de hoy",
-        .updated: "Actualizado",
-        .used: "Usado",
-        .usageDetails: "Detalles de uso",
-        .usageWindow: "Ventana de uso",
-        .week: "Semana",
-        .weeklyBudget: "Presupuesto semanal",
-        .weeklyUnusedValue: "Dinero restante semanal",
-        .weeklyUsedValue: "Usado esta semana",
-        .weeklyLeft: "Cuota semanal restante",
-        .usageRate: "Tasa de uso",
-        .month: "Mes",
-        .fiveHourLeft: "Quedan 5 h",
-        .chinese: "Chino"
-    ],
-    .french: [
-        .about: "À propos",
-        .all: "Tout",
-        .budget: "Budget",
-        .cache: "Cache",
-        .cached: "Cache",
-        .calendar: "Calendrier",
-        .codexAppTotal: "Total Codex",
-        .copy: "Copier",
-        .costs: "Coûts",
-        .costHistory: "Historique des coûts",
-        .details: "Détails",
-        .detailsWindowTitle: "Détails Codex Token Meter",
-        .displayCurrency: "Devise affichée",
-        .english: "Anglais",
-        .events: "événements",
-        .fresh: "Nouveau",
-        .inShort: "entrée",
-        .input: "Entrée",
-        .interfaceLanguage: "Langue de l'interface",
-        .japanese: "Japonais",
-        .language: "Langue",
-        .languageHint: "Les changements s'appliquent immédiatement.",
-        .liveLimitUnavailable: "Limite en direct indisponible",
-        .liveQuota: "quota",
-        .logFolder: "Dossier de logs",
-        .logFolderChoose: "Choisir...",
-        .logFolderDefault: "Par défaut",
-        .loadingUsageDetails: "Chargement des détails...",
-        .logs: "Logs",
-        .monthlySpendHistory: "Historique mensuel",
-        .models: "Modèles",
-        .next: "prochain",
-        .noDataLoaded: "Aucune donnée",
-        .noUsage: "Aucune utilisation",
-        .future: "Futur",
-        .nonSparkUsage: "Utilisation hors Spark",
-        .numberUnits: "Unités numériques",
-        .other: "Autre",
-        .outShort: "sortie",
-        .output: "Sortie",
-        .overview: "Aperçu",
-        .past24Hours: "Dernières 24 h",
-        .past30Days: "Derniers 30 jours",
-        .past7Days: "Derniers 7 jours",
-        .pastYear: "Dernière année",
-        .planCost: "Coût du forfait",
-        .planCostChange: "Modifier",
-        .paymentCurrency: "Devise de paiement",
-        .paymentMonthly: "Paiement mensuel",
-        .paymentStartDate: "Payé depuis",
-        .quotaViews: "Vues des quotas",
-        .quit: "Quitter",
-        .refresh: "Actualiser",
-        .refreshing: "Actualisation...",
-        .remaining: "Restant",
-        .reset: "Réinitialiser",
-        .sessions: "Sessions",
-        .settings: "Réglages",
-        .tokenMeter: "Compteur de tokens",
-        .total: "total",
-        .turns: "tours",
-        .todayValue: "Valeur du jour",
-        .updated: "Mis à jour",
-        .used: "Utilisé",
-        .usageDetails: "Détails d'utilisation",
-        .usageWindow: "Fenêtre d'utilisation",
-        .week: "Semaine",
-        .weeklyBudget: "Budget hebdomadaire",
-        .weeklyUnusedValue: "Solde hebdomadaire",
-        .weeklyUsedValue: "Utilisé cette semaine",
-        .weeklyLeft: "Quota hebdo restant",
-        .usageRate: "Taux d'utilisation",
-        .month: "Mois",
-        .fiveHourLeft: "5 h restantes",
-        .chinese: "Chinois"
-    ],
-    .korean: [
-        .about: "정보",
-        .all: "전체",
-        .budget: "예산",
-        .cache: "캐시",
-        .cached: "캐시",
-        .calendar: "캘린더",
-        .codexAppTotal: "Codex 전체 사용량",
-        .copy: "복사",
-        .costs: "금액",
-        .costHistory: "금액 기록",
-        .details: "상세",
-        .detailsWindowTitle: "Codex Token Meter 상세",
-        .displayCurrency: "표시 통화",
-        .english: "영어",
-        .events: "이벤트",
-        .fresh: "신규",
-        .inShort: "입력",
-        .input: "입력",
-        .interfaceLanguage: "인터페이스 언어",
-        .japanese: "일본어",
-        .language: "언어",
-        .languageHint: "변경 사항은 즉시 적용됩니다.",
-        .liveLimitUnavailable: "실시간 한도를 사용할 수 없음",
-        .liveQuota: "한도",
-        .logFolder: "로그 폴더",
-        .logFolderChoose: "선택...",
-        .logFolderDefault: "기본값",
-        .loadingUsageDetails: "사용량 상세 로딩 중...",
-        .logs: "로그",
-        .monthlySpendHistory: "월별 금액 기록",
-        .models: "모델",
-        .next: "다음",
-        .noDataLoaded: "데이터 없음",
-        .noUsage: "사용량 없음",
-        .future: "미래",
-        .nonSparkUsage: "비 Spark 사용량",
-        .numberUnits: "숫자 단위",
-        .other: "기타",
-        .outShort: "출력",
-        .output: "출력",
-        .overview: "개요",
-        .past24Hours: "지난 24시간",
-        .past30Days: "지난 30일",
-        .past7Days: "지난 7일",
-        .pastYear: "지난 1년",
-        .planCost: "요금제 비용",
-        .planCostChange: "변경",
-        .paymentCurrency: "결제 통화",
-        .paymentMonthly: "월 결제",
-        .paymentStartDate: "결제 시작일",
-        .quotaViews: "한도 보기",
-        .quit: "종료",
-        .refresh: "새로고침",
-        .refreshing: "새로고침 중...",
-        .remaining: "남음",
-        .reset: "초기화",
-        .sessions: "세션",
-        .settings: "설정",
-        .tokenMeter: "토큰 통계",
-        .total: "합계",
-        .turns: "턴",
-        .todayValue: "오늘 가치",
-        .updated: "업데이트됨",
-        .used: "사용됨",
-        .usageDetails: "사용량 상세",
-        .usageWindow: "사용 기간",
-        .week: "주",
-        .weeklyBudget: "주간 예산",
-        .weeklyUnusedValue: "이번 주 남은 금액",
-        .weeklyUsedValue: "이번 주 사용",
-        .weeklyLeft: "주간 한도 남음",
-        .usageRate: "사용률",
-        .month: "월",
-        .fiveHourLeft: "5시간 남음",
-        .chinese: "중국어"
-    ],
-    .portugueseBrazil: [
-        .about: "Sobre",
-        .all: "Tudo",
-        .budget: "Orçamento",
-        .cache: "Cache",
-        .cached: "Cache",
-        .calendar: "Calendário",
-        .codexAppTotal: "Total do Codex",
-        .copy: "Copiar",
-        .costs: "Custos",
-        .costHistory: "Histórico de custos",
-        .details: "Detalhes",
-        .detailsWindowTitle: "Detalhes do Codex Token Meter",
-        .displayCurrency: "Moeda de exibição",
-        .english: "Inglês",
-        .events: "eventos",
-        .fresh: "Novo",
-        .inShort: "entrada",
-        .input: "Entrada",
-        .interfaceLanguage: "Idioma da interface",
-        .japanese: "Japonês",
-        .language: "Idioma",
-        .languageHint: "As alterações são aplicadas imediatamente.",
-        .liveLimitUnavailable: "Limite ao vivo indisponível",
-        .liveQuota: "cota",
-        .logFolder: "Pasta de logs",
-        .logFolderChoose: "Escolher...",
-        .logFolderDefault: "Padrão",
-        .loadingUsageDetails: "Carregando detalhes...",
-        .logs: "Logs",
-        .monthlySpendHistory: "Histórico mensal",
-        .models: "Modelos",
-        .next: "próximo",
-        .noDataLoaded: "Nenhum dado carregado",
-        .noUsage: "Sem uso",
-        .future: "Futuro",
-        .nonSparkUsage: "Uso não Spark",
-        .numberUnits: "Unidades numéricas",
-        .other: "Outros",
-        .outShort: "saída",
-        .output: "Saída",
-        .overview: "Visão geral",
-        .past24Hours: "Últimas 24 horas",
-        .past30Days: "Últimos 30 dias",
-        .past7Days: "Últimos 7 dias",
-        .pastYear: "Último ano",
-        .planCost: "Custo do plano",
-        .planCostChange: "Alterar",
-        .paymentCurrency: "Moeda de pagamento",
-        .paymentMonthly: "Pago mensalmente",
-        .paymentStartDate: "Pago desde",
-        .quotaViews: "Visões de cota",
-        .quit: "Sair",
-        .refresh: "Atualizar",
-        .refreshing: "Atualizando...",
-        .remaining: "Restante",
-        .reset: "Redefinir",
-        .sessions: "Sessões",
-        .settings: "Configurações",
-        .tokenMeter: "Medidor de tokens",
-        .total: "total",
-        .turns: "turnos",
-        .todayValue: "Valor de hoje",
-        .updated: "Atualizado",
-        .used: "Usado",
-        .usageDetails: "Detalhes de uso",
-        .usageWindow: "Janela de uso",
-        .week: "Semana",
-        .weeklyBudget: "Orçamento semanal",
-        .weeklyUnusedValue: "Saldo semanal",
-        .weeklyUsedValue: "Usado na semana",
-        .weeklyLeft: "Cota semanal restante",
-        .usageRate: "Taxa de uso",
-        .month: "Mês",
-        .fiveHourLeft: "5 h restantes",
-        .chinese: "Chinês"
-    ],
-    .russian: [
-        .about: "О программе",
-        .all: "Все",
-        .budget: "Бюджет",
-        .cache: "Кэш",
-        .cached: "Кэш",
-        .calendar: "Календарь",
-        .codexAppTotal: "Всего Codex",
-        .copy: "Копировать",
-        .costs: "Расходы",
-        .costHistory: "История расходов",
-        .details: "Детали",
-        .detailsWindowTitle: "Детали Codex Token Meter",
-        .displayCurrency: "Валюта отображения",
-        .english: "Английский",
-        .events: "события",
-        .fresh: "Новое",
-        .inShort: "ввод",
-        .input: "Ввод",
-        .interfaceLanguage: "Язык интерфейса",
-        .japanese: "Японский",
-        .language: "Язык",
-        .languageHint: "Изменения применяются сразу.",
-        .liveLimitUnavailable: "Лимит недоступен",
-        .liveQuota: "лимит",
-        .logFolder: "Папка логов",
-        .logFolderChoose: "Выбрать...",
-        .logFolderDefault: "По умолчанию",
-        .loadingUsageDetails: "Загрузка деталей...",
-        .logs: "Логи",
-        .monthlySpendHistory: "История по месяцам",
-        .models: "Модели",
-        .next: "далее",
-        .noDataLoaded: "Данные не загружены",
-        .noUsage: "Нет использования",
-        .future: "Будущее",
-        .nonSparkUsage: "Не Spark",
-        .numberUnits: "Единицы чисел",
-        .other: "Другое",
-        .outShort: "вывод",
-        .output: "Вывод",
-        .overview: "Обзор",
-        .past24Hours: "Последние 24 часа",
-        .past30Days: "Последние 30 дней",
-        .past7Days: "Последние 7 дней",
-        .pastYear: "Последний год",
-        .planCost: "Стоимость плана",
-        .planCostChange: "Изменить",
-        .paymentCurrency: "Валюта оплаты",
-        .paymentMonthly: "Оплата в месяц",
-        .paymentStartDate: "Оплачено с",
-        .quotaViews: "Лимиты",
-        .quit: "Выйти",
-        .refresh: "Обновить",
-        .refreshing: "Обновление...",
-        .remaining: "Осталось",
-        .reset: "Сбросить",
-        .sessions: "Сессии",
-        .settings: "Настройки",
-        .tokenMeter: "Счетчик токенов",
-        .total: "всего",
-        .turns: "ходы",
-        .todayValue: "Стоимость сегодня",
-        .updated: "Обновлено",
-        .used: "Использовано",
-        .usageDetails: "Детали использования",
-        .usageWindow: "Окно использования",
-        .week: "Неделя",
-        .weeklyBudget: "Недельный бюджет",
-        .weeklyUnusedValue: "Остаток за неделю",
-        .weeklyUsedValue: "Использовано за неделю",
-        .weeklyLeft: "Недельный лимит",
-        .usageRate: "Доля использования",
-        .month: "Месяц",
-        .fiveHourLeft: "Осталось 5 ч",
-        .chinese: "Китайский"
-    ],
-    .italian: [
-        .about: "Informazioni",
-        .all: "Tutto",
-        .budget: "Budget",
-        .cache: "Cache",
-        .cached: "Cache",
-        .calendar: "Calendario",
-        .codexAppTotal: "Totale Codex",
-        .copy: "Copia",
-        .costs: "Costi",
-        .costHistory: "Storico costi",
-        .details: "Dettagli",
-        .detailsWindowTitle: "Dettagli Codex Token Meter",
-        .displayCurrency: "Valuta visualizzata",
-        .english: "Inglese",
-        .events: "eventi",
-        .fresh: "Nuovo",
-        .inShort: "input",
-        .input: "Input",
-        .interfaceLanguage: "Lingua interfaccia",
-        .japanese: "Giapponese",
-        .language: "Lingua",
-        .languageHint: "Le modifiche si applicano subito.",
-        .liveLimitUnavailable: "Limite live non disponibile",
-        .liveQuota: "quota",
-        .logFolder: "Cartella log",
-        .logFolderChoose: "Scegli...",
-        .logFolderDefault: "Predefinito",
-        .loadingUsageDetails: "Caricamento dettagli...",
-        .logs: "Log",
-        .models: "Modelli",
-        .next: "prossimo",
-        .noDataLoaded: "Nessun dato",
-        .noUsage: "Nessun uso",
-        .future: "Futuro",
-        .nonSparkUsage: "Uso non Spark",
-        .numberUnits: "Unità numeriche",
-        .other: "Altro",
-        .outShort: "output",
-        .output: "Output",
-        .overview: "Panoramica",
-        .past24Hours: "Ultime 24 ore",
-        .past30Days: "Ultimi 30 giorni",
-        .past7Days: "Ultimi 7 giorni",
-        .pastYear: "Ultimo anno",
-        .planCost: "Costo piano",
-        .paymentCurrency: "Valuta pagamento",
-        .paymentMonthly: "Pagamento mensile",
-        .paymentStartDate: "Pagato da",
-        .quotaViews: "Quote",
-        .quit: "Esci",
-        .refresh: "Aggiorna",
-        .refreshing: "Aggiornamento...",
-        .remaining: "Rimanente",
-        .reset: "Ripristina",
-        .sessions: "Sessioni",
-        .settings: "Impostazioni",
-        .tokenMeter: "Contatore token",
-        .total: "totale",
-        .turns: "turni",
-        .todayValue: "Valore oggi",
-        .updated: "Aggiornato",
-        .used: "Usato",
-        .usageDetails: "Dettagli uso",
-        .usageWindow: "Finestra uso",
-        .week: "Settimana",
-        .weeklyBudget: "Budget settimanale",
-        .weeklyUnusedValue: "Saldo settimanale",
-        .weeklyUsedValue: "Usato questa settimana",
-        .weeklyLeft: "Quota settimanale",
-        .usageRate: "Tasso d'uso",
-        .month: "Mese",
-        .fiveHourLeft: "5 h rimaste",
-        .chinese: "Cinese"
-    ],
-    .indonesian: [
-        .about: "Tentang",
-        .all: "Semua",
-        .budget: "Anggaran",
-        .cache: "Cache",
-        .cached: "Cache",
-        .calendar: "Kalender",
-        .codexAppTotal: "Total Codex",
-        .copy: "Salin",
-        .costs: "Biaya",
-        .costHistory: "Riwayat biaya",
-        .details: "Detail",
-        .displayCurrency: "Mata uang tampilan",
-        .english: "Inggris",
-        .events: "peristiwa",
-        .fresh: "Baru",
-        .inShort: "masuk",
-        .input: "Input",
-        .interfaceLanguage: "Bahasa antarmuka",
-        .japanese: "Jepang",
-        .language: "Bahasa",
-        .languageHint: "Perubahan langsung diterapkan.",
-        .liveLimitUnavailable: "Limit live tidak tersedia",
-        .liveQuota: "kuota",
-        .logFolder: "Folder log",
-        .logFolderChoose: "Pilih...",
-        .logFolderDefault: "Default",
-        .logs: "Log",
-        .models: "Model",
-        .next: "berikutnya",
-        .noDataLoaded: "Belum ada data",
-        .noUsage: "Tidak ada pemakaian",
-        .future: "Masa depan",
-        .nonSparkUsage: "Pemakaian non-Spark",
-        .numberUnits: "Satuan angka",
-        .other: "Lainnya",
-        .outShort: "keluar",
-        .output: "Output",
-        .overview: "Ringkasan",
-        .past24Hours: "24 jam terakhir",
-        .past30Days: "30 hari terakhir",
-        .past7Days: "7 hari terakhir",
-        .pastYear: "Setahun terakhir",
-        .planCost: "Biaya paket",
-        .paymentCurrency: "Mata uang bayar",
-        .paymentMonthly: "Bayar bulanan",
-        .paymentStartDate: "Dibayar sejak",
-        .quotaViews: "Tampilan kuota",
-        .quit: "Keluar",
-        .refresh: "Segarkan",
-        .refreshing: "Menyegarkan...",
-        .remaining: "Sisa",
-        .reset: "Reset",
-        .sessions: "Sesi",
-        .settings: "Pengaturan",
-        .tokenMeter: "Meter token",
-        .total: "total",
-        .turns: "giliran",
-        .updated: "Diperbarui",
-        .used: "Terpakai",
-        .usageDetails: "Detail pemakaian",
-        .usageWindow: "Jendela pemakaian",
-        .week: "Minggu",
-        .weeklyBudget: "Anggaran mingguan",
-        .weeklyUnusedValue: "Sisa uang minggu ini",
-        .weeklyUsedValue: "Terpakai minggu ini",
-        .weeklyLeft: "Sisa kuota mingguan",
-        .usageRate: "Tingkat pemakaian",
-        .month: "Bulan",
-        .fiveHourLeft: "Sisa 5 jam",
-        .chinese: "Mandarin"
-    ],
-    .polish: [
-        .about: "O programie",
-        .all: "Wszystko",
-        .budget: "Budżet",
-        .cache: "Cache",
-        .cached: "Cache",
-        .calendar: "Kalendarz",
-        .codexAppTotal: "Suma Codex",
-        .copy: "Kopiuj",
-        .costs: "Koszty",
-        .costHistory: "Historia kosztów",
-        .details: "Szczegóły",
-        .displayCurrency: "Waluta wyświetlania",
-        .english: "Angielski",
-        .events: "zdarzenia",
-        .fresh: "Nowe",
-        .inShort: "wej.",
-        .input: "Wejście",
-        .interfaceLanguage: "Język interfejsu",
-        .japanese: "Japoński",
-        .language: "Język",
-        .languageHint: "Zmiany są stosowane od razu.",
-        .liveLimitUnavailable: "Limit live niedostępny",
-        .liveQuota: "limit",
-        .logFolder: "Folder logów",
-        .logFolderChoose: "Wybierz...",
-        .logFolderDefault: "Domyślne",
-        .logs: "Logi",
-        .models: "Modele",
-        .next: "następne",
-        .noDataLoaded: "Brak danych",
-        .noUsage: "Brak użycia",
-        .future: "Przyszłość",
-        .nonSparkUsage: "Użycie poza Spark",
-        .numberUnits: "Jednostki liczb",
-        .other: "Inne",
-        .outShort: "wyj.",
-        .output: "Wyjście",
-        .overview: "Przegląd",
-        .past24Hours: "Ostatnie 24 h",
-        .past30Days: "Ostatnie 30 dni",
-        .past7Days: "Ostatnie 7 dni",
-        .pastYear: "Ostatni rok",
-        .planCost: "Koszt planu",
-        .paymentCurrency: "Waluta płatności",
-        .paymentMonthly: "Płatność miesięczna",
-        .paymentStartDate: "Opłacone od",
-        .quotaViews: "Limity",
-        .quit: "Zakończ",
-        .refresh: "Odśwież",
-        .refreshing: "Odświeżanie...",
-        .remaining: "Pozostało",
-        .reset: "Resetuj",
-        .sessions: "Sesje",
-        .settings: "Ustawienia",
-        .tokenMeter: "Licznik tokenów",
-        .total: "razem",
-        .turns: "tury",
-        .updated: "Zaktualizowano",
-        .used: "Użyto",
-        .usageDetails: "Szczegóły użycia",
-        .usageWindow: "Okno użycia",
-        .week: "Tydzień",
-        .weeklyBudget: "Budżet tygodniowy",
-        .weeklyUnusedValue: "Saldo tygodniowe",
-        .weeklyUsedValue: "Użyto w tygodniu",
-        .weeklyLeft: "Pozostały limit tyg.",
-        .usageRate: "Wskaźnik użycia",
-        .month: "Miesiąc",
-        .fiveHourLeft: "Zostało 5 h",
-        .chinese: "Chiński"
-    ],
-    .ukrainian: [
-        .about: "Про програму",
-        .all: "Усе",
-        .budget: "Бюджет",
-        .cache: "Кеш",
-        .cached: "Кеш",
-        .calendar: "Календар",
-        .codexAppTotal: "Усього Codex",
-        .copy: "Копіювати",
-        .costs: "Витрати",
-        .costHistory: "Історія витрат",
-        .details: "Деталі",
-        .displayCurrency: "Валюта показу",
-        .english: "Англійська",
-        .events: "події",
-        .fresh: "Нове",
-        .inShort: "вхід",
-        .input: "Вхід",
-        .interfaceLanguage: "Мова інтерфейсу",
-        .japanese: "Японська",
-        .language: "Мова",
-        .languageHint: "Зміни застосовуються одразу.",
-        .liveLimitUnavailable: "Ліміт недоступний",
-        .liveQuota: "ліміт",
-        .logFolder: "Папка логів",
-        .logFolderChoose: "Вибрати...",
-        .logFolderDefault: "Типово",
-        .logs: "Логи",
-        .models: "Моделі",
-        .next: "далі",
-        .noDataLoaded: "Немає даних",
-        .noUsage: "Немає використання",
-        .future: "Майбутнє",
-        .nonSparkUsage: "Не Spark",
-        .numberUnits: "Одиниці чисел",
-        .other: "Інше",
-        .outShort: "вихід",
-        .output: "Вихід",
-        .overview: "Огляд",
-        .past24Hours: "Останні 24 год",
-        .past30Days: "Останні 30 днів",
-        .past7Days: "Останні 7 днів",
-        .pastYear: "Останній рік",
-        .planCost: "Вартість плану",
-        .paymentCurrency: "Валюта оплати",
-        .paymentMonthly: "Щомісячна оплата",
-        .paymentStartDate: "Оплачено з",
-        .quotaViews: "Ліміти",
-        .quit: "Вийти",
-        .refresh: "Оновити",
-        .refreshing: "Оновлення...",
-        .remaining: "Залишок",
-        .reset: "Скинути",
-        .sessions: "Сесії",
-        .settings: "Налаштування",
-        .tokenMeter: "Лічильник токенів",
-        .total: "усього",
-        .turns: "ходи",
-        .updated: "Оновлено",
-        .used: "Використано",
-        .usageDetails: "Деталі використання",
-        .usageWindow: "Вікно використання",
-        .week: "Тиждень",
-        .weeklyBudget: "Тижневий бюджет",
-        .weeklyUnusedValue: "Залишок за тиждень",
-        .weeklyUsedValue: "Використано за тиждень",
-        .weeklyLeft: "Залишок тижневого ліміту",
-        .usageRate: "Рівень використання",
-        .month: "Місяць",
-        .fiveHourLeft: "Залишилось 5 год",
-        .chinese: "Китайська"
-    ],
-    .hindi: [
-        .about: "परिचय",
-        .all: "सभी",
-        .budget: "बजट",
-        .cache: "कैश",
-        .cached: "कैश",
-        .calendar: "कैलेंडर",
-        .codexAppTotal: "Codex कुल",
-        .copy: "कॉपी",
-        .costs: "लागत",
-        .costHistory: "लागत इतिहास",
-        .details: "विवरण",
-        .displayCurrency: "दिखाने की मुद्रा",
-        .english: "अंग्रेज़ी",
-        .events: "इवेंट",
-        .fresh: "नया",
-        .inShort: "इन",
-        .input: "इनपुट",
-        .interfaceLanguage: "इंटरफेस भाषा",
-        .japanese: "जापानी",
-        .language: "भाषा",
-        .languageHint: "बदलाव तुरंत लागू होंगे।",
-        .liveLimitUnavailable: "लाइव सीमा उपलब्ध नहीं",
-        .liveQuota: "कोटा",
-        .logFolder: "लॉग फ़ोल्डर",
-        .logFolderChoose: "चुनें...",
-        .logFolderDefault: "डिफ़ॉल्ट",
-        .logs: "लॉग",
-        .models: "मॉडल",
-        .next: "अगला",
-        .noDataLoaded: "डेटा नहीं",
-        .noUsage: "कोई उपयोग नहीं",
-        .future: "भविष्य",
-        .nonSparkUsage: "Non-Spark उपयोग",
-        .numberUnits: "संख्या इकाइयाँ",
-        .other: "अन्य",
-        .outShort: "आउट",
-        .output: "आउटपुट",
-        .overview: "अवलोकन",
-        .past24Hours: "पिछले 24 घंटे",
-        .past30Days: "पिछले 30 दिन",
-        .past7Days: "पिछले 7 दिन",
-        .pastYear: "पिछला साल",
-        .planCost: "प्लान लागत",
-        .paymentCurrency: "भुगतान मुद्रा",
-        .paymentMonthly: "मासिक भुगतान",
-        .paymentStartDate: "भुगतान शुरू",
-        .quotaViews: "कोटा दृश्य",
-        .quit: "बंद करें",
-        .refresh: "रीफ़्रेश",
-        .refreshing: "रीफ़्रेश हो रहा...",
-        .remaining: "शेष",
-        .reset: "रीसेट",
-        .sessions: "सेशन",
-        .settings: "सेटिंग्स",
-        .tokenMeter: "टोकन मीटर",
-        .total: "कुल",
-        .turns: "टर्न",
-        .updated: "अपडेट",
-        .used: "उपयोग",
-        .usageDetails: "उपयोग विवरण",
-        .usageWindow: "उपयोग अवधि",
-        .week: "सप्ताह",
-        .weeklyBudget: "साप्ताहिक बजट",
-        .weeklyUnusedValue: "साप्ताहिक शेष राशि",
-        .weeklyUsedValue: "इस सप्ताह उपयोग",
-        .weeklyLeft: "साप्ताहिक कोटा शेष",
-        .usageRate: "उपयोग दर",
-        .month: "माह",
-        .fiveHourLeft: "5 घंटे शेष",
-        .chinese: "चीनी"
-    ]
-]
 
 private func t(_ key: L10nKey) -> String {
     AppLanguage.current.text(key)
@@ -1959,7 +1042,6 @@ struct DashboardState {
     var report = TokenReport()
     var costReferenceReport: TokenReport?
     var liveLimits: [LiveRateLimit] = []
-    var liveLimitsUpdatedAt: Date?
     var selectedWindow: WindowOption = .week
     var selectedQuota: QuotaViewOption = .all
     var nextRefreshAt = Date()
@@ -1999,6 +1081,119 @@ struct CostPeriodRow {
     var usedPercent: Double {
         guard budgetValue > 0 else { return 0 }
         return min(999, max(0, usedValue / budgetValue * 100))
+    }
+}
+
+struct CostEstimator {
+    let report: TokenReport
+    let monthlyCost: Double
+    let weeklyBudget: Double
+    let weeklyReferenceTotal: Double
+    let weekly: RateWindow?
+    let weeklyBuckets: [Date: Int64]
+    let recentWeekTotal: Int64
+    let startDay: String
+
+    init?(report: TokenReport, limit: LiveRateLimit?, quotaReferenceReport: TokenReport? = nil) {
+        let monthlyCost = AppSettings.monthlyPlanCost
+        guard monthlyCost > 0 else { return nil }
+        let startDay = effectivePaymentStartDay(in: report)
+        let weekly = limit?.secondary
+        let weeklyBuckets = Self.weeklyUsageBuckets(days: report.byDay, startDay: startDay)
+        let recentWeekTotal = Array(report.byDay.suffix(7)).reduce(Int64(0)) { $0 + $1.usage.total }
+        guard recentWeekTotal > 0,
+              let weeklyReferenceTotal = Self.weeklyReferenceTotal(days: report.byDay, startDay: startDay, weekly: weekly, quotaReferenceTotal: quotaReferenceReport?.usage.total),
+              weeklyReferenceTotal > 0 else {
+            return nil
+        }
+        self.report = report
+        self.monthlyCost = monthlyCost
+        self.weeklyBudget = monthlyCost * 12 / 52
+        self.weeklyReferenceTotal = weeklyReferenceTotal
+        self.weekly = weekly
+        self.weeklyBuckets = weeklyBuckets
+        self.recentWeekTotal = recentWeekTotal
+        self.startDay = startDay
+    }
+
+    static func weeklyUsageBuckets(days: [DayUsage], startDay: String? = nil) -> [Date: Int64] {
+        let calendar = appCalendar()
+        let parser = dayFormatter()
+        var buckets: [Date: Int64] = [:]
+        for day in days where startDay.map({ day.day >= $0 }) ?? true && day.usage.total > 0 {
+            guard let date = parser.date(from: day.day),
+                  let start = calendar.dateInterval(of: .weekOfYear, for: date)?.start else { continue }
+            buckets[start, default: 0] += day.usage.total
+        }
+        return buckets
+    }
+
+    static func weeklyReferenceTotal(days: [DayUsage], startDay: String? = nil, weekly: RateWindow?, quotaReferenceTotal: Int64? = nil) -> Double? {
+        let buckets = weeklyUsageBuckets(days: days, startDay: startDay)
+        guard let peakHistoricalTotal = buckets.values.max(), peakHistoricalTotal > 0 else {
+            return nil
+        }
+
+        let quotaReferenceTotal = quotaReferenceTotal ?? 0
+        if quotaReferenceTotal > 0,
+           let weekly,
+           weekly.usedPercent > 0 {
+            let liveCalibratedTotal = Double(quotaReferenceTotal) / max(weekly.usedPercent / 100, 0.0001)
+            return max(Double(peakHistoricalTotal), liveCalibratedTotal)
+        }
+
+        let calendar = appCalendar()
+        let currentWeekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? calendar.startOfDay(for: Date())
+        let currentWeekTotal = buckets[currentWeekStart] ?? 0
+        if buckets.count <= 1,
+           currentWeekTotal > 0,
+           let weekly,
+           weekly.usedPercent > 0 {
+            return Double(currentWeekTotal) / max(weekly.usedPercent / 100, 0.0001)
+        }
+
+        guard let weekly,
+              weekly.usedPercent >= 10,
+              currentWeekTotal > 0 else {
+            return Double(peakHistoricalTotal)
+        }
+        let liveCalibratedTotal = Double(currentWeekTotal) / max(weekly.usedPercent / 100, 0.0001)
+        return max(Double(peakHistoricalTotal), liveCalibratedTotal)
+    }
+
+    func value(for usage: Usage) -> Double {
+        value(forTotal: usage.total)
+    }
+
+    func value(forTotal total: Int64) -> Double {
+        weeklyBudget * Double(total) / weeklyReferenceTotal
+    }
+
+    func quotaPercent(for usage: Usage) -> Double {
+        quotaPercent(forTotal: usage.total)
+    }
+
+    func quotaPercent(forTotal total: Int64) -> Double {
+        Double(total) / weeklyReferenceTotal * 100
+    }
+
+    func weeklyUsedValue() -> Double {
+        weekly.map { weeklyBudget * $0.usedPercent / 100 } ?? min(weeklyBudget, valueForRecentWeek())
+    }
+
+    func weeklyUnusedValue() -> Double {
+        weekly.map { weeklyBudget * $0.remainingPercent / 100 } ?? max(0, weeklyBudget - min(weeklyBudget, valueForRecentWeek()))
+    }
+
+    func totalSpentValue() -> Double {
+        report.byDay.reduce(0.0) { partial, day in
+            guard day.day >= startDay else { return partial }
+            return partial + value(for: day.usage)
+        }
+    }
+
+    private func valueForRecentWeek() -> Double {
+        value(forTotal: recentWeekTotal)
     }
 }
 
@@ -2538,7 +1733,7 @@ final class CodexTokenScanner {
 }
 
 final class LiveRateLimitReader {
-    func read(timeout: TimeInterval = 5) -> [LiveRateLimit] {
+    func read(timeout: TimeInterval = 8) -> [LiveRateLimit] {
         guard let codexPath = codexExecutablePath() else {
             return []
         }
@@ -2568,9 +1763,9 @@ final class LiveRateLimitReader {
                 if let data = (message + "\n").data(using: .utf8) {
                     try? writer.write(contentsOf: data)
                 }
-                Thread.sleep(forTimeInterval: 0.15)
+                Thread.sleep(forTimeInterval: 0.35)
             }
-            Thread.sleep(forTimeInterval: 1.2)
+            Thread.sleep(forTimeInterval: 4.5)
             try? writer.close()
         }
 
@@ -2730,6 +1925,7 @@ final class UsageChartView: NSView {
     var hours: [HourUsage] = [] { didSet { hoveredIndex = nil; needsDisplay = true } }
     var weeklyQuotaUsedPercent: Double? { didSet { needsDisplay = true } }
     var weeklyQuotaReferenceTotal: Int64? { didSet { needsDisplay = true } }
+    var costEstimator: CostEstimator? { didSet { needsDisplay = true } }
     private var hoveredIndex: Int?
     private var hoverPoint: CGPoint?
 
@@ -2981,13 +2177,13 @@ final class UsageChartView: NSView {
             "\(t(.cached))      \(compact(usage.cachedInput))",
             "\(t(.fresh))       \(compact(usage.freshInput))"
         ]
-        if let weeklyQuotaPercent = weeklyQuotaShare(for: usage) {
+        if let weeklyQuotaPercent = stableWeeklyQuotaShare(for: usage) ?? weeklyQuotaShare(for: usage) {
             lines.append("\(t(.weeklyQuotaShare))   \(String(format: "%.1f%%", weeklyQuotaPercent))")
         } else if let visibleWeekPercent = visibleWeekShare(for: usage) {
             lines.append("\(t(.visibleWeekShare)) \(String(format: "%.1f%%", visibleWeekPercent))")
         }
-        if let paymentValue = paymentValueForDayUsage(usage, weeklyQuotaUsedPercent: weeklyQuotaUsedPercent, weeklyQuotaReferenceTotal: weeklyQuotaReferenceTotal) {
-            lines.append("\(t(.dayValue))  \(displayMoney(paymentValue))")
+        if let costEstimator {
+            lines.append("\(t(.dayValue))  \(displayMoney(costEstimator.value(for: usage)))")
         }
 
         let width: CGFloat = 214
@@ -3033,6 +2229,15 @@ final class UsageChartView: NSView {
         guard usage.total > 0, referenceTotal > 0 else { return nil }
         let shareOfVisibleWeek = Double(usage.total) / Double(referenceTotal)
         return shareOfVisibleWeek * weeklyQuotaUsedPercent
+    }
+
+    private func stableWeeklyQuotaShare(for usage: Usage) -> Double? {
+        guard selectedWindow != .day,
+              usage.total > 0,
+              let costEstimator else {
+            return nil
+        }
+        return costEstimator.quotaPercent(for: usage)
     }
 
     private func visibleWeekShare(for usage: Usage) -> Double? {
@@ -3111,10 +2316,7 @@ final class DashboardView: NSView {
         totalLabel.stringValue = compact(report.usage.total)
         detailLabel.stringValue = state.selectedWindow.title
         usageLabel.stringValue = "\(compact(report.usage.input)) \(t(.inShort))  |  \(compact(report.usage.output)) \(t(.outShort))"
-        let quotaUpdated = state.liveLimitsUpdatedAt.map { relative($0) } ?? "--"
-        refreshLabel.stringValue = state.isLoading
-            ? t(.refreshing)
-            : "\(t(.updated)) \(relative(report.scannedAt))  |  \(t(.liveQuota)) \(quotaUpdated)"
+        refreshLabel.stringValue = state.isLoading ? t(.refreshing) : "\(t(.updated)) \(relative(report.scannedAt))  |  \(t(.next)) \(relative(state.nextRefreshAt))"
 
         quotaSegment.selectedSegment = QuotaViewOption.allCases.firstIndex(of: state.selectedQuota) ?? 0
         segment.selectedSegment = WindowOption.allCases.firstIndex(of: state.selectedWindow) ?? 1
@@ -3141,6 +2343,7 @@ final class DashboardView: NSView {
         dayChart.hours = report.byHour
         dayChart.weeklyQuotaUsedPercent = state.selectedWindow == .day ? nil : weekly?.usedPercent
         dayChart.weeklyQuotaReferenceTotal = state.selectedWindow == .day ? nil : report.byDay.suffix(7).reduce(Int64(0)) { $0 + $1.usage.total }
+        dayChart.costEstimator = state.selectedWindow == .day ? nil : CostEstimator(report: report, limit: displayLimit)
         sessionsLabel.stringValue = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
         if let estimate = planCostEstimate(report: state.costReferenceReport ?? report, selectedDay: nil, limit: displayLimit) {
             costLabel.stringValue = "\(t(.weeklyUnusedValue)) \(displayMoney(estimate.weeklyUnusedValue))"
@@ -4127,7 +3330,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawMetricCards(snapshot: snapshot, content: content)
         drawQuotaRows(snapshot: snapshot, content: content, y: quotaY, height: 120)
         drawModelRows(snapshot: snapshot, content: content, y: modelsY, height: 130, maxRows: 4)
-        let gridRect = NSRect(x: content.minX, y: gridY, width: content.width, height: max(168, content.maxY - gridY))
+        let gridRect = NSRect(x: content.minX, y: gridY, width: content.width, height: min(260, max(168, content.maxY - gridY)))
         drawContributionGrid(report: snapshot.all, rect: gridRect, title: t(.pastYear), compact: true)
     }
 
@@ -4572,11 +3775,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let optionH: CGFloat = 38
         let gap: CGFloat = 12
         let unitY = rect.minY + 130
-        let unitStartX = rect.maxX - 16 - unitOptionW * CGFloat(NumberUnitStyle.allCases.count) - gap * CGFloat(NumberUnitStyle.allCases.count - 1)
-        for (index, style) in NumberUnitStyle.allCases.enumerated() {
+        let availableUnitStyles = NumberUnitStyle.availableCases
+        let unitStartX = rect.maxX - 16 - unitOptionW * CGFloat(availableUnitStyles.count) - gap * CGFloat(max(availableUnitStyles.count - 1, 0))
+        for (index, style) in availableUnitStyles.enumerated() {
             let optionRect = NSRect(x: unitStartX + CGFloat(index) * (unitOptionW + gap), y: unitY, width: unitOptionW, height: optionH)
             numberUnitOptionRects[style] = optionRect
-            drawSelectablePill(style.title, rect: optionRect, selected: style == NumberUnitStyle.current)
+            drawSelectablePill(style.title, rect: optionRect, selected: style == NumberUnitStyle.effective)
         }
         drawText(t(.numberUnitsHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 186, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
@@ -4947,7 +4151,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             (t(.all), t(.allDescription)),
             (t(.spark), t(.sparkDescription)),
             (t(.other), t(.otherDefinition)),
-            (t(.cacheHit), t(.cacheHitDefinition))
+            (t(.cacheHit), t(.cacheHitDescription))
         ]
         for (index, row) in rows.enumerated() {
             let y = rect.minY + 52 + CGFloat(index) * 38
@@ -5003,9 +4207,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             }
         }
 
-        let monthLabelY = startY + gridH + 10
-        drawContributionMonthLabels(days: days, useCalendarGrid: useCalendarGrid, columns: columns, square: square, gap: gap, startX: startX, y: monthLabelY, compact: compact)
-        drawText(t(.usageIntensityHint), rect: NSRect(x: startX, y: monthLabelY + 26, width: rect.width - left - right, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+        let labelY = min(startY + gridH + 10, rect.maxY - 38)
+        let hintY = min(labelY + 18, rect.maxY - 20)
+        drawContributionMonthLabels(days: days, useCalendarGrid: useCalendarGrid, columns: columns, square: square, gap: gap, startX: startX, y: labelY, compact: compact)
+        drawText(t(.usageIntensityHint), rect: NSRect(x: rect.maxX - 280, y: hintY, width: 260, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
     }
 
     private func drawContributionMonthLabels(days: [DayUsage], useCalendarGrid: Bool, columns: Int, square: CGFloat, gap: CGFloat, startX: CGFloat, y: CGFloat, compact: Bool) {
@@ -5042,7 +4247,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             formatter.locale = Locale(identifier: "ja_JP")
             formatter.dateFormat = "M月"
         default:
-            formatter.locale = Locale(identifier: AppLanguage.current.rawValue)
+            formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = "MMM"
         }
         return formatter.string(from: date)
@@ -5168,16 +4373,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var latestState = DashboardState()
     private var reportCache: [ReportCacheKey: TokenReport] = [:]
     private var liveLimits: [LiveRateLimit] = []
-    private var liveLimitsUpdatedAt: Date?
     private var refreshTimer: Timer?
-    private var liveRefreshTimer: Timer?
     private var activeScans: Set<ReportCacheKey> = []
     private var liveRefreshInFlight = false
     private var statusSpinnerTimer: Timer?
     private var statusSpinnerFrame = 0
     private var statusIsLoading = false
     private let refreshInterval: TimeInterval = 300
-    private let liveRefreshInterval: TimeInterval = 60
     private let statusIconSize = NSSize(width: 14, height: 14)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -5201,8 +4403,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dashboardController.dashboardView.onWindowChanged = { [weak self] option in self?.selectWindow(option) }
         dashboardController.dashboardView.onQuotaChanged = { [weak self] option in self?.selectQuota(option) }
         dashboardController.dashboardView.onRefresh = { [weak self] in
-            self?.refreshLiveLimits()
             self?.refresh(forceLive: false)
+            self?.refreshLiveLimits()
         }
         dashboardController.dashboardView.onOpenDetails = { [weak self] in self?.openDetailsWindow() }
         dashboardController.dashboardView.onOpenLogs = { [weak self] in self?.openSessionsFolder() }
@@ -5234,8 +4436,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshLiveLimits()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh(forceLive: false)
-        }
-        liveRefreshTimer = Timer.scheduledTimer(withTimeInterval: liveRefreshInterval, repeats: true) { [weak self] _ in
             self?.refreshLiveLimits()
         }
     }
@@ -5316,7 +4516,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
-            refreshLiveLimits()
         }
     }
 
@@ -5347,7 +4546,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 report: cached,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: cached),
                 liveLimits: liveLimits,
-                liveLimitsUpdatedAt: liveLimitsUpdatedAt,
                 selectedWindow: selectedWindow,
                 selectedQuota: selectedQuota,
                 nextRefreshAt: latestState.nextRefreshAt,
@@ -5361,7 +4559,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 report: TokenReport(scannedAt: Date()),
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: nil),
                 liveLimits: liveLimits,
-                liveLimitsUpdatedAt: liveLimitsUpdatedAt,
                 selectedWindow: selectedWindow,
                 selectedQuota: selectedQuota,
                 nextRefreshAt: latestState.nextRefreshAt,
@@ -5384,7 +4581,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             report: reportCache[key] ?? TokenReport(scannedAt: Date()),
             costReferenceReport: costReferenceReport(quota: quota, fallback: reportCache[key]),
             liveLimits: liveLimits,
-            liveLimitsUpdatedAt: liveLimitsUpdatedAt,
             selectedWindow: window,
             selectedQuota: quota,
             nextRefreshAt: latestState.nextRefreshAt,
@@ -5404,7 +4600,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.reportCache[key] = report
                 if forceLive, !limits.isEmpty {
                     self.liveLimits = limits
-                    self.liveLimitsUpdatedAt = Date()
                 }
                 if self.selectedWindow == window && self.selectedQuota == quota {
                     let effectiveLimits = forceLive && !limits.isEmpty ? limits : self.liveLimits
@@ -5412,7 +4607,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         report: report,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
                         liveLimits: effectiveLimits,
-                        liveLimitsUpdatedAt: self.liveLimitsUpdatedAt,
                         selectedWindow: window,
                         selectedQuota: quota,
                         nextRefreshAt: nextRefresh,
@@ -5423,7 +4617,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.dashboardController.dashboardView.update(self.latestState)
                 } else if forceLive, !limits.isEmpty {
                     self.latestState.liveLimits = limits
-                    self.latestState.liveLimitsUpdatedAt = self.liveLimitsUpdatedAt
                     self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
                     self.dashboardController.dashboardView.update(self.latestState)
                 }
@@ -5442,9 +4635,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.liveRefreshInFlight = false
                 guard !limits.isEmpty else { return }
                 self.liveLimits = limits
-                self.liveLimitsUpdatedAt = Date()
                 self.latestState.liveLimits = limits
-                self.latestState.liveLimitsUpdatedAt = self.liveLimitsUpdatedAt
                 self.latestState.error = nil
                 self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
                 self.dashboardController.dashboardView.update(self.latestState)
@@ -5476,7 +4667,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         report: report,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
                         liveLimits: self.liveLimits,
-                        liveLimitsUpdatedAt: self.liveLimitsUpdatedAt,
                         selectedWindow: window,
                         selectedQuota: quota,
                         nextRefreshAt: self.latestState.nextRefreshAt,
@@ -5717,7 +4907,7 @@ private func format(_ value: Int64) -> String {
 
 private func compact(_ value: Int64) -> String {
     let double = Double(value)
-    switch NumberUnitStyle.current {
+    switch NumberUnitStyle.effective {
     case .english:
         if value >= 1_000_000_000 { return String(format: "%.2fB", double / 1_000_000_000) }
         if value >= 1_000_000 { return String(format: "%.1fM", double / 1_000_000) }
@@ -5801,22 +4991,6 @@ private func effectivePaymentStartDay(in report: TokenReport?) -> String {
     return report?.byDay.map(\.day).sorted().first ?? todayKey()
 }
 
-private func currentWeeklyBudgetPaymentValue() -> Double {
-    AppSettings.monthlyPlanCost * 12 / 52
-}
-
-private func paymentValueForDayUsage(_ usage: Usage, weeklyQuotaUsedPercent: Double?, weeklyQuotaReferenceTotal: Int64?) -> Double? {
-    guard let weeklyQuotaUsedPercent,
-          weeklyQuotaUsedPercent > 0,
-          let weeklyQuotaReferenceTotal,
-          weeklyQuotaReferenceTotal > 0,
-          usage.total > 0 else {
-        return nil
-    }
-    let shareOfVisibleWeek = Double(usage.total) / Double(weeklyQuotaReferenceTotal)
-    return currentWeeklyBudgetPaymentValue() * shareOfVisibleWeek * weeklyQuotaUsedPercent / 100
-}
-
 private func availableCostYears(from report: TokenReport?) -> [Int] {
     let currentYear = Calendar.current.component(.year, from: Date())
     let startDay = effectivePaymentStartDay(in: report)
@@ -5851,26 +5025,18 @@ private func weekStarts(for year: Int) -> [Date] {
 }
 
 private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil) -> [CostPeriodRow] {
-    guard let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit, quotaReferenceReport: quotaReferenceReport),
-          estimate.weeklyBudget > 0,
-          estimate.weeklyQuotaTotal > 0 else {
+    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport),
+          estimator.weeklyBudget > 0 else {
         return []
     }
-    let paymentPerToken = estimate.weeklyBudget / max(estimate.weeklyQuotaTotal, 1)
     let calendar = appCalendar()
     let parser = dayFormatter()
     let labelFormatter = shortMonthDayFormatter()
     let titleFormatter = dayFormatter()
-    let startDay = effectivePaymentStartDay(in: report)
-    let startDate = parser.date(from: startDay) ?? calendar.startOfDay(for: Date())
+    let startDate = parser.date(from: estimator.startDay) ?? calendar.startOfDay(for: Date())
     let startWeek = calendar.dateInterval(of: .weekOfYear, for: startDate)?.start ?? startDate
     let startWeekYear = calendar.component(.yearForWeekOfYear, from: startDate)
-    var buckets: [Date: Int64] = [:]
-    for day in report.byDay where day.day >= startDay && day.usage.total > 0 {
-        guard let date = parser.date(from: day.day),
-              let start = calendar.dateInterval(of: .weekOfYear, for: date)?.start else { continue }
-        buckets[start, default: 0] += day.usage.total
-    }
+    let buckets = estimator.weeklyBuckets
     let starts: [Date]
     if let year {
         guard year >= startWeekYear else { return [] }
@@ -5886,8 +5052,8 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
     let currentWeekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? calendar.startOfDay(for: Date())
     let rows = starts.map { start in
         let total = buckets[start] ?? 0
-        let usedValue = paymentPerToken * Double(total)
-        let remainingValue = max(0, estimate.weeklyBudget - usedValue)
+        let usedValue = estimator.value(forTotal: total)
+        let remainingValue = max(0, estimator.weeklyBudget - usedValue)
         let end = calendar.date(byAdding: .day, value: 6, to: start) ?? start
         let weekNumber = calendar.component(.weekOfYear, from: start)
         return CostPeriodRow(
@@ -5896,7 +5062,7 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
             subtitle: "\(t(.week)) \(weekNumber)",
             usedValue: usedValue,
             remainingValue: remainingValue,
-            budgetValue: estimate.weeklyBudget,
+            budgetValue: estimator.weeklyBudget,
             hasData: total > 0,
             isFuture: start > currentWeekStart
         )
@@ -5906,15 +5072,12 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
 }
 
 private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil) -> [CostPeriodRow] {
-    guard let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit, quotaReferenceReport: quotaReferenceReport),
-          estimate.weeklyBudget > 0,
-          estimate.weeklyQuotaTotal > 0 else {
+    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport),
+          estimator.weeklyBudget > 0 else {
         return []
     }
-    let paymentPerToken = estimate.weeklyBudget / max(estimate.weeklyQuotaTotal, 1)
-    let startDay = effectivePaymentStartDay(in: report)
     var byMonth: [String: Int64] = [:]
-    for day in report.byDay where day.day >= startDay && day.usage.total > 0 {
+    for day in report.byDay where day.day >= estimator.startDay && day.usage.total > 0 {
         let monthKey = String(day.day.prefix(7))
         byMonth[monthKey, default: 0] += day.usage.total
     }
@@ -5927,15 +5090,15 @@ private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: I
     let currentMonth = String(dayFormatter().string(from: Date()).prefix(7))
     return months.map { month in
         let total = byMonth[month] ?? 0
-        let usedValue = paymentPerToken * Double(total)
-        let remainingValue = max(0, AppSettings.monthlyPlanCost - usedValue)
+        let usedValue = estimator.value(forTotal: total)
+        let remainingValue = max(0, estimator.monthlyCost - usedValue)
         return CostPeriodRow(
             label: String(month.suffix(2)),
             title: month,
             subtitle: t(.month),
             usedValue: usedValue,
             remainingValue: remainingValue,
-            budgetValue: max(AppSettings.monthlyPlanCost, usedValue),
+            budgetValue: max(estimator.monthlyCost, usedValue),
             hasData: total > 0,
             isFuture: month > currentMonth
         )
@@ -5943,15 +5106,12 @@ private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: I
 }
 
 private func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil) -> [MonthlySpendRow] {
-    guard let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit, quotaReferenceReport: quotaReferenceReport),
-          estimate.weeklyBudget > 0,
-          estimate.weeklyQuotaTotal > 0 else {
+    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport),
+          estimator.weeklyBudget > 0 else {
         return []
     }
-    let paymentPerToken = estimate.weeklyBudget / max(estimate.weeklyQuotaTotal, 1)
-    let startDay = effectivePaymentStartDay(in: report)
     var byMonth: [String: Int64] = [:]
-    for day in report.byDay where day.day >= startDay && day.usage.total > 0 {
+    for day in report.byDay where day.day >= estimator.startDay && day.usage.total > 0 {
         let monthKey = String(day.day.prefix(7))
         byMonth[monthKey, default: 0] += day.usage.total
     }
@@ -5965,70 +5125,37 @@ private func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: 
         .prefix(12)
     return months.map { month in
         let total = byMonth[month] ?? 0
-        let usedValue = paymentPerToken * Double(total)
-        let planPercent = AppSettings.monthlyPlanCost > 0 ? usedValue / AppSettings.monthlyPlanCost * 100 : 0
+        let usedValue = estimator.value(forTotal: total)
+        let planPercent = estimator.monthlyCost > 0 ? usedValue / estimator.monthlyCost * 100 : 0
         return MonthlySpendRow(month: month, usedValue: usedValue, usedPercentOfPlan: planPercent)
     }
 }
 
 private func planCostEstimate(report: TokenReport, selectedDay: DayUsage?, limit: LiveRateLimit?, quotaReferenceReport: TokenReport? = nil) -> PlanCostEstimate? {
-    let monthlyCost = AppSettings.monthlyPlanCost
-    guard monthlyCost > 0,
-          let weekly = limit?.secondary else {
-        return nil
-    }
-    let weeklyBudget = monthlyCost * 12 / 52
-    if weekly.usedPercent <= 0 {
-        let weeklyUnusedValue = weeklyBudget * min(max(weekly.remainingPercent, 0), 100) / 100
-        return PlanCostEstimate(
-            monthlyCost: monthlyCost,
-            weeklyBudget: weeklyBudget,
-            weeklyQuotaTotal: 0,
-            todayValue: 0,
-            selectedDayValue: 0,
-            weeklyUsedValue: 0,
-            weeklyUnusedValue: weeklyUnusedValue,
-            totalSpentValue: 0,
-            totalWastedValue: 0,
-            selectedDayQuotaPercent: 0
-        )
-    }
-    let recentDays = Array(report.byDay.suffix(7))
-    let quotaReferenceTotal = quotaReferenceReport?.usage.total ?? recentDays.reduce(Int64(0)) { $0 + $1.usage.total }
-    guard quotaReferenceTotal > 0 else { return nil }
+    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport) else { return nil }
 
-    let weeklyQuotaTotal = Double(quotaReferenceTotal) / max(weekly.usedPercent / 100, 0.0001)
-    guard weeklyQuotaTotal > 0 else { return nil }
-
-    let today = report.byDay.first { $0.day == todayKey() } ?? recentDays.last
+    let today = report.byDay.first { $0.day == todayKey() } ?? report.byDay.suffix(7).last
     let selected = selectedDay ?? today
-    let todayValue = weeklyBudget * Double(today?.usage.total ?? 0) / weeklyQuotaTotal
-    let selectedValue = weeklyBudget * Double(selected?.usage.total ?? 0) / weeklyQuotaTotal
-    let selectedPercent = Double(selected?.usage.total ?? 0) / weeklyQuotaTotal * 100
-    let startDay = effectivePaymentStartDay(in: report)
     let parser = dayFormatter()
     let calendar = appCalendar()
-    let startDate = parser.date(from: startDay) ?? calendar.startOfDay(for: Date())
+    let startDate = parser.date(from: estimator.startDay) ?? calendar.startOfDay(for: Date())
     let todayDate = parser.date(from: todayKey()) ?? calendar.startOfDay(for: Date())
-    let totalSpentValue = report.byDay.reduce(0.0) { partial, day in
-        guard day.day >= startDay else { return partial }
-        return partial + weeklyBudget * Double(day.usage.total) / weeklyQuotaTotal
-    }
     let paidDays = max(1, (calendar.dateComponents([.day], from: startDate, to: todayDate).day ?? 0) + 1)
-    let accruedBudget = Double(paidDays) * (weeklyBudget / 7)
+    let totalSpentValue = estimator.totalSpentValue()
+    let accruedBudget = Double(paidDays) * (estimator.weeklyBudget / 7)
     let totalWastedValue = max(0, accruedBudget - totalSpentValue)
 
     return PlanCostEstimate(
-        monthlyCost: monthlyCost,
-        weeklyBudget: weeklyBudget,
-        weeklyQuotaTotal: weeklyQuotaTotal,
-        todayValue: todayValue,
-        selectedDayValue: selectedValue,
-        weeklyUsedValue: weeklyBudget * weekly.usedPercent / 100,
-        weeklyUnusedValue: weeklyBudget * weekly.remainingPercent / 100,
+        monthlyCost: estimator.monthlyCost,
+        weeklyBudget: estimator.weeklyBudget,
+        weeklyQuotaTotal: estimator.weeklyReferenceTotal,
+        todayValue: today.map { estimator.value(for: $0.usage) } ?? 0,
+        selectedDayValue: selected.map { estimator.value(for: $0.usage) } ?? 0,
+        weeklyUsedValue: estimator.weeklyUsedValue(),
+        weeklyUnusedValue: estimator.weeklyUnusedValue(),
         totalSpentValue: totalSpentValue,
         totalWastedValue: totalWastedValue,
-        selectedDayQuotaPercent: selectedPercent
+        selectedDayQuotaPercent: selected.map { estimator.quotaPercent(for: $0.usage) } ?? 0
     )
 }
 

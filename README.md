@@ -1,101 +1,141 @@
 # Codex Token Meter
 
-Codex Token Meter 是一个原生 macOS 状态栏工具，用来查看本机 Codex 的 token 消耗、缓存命中率和实时剩余额度。
+[中文说明](README.zh-CN.md)
 
-![Codex Token Meter 状态栏弹窗](docs/images/menu-popover.png)
+Codex Token Meter is a native macOS menu bar app for tracking local Codex token usage, cache hit rate, live quota remaining, model-level usage, and estimated subscription value.
 
-![Codex Token Meter 用量详情](docs/images/details-overview.png)
-
-它直接读取本地 Codex 会话日志：
+It reads your local Codex session logs directly:
 
 ```text
 ~/.codex/sessions/**/rollout-*.jsonl
 ```
 
-并在可用时通过本机 `codex app-server` 读取实时限额信息，例如 5 小时窗口、周窗口、重置时间和剩余比例。
+When available, it also reads live quota data from the local Codex runtime, including the 5-hour window, weekly window, reset time, and remaining percentage.
 
-## 功能
+## Screenshots
 
-- 状态栏显示当前剩余额度或用量摘要。
-- 弹窗支持 `24h / 7d / 30d` 切换。
-- 支持 `All / Spark / Other` 视图，区分 Codex 总用量、`GPT-5.3-Codex-Spark` 和非 Spark 模型。
-- 显示 input、output、cached input、fresh input、total token。
-- 显示实时 5 小时额度、周额度、缓存命中率和下次刷新时间。
-- 详情窗口展示过去一年 GitHub 绿点风格日历。
-- 点击某一天可查看当天总量、输入/输出、缓存/新输入、模型级拆分。
-- 模型页面展示过去一年按模型聚合的 token 开销。
-- 设置页支持 English、中文、日本語。
-- 支持复制摘要、打开本地日志目录、手动刷新。
+### Menu Bar Dashboard
 
-## 隐私说明
+![Codex Token Meter menu bar dashboard](docs/images/en-menu-popover.png)
 
-这个项目只包含应用源码和静态资源，不包含你的 Codex 日志、token 消耗数据、截图、构建产物或 DMG。
+### Details Window
 
-应用运行时会读取：
+![Codex Token Meter details overview](docs/images/en-details-overview.png)
+
+### Cost And Budget Tracking
+
+![Codex Token Meter cost and budget page](docs/images/en-details-costs.png)
+
+<details>
+<summary>Chinese UI preview</summary>
+
+![Codex Token Meter Chinese menu bar dashboard](docs/images/zh-menu-popover.png)
+
+![Codex Token Meter Chinese details overview](docs/images/zh-details-overview.png)
+
+![Codex Token Meter Chinese cost and budget page](docs/images/zh-details-costs.png)
+
+</details>
+
+## Features
+
+- Menu bar status item showing remaining quota, weekly quota, daily tokens, or weekly tokens.
+- Compact popover with `24h / 7d / 30d` windows.
+- `All / Spark / Other` quota views for total Codex usage, `GPT-5.3-Codex-Spark`, and non-Spark usage.
+- Live rings for 5-hour quota, weekly quota, and cache hit rate.
+- Token breakdown for input, output, cached input, fresh input, and total tokens.
+- Details window with overview, model, calendar, cost, settings, and about pages.
+- 365-day activity calendar with daily detail cards.
+- Model-level aggregation for long-term usage analysis.
+- Cost page for monthly plan cost, remaining budget, historical spend, and estimated daily value.
+- Localized UI for English, Simplified Chinese, Traditional Chinese, Japanese, French, German, Spanish, and Korean.
+- Language-aware number units: English uses `K / M / B`; Chinese uses `万 / 亿`.
+- Configurable Codex log folder, menu bar display mode, payment currency, display currency, and payment start date.
+- Manual refresh, local log folder shortcut, and CLI inspection mode.
+
+## Recent Updates
+
+- Centralized historical cost and quota-value estimation into one shared `CostEstimator` path.
+- Fixed day-value estimates so high-token days no longer show cents-level spend.
+- Reused the same cost estimator across calendar details, model rows, amount totals, tooltips, and cost history.
+- Fixed English UI number units so saved Chinese unit preferences cannot leak `万 / 亿` into English screens.
+- Tightened Chinese localization on the About page and reduced excess spacing in the yearly heatmap area.
+
+## Privacy
+
+This repository contains only app source code and static assets. It does not include your Codex logs, token usage data, screenshots, build artifacts, or DMG files.
+
+At runtime, the app reads:
 
 ```text
 ~/.codex/sessions
 ~/Library/Application Support/Codex Token Meter/ParsedRollouts
 ```
 
-这些数据只在本机使用。应用不会上传会话日志，也不会主动发送网络请求。实时限额读取依赖本机 Codex 运行时，`codex app-server` 本身可能会通过你现有的 Codex 登录状态访问 Codex 的正常用量接口。
+Those files are used locally on your Mac. The app does not upload session logs and does not actively send network requests. Live quota reading depends on your local Codex runtime; `codex app-server` may use your existing Codex login state to access normal Codex usage endpoints.
 
-## 构建
+## Build
 
-要求：
+Requirements:
 
-- macOS 13 或更新版本
+- macOS 13 or later
 - Xcode Command Line Tools
-- 已安装 `swiftc`
+- `swiftc`
 
-构建应用：
+Build the app:
 
 ```bash
 ./build.sh
 ```
 
-构建结果：
+Build output:
 
 ```text
 build/Codex Token Meter.app
 ```
 
-安装到 `/Applications` 并启动：
+Install to `/Applications` and launch:
 
 ```bash
 ./install.sh
 ```
 
-打包 DMG：
+Package a DMG:
 
 ```bash
 ./package_dmg.sh
 ```
 
-DMG 输出路径：
+DMG output:
 
 ```text
 dist/Codex-Token-Meter-0.1.3.dmg
 ```
 
-## 命令行检查
+## CLI Inspection
 
-应用也支持从命令行打印统计结果，便于排查解析结果：
+The built app can print parsed statistics from the command line, which is useful when checking parser behavior:
 
 ```bash
 "./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --hours=168
 ```
 
-## 项目结构
+Example with a specific window and quota view:
+
+```bash
+"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --window=month --quota=all
+```
+
+## Project Layout
 
 ```text
-Sources/CodexTokenMeter/main.swift   主程序、解析器、状态栏 UI、详情窗口
-Resources/                          应用图标和状态栏资源
-Tools/                              图标生成脚本
-Info.plist                          macOS App 元信息
-build.sh                            构建 .app
-install.sh                          安装到 /Applications
-package_dmg.sh                      打包 DMG
+Sources/CodexTokenMeter/main.swift   App, parser, menu bar UI, and details window
+Resources/                          App icons and menu bar assets
+Tools/                              Icon generation scripts
+Info.plist                          macOS app metadata
+build.sh                            Builds the .app bundle
+install.sh                          Installs to /Applications
+package_dmg.sh                      Packages the DMG
 ```
 
 ## License
