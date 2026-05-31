@@ -3834,31 +3834,32 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let switchWidth: CGFloat = 40
         let switchHeight: CGFloat = 22
         let yearWidth: CGFloat = 152
-        let controlY = chartRect.minY + 42
+        let toggleY = chartRect.minY + 12
+        let yearY = chartRect.minY + 42
         let labelFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
         let labelWidth = ceil(measuredTextWidth(t(.showPastEmptyWeeks), font: labelFont)) + 2
 
         let yearRect = NSRect(
             x: chartRect.maxX - inset - yearWidth,
-            y: controlY,
+            y: yearY,
             width: yearWidth,
             height: 28
         )
         let groupWidth = labelWidth + labelSwitchGap + switchWidth
-        let groupX = max(chartRect.minX + inset, yearRect.minX - rowGap - groupWidth)
+        let groupX = max(chartRect.minX + inset, chartRect.maxX - inset - groupWidth)
         let labelRect = NSRect(
             x: groupX,
-            y: controlY + 7,
+            y: toggleY + 4,
             width: labelWidth,
             height: 14
         )
         let switchRect = NSRect(
             x: labelRect.maxX + labelSwitchGap,
-            y: controlY + 3,
+            y: toggleY,
             width: switchWidth,
             height: switchHeight
         )
-        let maxHintWidth = max(0, labelRect.minX - chartRect.minX - inset - rowGap)
+        let maxHintWidth = max(0, yearRect.minX - chartRect.minX - inset - rowGap)
         let hintWidth = min(430, maxHintWidth)
         let hintRect = NSRect(
             x: chartRect.minX + inset,
