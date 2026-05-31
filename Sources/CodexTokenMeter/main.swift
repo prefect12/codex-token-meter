@@ -1085,12 +1085,15 @@ struct CostPeriodRow {
 }
 
 struct CostEstimator {
+    private static let historicalFullWeekPeakShare = 0.45
+
     let report: TokenReport
     let monthlyCost: Double
     let weeklyBudget: Double
     let weeklyReferenceTotal: Double
     let weekly: RateWindow?
     let weeklyBuckets: [Date: Int64]
+    let weeklyActiveDays: [Date: Int]
     let recentWeekTotal: Int64
     let startDay: String
 
@@ -1100,8 +1103,9 @@ struct CostEstimator {
         let startDay = effectivePaymentStartDay(in: report)
         let weekly = limit?.secondary
         let weeklyBuckets = Self.weeklyUsageBuckets(days: report.byDay, startDay: startDay)
+        let weeklyActiveDays = Self.weeklyActiveDayCounts(days: report.byDay, startDay: startDay)
         let recentWeekTotal = Array(report.byDay.suffix(7)).reduce(Int64(0)) { $0 + $1.usage.total }
-        guard recentWeekTotal > 0,
+        guard weeklyBuckets.values.contains(where: { $0 > 0 }),
               let weeklyReferenceTotal = Self.weeklyReferenceTotal(days: report.byDay, startDay: startDay, weekly: weekly, quotaReferenceTotal: quotaReferenceReport?.usage.total),
               weeklyReferenceTotal > 0 else {
             return nil
@@ -1112,6 +1116,7 @@ struct CostEstimator {
         self.weeklyReferenceTotal = weeklyReferenceTotal
         self.weekly = weekly
         self.weeklyBuckets = weeklyBuckets
+        self.weeklyActiveDays = weeklyActiveDays
         self.recentWeekTotal = recentWeekTotal
         self.startDay = startDay
     }
@@ -1124,6 +1129,18 @@ struct CostEstimator {
             guard let date = parser.date(from: day.day),
                   let start = calendar.dateInterval(of: .weekOfYear, for: date)?.start else { continue }
             buckets[start, default: 0] += day.usage.total
+        }
+        return buckets
+    }
+
+    static func weeklyActiveDayCounts(days: [DayUsage], startDay: String? = nil) -> [Date: Int] {
+        let calendar = appCalendar()
+        let parser = dayFormatter()
+        var buckets: [Date: Int] = [:]
+        for day in days where startDay.map({ day.day >= $0 }) ?? true && day.usage.total > 0 {
+            guard let date = parser.date(from: day.day),
+                  let start = calendar.dateInterval(of: .weekOfYear, for: date)?.start else { continue }
+            buckets[start, default: 0] += 1
         }
         return buckets
     }
@@ -1165,6 +1182,24 @@ struct CostEstimator {
         value(forTotal: usage.total)
     }
 
+    func value(forDay day: DayUsage) -> Double {
+        value(forDayKey: day.day, usage: day.usage)
+    }
+
+    func value(forDayKey dayKey: String, usage: Usage) -> Double {
+        guard usage.total > 0,
+              let date = dayFormatter().date(from: dayKey),
+              let weekStart = appCalendar().dateInterval(of: .weekOfYear, for: date)?.start else {
+            return value(for: usage)
+        }
+        let weekTotal = weeklyBuckets[weekStart] ?? 0
+        guard weekTotal > 0 else {
+            return value(for: usage)
+        }
+        let weekValue = weeklyUsedValue(forWeekStart: weekStart, total: weekTotal)
+        return weekValue * Double(usage.total) / Double(weekTotal)
+    }
+
     func value(forTotal total: Int64) -> Double {
         weeklyBudget * Double(total) / weeklyReferenceTotal
     }
@@ -1178,23 +1213,87 @@ struct CostEstimator {
     }
 
     func weeklyUsedValue() -> Double {
-        weekly.map { weeklyBudget * $0.usedPercent / 100 } ?? min(weeklyBudget, valueForRecentWeek())
+        let total = weeklyBuckets[currentWeekStart] ?? recentWeekTotal
+        return currentWeeklyUsedValue(total: total)
     }
 
     func weeklyUnusedValue() -> Double {
-        weekly.map { weeklyBudget * $0.remainingPercent / 100 } ?? max(0, weeklyBudget - min(weeklyBudget, valueForRecentWeek()))
+        max(0, weeklyBudget - weeklyUsedValue())
+    }
+
+    func weeklyUsedValue(forWeekStart start: Date, total: Int64) -> Double {
+        if start == currentWeekStart {
+            return currentWeeklyUsedValue(total: total)
+        }
+        return localWeeklyUsedValue(forWeekStart: start, total: total)
+    }
+
+    func weeklyUnusedValue(forWeekStart start: Date, total: Int64) -> Double {
+        max(0, weeklyBudget - weeklyUsedValue(forWeekStart: start, total: total))
+    }
+
+    func monthlyUsedValues() -> [String: Double] {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.dateFormat = "yyyy-MM"
+
+        var values: [String: Double] = [:]
+        var starts = Set(weeklyBuckets.keys)
+        if weeklyUsedValue() > 0 {
+            starts.insert(currentWeekStart)
+        }
+
+        for start in starts {
+            let total = weeklyBuckets[start] ?? 0
+            let usedValue = weeklyUsedValue(forWeekStart: start, total: total)
+            guard usedValue > 0 else { continue }
+            values[formatter.string(from: start), default: 0] += usedValue
+        }
+        return values
     }
 
     func totalSpentValue() -> Double {
-        report.byDay.reduce(0.0) { partial, day in
-            guard day.day >= startDay else { return partial }
-            return partial + value(for: day.usage)
+        var starts = Set(weeklyBuckets.keys)
+        if weeklyUsedValue() > 0 {
+            starts.insert(currentWeekStart)
+        }
+        return starts.reduce(0.0) { partial, start in
+            partial + weeklyUsedValue(forWeekStart: start, total: weeklyBuckets[start] ?? 0)
         }
     }
 
-    private func valueForRecentWeek() -> Double {
-        value(forTotal: recentWeekTotal)
+    private var currentWeekStart: Date {
+        let calendar = appCalendar()
+        return calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? calendar.startOfDay(for: Date())
     }
+
+    private func currentWeeklyUsedValue(total: Int64) -> Double {
+        let localValue = localWeeklyUsedValue(forWeekStart: currentWeekStart, total: total)
+        guard let weekly else { return localValue }
+        let liveValue = weeklyBudget * max(0, weekly.usedPercent) / 100
+        return min(weeklyBudget, max(localValue, liveValue))
+    }
+
+    private func localWeeklyUsedValue(forWeekStart start: Date, total: Int64) -> Double {
+        guard total > 0 else { return 0 }
+        if isHistoricalFullWeek(start: start, total: total) {
+            return weeklyBudget
+        }
+        return min(weeklyBudget, value(forTotal: total))
+    }
+
+    private func isHistoricalFullWeek(start: Date, total: Int64) -> Bool {
+        guard start < currentWeekStart,
+              total > 0,
+              (weeklyActiveDays[start] ?? 0) >= 7,
+              let peak = weeklyBuckets.values.max(),
+              peak > 0 else {
+            return false
+        }
+        return Double(total) >= Double(peak) * Self.historicalFullWeekPeakShare
+    }
+
 }
 
 struct ReportCacheKey: Hashable {
@@ -2183,7 +2282,11 @@ final class UsageChartView: NSView {
             lines.append("\(t(.visibleWeekShare)) \(String(format: "%.1f%%", visibleWeekPercent))")
         }
         if let costEstimator {
-            lines.append("\(t(.dayValue))  \(displayMoney(costEstimator.value(for: usage)))")
+            if selectedWindow == .day {
+                lines.append("\(t(.dayValue))  \(displayMoney(costEstimator.value(for: usage)))")
+            } else {
+                lines.append("\(t(.dayValue))  \(displayMoney(costEstimator.value(forDayKey: title, usage: usage)))")
+            }
         }
 
         let width: CGFloat = 214
@@ -5052,8 +5155,8 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
     let currentWeekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? calendar.startOfDay(for: Date())
     let rows = starts.map { start in
         let total = buckets[start] ?? 0
-        let usedValue = estimator.value(forTotal: total)
-        let remainingValue = max(0, estimator.weeklyBudget - usedValue)
+        let usedValue = estimator.weeklyUsedValue(forWeekStart: start, total: total)
+        let remainingValue = estimator.weeklyUnusedValue(forWeekStart: start, total: total)
         let end = calendar.date(byAdding: .day, value: 6, to: start) ?? start
         let weekNumber = calendar.component(.weekOfYear, from: start)
         return CostPeriodRow(
@@ -5063,7 +5166,7 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
             usedValue: usedValue,
             remainingValue: remainingValue,
             budgetValue: estimator.weeklyBudget,
-            hasData: total > 0,
+            hasData: total > 0 || (start == currentWeekStart && usedValue > 0),
             isFuture: start > currentWeekStart
         )
     }
@@ -5076,11 +5179,7 @@ private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: I
           estimator.weeklyBudget > 0 else {
         return []
     }
-    var byMonth: [String: Int64] = [:]
-    for day in report.byDay where day.day >= estimator.startDay && day.usage.total > 0 {
-        let monthKey = String(day.day.prefix(7))
-        byMonth[monthKey, default: 0] += day.usage.total
-    }
+    let byMonth = estimator.monthlyUsedValues()
     let months: [String]
     if let year {
         months = (1...12).map { String(format: "%04d-%02d", year, $0) }
@@ -5089,8 +5188,7 @@ private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: I
     }
     let currentMonth = String(dayFormatter().string(from: Date()).prefix(7))
     return months.map { month in
-        let total = byMonth[month] ?? 0
-        let usedValue = estimator.value(forTotal: total)
+        let usedValue = byMonth[month] ?? 0
         let remainingValue = max(0, estimator.monthlyCost - usedValue)
         return CostPeriodRow(
             label: String(month.suffix(2)),
@@ -5099,7 +5197,7 @@ private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: I
             usedValue: usedValue,
             remainingValue: remainingValue,
             budgetValue: max(estimator.monthlyCost, usedValue),
-            hasData: total > 0,
+            hasData: usedValue > 0,
             isFuture: month > currentMonth
         )
     }
@@ -5110,11 +5208,7 @@ private func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: 
           estimator.weeklyBudget > 0 else {
         return []
     }
-    var byMonth: [String: Int64] = [:]
-    for day in report.byDay where day.day >= estimator.startDay && day.usage.total > 0 {
-        let monthKey = String(day.day.prefix(7))
-        byMonth[monthKey, default: 0] += day.usage.total
-    }
+    let byMonth = estimator.monthlyUsedValues()
     let months = byMonth.keys
         .filter { month in
             guard let year else { return true }
@@ -5124,8 +5218,7 @@ private func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: 
         .reversed()
         .prefix(12)
     return months.map { month in
-        let total = byMonth[month] ?? 0
-        let usedValue = estimator.value(forTotal: total)
+        let usedValue = byMonth[month] ?? 0
         let planPercent = estimator.monthlyCost > 0 ? usedValue / estimator.monthlyCost * 100 : 0
         return MonthlySpendRow(month: month, usedValue: usedValue, usedPercentOfPlan: planPercent)
     }
@@ -5149,8 +5242,8 @@ private func planCostEstimate(report: TokenReport, selectedDay: DayUsage?, limit
         monthlyCost: estimator.monthlyCost,
         weeklyBudget: estimator.weeklyBudget,
         weeklyQuotaTotal: estimator.weeklyReferenceTotal,
-        todayValue: today.map { estimator.value(for: $0.usage) } ?? 0,
-        selectedDayValue: selected.map { estimator.value(for: $0.usage) } ?? 0,
+        todayValue: today.map { estimator.value(forDay: $0) } ?? 0,
+        selectedDayValue: selected.map { estimator.value(forDay: $0) } ?? 0,
         weeklyUsedValue: estimator.weeklyUsedValue(),
         weeklyUnusedValue: estimator.weeklyUnusedValue(),
         totalSpentValue: totalSpentValue,
