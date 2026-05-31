@@ -3971,7 +3971,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let maxTotal = max(report.byDay.map { $0.usage.total }.max() ?? 1, 1)
         let intensity = Double(day.usage.total) / Double(maxTotal)
         drawText(day.day, rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: 180, height: 24), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold), color: .white)
-        drawText("\(compact(day.usage.total)) \(t(.total))", rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: 260, height: 34), font: .monospacedDigitSystemFont(ofSize: 28, weight: .bold), color: .systemGreen)
+        drawText(compact(day.usage.total), rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: 260, height: 34), font: .monospacedDigitSystemFont(ofSize: 28, weight: .bold), color: .systemGreen)
         let limit = costEstimateLimit(from: snapshot.liveLimits)
         let cost = planCostEstimate(report: report, selectedDay: day, limit: limit, quotaReferenceReport: snapshot.costReferenceReport)
         var dayMeta = "\(day.turns) \(t(.turns).lowercased())  |  \(Int(round(intensity * 100)))% \(t(.peakDay))"
