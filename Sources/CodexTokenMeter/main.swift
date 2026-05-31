@@ -1331,10 +1331,10 @@ struct CostEstimator {
     }
 
     func value(forDay day: DayUsage) -> Double {
-        value(forDayKey: day.day, usage: day.usage)
+        tokenValue(forDayKey: day.day, usage: day.usage)
     }
 
-    func value(forDayKey dayKey: String, usage: Usage) -> Double {
+    func tokenValue(forDayKey dayKey: String, usage: Usage) -> Double {
         guard usage.total > 0,
               let date = dayFormatter().date(from: dayKey),
               let weekStart = appCalendar().dateInterval(of: .weekOfYear, for: date)?.start else {
@@ -1344,7 +1344,7 @@ struct CostEstimator {
         guard weekTotal > 0 else {
             return value(for: usage)
         }
-        let weekValue = weeklyUsedValue(forWeekStart: weekStart, total: weekTotal)
+        let weekValue = tokenEstimatedWeeklyValue(forWeekStart: weekStart, total: weekTotal)
         return weekValue * Double(usage.total) / Double(weekTotal)
     }
 
@@ -1378,6 +1378,10 @@ struct CostEstimator {
 
     func weeklyUnusedValue(forWeekStart start: Date, total: Int64) -> Double {
         max(0, weeklyBudget - weeklyUsedValue(forWeekStart: start, total: total))
+    }
+
+    func tokenEstimatedWeeklyValue(forWeekStart start: Date, total: Int64) -> Double {
+        localWeeklyUsedValue(forWeekStart: start, total: total)
     }
 
     func monthlyUsedValues() -> [String: Double] {
@@ -2440,7 +2444,7 @@ final class UsageChartView: NSView {
             if selectedWindow == .day {
                 lines.append("\(t(.dayValue))  \(displayMoney(costEstimator.value(for: usage)))")
             } else {
-                lines.append("\(t(.dayValue))  \(displayMoney(costEstimator.value(forDayKey: title, usage: usage)))")
+                lines.append("\(t(.dayValue))  \(displayMoney(costEstimator.tokenValue(forDayKey: title, usage: usage)))")
             }
         }
 
@@ -2603,11 +2607,7 @@ final class DashboardView: NSView {
         dayChart.weeklyQuotaReferenceTotal = state.selectedWindow == .day ? nil : report.byDay.suffix(7).reduce(Int64(0)) { $0 + $1.usage.total }
         dayChart.costEstimator = state.selectedWindow == .day ? nil : CostEstimator(report: report, limit: displayLimit)
         sessionsLabel.stringValue = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
-        if let estimate = planCostEstimate(report: state.costReferenceReport ?? report, selectedDay: nil, limit: displayLimit) {
-            costLabel.stringValue = "\(t(.weeklyUnusedValue)) \(displayMoney(estimate.weeklyUnusedValue))"
-        } else {
-            costLabel.stringValue = t(.planCostUnavailable)
-        }
+        costLabel.stringValue = ""
         needsDisplay = true
     }
 
