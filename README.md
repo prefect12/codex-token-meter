@@ -53,6 +53,19 @@ When available, it also reads live quota data from the local Codex runtime, incl
 - Configurable Codex log folder, menu bar display mode, payment currency, display currency, and payment start date.
 - Manual refresh, local log folder shortcut, and CLI inspection mode.
 
+## Data And Calculation Model
+
+Codex Token Meter uses two local data sources:
+
+- **Token usage** comes from local Codex session logs at `~/.codex/sessions/**/rollout-*.jsonl`. The app scans `token_count` events, reads `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`, and `total_tokens`, calculates the delta between adjacent cumulative counters, and aggregates those deltas by hour, day, session, and model.
+- **Live quota percentages** come from the local Codex runtime. The app starts `codex app-server`, calls `account/rateLimits/read`, and reads fields such as `usedPercent` and `resetsAt` for the 5-hour and weekly windows. Remaining quota in the menu bar and quota rings is displayed as `100 - usedPercent`.
+- **Cache percentage** comes from local token detail and is calculated as `cached_input_tokens / input_tokens * 100`.
+- **Cost estimates** are not official billing. The monthly plan cost comes from settings and defaults to `$200`; weekly budget is `monthly plan cost * 12 / 52`. Current-week used value prefers the live weekly `usedPercent`. Historical days and weeks are estimated from local token usage, historical peaks, and recorded weekly quota percentages.
+
+If OpenAI resets or refreshes your quota during a week, the live weekly percentage follows the new `usedPercent`, so the menu bar and weekly quota ring may suddenly show more remaining quota. Local token logs are not cleared. The cost page records observed weekly-percentage drops and keeps the highest weekly percentage seen for historical weeks so past estimated value is not overwritten by a later low live percentage. This is still a local observation-based estimate, not an official billing export.
+
+If you run work through Codex CLI or the Codex app with API-based authentication, local token usage can still be counted as long as Codex continues writing local `rollout-*.jsonl` logs. Live quota percentages depend on whether `codex app-server` can return `account/rateLimits/read` for that authentication mode. Direct OpenAI API calls that bypass the local Codex client are not tracked today; supporting them would require adding a separate data source for API response usage, organization usage, or billing data.
+
 ## Recent Updates
 
 - Centralized historical cost and quota-value estimation into one shared `CostEstimator` path.
@@ -109,7 +122,7 @@ Package a DMG:
 DMG output:
 
 ```text
-dist/Codex-Token-Meter-0.1.3.dmg
+dist/Codex-Token-Meter-0.1.4.dmg
 ```
 
 ## CLI Inspection

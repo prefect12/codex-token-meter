@@ -57,6 +57,19 @@ Codex Token Meter 是一个原生 macOS 状态栏工具，用来查看本机 Cod
 - 可配置 Codex 日志目录、状态栏显示内容、付款币种、展示币种和付费开始日期。
 - 支持手动刷新、打开本地日志目录和命令行统计检查。
 
+## 数据与计算口径
+
+Codex Token Meter 使用两类本机数据源：
+
+- **token 用量**：来自本地 Codex 会话日志 `~/.codex/sessions/**/rollout-*.jsonl`。应用扫描 `token_count` 事件，读取 `input_tokens`、`cached_input_tokens`、`output_tokens`、`reasoning_output_tokens` 和 `total_tokens`，再用相邻累计值的差值计算本次新增 token，并按小时、日期、会话和模型聚合。
+- **实时额度比例**：来自本机 Codex 运行时。应用启动 `codex app-server`，调用 `account/rateLimits/read`，读取 5 小时窗口和周窗口的 `usedPercent`、`resetsAt` 等信息。状态栏和圆环里的剩余额度按 `100 - usedPercent` 显示。
+- **缓存比例**：来自本地 token 明细，计算方式是 `cached_input_tokens / input_tokens * 100`。
+- **金额估算**：不是官方账单。月付金额来自设置项，默认 `$200`；周预算按 `月付金额 * 12 / 52` 计算。本周已用金额优先使用实时周 `usedPercent` 换算，历史日期和历史周则按本地 token 用量、历史峰值和已记录的周额度比例估算。
+
+如果一周内 OpenAI 重置或刷新了额度，实时周比例会按新的 `usedPercent` 更新，所以状态栏和周额度圆环可能会突然显示更多剩余额度。本地 token 日志不会被清零；金额页会记录观察到的周使用比例下降，并保留历史周见过的最大周使用比例，避免历史金额在重置后被当前低比例冲掉。这个处理仍然是本地观测估算，不等同于官方账单导出。
+
+如果通过 Codex CLI 或 Codex app 使用 API 登录状态启动任务，只要 Codex 仍然写入本地 `rollout-*.jsonl` 日志，本地 token 用量就可以继续统计；实时额度比例取决于 `codex app-server` 是否能在当前认证方式下返回 `account/rateLimits/read`。如果直接调用 OpenAI API 而不经过本机 Codex 客户端，当前应用不会自动统计这些请求，需要额外接入 API 响应 usage、组织 usage 或 billing 数据源。
+
 ## 最近更新
 
 - 将历史金额和额度价值估算收敛到统一的 `CostEstimator` 逻辑。
@@ -113,7 +126,7 @@ build/Codex Token Meter.app
 DMG 输出路径：
 
 ```text
-dist/Codex-Token-Meter-0.1.3.dmg
+dist/Codex-Token-Meter-0.1.4.dmg
 ```
 
 ## 命令行检查
