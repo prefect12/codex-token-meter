@@ -103,7 +103,19 @@ enum WindowOption: Int, CaseIterable {
 private enum AppLanguage: String, CaseIterable {
     case english = "en"
     case chinese = "zh"
+    case hindi = "hi"
+    case portugueseBrazil = "pt-BR"
+    case russian = "ru"
+    case german = "de"
+    case spanish = "es"
+    case french = "fr"
     case japanese = "ja"
+    case indonesian = "id"
+    case traditionalChinese = "zh-Hant"
+    case polish = "pl"
+    case ukrainian = "uk"
+    case korean = "ko"
+    case italian = "it"
 
     static let storageKey = "appLanguage"
 
@@ -113,12 +125,30 @@ private enum AppLanguage: String, CaseIterable {
                let language = AppLanguage(rawValue: raw) {
                 return language
             }
-            if Locale.preferredLanguages.first?.hasPrefix("zh") == true {
+            if UserDefaults.standard.string(forKey: storageKey) == "zh-Hans" {
                 return .chinese
             }
-            if Locale.preferredLanguages.first?.hasPrefix("ja") == true {
+            let preferred = Locale.preferredLanguages.first ?? ""
+            if preferred.hasPrefix("zh-Hant") || preferred.hasPrefix("zh-HK") || preferred.hasPrefix("zh-TW") {
+                return .traditionalChinese
+            }
+            if preferred.hasPrefix("zh") {
+                return .chinese
+            }
+            if preferred.hasPrefix("hi") { return .hindi }
+            if preferred.hasPrefix("pt-BR") || preferred.hasPrefix("pt_BR") { return .portugueseBrazil }
+            if preferred.hasPrefix("ru") { return .russian }
+            if preferred.hasPrefix("de") { return .german }
+            if preferred.hasPrefix("es") { return .spanish }
+            if preferred.hasPrefix("fr") { return .french }
+            if preferred.hasPrefix("ja") {
                 return .japanese
             }
+            if preferred.hasPrefix("id") { return .indonesian }
+            if preferred.hasPrefix("pl") { return .polish }
+            if preferred.hasPrefix("uk") { return .ukrainian }
+            if preferred.hasPrefix("ko") { return .korean }
+            if preferred.hasPrefix("it") { return .italian }
             return .english
         }
         set {
@@ -130,7 +160,19 @@ private enum AppLanguage: String, CaseIterable {
         switch self {
         case .english: return "English"
         case .chinese: return "中文"
+        case .hindi: return "हिन्दी"
+        case .portugueseBrazil: return "Português Brasileiro"
+        case .russian: return "Русский"
+        case .german: return "Deutsch"
+        case .spanish: return "Español"
+        case .french: return "Français"
         case .japanese: return "日本語"
+        case .indonesian: return "Bahasa Indonesia"
+        case .traditionalChinese: return "繁體中文"
+        case .polish: return "Polski"
+        case .ukrainian: return "Українська"
+        case .korean: return "한국어"
+        case .italian: return "Italiano"
         }
     }
 
@@ -142,6 +184,10 @@ private enum AppLanguage: String, CaseIterable {
             return key.chinese
         case .japanese:
             return key.japanese
+        case .traditionalChinese:
+            return localizedTextOverrides[.traditionalChinese]?[key] ?? key.chinese
+        default:
+            return localizedTextOverrides[self]?[key] ?? key.english
         }
     }
 }
@@ -185,7 +231,35 @@ private enum StatusDisplayOption: String, CaseIterable {
     }
 }
 
-private enum L10nKey {
+private enum NumberUnitStyle: String, CaseIterable {
+    case english
+    case chinese
+
+    static let storageKey = "numberUnitStyle"
+
+    static var current: NumberUnitStyle {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: storageKey),
+                  let style = NumberUnitStyle(rawValue: raw) else {
+                let language = AppLanguage.current
+                return (language == .chinese || language == .traditionalChinese) ? .chinese : .english
+            }
+            return style
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: storageKey)
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .english: return "English"
+        case .chinese: return "中文"
+        }
+    }
+}
+
+private enum L10nKey: Hashable {
     case about
     case aboutSubtitle
     case all
@@ -193,6 +267,7 @@ private enum L10nKey {
     case budget
     case cache
     case cacheHit
+    case cacheHitDefinition
     case cached
     case calendar
     case calendarSubtitle
@@ -221,6 +296,7 @@ private enum L10nKey {
     case language
     case languageHint
     case liveLimitUnavailable
+    case liveQuota
     case logFolder
     case logFolderHint
     case logFolderChoose
@@ -242,6 +318,8 @@ private enum L10nKey {
     case noModelLabelForDay
     case noModelLabelsFound
     case nonSparkUsage
+    case numberUnits
+    case numberUnitsHint
     case other
     case otherDefinition
     case otherDescription
@@ -314,6 +392,7 @@ private enum L10nKey {
         case .budget: return "Budget"
         case .cache: return "Cache"
         case .cacheHit: return "Cache Hit"
+        case .cacheHitDefinition: return "Cached input divided by total input for the selected window."
         case .cached: return "Cached"
         case .calendar: return "Calendar"
         case .calendarSubtitle: return "Daily usage intensity over the last year"
@@ -342,11 +421,12 @@ private enum L10nKey {
         case .language: return "Language"
         case .languageHint: return "Changes apply immediately to the popover and details window."
         case .liveLimitUnavailable: return "Live limit unavailable"
+        case .liveQuota: return "quota"
         case .logFolder: return "Log Folder"
         case .logFolderHint: return "Choose the Codex session log folder used for scanning."
         case .logFolderChoose: return "Choose..."
         case .logFolderDefault: return "Default"
-        case .logFolderOpen: return "Open"
+        case .logFolderOpen: return "Finder"
         case .loadingUsageDetails: return "Loading usage details..."
         case .logs: return "Logs"
         case .modelGroupingNote: return "Model grouping comes from turn_context.model in local Codex rollout logs."
@@ -363,6 +443,8 @@ private enum L10nKey {
         case .noModelLabelForDay: return "No model label found for this day"
         case .noModelLabelsFound: return "No model labels found in logs"
         case .nonSparkUsage: return "Non-Spark usage"
+        case .numberUnits: return "Number units"
+        case .numberUnitsHint: return "Controls compact token counts only. Currency formatting is unchanged."
         case .other: return "Other"
         case .otherDefinition: return "All token-detail events after subtracting the Spark model."
         case .otherDescription: return "All non-Spark models"
@@ -433,10 +515,11 @@ private enum L10nKey {
         case .about: return "关于"
         case .aboutSubtitle: return "Codex 用量的读取和分组方式"
         case .all: return "全部"
-        case .allDescription: return "包含 token 明细的全部记录"
+        case .allDescription: return "所有包含 token 明细的本地 Codex 用量事件。"
         case .budget: return "预算"
         case .cache: return "缓存"
         case .cacheHit: return "缓存命中"
+        case .cacheHitDefinition: return "选中时间窗口内，缓存输入占总输入的比例。"
         case .cached: return "缓存"
         case .calendar: return "日历"
         case .calendarSubtitle: return "过去一年的每日使用强度"
@@ -465,11 +548,12 @@ private enum L10nKey {
         case .language: return "语言"
         case .languageHint: return "切换后会立即应用到弹窗和详情窗口。"
         case .liveLimitUnavailable: return "实时限额不可用"
+        case .liveQuota: return "额度"
         case .logFolder: return "日志目录"
         case .logFolderHint: return "选择用于扫描的 Codex 会话日志目录。"
         case .logFolderChoose: return "选择..."
         case .logFolderDefault: return "默认"
-        case .logFolderOpen: return "打开"
+        case .logFolderOpen: return "Finder"
         case .loadingUsageDetails: return "正在加载用量详情..."
         case .logs: return "日志"
         case .modelGroupingNote: return "模型分组来自本地 Codex rollout 日志里的 turn_context.model。"
@@ -486,6 +570,8 @@ private enum L10nKey {
         case .noModelLabelForDay: return "这一天没有模型标签"
         case .noModelLabelsFound: return "日志中没有模型标签"
         case .nonSparkUsage: return "非 Spark 用量"
+        case .numberUnits: return "数字单位"
+        case .numberUnitsHint: return "只影响 token 数字缩写；金额格式不变。"
         case .other: return "其他"
         case .otherDefinition: return "全部 token 明细减去 Spark 模型后的记录。"
         case .otherDescription: return "全部非 Spark 模型"
@@ -560,6 +646,7 @@ private enum L10nKey {
         case .budget: return "予算"
         case .cache: return "キャッシュ"
         case .cacheHit: return "キャッシュ率"
+        case .cacheHitDefinition: return "選択した期間で、キャッシュ入力を総入力で割った比率です。"
         case .cached: return "キャッシュ"
         case .calendar: return "カレンダー"
         case .calendarSubtitle: return "過去 1 年の日別使用量"
@@ -588,11 +675,12 @@ private enum L10nKey {
         case .language: return "言語"
         case .languageHint: return "変更はポップオーバーと詳細ウィンドウにすぐ反映されます。"
         case .liveLimitUnavailable: return "リアルタイム制限を取得できません"
+        case .liveQuota: return "制限"
         case .logFolder: return "ログフォルダ"
         case .logFolderHint: return "スキャンに使う Codex セッションログのフォルダを選択します。"
         case .logFolderChoose: return "選択..."
         case .logFolderDefault: return "既定"
-        case .logFolderOpen: return "開く"
+        case .logFolderOpen: return "Finder"
         case .loadingUsageDetails: return "使用量の詳細を読み込み中..."
         case .logs: return "ログ"
         case .modelGroupingNote: return "モデル別集計はローカル Codex rollout ログの turn_context.model から取得します。"
@@ -609,6 +697,8 @@ private enum L10nKey {
         case .noModelLabelForDay: return "この日のモデル名は見つかりません"
         case .noModelLabelsFound: return "ログ内にモデル名が見つかりません"
         case .nonSparkUsage: return "Spark 以外の使用量"
+        case .numberUnits: return "数値単位"
+        case .numberUnitsHint: return "token 数の省略表示だけに適用します。金額表示は変わりません。"
         case .other: return "その他"
         case .otherDefinition: return "Spark モデルを除いた token 詳細イベント。"
         case .otherDescription: return "Spark 以外のすべてのモデル"
@@ -674,6 +764,928 @@ private enum L10nKey {
         }
     }
 }
+
+private let localizedTextOverrides: [AppLanguage: [L10nKey: String]] = [
+    .traditionalChinese: [
+        .about: "關於",
+        .aboutSubtitle: "Codex 用量的讀取和分組方式",
+        .all: "全部",
+        .allDescription: "所有包含 token 明細的本地 Codex 用量事件。",
+        .budget: "預算",
+        .cache: "快取",
+        .cacheHit: "快取命中",
+        .cached: "快取",
+        .calendar: "日曆",
+        .calendarSubtitle: "過去一年的每日使用強度",
+        .codexAppTotal: "Codex 總用量",
+        .copy: "複製",
+        .costs: "金額",
+        .costsSubtitle: "套餐設定和金額估算",
+        .costHistory: "金額歷史",
+        .dayValue: "當日價值",
+        .dataSource: "資料來源",
+        .definitions: "定義",
+        .details: "詳情",
+        .detailsWindowTitle: "Codex Token Meter 詳情",
+        .displayCurrency: "顯示幣別",
+        .displayEquivalent: "顯示折合",
+        .english: "英文",
+        .events: "事件",
+        .fresh: "新輸入",
+        .inShort: "輸入",
+        .input: "輸入",
+        .interfaceLanguage: "介面語言",
+        .japanese: "日文",
+        .language: "語言",
+        .languageHint: "切換後會立即套用到彈窗和詳情視窗。",
+        .liveLimitUnavailable: "即時限額不可用",
+        .liveQuota: "額度",
+        .logFolder: "日誌目錄",
+        .logFolderHint: "選擇用於掃描的 Codex 會話日誌目錄。",
+        .logFolderChoose: "選擇...",
+        .logFolderDefault: "預設",
+        .loadingUsageDetails: "正在載入用量詳情...",
+        .logs: "日誌",
+        .monthlySpendHistory: "月度金額歷史",
+        .models: "模型",
+        .next: "下次",
+        .noDataLoaded: "沒有載入資料",
+        .noUsage: "無用量",
+        .future: "未來",
+        .nonSparkUsage: "非 Spark 用量",
+        .numberUnits: "數字單位",
+        .numberUnitsHint: "只影響 token 數字縮寫；金額格式不變。",
+        .other: "其他",
+        .outShort: "輸出",
+        .output: "輸出",
+        .overview: "概覽",
+        .past24Hours: "過去 24 小時",
+        .past30Days: "過去 30 天",
+        .past7Days: "過去 7 天",
+        .pastYear: "過去一年",
+        .planCost: "套餐成本",
+        .planCostChange: "修改",
+        .planCostUnavailable: "成本估算需要即時週額度資料",
+        .paymentCurrency: "付款幣別",
+        .paymentMonthly: "月付金額",
+        .paymentStartDate: "付費開始日期",
+        .quotaViews: "限額視圖",
+        .quit: "退出",
+        .refresh: "重新整理",
+        .refreshing: "重新整理中...",
+        .remaining: "剩餘",
+        .reset: "重置",
+        .sessions: "會話",
+        .settings: "設定",
+        .settingsSubtitle: "語言和顯示偏好",
+        .spark: "Spark",
+        .tokenMeter: "Token 統計",
+        .total: "總計",
+        .turns: "輪次",
+        .todayValue: "今日價值",
+        .updated: "已更新",
+        .used: "已用",
+        .usageDetails: "用量詳情",
+        .usageWindow: "用量窗口",
+        .week: "週",
+        .weeklyBudget: "週預算",
+        .weeklyUnusedValue: "本週剩餘金額",
+        .weeklyUsedValue: "本週已用",
+        .weeklyLeft: "週額度剩餘",
+        .usageRate: "使用率",
+        .month: "月",
+        .fiveHourLeft: "5 小時剩餘",
+        .chinese: "中文"
+    ],
+    .german: [
+        .about: "Info",
+        .all: "Alle",
+        .budget: "Budget",
+        .cache: "Cache",
+        .cached: "Cache",
+        .calendar: "Kalender",
+        .codexAppTotal: "Codex gesamt",
+        .copy: "Kopieren",
+        .costs: "Kosten",
+        .costHistory: "Kostenverlauf",
+        .details: "Details",
+        .detailsWindowTitle: "Codex Token Meter Details",
+        .displayCurrency: "Anzeigewährung",
+        .english: "Englisch",
+        .events: "Ereignisse",
+        .fresh: "Neu",
+        .inShort: "ein",
+        .input: "Eingabe",
+        .interfaceLanguage: "Oberflächensprache",
+        .japanese: "Japanisch",
+        .language: "Sprache",
+        .languageHint: "Änderungen gelten sofort für Popover und Detailfenster.",
+        .liveLimitUnavailable: "Live-Limit nicht verfügbar",
+        .liveQuota: "Limit",
+        .logFolder: "Log-Ordner",
+        .logFolderHint: "Wähle den Codex Sitzungsordner für den Scan.",
+        .logFolderChoose: "Wählen...",
+        .logFolderDefault: "Standard",
+        .loadingUsageDetails: "Nutzungsdetails werden geladen...",
+        .logs: "Logs",
+        .monthlySpendHistory: "Monatlicher Kostenverlauf",
+        .models: "Modelle",
+        .next: "nächste",
+        .noDataLoaded: "Keine Daten geladen",
+        .noUsage: "Keine Nutzung",
+        .future: "Zukunft",
+        .nonSparkUsage: "Nicht-Spark-Nutzung",
+        .numberUnits: "Zahleneinheiten",
+        .other: "Andere",
+        .outShort: "aus",
+        .output: "Ausgabe",
+        .overview: "Übersicht",
+        .past24Hours: "Letzte 24 Stunden",
+        .past30Days: "Letzte 30 Tage",
+        .past7Days: "Letzte 7 Tage",
+        .pastYear: "Letztes Jahr",
+        .planCost: "Tarifkosten",
+        .planCostChange: "Ändern",
+        .planCostUnavailable: "Kosten brauchen Live-Wochenlimitdaten",
+        .paymentCurrency: "Zahlungswährung",
+        .paymentMonthly: "Monatlich bezahlt",
+        .paymentStartDate: "Bezahlt seit",
+        .quotaViews: "Limitansichten",
+        .quit: "Beenden",
+        .refresh: "Aktualisieren",
+        .refreshing: "Aktualisiere...",
+        .remaining: "Verbleibend",
+        .reset: "Zurücksetzen",
+        .sessions: "Sitzungen",
+        .settings: "Einstellungen",
+        .settingsSubtitle: "Sprache und Anzeige",
+        .tokenMeter: "Token-Zähler",
+        .total: "gesamt",
+        .turns: "Runden",
+        .todayValue: "Tageswert",
+        .updated: "Aktualisiert",
+        .used: "Verwendet",
+        .usageDetails: "Nutzungsdetails",
+        .usageWindow: "Zeitraum",
+        .week: "Woche",
+        .weeklyBudget: "Wochenbudget",
+        .weeklyUnusedValue: "Restbetrag der Woche",
+        .weeklyUsedValue: "Diese Woche genutzt",
+        .weeklyLeft: "Wochenlimit übrig",
+        .usageRate: "Nutzungsrate",
+        .month: "Monat",
+        .fiveHourLeft: "5 Std. übrig",
+        .chinese: "Chinesisch"
+    ],
+    .spanish: [
+        .about: "Acerca de",
+        .all: "Todo",
+        .budget: "Presupuesto",
+        .cache: "Caché",
+        .cached: "Caché",
+        .calendar: "Calendario",
+        .codexAppTotal: "Total de Codex",
+        .copy: "Copiar",
+        .costs: "Costes",
+        .costHistory: "Historial de costes",
+        .details: "Detalles",
+        .detailsWindowTitle: "Detalles de Codex Token Meter",
+        .displayCurrency: "Moneda de visualización",
+        .english: "Inglés",
+        .events: "eventos",
+        .fresh: "Nuevo",
+        .inShort: "entrada",
+        .input: "Entrada",
+        .interfaceLanguage: "Idioma de interfaz",
+        .japanese: "Japonés",
+        .language: "Idioma",
+        .languageHint: "Los cambios se aplican al instante.",
+        .liveLimitUnavailable: "Límite en vivo no disponible",
+        .liveQuota: "cuota",
+        .logFolder: "Carpeta de logs",
+        .logFolderChoose: "Elegir...",
+        .logFolderDefault: "Predeterminado",
+        .loadingUsageDetails: "Cargando detalles...",
+        .logs: "Logs",
+        .monthlySpendHistory: "Historial mensual",
+        .models: "Modelos",
+        .next: "siguiente",
+        .noDataLoaded: "No hay datos",
+        .noUsage: "Sin uso",
+        .future: "Futuro",
+        .nonSparkUsage: "Uso no Spark",
+        .numberUnits: "Unidades numéricas",
+        .other: "Otros",
+        .outShort: "salida",
+        .output: "Salida",
+        .overview: "Resumen",
+        .past24Hours: "Últimas 24 horas",
+        .past30Days: "Últimos 30 días",
+        .past7Days: "Últimos 7 días",
+        .pastYear: "Último año",
+        .planCost: "Coste del plan",
+        .planCostChange: "Cambiar",
+        .paymentCurrency: "Moneda de pago",
+        .paymentMonthly: "Pago mensual",
+        .paymentStartDate: "Pagado desde",
+        .quotaViews: "Vistas de cuota",
+        .quit: "Salir",
+        .refresh: "Actualizar",
+        .refreshing: "Actualizando...",
+        .remaining: "Restante",
+        .reset: "Restablecer",
+        .sessions: "Sesiones",
+        .settings: "Ajustes",
+        .tokenMeter: "Medidor de tokens",
+        .total: "total",
+        .turns: "turnos",
+        .todayValue: "Valor de hoy",
+        .updated: "Actualizado",
+        .used: "Usado",
+        .usageDetails: "Detalles de uso",
+        .usageWindow: "Ventana de uso",
+        .week: "Semana",
+        .weeklyBudget: "Presupuesto semanal",
+        .weeklyUnusedValue: "Dinero restante semanal",
+        .weeklyUsedValue: "Usado esta semana",
+        .weeklyLeft: "Cuota semanal restante",
+        .usageRate: "Tasa de uso",
+        .month: "Mes",
+        .fiveHourLeft: "Quedan 5 h",
+        .chinese: "Chino"
+    ],
+    .french: [
+        .about: "À propos",
+        .all: "Tout",
+        .budget: "Budget",
+        .cache: "Cache",
+        .cached: "Cache",
+        .calendar: "Calendrier",
+        .codexAppTotal: "Total Codex",
+        .copy: "Copier",
+        .costs: "Coûts",
+        .costHistory: "Historique des coûts",
+        .details: "Détails",
+        .detailsWindowTitle: "Détails Codex Token Meter",
+        .displayCurrency: "Devise affichée",
+        .english: "Anglais",
+        .events: "événements",
+        .fresh: "Nouveau",
+        .inShort: "entrée",
+        .input: "Entrée",
+        .interfaceLanguage: "Langue de l'interface",
+        .japanese: "Japonais",
+        .language: "Langue",
+        .languageHint: "Les changements s'appliquent immédiatement.",
+        .liveLimitUnavailable: "Limite en direct indisponible",
+        .liveQuota: "quota",
+        .logFolder: "Dossier de logs",
+        .logFolderChoose: "Choisir...",
+        .logFolderDefault: "Par défaut",
+        .loadingUsageDetails: "Chargement des détails...",
+        .logs: "Logs",
+        .monthlySpendHistory: "Historique mensuel",
+        .models: "Modèles",
+        .next: "prochain",
+        .noDataLoaded: "Aucune donnée",
+        .noUsage: "Aucune utilisation",
+        .future: "Futur",
+        .nonSparkUsage: "Utilisation hors Spark",
+        .numberUnits: "Unités numériques",
+        .other: "Autre",
+        .outShort: "sortie",
+        .output: "Sortie",
+        .overview: "Aperçu",
+        .past24Hours: "Dernières 24 h",
+        .past30Days: "Derniers 30 jours",
+        .past7Days: "Derniers 7 jours",
+        .pastYear: "Dernière année",
+        .planCost: "Coût du forfait",
+        .planCostChange: "Modifier",
+        .paymentCurrency: "Devise de paiement",
+        .paymentMonthly: "Paiement mensuel",
+        .paymentStartDate: "Payé depuis",
+        .quotaViews: "Vues des quotas",
+        .quit: "Quitter",
+        .refresh: "Actualiser",
+        .refreshing: "Actualisation...",
+        .remaining: "Restant",
+        .reset: "Réinitialiser",
+        .sessions: "Sessions",
+        .settings: "Réglages",
+        .tokenMeter: "Compteur de tokens",
+        .total: "total",
+        .turns: "tours",
+        .todayValue: "Valeur du jour",
+        .updated: "Mis à jour",
+        .used: "Utilisé",
+        .usageDetails: "Détails d'utilisation",
+        .usageWindow: "Fenêtre d'utilisation",
+        .week: "Semaine",
+        .weeklyBudget: "Budget hebdomadaire",
+        .weeklyUnusedValue: "Solde hebdomadaire",
+        .weeklyUsedValue: "Utilisé cette semaine",
+        .weeklyLeft: "Quota hebdo restant",
+        .usageRate: "Taux d'utilisation",
+        .month: "Mois",
+        .fiveHourLeft: "5 h restantes",
+        .chinese: "Chinois"
+    ],
+    .korean: [
+        .about: "정보",
+        .all: "전체",
+        .budget: "예산",
+        .cache: "캐시",
+        .cached: "캐시",
+        .calendar: "캘린더",
+        .codexAppTotal: "Codex 전체 사용량",
+        .copy: "복사",
+        .costs: "금액",
+        .costHistory: "금액 기록",
+        .details: "상세",
+        .detailsWindowTitle: "Codex Token Meter 상세",
+        .displayCurrency: "표시 통화",
+        .english: "영어",
+        .events: "이벤트",
+        .fresh: "신규",
+        .inShort: "입력",
+        .input: "입력",
+        .interfaceLanguage: "인터페이스 언어",
+        .japanese: "일본어",
+        .language: "언어",
+        .languageHint: "변경 사항은 즉시 적용됩니다.",
+        .liveLimitUnavailable: "실시간 한도를 사용할 수 없음",
+        .liveQuota: "한도",
+        .logFolder: "로그 폴더",
+        .logFolderChoose: "선택...",
+        .logFolderDefault: "기본값",
+        .loadingUsageDetails: "사용량 상세 로딩 중...",
+        .logs: "로그",
+        .monthlySpendHistory: "월별 금액 기록",
+        .models: "모델",
+        .next: "다음",
+        .noDataLoaded: "데이터 없음",
+        .noUsage: "사용량 없음",
+        .future: "미래",
+        .nonSparkUsage: "비 Spark 사용량",
+        .numberUnits: "숫자 단위",
+        .other: "기타",
+        .outShort: "출력",
+        .output: "출력",
+        .overview: "개요",
+        .past24Hours: "지난 24시간",
+        .past30Days: "지난 30일",
+        .past7Days: "지난 7일",
+        .pastYear: "지난 1년",
+        .planCost: "요금제 비용",
+        .planCostChange: "변경",
+        .paymentCurrency: "결제 통화",
+        .paymentMonthly: "월 결제",
+        .paymentStartDate: "결제 시작일",
+        .quotaViews: "한도 보기",
+        .quit: "종료",
+        .refresh: "새로고침",
+        .refreshing: "새로고침 중...",
+        .remaining: "남음",
+        .reset: "초기화",
+        .sessions: "세션",
+        .settings: "설정",
+        .tokenMeter: "토큰 통계",
+        .total: "합계",
+        .turns: "턴",
+        .todayValue: "오늘 가치",
+        .updated: "업데이트됨",
+        .used: "사용됨",
+        .usageDetails: "사용량 상세",
+        .usageWindow: "사용 기간",
+        .week: "주",
+        .weeklyBudget: "주간 예산",
+        .weeklyUnusedValue: "이번 주 남은 금액",
+        .weeklyUsedValue: "이번 주 사용",
+        .weeklyLeft: "주간 한도 남음",
+        .usageRate: "사용률",
+        .month: "월",
+        .fiveHourLeft: "5시간 남음",
+        .chinese: "중국어"
+    ],
+    .portugueseBrazil: [
+        .about: "Sobre",
+        .all: "Tudo",
+        .budget: "Orçamento",
+        .cache: "Cache",
+        .cached: "Cache",
+        .calendar: "Calendário",
+        .codexAppTotal: "Total do Codex",
+        .copy: "Copiar",
+        .costs: "Custos",
+        .costHistory: "Histórico de custos",
+        .details: "Detalhes",
+        .detailsWindowTitle: "Detalhes do Codex Token Meter",
+        .displayCurrency: "Moeda de exibição",
+        .english: "Inglês",
+        .events: "eventos",
+        .fresh: "Novo",
+        .inShort: "entrada",
+        .input: "Entrada",
+        .interfaceLanguage: "Idioma da interface",
+        .japanese: "Japonês",
+        .language: "Idioma",
+        .languageHint: "As alterações são aplicadas imediatamente.",
+        .liveLimitUnavailable: "Limite ao vivo indisponível",
+        .liveQuota: "cota",
+        .logFolder: "Pasta de logs",
+        .logFolderChoose: "Escolher...",
+        .logFolderDefault: "Padrão",
+        .loadingUsageDetails: "Carregando detalhes...",
+        .logs: "Logs",
+        .monthlySpendHistory: "Histórico mensal",
+        .models: "Modelos",
+        .next: "próximo",
+        .noDataLoaded: "Nenhum dado carregado",
+        .noUsage: "Sem uso",
+        .future: "Futuro",
+        .nonSparkUsage: "Uso não Spark",
+        .numberUnits: "Unidades numéricas",
+        .other: "Outros",
+        .outShort: "saída",
+        .output: "Saída",
+        .overview: "Visão geral",
+        .past24Hours: "Últimas 24 horas",
+        .past30Days: "Últimos 30 dias",
+        .past7Days: "Últimos 7 dias",
+        .pastYear: "Último ano",
+        .planCost: "Custo do plano",
+        .planCostChange: "Alterar",
+        .paymentCurrency: "Moeda de pagamento",
+        .paymentMonthly: "Pago mensalmente",
+        .paymentStartDate: "Pago desde",
+        .quotaViews: "Visões de cota",
+        .quit: "Sair",
+        .refresh: "Atualizar",
+        .refreshing: "Atualizando...",
+        .remaining: "Restante",
+        .reset: "Redefinir",
+        .sessions: "Sessões",
+        .settings: "Configurações",
+        .tokenMeter: "Medidor de tokens",
+        .total: "total",
+        .turns: "turnos",
+        .todayValue: "Valor de hoje",
+        .updated: "Atualizado",
+        .used: "Usado",
+        .usageDetails: "Detalhes de uso",
+        .usageWindow: "Janela de uso",
+        .week: "Semana",
+        .weeklyBudget: "Orçamento semanal",
+        .weeklyUnusedValue: "Saldo semanal",
+        .weeklyUsedValue: "Usado na semana",
+        .weeklyLeft: "Cota semanal restante",
+        .usageRate: "Taxa de uso",
+        .month: "Mês",
+        .fiveHourLeft: "5 h restantes",
+        .chinese: "Chinês"
+    ],
+    .russian: [
+        .about: "О программе",
+        .all: "Все",
+        .budget: "Бюджет",
+        .cache: "Кэш",
+        .cached: "Кэш",
+        .calendar: "Календарь",
+        .codexAppTotal: "Всего Codex",
+        .copy: "Копировать",
+        .costs: "Расходы",
+        .costHistory: "История расходов",
+        .details: "Детали",
+        .detailsWindowTitle: "Детали Codex Token Meter",
+        .displayCurrency: "Валюта отображения",
+        .english: "Английский",
+        .events: "события",
+        .fresh: "Новое",
+        .inShort: "ввод",
+        .input: "Ввод",
+        .interfaceLanguage: "Язык интерфейса",
+        .japanese: "Японский",
+        .language: "Язык",
+        .languageHint: "Изменения применяются сразу.",
+        .liveLimitUnavailable: "Лимит недоступен",
+        .liveQuota: "лимит",
+        .logFolder: "Папка логов",
+        .logFolderChoose: "Выбрать...",
+        .logFolderDefault: "По умолчанию",
+        .loadingUsageDetails: "Загрузка деталей...",
+        .logs: "Логи",
+        .monthlySpendHistory: "История по месяцам",
+        .models: "Модели",
+        .next: "далее",
+        .noDataLoaded: "Данные не загружены",
+        .noUsage: "Нет использования",
+        .future: "Будущее",
+        .nonSparkUsage: "Не Spark",
+        .numberUnits: "Единицы чисел",
+        .other: "Другое",
+        .outShort: "вывод",
+        .output: "Вывод",
+        .overview: "Обзор",
+        .past24Hours: "Последние 24 часа",
+        .past30Days: "Последние 30 дней",
+        .past7Days: "Последние 7 дней",
+        .pastYear: "Последний год",
+        .planCost: "Стоимость плана",
+        .planCostChange: "Изменить",
+        .paymentCurrency: "Валюта оплаты",
+        .paymentMonthly: "Оплата в месяц",
+        .paymentStartDate: "Оплачено с",
+        .quotaViews: "Лимиты",
+        .quit: "Выйти",
+        .refresh: "Обновить",
+        .refreshing: "Обновление...",
+        .remaining: "Осталось",
+        .reset: "Сбросить",
+        .sessions: "Сессии",
+        .settings: "Настройки",
+        .tokenMeter: "Счетчик токенов",
+        .total: "всего",
+        .turns: "ходы",
+        .todayValue: "Стоимость сегодня",
+        .updated: "Обновлено",
+        .used: "Использовано",
+        .usageDetails: "Детали использования",
+        .usageWindow: "Окно использования",
+        .week: "Неделя",
+        .weeklyBudget: "Недельный бюджет",
+        .weeklyUnusedValue: "Остаток за неделю",
+        .weeklyUsedValue: "Использовано за неделю",
+        .weeklyLeft: "Недельный лимит",
+        .usageRate: "Доля использования",
+        .month: "Месяц",
+        .fiveHourLeft: "Осталось 5 ч",
+        .chinese: "Китайский"
+    ],
+    .italian: [
+        .about: "Informazioni",
+        .all: "Tutto",
+        .budget: "Budget",
+        .cache: "Cache",
+        .cached: "Cache",
+        .calendar: "Calendario",
+        .codexAppTotal: "Totale Codex",
+        .copy: "Copia",
+        .costs: "Costi",
+        .costHistory: "Storico costi",
+        .details: "Dettagli",
+        .detailsWindowTitle: "Dettagli Codex Token Meter",
+        .displayCurrency: "Valuta visualizzata",
+        .english: "Inglese",
+        .events: "eventi",
+        .fresh: "Nuovo",
+        .inShort: "input",
+        .input: "Input",
+        .interfaceLanguage: "Lingua interfaccia",
+        .japanese: "Giapponese",
+        .language: "Lingua",
+        .languageHint: "Le modifiche si applicano subito.",
+        .liveLimitUnavailable: "Limite live non disponibile",
+        .liveQuota: "quota",
+        .logFolder: "Cartella log",
+        .logFolderChoose: "Scegli...",
+        .logFolderDefault: "Predefinito",
+        .loadingUsageDetails: "Caricamento dettagli...",
+        .logs: "Log",
+        .models: "Modelli",
+        .next: "prossimo",
+        .noDataLoaded: "Nessun dato",
+        .noUsage: "Nessun uso",
+        .future: "Futuro",
+        .nonSparkUsage: "Uso non Spark",
+        .numberUnits: "Unità numeriche",
+        .other: "Altro",
+        .outShort: "output",
+        .output: "Output",
+        .overview: "Panoramica",
+        .past24Hours: "Ultime 24 ore",
+        .past30Days: "Ultimi 30 giorni",
+        .past7Days: "Ultimi 7 giorni",
+        .pastYear: "Ultimo anno",
+        .planCost: "Costo piano",
+        .paymentCurrency: "Valuta pagamento",
+        .paymentMonthly: "Pagamento mensile",
+        .paymentStartDate: "Pagato da",
+        .quotaViews: "Quote",
+        .quit: "Esci",
+        .refresh: "Aggiorna",
+        .refreshing: "Aggiornamento...",
+        .remaining: "Rimanente",
+        .reset: "Ripristina",
+        .sessions: "Sessioni",
+        .settings: "Impostazioni",
+        .tokenMeter: "Contatore token",
+        .total: "totale",
+        .turns: "turni",
+        .todayValue: "Valore oggi",
+        .updated: "Aggiornato",
+        .used: "Usato",
+        .usageDetails: "Dettagli uso",
+        .usageWindow: "Finestra uso",
+        .week: "Settimana",
+        .weeklyBudget: "Budget settimanale",
+        .weeklyUnusedValue: "Saldo settimanale",
+        .weeklyUsedValue: "Usato questa settimana",
+        .weeklyLeft: "Quota settimanale",
+        .usageRate: "Tasso d'uso",
+        .month: "Mese",
+        .fiveHourLeft: "5 h rimaste",
+        .chinese: "Cinese"
+    ],
+    .indonesian: [
+        .about: "Tentang",
+        .all: "Semua",
+        .budget: "Anggaran",
+        .cache: "Cache",
+        .cached: "Cache",
+        .calendar: "Kalender",
+        .codexAppTotal: "Total Codex",
+        .copy: "Salin",
+        .costs: "Biaya",
+        .costHistory: "Riwayat biaya",
+        .details: "Detail",
+        .displayCurrency: "Mata uang tampilan",
+        .english: "Inggris",
+        .events: "peristiwa",
+        .fresh: "Baru",
+        .inShort: "masuk",
+        .input: "Input",
+        .interfaceLanguage: "Bahasa antarmuka",
+        .japanese: "Jepang",
+        .language: "Bahasa",
+        .languageHint: "Perubahan langsung diterapkan.",
+        .liveLimitUnavailable: "Limit live tidak tersedia",
+        .liveQuota: "kuota",
+        .logFolder: "Folder log",
+        .logFolderChoose: "Pilih...",
+        .logFolderDefault: "Default",
+        .logs: "Log",
+        .models: "Model",
+        .next: "berikutnya",
+        .noDataLoaded: "Belum ada data",
+        .noUsage: "Tidak ada pemakaian",
+        .future: "Masa depan",
+        .nonSparkUsage: "Pemakaian non-Spark",
+        .numberUnits: "Satuan angka",
+        .other: "Lainnya",
+        .outShort: "keluar",
+        .output: "Output",
+        .overview: "Ringkasan",
+        .past24Hours: "24 jam terakhir",
+        .past30Days: "30 hari terakhir",
+        .past7Days: "7 hari terakhir",
+        .pastYear: "Setahun terakhir",
+        .planCost: "Biaya paket",
+        .paymentCurrency: "Mata uang bayar",
+        .paymentMonthly: "Bayar bulanan",
+        .paymentStartDate: "Dibayar sejak",
+        .quotaViews: "Tampilan kuota",
+        .quit: "Keluar",
+        .refresh: "Segarkan",
+        .refreshing: "Menyegarkan...",
+        .remaining: "Sisa",
+        .reset: "Reset",
+        .sessions: "Sesi",
+        .settings: "Pengaturan",
+        .tokenMeter: "Meter token",
+        .total: "total",
+        .turns: "giliran",
+        .updated: "Diperbarui",
+        .used: "Terpakai",
+        .usageDetails: "Detail pemakaian",
+        .usageWindow: "Jendela pemakaian",
+        .week: "Minggu",
+        .weeklyBudget: "Anggaran mingguan",
+        .weeklyUnusedValue: "Sisa uang minggu ini",
+        .weeklyUsedValue: "Terpakai minggu ini",
+        .weeklyLeft: "Sisa kuota mingguan",
+        .usageRate: "Tingkat pemakaian",
+        .month: "Bulan",
+        .fiveHourLeft: "Sisa 5 jam",
+        .chinese: "Mandarin"
+    ],
+    .polish: [
+        .about: "O programie",
+        .all: "Wszystko",
+        .budget: "Budżet",
+        .cache: "Cache",
+        .cached: "Cache",
+        .calendar: "Kalendarz",
+        .codexAppTotal: "Suma Codex",
+        .copy: "Kopiuj",
+        .costs: "Koszty",
+        .costHistory: "Historia kosztów",
+        .details: "Szczegóły",
+        .displayCurrency: "Waluta wyświetlania",
+        .english: "Angielski",
+        .events: "zdarzenia",
+        .fresh: "Nowe",
+        .inShort: "wej.",
+        .input: "Wejście",
+        .interfaceLanguage: "Język interfejsu",
+        .japanese: "Japoński",
+        .language: "Język",
+        .languageHint: "Zmiany są stosowane od razu.",
+        .liveLimitUnavailable: "Limit live niedostępny",
+        .liveQuota: "limit",
+        .logFolder: "Folder logów",
+        .logFolderChoose: "Wybierz...",
+        .logFolderDefault: "Domyślne",
+        .logs: "Logi",
+        .models: "Modele",
+        .next: "następne",
+        .noDataLoaded: "Brak danych",
+        .noUsage: "Brak użycia",
+        .future: "Przyszłość",
+        .nonSparkUsage: "Użycie poza Spark",
+        .numberUnits: "Jednostki liczb",
+        .other: "Inne",
+        .outShort: "wyj.",
+        .output: "Wyjście",
+        .overview: "Przegląd",
+        .past24Hours: "Ostatnie 24 h",
+        .past30Days: "Ostatnie 30 dni",
+        .past7Days: "Ostatnie 7 dni",
+        .pastYear: "Ostatni rok",
+        .planCost: "Koszt planu",
+        .paymentCurrency: "Waluta płatności",
+        .paymentMonthly: "Płatność miesięczna",
+        .paymentStartDate: "Opłacone od",
+        .quotaViews: "Limity",
+        .quit: "Zakończ",
+        .refresh: "Odśwież",
+        .refreshing: "Odświeżanie...",
+        .remaining: "Pozostało",
+        .reset: "Resetuj",
+        .sessions: "Sesje",
+        .settings: "Ustawienia",
+        .tokenMeter: "Licznik tokenów",
+        .total: "razem",
+        .turns: "tury",
+        .updated: "Zaktualizowano",
+        .used: "Użyto",
+        .usageDetails: "Szczegóły użycia",
+        .usageWindow: "Okno użycia",
+        .week: "Tydzień",
+        .weeklyBudget: "Budżet tygodniowy",
+        .weeklyUnusedValue: "Saldo tygodniowe",
+        .weeklyUsedValue: "Użyto w tygodniu",
+        .weeklyLeft: "Pozostały limit tyg.",
+        .usageRate: "Wskaźnik użycia",
+        .month: "Miesiąc",
+        .fiveHourLeft: "Zostało 5 h",
+        .chinese: "Chiński"
+    ],
+    .ukrainian: [
+        .about: "Про програму",
+        .all: "Усе",
+        .budget: "Бюджет",
+        .cache: "Кеш",
+        .cached: "Кеш",
+        .calendar: "Календар",
+        .codexAppTotal: "Усього Codex",
+        .copy: "Копіювати",
+        .costs: "Витрати",
+        .costHistory: "Історія витрат",
+        .details: "Деталі",
+        .displayCurrency: "Валюта показу",
+        .english: "Англійська",
+        .events: "події",
+        .fresh: "Нове",
+        .inShort: "вхід",
+        .input: "Вхід",
+        .interfaceLanguage: "Мова інтерфейсу",
+        .japanese: "Японська",
+        .language: "Мова",
+        .languageHint: "Зміни застосовуються одразу.",
+        .liveLimitUnavailable: "Ліміт недоступний",
+        .liveQuota: "ліміт",
+        .logFolder: "Папка логів",
+        .logFolderChoose: "Вибрати...",
+        .logFolderDefault: "Типово",
+        .logs: "Логи",
+        .models: "Моделі",
+        .next: "далі",
+        .noDataLoaded: "Немає даних",
+        .noUsage: "Немає використання",
+        .future: "Майбутнє",
+        .nonSparkUsage: "Не Spark",
+        .numberUnits: "Одиниці чисел",
+        .other: "Інше",
+        .outShort: "вихід",
+        .output: "Вихід",
+        .overview: "Огляд",
+        .past24Hours: "Останні 24 год",
+        .past30Days: "Останні 30 днів",
+        .past7Days: "Останні 7 днів",
+        .pastYear: "Останній рік",
+        .planCost: "Вартість плану",
+        .paymentCurrency: "Валюта оплати",
+        .paymentMonthly: "Щомісячна оплата",
+        .paymentStartDate: "Оплачено з",
+        .quotaViews: "Ліміти",
+        .quit: "Вийти",
+        .refresh: "Оновити",
+        .refreshing: "Оновлення...",
+        .remaining: "Залишок",
+        .reset: "Скинути",
+        .sessions: "Сесії",
+        .settings: "Налаштування",
+        .tokenMeter: "Лічильник токенів",
+        .total: "усього",
+        .turns: "ходи",
+        .updated: "Оновлено",
+        .used: "Використано",
+        .usageDetails: "Деталі використання",
+        .usageWindow: "Вікно використання",
+        .week: "Тиждень",
+        .weeklyBudget: "Тижневий бюджет",
+        .weeklyUnusedValue: "Залишок за тиждень",
+        .weeklyUsedValue: "Використано за тиждень",
+        .weeklyLeft: "Залишок тижневого ліміту",
+        .usageRate: "Рівень використання",
+        .month: "Місяць",
+        .fiveHourLeft: "Залишилось 5 год",
+        .chinese: "Китайська"
+    ],
+    .hindi: [
+        .about: "परिचय",
+        .all: "सभी",
+        .budget: "बजट",
+        .cache: "कैश",
+        .cached: "कैश",
+        .calendar: "कैलेंडर",
+        .codexAppTotal: "Codex कुल",
+        .copy: "कॉपी",
+        .costs: "लागत",
+        .costHistory: "लागत इतिहास",
+        .details: "विवरण",
+        .displayCurrency: "दिखाने की मुद्रा",
+        .english: "अंग्रेज़ी",
+        .events: "इवेंट",
+        .fresh: "नया",
+        .inShort: "इन",
+        .input: "इनपुट",
+        .interfaceLanguage: "इंटरफेस भाषा",
+        .japanese: "जापानी",
+        .language: "भाषा",
+        .languageHint: "बदलाव तुरंत लागू होंगे।",
+        .liveLimitUnavailable: "लाइव सीमा उपलब्ध नहीं",
+        .liveQuota: "कोटा",
+        .logFolder: "लॉग फ़ोल्डर",
+        .logFolderChoose: "चुनें...",
+        .logFolderDefault: "डिफ़ॉल्ट",
+        .logs: "लॉग",
+        .models: "मॉडल",
+        .next: "अगला",
+        .noDataLoaded: "डेटा नहीं",
+        .noUsage: "कोई उपयोग नहीं",
+        .future: "भविष्य",
+        .nonSparkUsage: "Non-Spark उपयोग",
+        .numberUnits: "संख्या इकाइयाँ",
+        .other: "अन्य",
+        .outShort: "आउट",
+        .output: "आउटपुट",
+        .overview: "अवलोकन",
+        .past24Hours: "पिछले 24 घंटे",
+        .past30Days: "पिछले 30 दिन",
+        .past7Days: "पिछले 7 दिन",
+        .pastYear: "पिछला साल",
+        .planCost: "प्लान लागत",
+        .paymentCurrency: "भुगतान मुद्रा",
+        .paymentMonthly: "मासिक भुगतान",
+        .paymentStartDate: "भुगतान शुरू",
+        .quotaViews: "कोटा दृश्य",
+        .quit: "बंद करें",
+        .refresh: "रीफ़्रेश",
+        .refreshing: "रीफ़्रेश हो रहा...",
+        .remaining: "शेष",
+        .reset: "रीसेट",
+        .sessions: "सेशन",
+        .settings: "सेटिंग्स",
+        .tokenMeter: "टोकन मीटर",
+        .total: "कुल",
+        .turns: "टर्न",
+        .updated: "अपडेट",
+        .used: "उपयोग",
+        .usageDetails: "उपयोग विवरण",
+        .usageWindow: "उपयोग अवधि",
+        .week: "सप्ताह",
+        .weeklyBudget: "साप्ताहिक बजट",
+        .weeklyUnusedValue: "साप्ताहिक शेष राशि",
+        .weeklyUsedValue: "इस सप्ताह उपयोग",
+        .weeklyLeft: "साप्ताहिक कोटा शेष",
+        .usageRate: "उपयोग दर",
+        .month: "माह",
+        .fiveHourLeft: "5 घंटे शेष",
+        .chinese: "चीनी"
+    ]
+]
 
 private func t(_ key: L10nKey) -> String {
     AppLanguage.current.text(key)
@@ -939,10 +1951,15 @@ struct LiveRateLimit {
     let planType: String?
 }
 
+private func costEstimateLimit(from limits: [LiveRateLimit]) -> LiveRateLimit? {
+    limits.first { $0.id == QuotaViewOption.all.liveLimitID }
+}
+
 struct DashboardState {
     var report = TokenReport()
     var costReferenceReport: TokenReport?
     var liveLimits: [LiveRateLimit] = []
+    var liveLimitsUpdatedAt: Date?
     var selectedWindow: WindowOption = .week
     var selectedQuota: QuotaViewOption = .all
     var nextRefreshAt = Date()
@@ -1074,6 +2091,10 @@ final class CodexTokenScanner {
         let dayCount = max(days, 1)
         let start = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -(dayCount - 1), to: now) ?? now)
         return scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, fillDayCount: dayCount)
+    }
+
+    func scan(from start: Date, to now: Date = Date(), limitID: String? = nil, excludedLimitID: String? = nil, includedModelName: String? = nil, excludedModelName: String? = nil) -> TokenReport {
+        scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, fillDayCount: nil)
     }
 
     private func scan(start: Date, now: Date, limitID: String?, excludedLimitID: String?, includedModelName: String?, excludedModelName: String?, fillDayCount: Int?) -> TokenReport {
@@ -1517,7 +2538,7 @@ final class CodexTokenScanner {
 }
 
 final class LiveRateLimitReader {
-    func read(timeout: TimeInterval = 8) -> [LiveRateLimit] {
+    func read(timeout: TimeInterval = 5) -> [LiveRateLimit] {
         guard let codexPath = codexExecutablePath() else {
             return []
         }
@@ -1547,9 +2568,9 @@ final class LiveRateLimitReader {
                 if let data = (message + "\n").data(using: .utf8) {
                     try? writer.write(contentsOf: data)
                 }
-                Thread.sleep(forTimeInterval: 0.35)
+                Thread.sleep(forTimeInterval: 0.15)
             }
-            Thread.sleep(forTimeInterval: 4.5)
+            Thread.sleep(forTimeInterval: 1.2)
             try? writer.close()
         }
 
@@ -2090,7 +3111,10 @@ final class DashboardView: NSView {
         totalLabel.stringValue = compact(report.usage.total)
         detailLabel.stringValue = state.selectedWindow.title
         usageLabel.stringValue = "\(compact(report.usage.input)) \(t(.inShort))  |  \(compact(report.usage.output)) \(t(.outShort))"
-        refreshLabel.stringValue = state.isLoading ? t(.refreshing) : "\(t(.updated)) \(relative(report.scannedAt))  |  \(t(.next)) \(relative(state.nextRefreshAt))"
+        let quotaUpdated = state.liveLimitsUpdatedAt.map { relative($0) } ?? "--"
+        refreshLabel.stringValue = state.isLoading
+            ? t(.refreshing)
+            : "\(t(.updated)) \(relative(report.scannedAt))  |  \(t(.liveQuota)) \(quotaUpdated)"
 
         quotaSegment.selectedSegment = QuotaViewOption.allCases.firstIndex(of: state.selectedQuota) ?? 0
         segment.selectedSegment = WindowOption.allCases.firstIndex(of: state.selectedWindow) ?? 1
@@ -2312,6 +3336,7 @@ struct DetailsSnapshot {
     var spark: TokenReport
     var other: TokenReport
     var liveLimits: [LiveRateLimit]
+    var costReferenceReport: TokenReport?
 }
 
 final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
@@ -2333,7 +3358,7 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
-        detailsView.canDrawConcurrently = true
+        detailsView.canDrawConcurrently = false
         scrollView.documentView = detailsView
         window.contentView = scrollView
         super.init(window: window)
@@ -2359,6 +3384,16 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
     func update(snapshot: DetailsSnapshot) {
         detailsView.snapshot = snapshot
         detailsView.isLoading = false
+        updateDocumentLayout()
+    }
+
+    func updateLiveLimits(_ limits: [LiveRateLimit], costReferenceReport: TokenReport?) {
+        guard var snapshot = detailsView.snapshot else { return }
+        snapshot.liveLimits = limits
+        if let costReferenceReport {
+            snapshot.costReferenceReport = costReferenceReport
+        }
+        detailsView.snapshot = snapshot
         updateDocumentLayout()
     }
 
@@ -2449,6 +3484,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let image: NSImage
     }
 
+    private struct CostPageData {
+        let key: String
+        let estimate: PlanCostEstimate?
+        let weeklyRows: [CostPeriodRow]
+        let monthlyRows: [MonthlySpendRow]
+    }
+
     var snapshot: DetailsSnapshot? {
         didSet {
             if let report = snapshot?.all {
@@ -2461,6 +3503,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
     var isLoading = false { didSet { onPreferredHeightChanged?(); needsDisplay = true; needsLayout = true } }
     fileprivate var onLanguageChanged: ((AppLanguage) -> Void)?
+    fileprivate var onNumberUnitStyleChanged: ((NumberUnitStyle) -> Void)?
     fileprivate var onStatusDisplayChanged: ((StatusDisplayOption) -> Void)?
     fileprivate var onPlanCostChanged: ((Double) -> Void)?
     fileprivate var onPaymentStartDayChanged: ((String) -> Void)?
@@ -2482,7 +3525,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
     }
     private var sidebarItemRects: [DetailsSection: NSRect] = [:]
-    private var languageOptionRects: [AppLanguage: NSRect] = [:]
+    private var numberUnitOptionRects: [NumberUnitStyle: NSRect] = [:]
     private var statusOptionRects: [StatusDisplayOption: NSRect] = [:]
     private var chooseLogFolderRect: NSRect?
     private var resetLogFolderRect: NSRect?
@@ -2496,6 +3539,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private var isHoveringDayValueInfo = false
     private var selectedCostYear = Calendar.current.component(.year, from: Date())
     private var costRingCache: CostRingCache?
+    private var costPageDataCache: CostPageData?
+    private var costYearOptionsCacheKey: String?
+    private var costYearOptionsCache: [Int] = []
     private let costAmountField: NSTextField = {
         let field = NSTextField()
         field.cell = VerticallyCenteredTextFieldCell(textCell: "")
@@ -2509,6 +3555,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private let paymentCurrencyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let displayCurrencyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let costYearPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let languagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let showHistoricalEmptyWeeksSwitch = NSSwitch(frame: .zero)
     private var isUpdatingCostControls = false
     private var detailsTrackingArea: NSTrackingArea?
@@ -2520,6 +3567,50 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             frames.append(showHistoricalEmptyWeeksSwitch.frame)
         }
         return frames.filter { !$0.isEmpty }
+    }
+
+    private var appBackgroundTop: NSColor {
+        NSColor(calibratedRed: 0.055, green: 0.066, blue: 0.086, alpha: 1.0)
+    }
+
+    private var appBackgroundBottom: NSColor {
+        NSColor(calibratedRed: 0.075, green: 0.090, blue: 0.118, alpha: 1.0)
+    }
+
+    private var sidebarBackgroundColor: NSColor {
+        NSColor(calibratedRed: 0.046, green: 0.055, blue: 0.073, alpha: 1.0)
+    }
+
+    private var panelSurfaceColor: NSColor {
+        NSColor(calibratedRed: 0.126, green: 0.148, blue: 0.186, alpha: 0.98)
+    }
+
+    private var panelElevatedColor: NSColor {
+        NSColor(calibratedRed: 0.154, green: 0.178, blue: 0.222, alpha: 0.98)
+    }
+
+    private var inputSurfaceColor: NSColor {
+        NSColor(calibratedRed: 0.088, green: 0.105, blue: 0.138, alpha: 1.0)
+    }
+
+    private var borderColor: NSColor {
+        NSColor.white.withAlphaComponent(0.075)
+    }
+
+    private var accentBlue: NSColor {
+        NSColor(calibratedRed: 0.365, green: 0.548, blue: 1.0, alpha: 1.0)
+    }
+
+    private var accentTeal: NSColor {
+        NSColor(calibratedRed: 0.279, green: 0.839, blue: 0.702, alpha: 1.0)
+    }
+
+    private var accentAmber: NSColor {
+        NSColor(calibratedRed: 0.965, green: 0.724, blue: 0.357, alpha: 1.0)
+    }
+
+    private var accentRose: NSColor {
+        NSColor(calibratedRed: 0.941, green: 0.478, blue: 0.553, alpha: 1.0)
     }
 
     override var isFlipped: Bool { true }
@@ -2537,6 +3628,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     override func layout() {
         super.layout()
         layoutCostControls()
+        layoutSettingsControls()
     }
 
     override func updateTrackingAreas() {
@@ -2558,6 +3650,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         costAmountField.isBordered = false
         costAmountField.drawsBackground = false
         costAmountField.focusRingType = .none
+        costAmountField.isEditable = true
+        costAmountField.isSelectable = true
+        costAmountField.isEnabled = true
         costAmountField.font = .monospacedDigitSystemFont(ofSize: 18, weight: .bold)
         costAmountField.alignment = .center
         costAmountField.textColor = .white
@@ -2570,6 +3665,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         paymentStartDayField.isBordered = false
         paymentStartDayField.drawsBackground = false
         paymentStartDayField.focusRingType = .none
+        paymentStartDayField.isEditable = true
+        paymentStartDayField.isSelectable = true
+        paymentStartDayField.isEnabled = true
         paymentStartDayField.font = .monospacedDigitSystemFont(ofSize: 16, weight: .semibold)
         paymentStartDayField.alignment = .center
         paymentStartDayField.textColor = .white
@@ -2586,14 +3684,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         showHistoricalEmptyWeeksSwitch.action = #selector(showHistoricalEmptyWeeksChanged)
         addSubview(showHistoricalEmptyWeeksSwitch)
 
-        for popup in [paymentCurrencyPopup, displayCurrencyPopup, costYearPopup] {
+        for popup in [paymentCurrencyPopup, displayCurrencyPopup, costYearPopup, languagePopup] {
             popup.controlSize = .regular
             popup.font = .systemFont(ofSize: 12, weight: .semibold)
             popup.isBordered = false
             popup.isHidden = true
             popup.wantsLayer = true
             popup.layer?.cornerRadius = 8
-            popup.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.14).cgColor
+            popup.layer?.backgroundColor = inputSurfaceColor.cgColor
             popup.appearance = NSAppearance(named: .darkAqua)
             addSubview(popup)
         }
@@ -2602,12 +3700,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         displayCurrencyPopup.removeAllItems()
         displayCurrencyPopup.addItems(withTitles: CurrencyCode.allCases.map(\.displayTitle))
         costYearPopup.removeAllItems()
+        languagePopup.removeAllItems()
+        languagePopup.addItems(withTitles: AppLanguage.allCases.map(\.displayName))
         paymentCurrencyPopup.target = self
         paymentCurrencyPopup.action = #selector(paymentCurrencyPopupChanged)
         displayCurrencyPopup.target = self
         displayCurrencyPopup.action = #selector(displayCurrencyPopupChanged)
         costYearPopup.target = self
         costYearPopup.action = #selector(costYearPopupChanged)
+        languagePopup.target = self
+        languagePopup.action = #selector(languagePopupChanged)
     }
 
     private func layoutCostControls() {
@@ -2638,16 +3740,42 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let controlsY = chartRect.minY + 12
         let yearWidth: CGFloat = 152
         costYearPopup.frame = NSRect(x: chartRect.maxX - 16 - yearWidth, y: controlsY, width: yearWidth, height: 28)
-        showHistoricalEmptyWeeksSwitch.frame = NSRect(x: costYearPopup.frame.minX - 56, y: controlsY + 2, width: 40, height: 22)
+        showHistoricalEmptyWeeksSwitch.frame = historicalEmptyWeeksControlLayout(chartRect: chartRect).switchRect
         updateCostControlsFromSettings()
+    }
+
+    private func layoutSettingsControls() {
+        let visible = selectedSection == .settings
+        languagePopup.isHidden = !visible
+        guard visible else { return }
+
+        let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(432, content.height - 78))
+        let popupWidth = min(300, max(252, rect.width * 0.34))
+        languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
+        updateLanguagePopupFromSettings()
+    }
+
+    private func updateLanguagePopupFromSettings() {
+        if languagePopup.itemArray.map(\.title) != AppLanguage.allCases.map(\.displayName) {
+            languagePopup.removeAllItems()
+            languagePopup.addItems(withTitles: AppLanguage.allCases.map(\.displayName))
+        }
+        if let index = AppLanguage.allCases.firstIndex(of: AppLanguage.current) {
+            languagePopup.selectItem(at: index)
+        }
     }
 
     private func updateCostControlsFromSettings() {
         guard selectedSection == .costs else { return }
         isUpdatingCostControls = true
         defer { isUpdatingCostControls = false }
-        costAmountField.stringValue = paymentAmount(AppSettings.monthlyPlanCost)
-        paymentStartDayField.stringValue = effectivePaymentStartDay(in: snapshot?.all)
+        if costAmountField.currentEditor() == nil {
+            costAmountField.stringValue = paymentAmount(AppSettings.monthlyPlanCost)
+        }
+        if paymentStartDayField.currentEditor() == nil {
+            paymentStartDayField.stringValue = effectivePaymentStartDay(in: snapshot?.all)
+        }
         showHistoricalEmptyWeeksSwitch.state = AppSettings.showHistoricalEmptyWeeks ? .on : .off
         if let paymentIndex = CurrencyCode.allCases.firstIndex(of: AppSettings.paymentCurrency) {
             paymentCurrencyPopup.selectItem(at: paymentIndex)
@@ -2655,14 +3783,19 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         if let displayIndex = CurrencyCode.allCases.firstIndex(of: AppSettings.displayCurrency) {
             displayCurrencyPopup.selectItem(at: displayIndex)
         }
-        let years = availableCostYears(from: snapshot?.all)
+        let years = cachedAvailableCostYears(from: snapshot?.all)
         if !years.contains(selectedCostYear), let last = years.last {
             selectedCostYear = last
         }
-        costYearPopup.removeAllItems()
-        costYearPopup.addItems(withTitles: years.map(String.init))
+        let titles = years.map(String.init)
+        if costYearPopup.itemArray.map(\.title) != titles {
+            costYearPopup.removeAllItems()
+            costYearPopup.addItems(withTitles: titles)
+        }
         if let yearIndex = years.firstIndex(of: selectedCostYear) {
-            costYearPopup.selectItem(at: yearIndex)
+            if costYearPopup.indexOfSelectedItem != yearIndex {
+                costYearPopup.selectItem(at: yearIndex)
+            }
         }
     }
 
@@ -2670,9 +3803,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let minHeight: CGFloat = selectedSection == .calendar ? 620 : 660
         let normalizedWidth = max(860, width)
         let contentWidth = normalizedWidth - 220 - 56
-        let cardGap: CGFloat = 12
-        let cardWidth = max(150, (contentWidth - cardGap * 2) / 3)
-        let summaryCardHeight: CGFloat = cardWidth < 190 ? 92 : 82
 
         let targetHeight: CGFloat
         switch selectedSection {
@@ -2685,18 +3815,21 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             let detailHeight = selectedDayPanelPreferredHeight(contentWidth: contentWidth)
             targetHeight = 174 + gridHeight + detailHeight
         case .costs:
-            let monthlyRows = min(monthlySpendRows(
-                report: snapshot?.all ?? TokenReport(),
-                limit: snapshot?.liveLimits.first { $0.id == QuotaViewOption.all.liveLimitID },
-                year: selectedCostYear
-            ).count, 6)
+            let monthlyRows: Int
+            if let snapshot {
+                let limit = costEstimateLimit(from: snapshot.liveLimits)
+                monthlyRows = min(costPageData(for: snapshot, limit: limit, year: selectedCostYear).monthlyRows.count, 6)
+            } else {
+                monthlyRows = 0
+            }
             let monthlyTableHeight = max(140, 54 + CGFloat(max(monthlyRows, 1)) * 18 + 28)
             let annualChartHeight: CGFloat = 332
             let topOffset: CGFloat = 78
             let settingsHeight: CGFloat = 244
+            let summaryHeight: CGFloat = 142
             let sectionGap: CGFloat = 16
             let bottomPadding: CGFloat = 44
-            let firstBlock = topOffset + settingsHeight + sectionGap + summaryCardHeight * 2 + cardGap
+            let firstBlock = topOffset + settingsHeight + sectionGap + summaryHeight
             let secondBlock = sectionGap + annualChartHeight + sectionGap + monthlyTableHeight
             targetHeight = firstBlock + secondBlock + bottomPadding
         case .settings:
@@ -2715,8 +3848,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             ?? report.byDay.last
         guard let day else { return 160 }
 
-        let limit = snapshot.liveLimits.first { $0.id == QuotaViewOption.all.liveLimitID }
-        let cost = planCostEstimate(report: report, selectedDay: day, limit: limit)
+        let limit = costEstimateLimit(from: snapshot.liveLimits)
+        let cost = planCostEstimate(report: report, selectedDay: day, limit: limit, quotaReferenceReport: snapshot.costReferenceReport)
         let metricsCount = cost == nil ? 4 : 5
         let startX: CGFloat = 310
         let horizontalPadding: CGFloat = 36
@@ -2807,8 +3940,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             return
         }
         if selectedSection == .settings {
-            for (language, rect) in languageOptionRects where rect.contains(point) {
-                onLanguageChanged?(language)
+            for (style, rect) in numberUnitOptionRects where rect.contains(point) {
+                onNumberUnitStyleChanged?(style)
                 return
             }
             for (option, rect) in statusOptionRects where rect.contains(point) {
@@ -2876,6 +4009,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
+    @objc private func languagePopupChanged() {
+        guard languagePopup.indexOfSelectedItem >= 0 else { return }
+        let language = AppLanguage.allCases[languagePopup.indexOfSelectedItem]
+        onLanguageChanged?(language)
+        needsDisplay = true
+        needsLayout = true
+    }
+
     @objc private func showHistoricalEmptyWeeksChanged() {
         guard !isUpdatingCostControls else { return }
         onShowHistoricalEmptyWeeksChanged?(showHistoricalEmptyWeeksSwitch.state == .on)
@@ -2911,25 +4052,24 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(calibratedWhite: 0.12, alpha: 1).setFill()
-        bounds.fill()
+        NSGradient(starting: appBackgroundTop, ending: appBackgroundBottom)?.draw(in: bounds, angle: -90)
 
         let sidebarWidth: CGFloat = 220
-        NSColor(calibratedWhite: 0.10, alpha: 1).setFill()
+        sidebarBackgroundColor.setFill()
         NSRect(x: 0, y: 0, width: sidebarWidth, height: bounds.height).fill()
-        NSColor.white.withAlphaComponent(0.10).setStroke()
+        borderColor.setStroke()
         NSBezierPath(rect: NSRect(x: sidebarWidth, y: 0, width: 1, height: bounds.height)).stroke()
 
         drawSidebar(width: sidebarWidth)
 
         let content = NSRect(x: sidebarWidth + 28, y: 28, width: bounds.width - sidebarWidth - 56, height: bounds.height - 56)
         drawText(t(.usageDetails), rect: NSRect(x: content.minX, y: content.minY, width: content.width, height: 34), font: .systemFont(ofSize: 26, weight: .bold), color: .white)
-        drawText(selectedSection.subtitle, rect: NSRect(x: content.minX, y: content.minY + 36, width: content.width, height: 20), font: .systemFont(ofSize: 13, weight: .medium), color: NSColor.white.withAlphaComponent(0.50))
+        drawText(selectedSection.subtitle, rect: NSRect(x: content.minX, y: content.minY + 36, width: content.width, height: 20), font: .systemFont(ofSize: 13, weight: .medium), color: NSColor.white.withAlphaComponent(0.56))
         contributionDayRects.removeAll()
         costHistoryBarRects.removeAll()
         costHistoryRows.removeAll()
         dayValueInfoRect = nil
-        languageOptionRects.removeAll()
+        numberUnitOptionRects.removeAll()
         statusOptionRects.removeAll()
         chooseLogFolderRect = nil
         resetLogFolderRect = nil
@@ -2965,16 +4105,17 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private func drawSidebar(width: CGFloat) {
         sidebarItemRects.removeAll()
         drawText("Codex", rect: NSRect(x: 28, y: 28, width: width - 56, height: 28), font: .systemFont(ofSize: 24, weight: .bold), color: .white)
-        drawText(t(.tokenMeter), rect: NSRect(x: 28, y: 58, width: width - 56, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.50))
+        drawText(t(.tokenMeter), rect: NSRect(x: 28, y: 58, width: width - 56, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
         for (index, section) in DetailsSection.allCases.enumerated() {
             let y = CGFloat(118 + index * 58)
             let rect = NSRect(x: 18, y: y, width: width - 36, height: 42)
             sidebarItemRects[section] = rect
             if section == selectedSection {
-                NSColor.systemBlue.withAlphaComponent(0.78).setFill()
+                accentBlue.withAlphaComponent(0.82).setFill()
                 NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
             }
-            drawText(section.title, rect: NSRect(x: rect.minX + 22, y: rect.minY + 10, width: rect.width - 44, height: 22), font: .systemFont(ofSize: 15, weight: .semibold), color: .white)
+            let textColor = section == selectedSection ? NSColor.white : NSColor.white.withAlphaComponent(0.82)
+            drawText(section.title, rect: NSRect(x: rect.minX + 22, y: rect.minY + 10, width: rect.width - 44, height: 22), font: .systemFont(ofSize: 15, weight: .semibold), color: textColor)
         }
     }
 
@@ -3048,7 +4189,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
         drawPanel(rect)
         drawText(t(.monthlySpendHistory), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 220, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
-        let rows = monthlySpendRows(report: snapshot.all, limit: snapshot.liveLimits.first { $0.id == QuotaViewOption.all.liveLimitID })
+        let rows = monthlySpendRows(report: snapshot.all, limit: costEstimateLimit(from: snapshot.liveLimits))
         guard !rows.isEmpty else {
             drawText(t(.planCostUnavailable), rect: NSRect(x: rect.minX + 16, y: rect.minY + 48, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
             return
@@ -3084,9 +4225,139 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawSelectedDayPanel(snapshot: snapshot, rect: detailRect)
     }
 
+    private func reportCostSignature(_ report: TokenReport?) -> String {
+        guard let report else { return "none" }
+        let first = report.byDay.first
+        let last = report.byDay.last
+        return [
+            String(format: "%.3f", report.scannedAt.timeIntervalSince1970),
+            "\(report.events)",
+            "\(report.turns)",
+            "\(report.usage.total)",
+            "\(report.byDay.count)",
+            first?.day ?? "",
+            "\(first?.usage.total ?? 0)",
+            last?.day ?? "",
+            "\(last?.usage.total ?? 0)"
+        ].joined(separator: "|")
+    }
+
+    private func cachedAvailableCostYears(from report: TokenReport?) -> [Int] {
+        let key = [
+            reportCostSignature(report),
+            AppSettings.paymentStartDay ?? "",
+            todayKey()
+        ].joined(separator: "|")
+        if costYearOptionsCacheKey == key {
+            return costYearOptionsCache
+        }
+        let years = availableCostYears(from: report)
+        costYearOptionsCacheKey = key
+        costYearOptionsCache = years
+        return years
+    }
+
+    private func costPageDataKey(snapshot: DetailsSnapshot, limit: LiveRateLimit?, year: Int) -> String {
+        let weekly = limit?.secondary
+        return [
+            reportCostSignature(snapshot.all),
+            "\(year)",
+            AppLanguage.current.rawValue,
+            String(format: "%.4f", AppSettings.monthlyPlanCost),
+            AppSettings.paymentStartDay ?? "",
+            AppSettings.paymentCurrency.rawValue,
+            AppSettings.showHistoricalEmptyWeeks ? "1" : "0",
+            String(format: "%.4f", weekly?.usedPercent ?? -1),
+            String(format: "%.4f", weekly?.remainingPercent ?? -1),
+            "\(weekly?.windowMinutes ?? 0)",
+            "\(snapshot.costReferenceReport?.usage.total ?? -1)",
+            String(format: "%.3f", snapshot.costReferenceReport?.scannedAt.timeIntervalSince1970 ?? -1),
+            todayKey()
+        ].joined(separator: "|")
+    }
+
+    private func costPageData(for snapshot: DetailsSnapshot, limit: LiveRateLimit?, year: Int) -> CostPageData {
+        let key = costPageDataKey(snapshot: snapshot, limit: limit, year: year)
+        if let cached = costPageDataCache, cached.key == key {
+            return cached
+        }
+        let data = CostPageData(
+            key: key,
+            estimate: planCostEstimate(report: snapshot.all, selectedDay: nil, limit: limit, quotaReferenceReport: snapshot.costReferenceReport),
+            weeklyRows: weeklySpendRows(report: snapshot.all, limit: limit, year: year, quotaReferenceReport: snapshot.costReferenceReport),
+            monthlyRows: monthlySpendRows(report: snapshot.all, limit: limit, year: year, quotaReferenceReport: snapshot.costReferenceReport)
+        )
+        costPageDataCache = data
+        return data
+    }
+
+    private func drawCostOverviewPanel(estimate: PlanCostEstimate?, rect: NSRect) {
+        drawPanel(rect)
+        guard let estimate else {
+            drawText(t(.planCostUnavailable), rect: NSRect(x: rect.minX + 16, y: rect.minY + 54, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
+            return
+        }
+
+        let inset: CGFloat = 18
+        let dividerX = rect.minX + max(282, rect.width * 0.48)
+        let leftRect = NSRect(x: rect.minX + inset, y: rect.minY + 16, width: dividerX - rect.minX - inset * 2, height: rect.height - 32)
+        let rightRect = NSRect(x: dividerX + 18, y: rect.minY + 16, width: rect.maxX - dividerX - 34, height: rect.height - 32)
+
+        borderColor.setStroke()
+        NSBezierPath(rect: NSRect(x: dividerX, y: rect.minY + 18, width: 1, height: rect.height - 36)).stroke()
+
+        let usageRate = estimate.weeklyBudget > 0 ? estimate.weeklyUsedValue / estimate.weeklyBudget : 0
+        let clampedRate = min(1, max(0, usageRate))
+        let usedColor = usageRate > 1 ? accentAmber : costUsedColor
+
+        drawText(t(.weeklyUsedValue), rect: NSRect(x: leftRect.minX, y: leftRect.minY, width: leftRect.width, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
+        drawText(displayMoney(estimate.weeklyUsedValue), rect: NSRect(x: leftRect.minX, y: leftRect.minY + 26, width: leftRect.width - 92, height: 34), font: .monospacedDigitSystemFont(ofSize: 26, weight: .bold), color: usedColor)
+        drawRight(String(format: "%.0f%%", usageRate * 100), rect: NSRect(x: leftRect.maxX - 86, y: leftRect.minY + 31, width: 86, height: 24), color: NSColor.white.withAlphaComponent(0.82), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold))
+
+        let progressRect = NSRect(x: leftRect.minX, y: leftRect.minY + 74, width: leftRect.width, height: 10)
+        costRemainingMutedColor.withAlphaComponent(0.72).setFill()
+        NSBezierPath(roundedRect: progressRect, xRadius: 5, yRadius: 5).fill()
+        usedColor.setFill()
+        let usedProgressWidth = clampedRate > 0 ? max(6, progressRect.width * CGFloat(clampedRate)) : 0
+        if usedProgressWidth > 0 {
+            NSBezierPath(roundedRect: NSRect(x: progressRect.minX, y: progressRect.minY, width: usedProgressWidth, height: progressRect.height), xRadius: 5, yRadius: 5).fill()
+        }
+
+        let budgetLine = "\(t(.weeklyUnusedValue)) \(displayMoney(estimate.weeklyUnusedValue))  /  \(t(.weeklyBudget)) \(displayMoney(estimate.weeklyBudget))"
+        drawText(budgetLine, rect: NSRect(x: leftRect.minX, y: leftRect.minY + 96, width: leftRect.width, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
+
+        let planLine = "\(t(.paymentMonthly)) \(paymentMoney(AppSettings.monthlyPlanCost))  ·  \(t(.displayEquivalent)) \(displayMoney(AppSettings.monthlyPlanCost))"
+        drawText(planLine, rect: NSRect(x: rightRect.minX, y: rightRect.minY, width: rightRect.width, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.54))
+        drawCostOverviewRow(title: t(.usageRate), value: String(format: "%.0f%%", usageRate * 100), color: usedColor, rect: NSRect(x: rightRect.minX, y: rightRect.minY + 32, width: rightRect.width, height: 20))
+        drawCostOverviewRow(title: t(.totalSpendValue), value: displayMoney(estimate.totalSpentValue), color: accentAmber, rect: NSRect(x: rightRect.minX, y: rightRect.minY + 62, width: rightRect.width, height: 20))
+        drawCostOverviewRow(title: t(.totalWasteValue), value: displayMoney(estimate.totalWastedValue), color: accentRose.withAlphaComponent(0.92), rect: NSRect(x: rightRect.minX, y: rightRect.minY + 92, width: rightRect.width, height: 20))
+    }
+
+    private func drawCostOverviewRow(title: String, value: String, color: NSColor, rect: NSRect) {
+        drawText(title, rect: NSRect(x: rect.minX, y: rect.minY + 2, width: max(90, rect.width * 0.34), height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
+        drawRight(value, rect: NSRect(x: rect.minX + rect.width * 0.34, y: rect.minY, width: rect.width * 0.66, height: 20), color: color, font: .monospacedDigitSystemFont(ofSize: 15, weight: .bold))
+    }
+
+    private func historicalEmptyWeeksControlLayout(chartRect: NSRect) -> (labelRect: NSRect, switchRect: NSRect) {
+        let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let labelWidth = min(190, max(92, measuredTextWidth(t(.showPastEmptyWeeks), font: font) + 2))
+        let switchWidth: CGFloat = 40
+        let switchHeight: CGFloat = 22
+        let gap: CGFloat = 10
+        let groupWidth = labelWidth + gap + switchWidth
+        let yearGap: CGFloat = 14
+        let preferredX = costYearPopup.frame.minX - yearGap - groupWidth
+        let minX = chartRect.minX + 16
+        let groupX = max(minX, preferredX)
+        let switchRect = NSRect(x: groupX + labelWidth + gap, y: chartRect.minY + 14, width: switchWidth, height: switchHeight)
+        let labelRect = NSRect(x: groupX, y: chartRect.minY + 18, width: labelWidth, height: 14)
+        return (labelRect, switchRect)
+    }
+
     private func drawCostPage(snapshot: DetailsSnapshot, content: NSRect) {
-        let limit = snapshot.liveLimits.first { $0.id == QuotaViewOption.all.liveLimitID }
-        let estimate = planCostEstimate(report: snapshot.all, selectedDay: nil, limit: limit)
+        let limit = costEstimateLimit(from: snapshot.liveLimits)
+        let costData = costPageData(for: snapshot, limit: limit, year: selectedCostYear)
+        let estimate = costData.estimate
 
         let settingsRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 244)
         let leftColumnWidth = max(240, settingsRect.width - (min(300, max(252, settingsRect.width * 0.34)) + 56))
@@ -3102,47 +4373,25 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawInputFieldBackground(paymentStartDayField.frame)
 
         let summaryY = settingsRect.maxY + 16
-        let gap: CGFloat = 12
-        let columns = 3
-        let cardW = (content.width - gap * CGFloat(columns - 1)) / CGFloat(columns)
-        let summaryCardHeight: CGFloat = cardW < 190 ? 92 : 82
-        let summaryCards: [(String, String, NSColor)] = [
-            (t(.paymentMonthly), paymentMoney(AppSettings.monthlyPlanCost), .white),
-            (t(.displayEquivalent), displayMoney(AppSettings.monthlyPlanCost), NSColor.white.withAlphaComponent(0.88)),
-            (t(.weeklyUsedValue), estimate.map { displayMoney($0.weeklyUsedValue) } ?? "--", costUsedColor),
-            (t(.weeklyUnusedValue), estimate.map { displayMoney($0.weeklyUnusedValue) } ?? "--", costRemainingColor),
-            (t(.totalSpendValue), estimate.map { displayMoney($0.totalSpentValue) } ?? "--", .white),
-            (t(.totalWasteValue), estimate.map { displayMoney($0.totalWastedValue) } ?? "--", NSColor.white.withAlphaComponent(0.72))
-        ]
-        for (index, card) in summaryCards.enumerated() {
-            let row = index / columns
-            let column = index % columns
-            let rect = NSRect(
-                x: content.minX + CGFloat(column) * (cardW + gap),
-                y: summaryY + CGFloat(row) * (summaryCardHeight + gap),
-                width: cardW,
-                height: summaryCardHeight
-            )
-            drawPanel(rect)
-            drawText(card.0, rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
-            drawText(card.1, rect: NSRect(x: rect.minX + 16, y: rect.minY + 34, width: rect.width - 32, height: 30), font: .monospacedDigitSystemFont(ofSize: 20, weight: .bold), color: card.2)
-        }
+        let summaryHeight: CGFloat = 142
+        let summaryRect = NSRect(x: content.minX, y: summaryY, width: content.width, height: summaryHeight)
+        drawCostOverviewPanel(estimate: estimate, rect: summaryRect)
 
-        let chartY = summaryY + summaryCardHeight * 2 + gap + 16
+        let chartY = summaryRect.maxY + 16
         let chartRect = NSRect(x: content.minX, y: chartY, width: content.width, height: 332)
         drawPanel(chartRect)
         drawText(t(.costHistory), rect: NSRect(x: chartRect.minX + 16, y: chartRect.minY + 12, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.costHistoryHint), rect: NSRect(x: chartRect.minX + 16, y: chartRect.minY + 36, width: 430, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.44))
-        drawText(t(.showPastEmptyWeeks), rect: NSRect(x: costYearPopup.frame.minX - 192, y: chartRect.minY + 16, width: 132, height: 14), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.50))
+        let emptyWeeksLayout = historicalEmptyWeeksControlLayout(chartRect: chartRect)
+        drawText(t(.showPastEmptyWeeks), rect: emptyWeeksLayout.labelRect, font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.50))
 
-        let costRows = weeklySpendRows(report: snapshot.all, limit: limit, year: selectedCostYear)
-        drawCostRings(rows: costRows, rect: NSRect(x: chartRect.minX + 16, y: chartRect.minY + 60, width: chartRect.width - 32, height: chartRect.height - 78), year: selectedCostYear)
+        drawCostRings(rows: costData.weeklyRows, rect: NSRect(x: chartRect.minX + 16, y: chartRect.minY + 60, width: chartRect.width - 32, height: chartRect.height - 78), year: selectedCostYear)
 
         let tableY = chartRect.maxY + 16
         let tableRect = NSRect(x: content.minX, y: tableY, width: content.width, height: max(120, content.maxY - tableY))
         drawPanel(tableRect)
         drawText(t(.monthlySpendHistory), rect: NSRect(x: tableRect.minX + 16, y: tableRect.minY + 12, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
-        let rows = monthlySpendRows(report: snapshot.all, limit: limit, year: selectedCostYear)
+        let rows = costData.monthlyRows
         if rows.isEmpty {
             let emptyMessage = estimate == nil ? t(.planCostUnavailable) : t(.noUsage)
             drawText(emptyMessage, rect: NSRect(x: tableRect.minX + 16, y: tableRect.minY + 48, width: tableRect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
@@ -3193,8 +4442,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let intensity = Double(day.usage.total) / Double(maxTotal)
         drawText(day.day, rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: 180, height: 24), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold), color: .white)
         drawText("\(compact(day.usage.total)) \(t(.total))", rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: 260, height: 34), font: .monospacedDigitSystemFont(ofSize: 28, weight: .bold), color: .systemGreen)
-        let limit = snapshot.liveLimits.first { $0.id == QuotaViewOption.all.liveLimitID }
-        let cost = planCostEstimate(report: report, selectedDay: day, limit: limit)
+        let limit = costEstimateLimit(from: snapshot.liveLimits)
+        let cost = planCostEstimate(report: report, selectedDay: day, limit: limit, quotaReferenceReport: snapshot.costReferenceReport)
         var dayMeta = "\(day.turns) \(t(.turns).lowercased())  |  \(Int(round(intensity * 100)))% \(t(.peakDay))"
         if let cost {
             dayMeta += "  |  \(String(format: "%.1f%%", cost.selectedDayQuotaPercent)) \(t(.weeklyQuotaShare))"
@@ -3310,50 +4559,44 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func drawSettingsPage(content: NSRect) {
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(360, content.height - 78))
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(432, content.height - 78))
         drawPanel(rect)
         drawText(t(.language), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.interfaceLanguage), rect: NSRect(x: rect.minX + 16, y: rect.minY + 56, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-
-        let optionW: CGFloat = 132
-        let optionH: CGFloat = 38
-        let gap: CGFloat = 12
-        let optionY = rect.minY + 48
-        let startX = rect.maxX - 16 - optionW * CGFloat(AppLanguage.allCases.count) - gap * CGFloat(AppLanguage.allCases.count - 1)
-        for (index, language) in AppLanguage.allCases.enumerated() {
-            let optionRect = NSRect(x: startX + CGFloat(index) * (optionW + gap), y: optionY, width: optionW, height: optionH)
-            languageOptionRects[language] = optionRect
-            if language == AppLanguage.current {
-                NSColor.systemBlue.withAlphaComponent(0.72).setFill()
-            } else {
-                NSColor.black.withAlphaComponent(0.14).setFill()
-            }
-            NSBezierPath(roundedRect: optionRect, xRadius: 8, yRadius: 8).fill()
-            NSColor.white.withAlphaComponent(language == AppLanguage.current ? 0.18 : 0.08).setStroke()
-            NSBezierPath(roundedRect: optionRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
-            drawCentered(language.displayName, rect: optionRect.insetBy(dx: 8, dy: 0), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        }
+        drawInputFieldBackground(languagePopup.frame)
 
         drawText(t(.languageHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 104, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.logFolder), rect: NSRect(x: rect.minX + 16, y: rect.minY + 136, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let pathRect = NSRect(x: rect.minX + 16, y: rect.minY + 164, width: rect.width - 276, height: 34)
+        drawText(t(.numberUnits), rect: NSRect(x: rect.minX + 16, y: rect.minY + 138, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        let unitOptionW: CGFloat = 132
+        let optionH: CGFloat = 38
+        let gap: CGFloat = 12
+        let unitY = rect.minY + 130
+        let unitStartX = rect.maxX - 16 - unitOptionW * CGFloat(NumberUnitStyle.allCases.count) - gap * CGFloat(NumberUnitStyle.allCases.count - 1)
+        for (index, style) in NumberUnitStyle.allCases.enumerated() {
+            let optionRect = NSRect(x: unitStartX + CGFloat(index) * (unitOptionW + gap), y: unitY, width: unitOptionW, height: optionH)
+            numberUnitOptionRects[style] = optionRect
+            drawSelectablePill(style.title, rect: optionRect, selected: style == NumberUnitStyle.current)
+        }
+        drawText(t(.numberUnitsHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 186, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+
+        drawText(t(.logFolder), rect: NSRect(x: rect.minX + 16, y: rect.minY + 218, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        let pathRect = NSRect(x: rect.minX + 16, y: rect.minY + 246, width: rect.width - 300, height: 34)
         NSColor.black.withAlphaComponent(0.14).setFill()
         NSBezierPath(roundedRect: pathRect, xRadius: 7, yRadius: 7).fill()
         drawText(AppSettings.logFolderURL.path, rect: pathRect.insetBy(dx: 12, dy: 9), font: .monospacedSystemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.62))
 
-        let logButtonW: CGFloat = 72
-        let logButtonY = rect.minY + 164
-        chooseLogFolderRect = NSRect(x: rect.maxX - 244, y: logButtonY, width: 84, height: 34)
-        resetLogFolderRect = NSRect(x: rect.maxX - 152, y: logButtonY, width: logButtonW, height: 34)
-        openLogFolderRect = NSRect(x: rect.maxX - 72, y: logButtonY, width: 56, height: 34)
-        drawSmallButton(t(.logFolderChoose), rect: chooseLogFolderRect!)
-        drawSmallButton(t(.logFolderDefault), rect: resetLogFolderRect!)
-        drawSmallButton(t(.logFolderOpen), rect: openLogFolderRect!)
-        drawText(t(.logFolderHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 204, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        let logButtonY = rect.minY + 246
+        openLogFolderRect = NSRect(x: rect.maxX - 284, y: logButtonY, width: 76, height: 34)
+        resetLogFolderRect = NSRect(x: rect.maxX - 196, y: logButtonY, width: 72, height: 34)
+        chooseLogFolderRect = NSRect(x: rect.maxX - 112, y: logButtonY, width: 96, height: 34)
+        drawSmallButton(t(.logFolderOpen), rect: openLogFolderRect!, emphasized: false)
+        drawSmallButton(t(.logFolderDefault), rect: resetLogFolderRect!, emphasized: false)
+        drawSmallButton(t(.logFolderChoose), rect: chooseLogFolderRect!, emphasized: true)
+        drawText(t(.logFolderHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 286, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.statusBarDisplay), rect: NSRect(x: rect.minX + 16, y: rect.minY + 252, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let statusY = rect.minY + 248
+        drawText(t(.statusBarDisplay), rect: NSRect(x: rect.minX + 16, y: rect.minY + 334, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        let statusY = rect.minY + 330
         let statusGap: CGFloat = 10
         let statusOptionW = max(100, (rect.width - 260 - statusGap * CGFloat(StatusDisplayOption.allCases.count - 1)) / CGFloat(StatusDisplayOption.allCases.count))
         let statusStartX = rect.maxX - 16 - statusOptionW * CGFloat(StatusDisplayOption.allCases.count) - statusGap * CGFloat(StatusDisplayOption.allCases.count - 1)
@@ -3362,19 +4605,19 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             statusOptionRects[option] = optionRect
             drawSelectablePill(option.title, rect: optionRect, selected: option == StatusDisplayOption.current)
         }
-        drawText(t(.statusDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 296, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        drawText(t(.statusDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 378, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
     }
 
     private var costUsedColor: NSColor {
-        NSColor(calibratedRed: 0.24, green: 0.82, blue: 0.42, alpha: 0.96)
+        accentTeal
     }
 
     private var costRemainingColor: NSColor {
-        NSColor(calibratedRed: 0.34, green: 0.44, blue: 0.58, alpha: 0.92)
+        accentBlue.withAlphaComponent(0.80)
     }
 
     private var costRemainingMutedColor: NSColor {
-        NSColor(calibratedRed: 0.23, green: 0.27, blue: 0.34, alpha: 1.0)
+        NSColor(calibratedRed: 0.186, green: 0.218, blue: 0.274, alpha: 1.0)
     }
 
     private func drawCurrencyOptions(rect: NSRect, y: CGFloat, selected: CurrencyCode, store: inout [CurrencyCode: NSRect]) {
@@ -3538,8 +4781,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let items: [(String, NSColor)] = [
             (t(.used), costUsedColor),
             (t(.remaining), costRemainingColor),
-            (t(.noUsage), NSColor.white.withAlphaComponent(0.18)),
-            (t(.future), NSColor.white.withAlphaComponent(0.08))
+            (t(.noUsage), NSColor.white.withAlphaComponent(0.20)),
+            (t(.future), NSColor.white.withAlphaComponent(0.10))
         ]
         var x = rect.minX
         for item in items {
@@ -3560,16 +4803,26 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let radius = min(circleRect.width, circleRect.height) / 2 - 3
         let lineWidth: CGFloat = max(5, min(8, rect.width * 0.14))
         let start = -CGFloat.pi / 2
+        let end = start + CGFloat.pi * 2
         let fullCircleRect = NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-        let baseColor = NSColor.white.withAlphaComponent(row.isFuture ? 0.06 : (row.hasData ? 0.09 : 0.12))
+        let baseColor = row.isFuture ? NSColor.white.withAlphaComponent(0.055) : costRemainingMutedColor.withAlphaComponent(row.hasData ? 0.62 : 0.50)
 
         fillDonut(in: fullCircleRect, thickness: lineWidth, color: baseColor)
 
         if row.hasData {
-            fillDonut(in: fullCircleRect, thickness: lineWidth, color: costRemainingColor)
-
             let progress = min(1.0, max(0.0, row.usedPercent / 100))
-            let ringColor: NSColor = row.usedPercent > 100 ? .systemOrange : costUsedColor
+            let usedEnd = start + CGFloat.pi * 2 * CGFloat(progress)
+            if progress < 0.999 {
+                fillDonutSegment(
+                    center: center,
+                    outerRadius: radius,
+                    thickness: lineWidth,
+                    startAngle: usedEnd,
+                    endAngle: end,
+                    color: costRemainingColor.withAlphaComponent(0.58)
+                )
+            }
+            let ringColor: NSColor = row.usedPercent > 100 ? accentAmber : costUsedColor
             if progress >= 0.999 {
                 fillDonut(in: fullCircleRect, thickness: lineWidth, color: ringColor)
             } else if progress > 0.001 {
@@ -3578,17 +4831,17 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                     outerRadius: radius,
                     thickness: lineWidth,
                     startAngle: start,
-                    endAngle: start + CGFloat.pi * 2 * CGFloat(progress),
+                    endAngle: usedEnd,
                     color: ringColor
                 )
             }
         } else if row.isFuture {
-            fillDonut(in: fullCircleRect, thickness: lineWidth, color: NSColor.white.withAlphaComponent(0.08))
+            fillDonut(in: fullCircleRect, thickness: lineWidth, color: NSColor.white.withAlphaComponent(0.075))
         } else {
-            fillDonut(in: fullCircleRect, thickness: max(3, lineWidth * 0.72), color: NSColor.white.withAlphaComponent(0.16))
+            fillDonut(in: fullCircleRect, thickness: max(3, lineWidth * 0.72), color: NSColor.white.withAlphaComponent(0.18))
         }
 
-        let ringColor: NSColor = row.usedPercent > 100 ? .systemOrange : costUsedColor
+        let ringColor: NSColor = row.usedPercent > 100 ? accentAmber : costUsedColor
 
         if highlighted {
             NSColor.white.withAlphaComponent(0.18).setFill()
@@ -3691,10 +4944,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawPanel(rect)
         drawText(t(.definitions), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         let rows = [
-            (t(.all), "All local Codex token events that include token details."),
+            (t(.all), t(.allDescription)),
             (t(.spark), t(.sparkDescription)),
             (t(.other), t(.otherDefinition)),
-            (t(.cacheHit), "Cached input divided by total input for the selected window.")
+            (t(.cacheHit), t(.cacheHitDefinition))
         ]
         for (index, row) in rows.enumerated() {
             let y = rect.minY + 52 + CGFloat(index) * 38
@@ -3725,15 +4978,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let gap: CGFloat = useCalendarGrid ? (compact ? 2 : 3) : 6
         let left: CGFloat = compact ? 18 : 26
         let right: CGFloat = compact ? 18 : 26
-        let top: CGFloat = compact ? 48 : 66
-        let bottom: CGFloat = compact ? 34 : 72
+        let top: CGFloat = compact ? 42 : 48
+        let bottom: CGFloat = compact ? 44 : 50
         let availableW = max(40, rect.width - left - right)
         let availableH = max(40, rect.height - top - bottom)
         let square = floor(min((availableW - gap * CGFloat(max(columns - 1, 0))) / CGFloat(max(columns, 1)), (availableH - gap * CGFloat(max(rows - 1, 0))) / CGFloat(max(rows, 1))))
-        let gridW = CGFloat(columns) * square + CGFloat(max(columns - 1, 0)) * gap
         let gridH = CGFloat(rows) * square + CGFloat(max(rows - 1, 0)) * gap
         let startX = rect.minX + left
-        let startY = rect.minY + top + (compact ? max(0, (availableH - gridH) / 2) : 0)
+        let startY = rect.minY + top
 
         for (index, day) in days.enumerated() {
             let col = useCalendarGrid ? index / 7 : index % columns
@@ -3749,63 +5001,98 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 path.lineWidth = 2
                 path.stroke()
             }
-            if !compact && row == 6 && (col == 0 || col == columns - 1 || col % 8 == 0) {
-                let label = String(day.day.suffix(5))
-                drawCentered(label, rect: NSRect(x: cell.midX - 28, y: rect.maxY - 46, width: 56, height: 16), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.45))
-            }
         }
 
-        if compact {
-            let labelY = rect.maxY - 26
-            if let first = days.first?.day, let last = days.last?.day {
-                drawText(String(first.suffix(5)), rect: NSRect(x: startX, y: labelY, width: 60, height: 16), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.40))
-                drawRight(String(last.suffix(5)), rect: NSRect(x: startX + gridW - 60, y: labelY, width: 60, height: 16), color: NSColor.white.withAlphaComponent(0.40), font: .systemFont(ofSize: 10, weight: .semibold))
-            }
+        let monthLabelY = startY + gridH + 10
+        drawContributionMonthLabels(days: days, useCalendarGrid: useCalendarGrid, columns: columns, square: square, gap: gap, startX: startX, y: monthLabelY, compact: compact)
+        drawText(t(.usageIntensityHint), rect: NSRect(x: startX, y: monthLabelY + 26, width: rect.width - left - right, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+    }
+
+    private func drawContributionMonthLabels(days: [DayUsage], useCalendarGrid: Bool, columns: Int, square: CGFloat, gap: CGFloat, startX: CGFloat, y: CGFloat, compact: Bool) {
+        var lastMonth: String?
+        var lastLabelX = -CGFloat.greatestFiniteMagnitude
+        let minimumGap: CGFloat = compact ? 42 : 50
+        for (index, day) in days.enumerated() {
+            let month = String(day.day.prefix(7))
+            guard month != lastMonth else { continue }
+            lastMonth = month
+            let col = useCalendarGrid ? index / 7 : index % columns
+            let x = startX + CGFloat(col) * (square + gap)
+            guard x - lastLabelX >= minimumGap else { continue }
+            let label = contributionMonthLabel(for: day.day)
+            drawText(label, rect: NSRect(x: x, y: y, width: 44, height: 14), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.44))
+            lastLabelX = x
         }
-        drawText(t(.usageIntensityHint), rect: NSRect(x: rect.maxX - 280, y: rect.maxY - 26, width: 260, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+    }
+
+    private func contributionMonthLabel(for day: String) -> String {
+        guard let date = dayFormatter().date(from: day) else {
+            return String(day.dropFirst(5).prefix(2))
+        }
+        let formatter = DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        switch AppLanguage.current {
+        case .english:
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "MMM"
+        case .chinese:
+            formatter.locale = Locale(identifier: "zh_Hans_CN")
+            formatter.dateFormat = "M月"
+        case .japanese:
+            formatter.locale = Locale(identifier: "ja_JP")
+            formatter.dateFormat = "M月"
+        default:
+            formatter.locale = Locale(identifier: AppLanguage.current.rawValue)
+            formatter.dateFormat = "MMM"
+        }
+        return formatter.string(from: date)
     }
 
     private func drawPanel(_ rect: NSRect) {
-        NSColor(calibratedWhite: 0.18, alpha: 0.96).setFill()
+        panelSurfaceColor.setFill()
         NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
-        NSColor.white.withAlphaComponent(0.06).setStroke()
+        NSColor.white.withAlphaComponent(0.035).setFill()
+        NSBezierPath(roundedRect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: min(1.5, rect.height)), xRadius: 0, yRadius: 0).fill()
+        borderColor.setStroke()
         NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
     }
 
     private func drawInputFieldBackground(_ rect: NSRect) {
         guard selectedSection == .costs, !rect.isEmpty else { return }
-        NSColor.black.withAlphaComponent(0.14).setFill()
+        inputSurfaceColor.setFill()
         NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
-        NSColor.white.withAlphaComponent(0.06).setStroke()
+        let focused = costAmountField.currentEditor() != nil && rect == costAmountField.frame
+            || paymentStartDayField.currentEditor() != nil && rect == paymentStartDayField.frame
+        (focused ? accentBlue.withAlphaComponent(0.72) : borderColor).setStroke()
         NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
     }
 
-    private func drawSmallButton(_ title: String, rect: NSRect) {
-        NSColor.white.withAlphaComponent(0.16).setFill()
+    private func drawSmallButton(_ title: String, rect: NSRect, emphasized: Bool = false) {
+        (emphasized ? accentBlue.withAlphaComponent(0.72) : NSColor.white.withAlphaComponent(0.12)).setFill()
         NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
-        NSColor.white.withAlphaComponent(0.10).setStroke()
+        (emphasized ? accentTeal.withAlphaComponent(0.34) : NSColor.white.withAlphaComponent(0.09)).setStroke()
         NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7).stroke()
-        drawCentered(title, rect: rect.insetBy(dx: 6, dy: 0), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.86))
+        drawCentered(title, rect: rect.insetBy(dx: 6, dy: 0), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(emphasized ? 0.96 : 0.78))
     }
 
     private func drawSelectablePill(_ title: String, rect: NSRect, selected: Bool) {
         if selected {
-            NSColor.systemBlue.withAlphaComponent(0.72).setFill()
+            accentBlue.withAlphaComponent(0.72).setFill()
         } else {
-            NSColor.black.withAlphaComponent(0.14).setFill()
+            inputSurfaceColor.withAlphaComponent(0.82).setFill()
         }
         NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
-        NSColor.white.withAlphaComponent(selected ? 0.18 : 0.08).setStroke()
+        (selected ? accentTeal.withAlphaComponent(0.38) : borderColor).setStroke()
         NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
         drawCentered(title, rect: rect.insetBy(dx: 8, dy: 0), font: .systemFont(ofSize: 12, weight: .semibold), color: .white)
     }
 
     private func contributionColor(_ intensity: Double) -> NSColor {
         if intensity <= 0 { return NSColor.white.withAlphaComponent(0.08) }
-        if intensity < 0.25 { return NSColor.systemGreen.withAlphaComponent(0.30) }
-        if intensity < 0.50 { return NSColor.systemGreen.withAlphaComponent(0.52) }
-        if intensity < 0.75 { return NSColor.systemGreen.withAlphaComponent(0.74) }
-        return NSColor.systemGreen
+        if intensity < 0.25 { return accentTeal.withAlphaComponent(0.30) }
+        if intensity < 0.50 { return accentTeal.withAlphaComponent(0.52) }
+        if intensity < 0.75 { return accentTeal.withAlphaComponent(0.74) }
+        return accentTeal
     }
 
     private func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
@@ -3881,13 +5168,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var latestState = DashboardState()
     private var reportCache: [ReportCacheKey: TokenReport] = [:]
     private var liveLimits: [LiveRateLimit] = []
+    private var liveLimitsUpdatedAt: Date?
     private var refreshTimer: Timer?
+    private var liveRefreshTimer: Timer?
     private var activeScans: Set<ReportCacheKey> = []
     private var liveRefreshInFlight = false
     private var statusSpinnerTimer: Timer?
     private var statusSpinnerFrame = 0
     private var statusIsLoading = false
     private let refreshInterval: TimeInterval = 300
+    private let liveRefreshInterval: TimeInterval = 60
     private let statusIconSize = NSSize(width: 14, height: 14)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -3911,8 +5201,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dashboardController.dashboardView.onWindowChanged = { [weak self] option in self?.selectWindow(option) }
         dashboardController.dashboardView.onQuotaChanged = { [weak self] option in self?.selectQuota(option) }
         dashboardController.dashboardView.onRefresh = { [weak self] in
-            self?.refresh(forceLive: false)
             self?.refreshLiveLimits()
+            self?.refresh(forceLive: false)
         }
         dashboardController.dashboardView.onOpenDetails = { [weak self] in self?.openDetailsWindow() }
         dashboardController.dashboardView.onOpenLogs = { [weak self] in self?.openSessionsFolder() }
@@ -3920,6 +5210,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onLanguageChanged = { [weak self] language in
             AppLanguage.current = language
             self?.applyLanguage()
+        }
+        detailsController.detailsView.onNumberUnitStyleChanged = { [weak self] style in
+            self?.changeNumberUnitStyle(style)
         }
         detailsController.detailsView.onStatusDisplayChanged = { [weak self] option in
             guard let self else { return }
@@ -3941,6 +5234,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshLiveLimits()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh(forceLive: false)
+        }
+        liveRefreshTimer = Timer.scheduledTimer(withTimeInterval: liveRefreshInterval, repeats: true) { [weak self] _ in
             self?.refreshLiveLimits()
         }
     }
@@ -4021,6 +5316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
+            refreshLiveLimits()
         }
     }
 
@@ -4051,6 +5347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 report: cached,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: cached),
                 liveLimits: liveLimits,
+                liveLimitsUpdatedAt: liveLimitsUpdatedAt,
                 selectedWindow: selectedWindow,
                 selectedQuota: selectedQuota,
                 nextRefreshAt: latestState.nextRefreshAt,
@@ -4064,6 +5361,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 report: TokenReport(scannedAt: Date()),
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: nil),
                 liveLimits: liveLimits,
+                liveLimitsUpdatedAt: liveLimitsUpdatedAt,
                 selectedWindow: selectedWindow,
                 selectedQuota: selectedQuota,
                 nextRefreshAt: latestState.nextRefreshAt,
@@ -4086,6 +5384,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             report: reportCache[key] ?? TokenReport(scannedAt: Date()),
             costReferenceReport: costReferenceReport(quota: quota, fallback: reportCache[key]),
             liveLimits: liveLimits,
+            liveLimitsUpdatedAt: liveLimitsUpdatedAt,
             selectedWindow: window,
             selectedQuota: quota,
             nextRefreshAt: latestState.nextRefreshAt,
@@ -4105,6 +5404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.reportCache[key] = report
                 if forceLive, !limits.isEmpty {
                     self.liveLimits = limits
+                    self.liveLimitsUpdatedAt = Date()
                 }
                 if self.selectedWindow == window && self.selectedQuota == quota {
                     let effectiveLimits = forceLive && !limits.isEmpty ? limits : self.liveLimits
@@ -4112,6 +5412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         report: report,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
                         liveLimits: effectiveLimits,
+                        liveLimitsUpdatedAt: self.liveLimitsUpdatedAt,
                         selectedWindow: window,
                         selectedQuota: quota,
                         nextRefreshAt: nextRefresh,
@@ -4122,6 +5423,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.dashboardController.dashboardView.update(self.latestState)
                 } else if forceLive, !limits.isEmpty {
                     self.latestState.liveLimits = limits
+                    self.latestState.liveLimitsUpdatedAt = self.liveLimitsUpdatedAt
                     self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
                     self.dashboardController.dashboardView.update(self.latestState)
                 }
@@ -4135,14 +5437,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveRefreshInFlight = true
         liveQueue.async {
             let limits = self.rateLimitReader.read()
+            let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             DispatchQueue.main.async {
                 self.liveRefreshInFlight = false
                 guard !limits.isEmpty else { return }
                 self.liveLimits = limits
+                self.liveLimitsUpdatedAt = Date()
                 self.latestState.liveLimits = limits
+                self.latestState.liveLimitsUpdatedAt = self.liveLimitsUpdatedAt
                 self.latestState.error = nil
                 self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
                 self.dashboardController.dashboardView.update(self.latestState)
+                self.detailsController.updateLiveLimits(limits, costReferenceReport: costReferenceReport)
             }
         }
     }
@@ -4170,6 +5476,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         report: report,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
                         liveLimits: self.liveLimits,
+                        liveLimitsUpdatedAt: self.liveLimitsUpdatedAt,
                         selectedWindow: window,
                         selectedQuota: quota,
                         nextRefreshAt: self.latestState.nextRefreshAt,
@@ -4188,6 +5495,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func costReferenceReport(quota: QuotaViewOption, fallback: TokenReport?) -> TokenReport? {
         reportCache[ReportCacheKey(window: .week, quota: quota)] ?? fallback
+    }
+
+    private func liveCostReferenceReport(limits: [LiveRateLimit]) -> TokenReport? {
+        guard let weekly = costEstimateLimit(from: limits)?.secondary,
+              weekly.usedPercent > 0,
+              weekly.windowMinutes > 0,
+              let resetsAt = weekly.resetsAt else {
+            return nil
+        }
+        let start = resetsAt.addingTimeInterval(-TimeInterval(weekly.windowMinutes) * 60)
+        let now = Date()
+        guard start < now else { return nil }
+        return scanner.scan(from: start, to: now)
     }
 
     private func updateStatusTitle(report: TokenReport, limits: [LiveRateLimit], quota: QuotaViewOption) {
@@ -4314,6 +5634,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dashboardController.dashboardView.update(latestState)
     }
 
+    private func changeNumberUnitStyle(_ style: NumberUnitStyle) {
+        NumberUnitStyle.current = style
+        detailsController.detailsView.needsDisplay = true
+        dashboardController.dashboardView.update(latestState)
+        updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
+    }
+
     private func changeShowHistoricalEmptyWeeks(_ value: Bool) {
         AppSettings.showHistoricalEmptyWeeks = value
         detailsController.detailsView.needsDisplay = true
@@ -4330,12 +5657,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openDetailsWindow() {
         detailsController.showLoading()
+        if liveLimits.isEmpty {
+            refreshLiveLimits()
+        }
         let limits = liveLimits
         scanQueue.async {
             let all = self.scanner.scan(days: 365)
             let spark = self.scanner.scan(days: 365, includedModelName: QuotaViewOption.spark.includedModelName)
             let other = self.scanner.scan(days: 365, excludedModelName: QuotaViewOption.other.excludedModelName)
-            let snapshot = DetailsSnapshot(all: all, spark: spark, other: other, liveLimits: limits)
+            let costReferenceReport = self.liveCostReferenceReport(limits: limits)
+            let snapshot = DetailsSnapshot(all: all, spark: spark, other: other, liveLimits: limits, costReferenceReport: costReferenceReport)
             DispatchQueue.main.async {
                 self.detailsController.update(snapshot: snapshot)
             }
@@ -4386,9 +5717,16 @@ private func format(_ value: Int64) -> String {
 
 private func compact(_ value: Int64) -> String {
     let double = Double(value)
-    if value >= 1_000_000_000 { return String(format: "%.2fB", double / 1_000_000_000) }
-    if value >= 1_000_000 { return String(format: "%.1fM", double / 1_000_000) }
-    if value >= 1_000 { return String(format: "%.1fK", double / 1_000) }
+    switch NumberUnitStyle.current {
+    case .english:
+        if value >= 1_000_000_000 { return String(format: "%.2fB", double / 1_000_000_000) }
+        if value >= 1_000_000 { return String(format: "%.1fM", double / 1_000_000) }
+        if value >= 1_000 { return String(format: "%.1fK", double / 1_000) }
+    case .chinese:
+        if value >= 100_000_000 { return String(format: "%.2f亿", double / 100_000_000) }
+        if value >= 10_000 { return String(format: "%.1f万", double / 10_000) }
+        if value >= 1_000 { return format(value) }
+    }
     return "\(value)"
 }
 
@@ -4512,9 +5850,10 @@ private func weekStarts(for year: Int) -> [Date] {
     return starts
 }
 
-private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil) -> [CostPeriodRow] {
-    guard let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit),
-          estimate.weeklyBudget > 0 else {
+private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil) -> [CostPeriodRow] {
+    guard let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit, quotaReferenceReport: quotaReferenceReport),
+          estimate.weeklyBudget > 0,
+          estimate.weeklyQuotaTotal > 0 else {
         return []
     }
     let paymentPerToken = estimate.weeklyBudget / max(estimate.weeklyQuotaTotal, 1)
@@ -4566,9 +5905,10 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
     return rows.filter { $0.hasData || $0.isFuture }
 }
 
-private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil) -> [CostPeriodRow] {
-    guard let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit),
-          estimate.weeklyBudget > 0 else {
+private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil) -> [CostPeriodRow] {
+    guard let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit, quotaReferenceReport: quotaReferenceReport),
+          estimate.weeklyBudget > 0,
+          estimate.weeklyQuotaTotal > 0 else {
         return []
     }
     let paymentPerToken = estimate.weeklyBudget / max(estimate.weeklyQuotaTotal, 1)
@@ -4602,9 +5942,10 @@ private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: I
     }
 }
 
-private func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil) -> [MonthlySpendRow] {
-    guard let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit),
-          estimate.weeklyBudget > 0 else {
+private func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil) -> [MonthlySpendRow] {
+    guard let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit, quotaReferenceReport: quotaReferenceReport),
+          estimate.weeklyBudget > 0,
+          estimate.weeklyQuotaTotal > 0 else {
         return []
     }
     let paymentPerToken = estimate.weeklyBudget / max(estimate.weeklyQuotaTotal, 1)
@@ -4630,23 +5971,37 @@ private func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: 
     }
 }
 
-private func planCostEstimate(report: TokenReport, selectedDay: DayUsage?, limit: LiveRateLimit?) -> PlanCostEstimate? {
+private func planCostEstimate(report: TokenReport, selectedDay: DayUsage?, limit: LiveRateLimit?, quotaReferenceReport: TokenReport? = nil) -> PlanCostEstimate? {
     let monthlyCost = AppSettings.monthlyPlanCost
     guard monthlyCost > 0,
-          let weekly = limit?.secondary,
-          weekly.usedPercent > 0 else {
+          let weekly = limit?.secondary else {
         return nil
     }
+    let weeklyBudget = monthlyCost * 12 / 52
+    if weekly.usedPercent <= 0 {
+        let weeklyUnusedValue = weeklyBudget * min(max(weekly.remainingPercent, 0), 100) / 100
+        return PlanCostEstimate(
+            monthlyCost: monthlyCost,
+            weeklyBudget: weeklyBudget,
+            weeklyQuotaTotal: 0,
+            todayValue: 0,
+            selectedDayValue: 0,
+            weeklyUsedValue: 0,
+            weeklyUnusedValue: weeklyUnusedValue,
+            totalSpentValue: 0,
+            totalWastedValue: 0,
+            selectedDayQuotaPercent: 0
+        )
+    }
     let recentDays = Array(report.byDay.suffix(7))
-    let recentWeekTotal = recentDays.reduce(Int64(0)) { $0 + $1.usage.total }
-    guard recentWeekTotal > 0 else { return nil }
+    let quotaReferenceTotal = quotaReferenceReport?.usage.total ?? recentDays.reduce(Int64(0)) { $0 + $1.usage.total }
+    guard quotaReferenceTotal > 0 else { return nil }
 
-    let weeklyQuotaTotal = Double(recentWeekTotal) / max(weekly.usedPercent / 100, 0.0001)
+    let weeklyQuotaTotal = Double(quotaReferenceTotal) / max(weekly.usedPercent / 100, 0.0001)
     guard weeklyQuotaTotal > 0 else { return nil }
 
     let today = report.byDay.first { $0.day == todayKey() } ?? recentDays.last
     let selected = selectedDay ?? today
-    let weeklyBudget = monthlyCost * 12 / 52
     let todayValue = weeklyBudget * Double(today?.usage.total ?? 0) / weeklyQuotaTotal
     let selectedValue = weeklyBudget * Double(selected?.usage.total ?? 0) / weeklyQuotaTotal
     let selectedPercent = Double(selected?.usage.total ?? 0) / weeklyQuotaTotal * 100
