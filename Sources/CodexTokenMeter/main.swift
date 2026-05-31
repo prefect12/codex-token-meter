@@ -235,12 +235,19 @@ private enum NumberUnitStyle: String, CaseIterable {
 
     static let storageKey = "numberUnitStyle"
 
+    static var availableCases: [NumberUnitStyle] {
+        usesChineseUnits ? [.english, .chinese] : [.english]
+    }
+
+    static var effective: NumberUnitStyle {
+        usesChineseUnits ? current : .english
+    }
+
     static var current: NumberUnitStyle {
         get {
             guard let raw = UserDefaults.standard.string(forKey: storageKey),
                   let style = NumberUnitStyle(rawValue: raw) else {
-                let language = AppLanguage.current
-                return (language == .chinese || language == .traditionalChinese) ? .chinese : .english
+                return usesChineseUnits ? .chinese : .english
             }
             return style
         }
@@ -254,6 +261,10 @@ private enum NumberUnitStyle: String, CaseIterable {
         case .english: return "English"
         case .chinese: return "中文"
         }
+    }
+
+    private static var usesChineseUnits: Bool {
+        AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese
     }
 }
 
@@ -3729,11 +3740,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let optionH: CGFloat = 38
         let gap: CGFloat = 12
         let unitY = rect.minY + 130
-        let unitStartX = rect.maxX - 16 - unitOptionW * CGFloat(NumberUnitStyle.allCases.count) - gap * CGFloat(NumberUnitStyle.allCases.count - 1)
-        for (index, style) in NumberUnitStyle.allCases.enumerated() {
+        let availableUnitStyles = NumberUnitStyle.availableCases
+        let unitStartX = rect.maxX - 16 - unitOptionW * CGFloat(availableUnitStyles.count) - gap * CGFloat(max(availableUnitStyles.count - 1, 0))
+        for (index, style) in availableUnitStyles.enumerated() {
             let optionRect = NSRect(x: unitStartX + CGFloat(index) * (unitOptionW + gap), y: unitY, width: unitOptionW, height: optionH)
             numberUnitOptionRects[style] = optionRect
-            drawSelectablePill(style.title, rect: optionRect, selected: style == NumberUnitStyle.current)
+            drawSelectablePill(style.title, rect: optionRect, selected: style == NumberUnitStyle.effective)
         }
         drawText(t(.numberUnitsHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 186, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
@@ -4845,7 +4857,7 @@ private func format(_ value: Int64) -> String {
 
 private func compact(_ value: Int64) -> String {
     let double = Double(value)
-    switch NumberUnitStyle.current {
+    switch NumberUnitStyle.effective {
     case .english:
         if value >= 1_000_000_000 { return String(format: "%.2fB", double / 1_000_000_000) }
         if value >= 1_000_000 { return String(format: "%.1fM", double / 1_000_000) }
