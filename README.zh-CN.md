@@ -22,11 +22,13 @@ Codex Token Meter 是一个原生 macOS 状态栏工具，用来查看本机 Cod
 
 ![Codex Token Meter 中文详情概览](docs/images/zh-details-overview.png)
 
-### 日历与金额页面
-
-![Codex Token Meter 中文日历页面](docs/images/zh-details-calendar.png)
+### 金额页面
 
 ![Codex Token Meter 中文金额页面](docs/images/zh-details-costs.png)
+
+### 日历页面
+
+![Codex Token Meter 中文日历页面](docs/images/zh-details-calendar.png)
 
 <details>
 <summary>英文界面预览</summary>
@@ -34,6 +36,8 @@ Codex Token Meter 是一个原生 macOS 状态栏工具，用来查看本机 Cod
 ![Codex Token Meter English menu bar dashboard](docs/images/en-menu-popover.png)
 
 ![Codex Token Meter English details overview](docs/images/en-details-overview.png)
+
+![Codex Token Meter English cost and budget page](docs/images/en-details-costs.png)
 
 </details>
 

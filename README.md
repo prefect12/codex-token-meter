@@ -22,12 +22,18 @@ When available, it also reads live quota data from the local Codex runtime, incl
 
 ![Codex Token Meter details overview](docs/images/en-details-overview.png)
 
+### Cost And Budget Tracking
+
+![Codex Token Meter cost and budget page](docs/images/en-details-costs.png)
+
 <details>
 <summary>Chinese UI preview</summary>
 
 ![Codex Token Meter Chinese menu bar dashboard](docs/images/zh-menu-popover.png)
 
 ![Codex Token Meter Chinese details overview](docs/images/zh-details-overview.png)
+
+![Codex Token Meter Chinese cost and budget page](docs/images/zh-details-costs.png)
 
 </details>
 
