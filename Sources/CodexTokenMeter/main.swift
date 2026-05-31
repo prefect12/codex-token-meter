@@ -963,8 +963,8 @@ private enum AppSettings {
 
 enum QuotaViewOption: String, CaseIterable {
     case all = "codex"
-    case spark
     case other
+    case spark
 
     var scanLimitID: String? {
         switch self {
