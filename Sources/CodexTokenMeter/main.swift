@@ -3882,6 +3882,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 hoveredCostHistoryIndex = nil
                 hoveredCostOverviewInfo = nil
             }
+            if selectedSection != .calendar {
+                isHoveringDayValueInfo = false
+                isHoveringProfileAPIInfo = false
+            }
             onPreferredHeightChanged?()
             needsDisplay = true
             needsLayout = true
@@ -3898,11 +3902,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private var costHistoryRows: [CostPeriodRow] = []
     private var costOverviewInfoRects: [CostOverviewInfo: NSRect] = [:]
     private var dayValueInfoRect: NSRect?
+    private var profileAPIInfoRect: NSRect?
     private var showHistoricalEmptyWeeksToggleRect: NSRect?
     private var selectedDay: String?
     private var hoveredCostHistoryIndex: Int?
     private var hoveredCostOverviewInfo: CostOverviewInfo?
     private var isHoveringDayValueInfo = false
+    private var isHoveringProfileAPIInfo = false
     private var selectedCostYear = Calendar.current.component(.year, from: Date())
     private var costRingCache: CostRingCache?
     private var costPageDataCache: CostPageData?
@@ -4238,7 +4244,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private func selectedDayPanelPreferredHeight(contentWidth: CGFloat) -> CGFloat {
         guard let snapshot else { return 248 }
         if usesProfileAPIReport(for: snapshot) {
-            return 206
+            let report = calendarReport(for: snapshot)
+            let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
+                ?? report.byDay.last(where: { $0.usage.total > 0 })
+                ?? report.byDay.last
+            let localDay = day.flatMap { profileDay in snapshot.all.byDay.first { $0.day == profileDay.day } }
+            let visibleModelRows = max(1, min(localDay?.modelBreakdown.count ?? 0, 5))
+            let minimumModelHeight = 22 + CGFloat(visibleModelRows) * 22
+            let modelY: CGFloat = 134
+            return max(284, modelY + minimumModelHeight + 18)
         }
         let report = snapshot.all
         let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
@@ -4314,12 +4328,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             }
         }
         updateDayValueInfoHover(at: point)
+        updateProfileAPIInfoHover(at: point)
     }
 
     override func mouseExited(with event: NSEvent) {
         hoveredCostHistoryIndex = nil
         hoveredCostOverviewInfo = nil
         isHoveringDayValueInfo = false
+        isHoveringProfileAPIInfo = false
         needsDisplay = true
     }
 
@@ -4335,6 +4351,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
         if isHoveringDayValueInfo {
             isHoveringDayValueInfo = false
+            shouldRedraw = true
+        }
+        if isHoveringProfileAPIInfo {
+            isHoveringProfileAPIInfo = false
             shouldRedraw = true
         }
         if shouldRedraw {
@@ -4365,6 +4385,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let hovering = selectedSection == .calendar && (dayValueInfoRect?.contains(point) == true)
         if hovering != isHoveringDayValueInfo {
             isHoveringDayValueInfo = hovering
+            needsDisplay = true
+        }
+    }
+
+    private func updateProfileAPIInfoHover(at point: CGPoint) {
+        let hovering = selectedSection == .calendar && (profileAPIInfoRect?.insetBy(dx: -4, dy: -4).contains(point) == true)
+        if hovering != isHoveringProfileAPIInfo {
+            isHoveringProfileAPIInfo = hovering
             needsDisplay = true
         }
     }
@@ -4536,6 +4564,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         costHistoryRows.removeAll()
         costOverviewInfoRects.removeAll()
         dayValueInfoRect = nil
+        profileAPIInfoRect = nil
         numberUnitOptionRects.removeAll()
         statusOptionRects.removeAll()
         chooseLogFolderRect = nil
@@ -4569,6 +4598,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             drawCostOverviewInfoTooltip()
         } else if selectedSection == .calendar {
             drawDayValueInfoTooltip()
+            drawProfileAPIInfoTooltip()
         }
     }
 
@@ -5189,8 +5219,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawText(day.day, rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: 180, height: 24), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold), color: .white)
         drawText(compact(day.usage.total), rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: 260, height: 34), font: .monospacedDigitSystemFont(ofSize: 28, weight: .bold), color: accentTeal)
         let dayMeta = "\(t(.profileAPISource))  |  \(Int(round(intensity * 100)))% \(t(.peakDay))"
-        drawText(dayMeta, rect: NSRect(x: rect.minX + 18, y: rect.minY + 90, width: 420, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
-        drawMultilineText(t(.profileAPITotalsHint), rect: NSRect(x: rect.minX + 18, y: rect.minY + 120, width: min(420, rect.width * 0.48), height: 52), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+        let metaFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let metaRect = NSRect(x: rect.minX + 18, y: rect.minY + 90, width: 420, height: 18)
+        drawText(dayMeta, rect: metaRect, font: metaFont, color: NSColor.white.withAlphaComponent(0.48))
+        let metaWidth = min(metaRect.width - 22, measuredTextWidth(dayMeta, font: metaFont))
+        let iconRect = NSRect(x: metaRect.minX + metaWidth + 6, y: metaRect.minY - 1, width: 16, height: 16)
+        profileAPIInfoRect = iconRect
+        drawInfoMark(rect: iconRect, highlighted: isHoveringProfileAPIInfo)
 
         let metrics: [(String, String, NSColor)] = [
             (t(.profileAPISource), compact(day.usage.total), accentTeal),
@@ -5209,6 +5244,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             drawText(metric.0, rect: NSRect(x: card.minX + 12, y: card.minY + 14, width: card.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
             drawText(metric.1, rect: NSRect(x: card.minX + 12, y: card.minY + 38, width: card.width - 24, height: 22), font: .monospacedDigitSystemFont(ofSize: metricW < 96 ? 13 : 15, weight: .bold), color: metric.2)
         }
+
+        let modelRect = NSRect(
+            x: rect.minX + 18,
+            y: rect.minY + 134,
+            width: rect.width - 36,
+            height: max(88, rect.maxY - rect.minY - 152)
+        )
+        drawSelectedDayModels(localDay?.modelBreakdown ?? [], rect: modelRect)
     }
 
     private func drawSelectedDayPanel(snapshot: DetailsSnapshot, rect: NSRect) {
@@ -5787,6 +5830,34 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
         drawText(t(.dayValue), rect: NSRect(x: rect.minX + 12, y: rect.minY + 10, width: rect.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: .white)
         drawMultilineText(t(.dayValueHint), rect: NSRect(x: rect.minX + 12, y: rect.minY + 30, width: rect.width - 24, height: 34), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.58))
+    }
+
+    private func drawProfileAPIInfoTooltip() {
+        guard isHoveringProfileAPIInfo, let anchorRect = profileAPIInfoRect else { return }
+        let width: CGFloat = 340
+        let height: CGFloat = 82
+        var origin = CGPoint(x: anchorRect.midX - width / 2, y: anchorRect.maxY + 8)
+        if origin.x < bounds.minX + 12 {
+            origin.x = bounds.minX + 12
+        }
+        if origin.x + width > bounds.maxX - 12 {
+            origin.x = bounds.maxX - width - 12
+        }
+        if origin.y + height > bounds.maxY - 12 {
+            origin.y = anchorRect.minY - height - 8
+        }
+        origin.y = max(bounds.minY + 12, origin.y)
+
+        let rect = NSRect(origin: origin, size: CGSize(width: width, height: height))
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 9, yRadius: 9).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        let border = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
+        border.lineWidth = 1
+        border.stroke()
+
+        drawText(t(.profileAPITotals), rect: NSRect(x: rect.minX + 12, y: rect.minY + 10, width: rect.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: .white)
+        drawMultilineText(t(.profileAPITotalsHint), rect: NSRect(x: rect.minX + 12, y: rect.minY + 30, width: rect.width - 24, height: 42), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.58))
     }
 
     private func drawAboutPage(snapshot: DetailsSnapshot, content: NSRect) {
