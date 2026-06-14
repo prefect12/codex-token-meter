@@ -1497,6 +1497,8 @@ struct CostPeriodRow {
     let usedValue: Double
     let remainingValue: Double
     let budgetValue: Double
+    let apiEquivalentUSD: Double?
+    let apiEquivalentCoveragePercent: Double
     let hasData: Bool
     let isFuture: Bool
     let isShortCycle: Bool
@@ -2540,6 +2542,7 @@ final class UsageChartView: NSView {
     var weeklyQuotaUsedPercent: Double? { didSet { needsDisplay = true } }
     var weeklyQuotaReferenceTotal: Int64? { didSet { needsDisplay = true } }
     var costEstimator: CostEstimator? { didSet { needsDisplay = true } }
+    var apiEstimate: APICostEstimate? { didSet { needsDisplay = true } }
     private var hoveredIndex: Int?
     private var hoverPoint: CGPoint?
 
@@ -2576,63 +2579,37 @@ final class UsageChartView: NSView {
         bounds.fill()
 
         if selectedWindow == .day {
-            drawHourlyLine()
+            drawHourlyBars()
         } else {
             drawDailyBars()
         }
         drawHoverTooltip()
     }
 
-    private func drawHourlyLine() {
+    private func drawHourlyBars() {
         guard !hours.isEmpty else { return }
         let plot = bounds.insetBy(dx: 12, dy: 10)
         let labelHeight: CGFloat = 16
         let chart = NSRect(x: plot.minX, y: plot.minY, width: plot.width, height: plot.height - labelHeight)
         let series = continuousHours()
         let maxTotal = max(series.map { $0.usage.total }.max() ?? 1, 1)
-        let points = series.enumerated().map { index, hour -> CGPoint in
-            let x = chart.minX + (series.count == 1 ? chart.width : CGFloat(index) / CGFloat(series.count - 1) * chart.width)
+        let gap: CGFloat = 4
+        let width = max(4, (chart.width - gap * CGFloat(series.count - 1)) / CGFloat(max(series.count, 1)))
+
+        for (index, hour) in series.enumerated() {
+            let x = chart.minX + CGFloat(index) * (width + gap)
             let ratio = CGFloat(Double(hour.usage.total) / Double(maxTotal))
-            let y = chart.maxY - max(2, chart.height * ratio)
-            return CGPoint(x: x, y: y)
-        }
-
-        let fillPath = NSBezierPath()
-        if let first = points.first {
-            fillPath.move(to: CGPoint(x: first.x, y: chart.maxY))
-            fillPath.line(to: first)
-            for point in points.dropFirst() {
-                fillPath.line(to: point)
+            let height = hour.usage.total > 0 ? max(3, chart.height * ratio) : 2
+            let bar = NSRect(x: x, y: chart.maxY - height, width: width, height: height)
+            let isHovered = hoveredIndex == index
+            (isHovered ? NSColor.systemGreen : NSColor.systemGreen.withAlphaComponent(hour.usage.total > 0 ? 0.78 : 0.20)).setFill()
+            NSBezierPath(roundedRect: bar, xRadius: 2.5, yRadius: 2.5).fill()
+            if isHovered {
+                NSColor.white.withAlphaComponent(0.55).setStroke()
+                let outline = NSBezierPath(roundedRect: bar.insetBy(dx: -1, dy: -1), xRadius: 3.5, yRadius: 3.5)
+                outline.lineWidth = 1
+                outline.stroke()
             }
-            if let last = points.last {
-                fillPath.line(to: CGPoint(x: last.x, y: chart.maxY))
-            }
-            fillPath.close()
-            NSColor.systemGreen.withAlphaComponent(0.18).setFill()
-            fillPath.fill()
-        }
-
-        let linePath = NSBezierPath()
-        if let first = points.first {
-            linePath.move(to: first)
-            for point in points.dropFirst() {
-                linePath.line(to: point)
-            }
-            linePath.lineWidth = 2.2
-            NSColor.systemGreen.setStroke()
-            linePath.stroke()
-        }
-
-        if let hoveredIndex, points.indices.contains(hoveredIndex) {
-            let point = points[hoveredIndex]
-            NSColor.systemGreen.setFill()
-            NSBezierPath(ovalIn: NSRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)).fill()
-            NSColor.white.withAlphaComponent(0.65).setStroke()
-            let guide = NSBezierPath()
-            guide.lineWidth = 1
-            guide.move(to: CGPoint(x: point.x, y: chart.minY))
-            guide.line(to: CGPoint(x: point.x, y: chart.maxY))
-            guide.stroke()
         }
 
         let formatter = DateFormatter()
@@ -2642,7 +2619,7 @@ final class UsageChartView: NSView {
         let labels = [(0, series.first?.hour), (series.count / 2, series.indices.contains(series.count / 2) ? series[series.count / 2].hour : nil), (max(0, series.count - 1), series.last?.hour)]
         for (index, date) in labels {
             guard let date else { continue }
-            let x = chart.minX + (series.count == 1 ? chart.width : CGFloat(index) / CGFloat(max(1, series.count - 1)) * chart.width)
+            let x = chart.minX + CGFloat(index) * (width + gap) + width / 2
             drawLabel(formatter.string(from: date), rect: NSRect(x: x - 28, y: plot.maxY - labelHeight + 2, width: 56, height: labelHeight))
         }
     }
@@ -2718,12 +2695,21 @@ final class UsageChartView: NSView {
         let plot = bounds.insetBy(dx: 12, dy: 10)
         let labelHeight: CGFloat = 16
         let chart = NSRect(x: plot.minX, y: plot.minY, width: plot.width, height: plot.height - labelHeight)
-        guard chart.insetBy(dx: 6, dy: 0).contains(point) else { return clearHoverIfNeeded() }
+        guard chart.insetBy(dx: -4, dy: 0).contains(point) else { return clearHoverIfNeeded() }
 
-        let ratio = max(0, min(1, (point.x - chart.minX) / max(1, chart.width)))
-        let index = Int(round(ratio * CGFloat(max(1, series.count - 1))))
-        hoveredIndex = min(max(index, 0), series.count - 1)
-        hoverPoint = point
+        let gap: CGFloat = 4
+        let width = max(4, (chart.width - gap * CGFloat(series.count - 1)) / CGFloat(max(series.count, 1)))
+        let raw = Int((point.x - chart.minX) / (width + gap))
+        let index = min(max(raw, 0), series.count - 1)
+        let x = chart.minX + CGFloat(index) * (width + gap)
+        let hitRect = NSRect(x: x - max(3, gap / 2), y: chart.minY, width: width + max(6, gap), height: chart.height)
+        if hitRect.contains(point) {
+            hoveredIndex = index
+            hoverPoint = point
+        } else {
+            hoveredIndex = nil
+            hoverPoint = nil
+        }
         needsDisplay = true
     }
 
@@ -2803,8 +2789,11 @@ final class UsageChartView: NSView {
                 lines.append("\(t(.dayValue))  \(displayMoney(costEstimator.tokenValue(forDayKey: title, usage: usage)))")
             }
         }
+        if let apiEquivalentUSD = apiEquivalentUSD(for: title, usage: usage) {
+            lines.append("\(t(.apiEquivalent))  \(displayAPIMoney(apiEquivalentUSD))")
+        }
 
-        let width: CGFloat = 214
+        let width: CGFloat = 244
         let height = CGFloat(18 + lines.count * 16)
         var origin = CGPoint(x: hoverPoint.x + 12, y: hoverPoint.y - height - 8)
         if origin.x + width > bounds.maxX - 8 {
@@ -2863,6 +2852,21 @@ final class UsageChartView: NSView {
         let visibleTotal = days.reduce(Int64(0)) { $0 + $1.usage.total }
         guard usage.total > 0, visibleTotal > 0 else { return nil }
         return Double(usage.total) / Double(visibleTotal) * 100
+    }
+
+    private func apiEquivalentUSD(for title: String, usage: Usage) -> Double? {
+        guard usage.total > 0 else { return nil }
+        if selectedWindow == .day {
+            guard let apiEstimate,
+                  apiEstimate.hasPricedUsage,
+                  apiEstimate.totalTokens > 0 else {
+                return nil
+            }
+            return apiEstimate.usdValue * Double(usage.total) / Double(apiEstimate.totalTokens)
+        }
+        guard let day = days.first(where: { $0.day == title }) else { return nil }
+        let estimate = APICostEstimator.estimate(day: day)
+        return estimate.hasPricedUsage ? estimate.usdValue : nil
     }
 
     private func recentWeekTotal() -> Int64 {
@@ -2931,10 +2935,11 @@ final class DashboardView: NSView {
         titleLabel.stringValue = "Codex Token Meter"
         let displayLimit = selectedLimit(from: state.liveLimits, quota: state.selectedQuota)
         subtitleLabel.stringValue = state.selectedQuota.fallbackTitle
-        totalLabel.stringValue = compact(report.usage.total)
+        totalLabel.stringValue = compactDashboardTotal(report.usage.total)
         detailLabel.stringValue = state.selectedWindow.title
-        usageLabel.stringValue = "\(compact(report.usage.input)) \(t(.inShort))  |  \(compact(report.usage.output)) \(t(.outShort))"
+        usageLabel.stringValue = "\(compactDashboardMetric(report.usage.input)) \(t(.inShort))  |  \(compactDashboardMetric(report.usage.output)) \(t(.outShort))"
         refreshLabel.stringValue = state.isLoading ? t(.refreshing) : "\(t(.updated)) \(relative(report.scannedAt))  |  \(t(.next)) \(relative(state.nextRefreshAt))"
+        let apiEstimate = APICostEstimator.estimate(report: report)
 
         quotaSegment.selectedSegment = QuotaViewOption.allCases.firstIndex(of: state.selectedQuota) ?? 0
         segment.selectedSegment = WindowOption.allCases.firstIndex(of: state.selectedWindow) ?? 1
@@ -2962,8 +2967,14 @@ final class DashboardView: NSView {
         dayChart.weeklyQuotaUsedPercent = state.selectedWindow == .day ? nil : weekly?.usedPercent
         dayChart.weeklyQuotaReferenceTotal = state.selectedWindow == .day ? nil : report.byDay.suffix(7).reduce(Int64(0)) { $0 + $1.usage.total }
         dayChart.costEstimator = state.selectedWindow == .day ? nil : CostEstimator(report: report, limit: displayLimit)
+        dayChart.apiEstimate = apiEstimate
         sessionsLabel.stringValue = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
-        costLabel.stringValue = ""
+        if apiEstimate.hasPricedUsage {
+            let coverage = apiEstimate.coveragePercent < 99.5 ? " · \(String(format: "%.0f%%", apiEstimate.coveragePercent)) \(t(.priced))" : ""
+            costLabel.stringValue = "\(t(.apiEquivalent)) \(displayAPIMoney(apiEstimate.usdValue))\(coverage)"
+        } else {
+            costLabel.stringValue = ""
+        }
         needsDisplay = true
     }
 
@@ -2997,10 +3008,13 @@ final class DashboardView: NSView {
         super.layout()
         let layoutBounds = NSRect(origin: .zero, size: NSSize(width: max(bounds.width, Self.idealSize.width), height: max(bounds.height, Self.idealSize.height)))
         let content = layoutBounds.insetBy(dx: 28, dy: 24)
+        let totalWidth: CGFloat = 132
+        let totalX = content.maxX - totalWidth
+        let titleX = content.minX + 28
         logoImageView.frame = NSRect(x: content.minX, y: content.minY + 2, width: 22, height: 22)
-        titleLabel.frame = NSRect(x: content.minX + 28, y: content.minY, width: 250, height: 28)
-        subtitleLabel.frame = NSRect(x: content.minX + 28, y: content.minY + 30, width: 248, height: 18)
-        totalLabel.frame = NSRect(x: content.maxX - 172, y: content.minY, width: 162, height: 36)
+        titleLabel.frame = NSRect(x: titleX, y: content.minY, width: max(132, totalX - titleX - 12), height: 28)
+        subtitleLabel.frame = NSRect(x: titleX, y: content.minY + 30, width: max(132, totalX - titleX - 12), height: 18)
+        totalLabel.frame = NSRect(x: totalX, y: content.minY, width: totalWidth, height: 36)
         detailLabel.frame = NSRect(x: content.maxX - 172, y: content.minY + 37, width: 162, height: 16)
         quotaSegment.frame = NSRect(x: content.minX, y: content.minY + 52, width: 216, height: 24)
         usageLabel.frame = NSRect(x: content.minX + 228, y: content.minY + 55, width: content.width - 228, height: 16)
@@ -3035,26 +3049,37 @@ final class DashboardView: NSView {
             addSubview($0)
         }
 
-        titleLabel.font = .systemFont(ofSize: 22, weight: .bold)
+        titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
         titleLabel.textColor = .white
+        titleLabel.usesSingleLineMode = true
+        titleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         subtitleLabel.textColor = NSColor.white.withAlphaComponent(0.46)
+        subtitleLabel.usesSingleLineMode = true
         subtitleLabel.lineBreakMode = .byTruncatingTail
-        totalLabel.font = .monospacedDigitSystemFont(ofSize: 30, weight: .bold)
+        totalLabel.font = .monospacedDigitSystemFont(ofSize: 28, weight: .bold)
         totalLabel.alignment = .right
         totalLabel.textColor = NSColor.systemGreen
+        totalLabel.usesSingleLineMode = true
+        totalLabel.lineBreakMode = .byTruncatingHead
         detailLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         detailLabel.alignment = .right
         detailLabel.textColor = NSColor.white.withAlphaComponent(0.45)
+        detailLabel.usesSingleLineMode = true
+        detailLabel.lineBreakMode = .byTruncatingTail
         usageLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
-        usageLabel.alignment = .center
+        usageLabel.alignment = .right
         usageLabel.textColor = NSColor.white.withAlphaComponent(0.34)
+        usageLabel.usesSingleLineMode = true
+        usageLabel.lineBreakMode = .byTruncatingMiddle
         refreshLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         refreshLabel.textColor = NSColor.white.withAlphaComponent(0.36)
         sessionsLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         sessionsLabel.textColor = NSColor.white.withAlphaComponent(0.44)
         costLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
-        costLabel.textColor = NSColor.white.withAlphaComponent(0.50)
+        costLabel.textColor = NSColor.systemTeal.withAlphaComponent(0.88)
+        costLabel.usesSingleLineMode = true
+        costLabel.lineBreakMode = .byTruncatingTail
 
         quotaSegment.target = self
         quotaSegment.action = #selector(quotaSegmentChanged)
@@ -3978,9 +4003,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let gap: CGFloat = 12
         let cardW = (content.width - gap * 3) / 4
         let cards: [(String, String, NSColor)] = [
-            (t(.all), compact(snapshot.all.usage.total), .systemGreen),
-            (t(.spark), compact(snapshot.spark.usage.total), .systemCyan),
-            (t(.other), compact(snapshot.other.usage.total), .systemOrange),
+            (t(.all), compactDashboardTotal(snapshot.all.usage.total), .systemGreen),
+            (t(.spark), compactDashboardTotal(snapshot.spark.usage.total), .systemCyan),
+            (t(.other), compactDashboardTotal(snapshot.other.usage.total), .systemOrange),
             (t(.cache), String(format: "%.0f%%", snapshot.all.usage.cachePercent), .systemTeal)
         ]
         for (index, card) in cards.enumerated() {
@@ -4000,13 +4025,26 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             (t(.spark), t(.sparkModel), snapshot.spark),
             (t(.other), t(.otherDescription), snapshot.other)
         ]
+        let outputW: CGFloat = 92
+        let inputW: CGFloat = 104
+        let totalW: CGFloat = 104
+        let gap: CGFloat = 14
+        let outputX = rect.maxX - 16 - outputW
+        let inputX = outputX - gap - inputW
+        let totalX = inputX - gap - totalW
+        let descriptionX = rect.minX + 104
+        let descriptionW = max(92, totalX - descriptionX - 18)
+        let headerY = rect.minY + 34
+        drawRight(t(.total), rect: NSRect(x: totalX, y: headerY, width: totalW, height: 14), color: NSColor.white.withAlphaComponent(0.38), font: .systemFont(ofSize: 10, weight: .bold))
+        drawRight(t(.input), rect: NSRect(x: inputX, y: headerY, width: inputW, height: 14), color: NSColor.white.withAlphaComponent(0.38), font: .systemFont(ofSize: 10, weight: .bold))
+        drawRight(t(.output), rect: NSRect(x: outputX, y: headerY, width: outputW, height: 14), color: NSColor.white.withAlphaComponent(0.38), font: .systemFont(ofSize: 10, weight: .bold))
         for (index, row) in rows.enumerated() {
-            let y = rect.minY + 40 + CGFloat(index) * 26
+            let y = rect.minY + 52 + CGFloat(index) * 22
             drawText(row.0, rect: NSRect(x: rect.minX + 16, y: y, width: 90, height: 18), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-            drawText(row.1, rect: NSRect(x: rect.minX + 104, y: y, width: 210, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.45))
-            drawRight("\(compact(row.2.usage.total)) \(t(.total))", rect: NSRect(x: rect.maxX - 300, y: y, width: 140, height: 18), color: .white)
-            drawRight("\(compact(row.2.usage.input)) \(t(.inShort))", rect: NSRect(x: rect.maxX - 158, y: y, width: 72, height: 18), color: NSColor.white.withAlphaComponent(0.55))
-            drawRight("\(compact(row.2.usage.output)) \(t(.outShort))", rect: NSRect(x: rect.maxX - 84, y: y, width: 68, height: 18), color: NSColor.white.withAlphaComponent(0.55))
+            drawText(row.1, rect: NSRect(x: descriptionX, y: y, width: descriptionW, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.45))
+            drawRight(compactDashboardMetric(row.2.usage.total), rect: NSRect(x: totalX, y: y, width: totalW, height: 18), color: .white)
+            drawRight(compactDashboardMetric(row.2.usage.input), rect: NSRect(x: inputX, y: y, width: inputW, height: 18), color: NSColor.white.withAlphaComponent(0.58))
+            drawRight(compactDashboardMetric(row.2.usage.output), rect: NSRect(x: outputX, y: y, width: outputW, height: 18), color: NSColor.white.withAlphaComponent(0.58))
         }
     }
 
@@ -4718,6 +4756,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 String(format: "%.4f", $0.usedValue),
                 String(format: "%.4f", $0.remainingValue),
                 String(format: "%.4f", $0.budgetValue),
+                String(format: "%.4f", $0.apiEquivalentUSD ?? -1),
+                String(format: "%.2f", $0.apiEquivalentCoveragePercent),
                 $0.hasData ? "1" : "0",
                 $0.isFuture ? "1" : "0",
                 $0.isShortCycle ? "1" : "0",
@@ -4814,14 +4854,20 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             return
         }
         let row = costHistoryRows[hoveredCostHistoryIndex]
-        let lines: [(String, String, NSColor)] = [
+        var lines: [(String, String, NSColor)] = [
             (t(.used), displayMoney(row.usedValue), costUsedColor(for: row)),
             (t(.remaining), displayMoney(row.remainingValue), costRemainingColor(for: row)),
             (t(.budget), displayMoney(row.budgetValue), .white),
             (t(.usageRate), String(format: "%.1f%%", row.usedPercent), NSColor.white.withAlphaComponent(0.82))
         ]
+        if let apiEquivalentUSD = row.apiEquivalentUSD {
+            let apiTitle = row.apiEquivalentCoveragePercent > 0 && row.apiEquivalentCoveragePercent < 99.5
+                ? "\(t(.apiEquivalent)) \(String(format: "%.0f%%", row.apiEquivalentCoveragePercent))"
+                : t(.apiEquivalent)
+            lines.insert((apiTitle, displayAPIMoney(apiEquivalentUSD), accentTeal), at: 3)
+        }
 
-        let width: CGFloat = 282
+        let width: CGFloat = 326
         let titleHeight: CGFloat = row.subtitle == nil ? 24 : 38
         let rowHeight: CGFloat = 20
         let height: CGFloat = titleHeight + 18 + CGFloat(lines.count) * rowHeight
@@ -4851,8 +4897,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
 
         let startY = rect.minY + titleHeight + 6
-        let labelWidth: CGFloat = 76
-        let valueX = rect.minX + labelWidth + 28
+        let labelWidth: CGFloat = 108
+        let valueX = rect.minX + labelWidth + 30
         let valueWidth = rect.maxX - valueX - 14
         for (index, line) in lines.enumerated() {
             let y = startY + CGFloat(index) * rowHeight
@@ -5704,6 +5750,38 @@ private func compact(_ value: Int64) -> String {
     return "\(value)"
 }
 
+private func compactDashboardTotal(_ value: Int64) -> String {
+    let double = Double(value)
+    switch NumberUnitStyle.effective {
+    case .english:
+        if value >= 1_000_000_000 { return String(format: "%.2fB", double / 1_000_000_000) }
+        if value >= 10_000_000 { return String(format: "%.0fM", double / 1_000_000) }
+        if value >= 1_000_000 { return String(format: "%.1fM", double / 1_000_000) }
+        if value >= 10_000 { return String(format: "%.0fK", double / 1_000) }
+        if value >= 1_000 { return String(format: "%.1fK", double / 1_000) }
+    case .chinese:
+        if value >= 100_000_000 { return String(format: "%.2f亿", double / 100_000_000) }
+        if value >= 10_000 { return String(format: "%.0f万", double / 10_000) }
+        if value >= 1_000 { return format(value) }
+    }
+    return "\(value)"
+}
+
+private func compactDashboardMetric(_ value: Int64) -> String {
+    let double = Double(value)
+    switch NumberUnitStyle.effective {
+    case .english:
+        if value >= 1_000_000_000 { return String(format: "%.1fB", double / 1_000_000_000) }
+        if value >= 1_000_000 { return String(format: "%.0fM", double / 1_000_000) }
+        if value >= 1_000 { return String(format: "%.0fK", double / 1_000) }
+    case .chinese:
+        if value >= 100_000_000 { return String(format: "%.1f亿", double / 100_000_000) }
+        if value >= 10_000 { return String(format: "%.0f万", double / 10_000) }
+        if value >= 1_000 { return format(value) }
+    }
+    return "\(value)"
+}
+
 private func money(_ value: Double, currency: CurrencyCode) -> String {
     let formatter = NumberFormatter()
     formatter.numberStyle = .decimal
@@ -5840,6 +5918,28 @@ private func weekStarts(for year: Int) -> [Date] {
     return starts
 }
 
+private func weeklyAPICostBuckets(days: [DayUsage], startDay: String) -> [Date: APICostEstimate] {
+    let calendar = appCalendar()
+    let parser = dayFormatter()
+    var buckets: [Date: APICostEstimate] = [:]
+    for day in days where day.day >= startDay && day.usage.total > 0 {
+        guard let date = parser.date(from: day.day),
+              let weekStart = calendar.dateInterval(of: .weekOfYear, for: date)?.start else {
+            continue
+        }
+        var estimate = buckets[weekStart] ?? APICostEstimate()
+        estimate.add(APICostEstimator.estimate(day: day))
+        buckets[weekStart] = estimate
+    }
+    return buckets
+}
+
+private func proportionalAPICostUSD(estimate: APICostEstimate, usedValue: Double, totalUsedValue: Double) -> Double? {
+    guard estimate.hasPricedUsage else { return nil }
+    guard totalUsedValue > 0 else { return estimate.usdValue }
+    return estimate.usdValue * max(0, usedValue) / totalUsedValue
+}
+
 private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil) -> [CostPeriodRow] {
     guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport),
           estimator.weeklyBudget > 0 else {
@@ -5859,6 +5959,7 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
     let startWeek = calendar.dateInterval(of: .weekOfYear, for: startDate)?.start ?? startDate
     let startWeekYear = calendar.component(.yearForWeekOfYear, from: startDate)
     let buckets = estimator.weeklyBuckets
+    let apiBuckets = weeklyAPICostBuckets(days: report.byDay, startDay: estimator.startDay)
     let starts: [Date]
     if let year {
         guard year >= startWeekYear else { return [] }
@@ -5874,6 +5975,7 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
     let currentWeekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? calendar.startOfDay(for: Date())
     let rows = starts.flatMap { start -> [CostPeriodRow] in
         let total = buckets[start] ?? 0
+        let apiEstimate = apiBuckets[start] ?? APICostEstimate()
         let usedValue = estimator.weeklyUsedValue(forWeekStart: start, total: total)
         let remainingValue = estimator.weeklyUnusedValue(forWeekStart: start, total: total)
         let end = calendar.date(byAdding: .day, value: 6, to: start) ?? start
@@ -5898,6 +6000,8 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
                 usedValue: usedValue,
                 remainingValue: remainingValue,
                 budgetValue: estimator.weeklyBudget,
+                apiEquivalentUSD: apiEstimate.hasPricedUsage ? apiEstimate.usdValue : nil,
+                apiEquivalentCoveragePercent: apiEstimate.coveragePercent,
                 hasData: total > 0 || (start == currentWeekStart && usedValue > 0),
                 isFuture: isFuture,
                 isShortCycle: false,
@@ -5929,6 +6033,8 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
                 usedValue: baseUsedValue,
                 remainingValue: max(0, estimator.weeklyBudget - baseUsedValue),
                 budgetValue: estimator.weeklyBudget,
+                apiEquivalentUSD: proportionalAPICostUSD(estimate: apiEstimate, usedValue: baseUsedValue, totalUsedValue: cycleAwareUsedValue),
+                apiEquivalentCoveragePercent: apiEstimate.coveragePercent,
                 hasData: total > 0 || baseUsedValue > 0,
                 isFuture: false,
                 isShortCycle: isShortCostCycle(start: start, end: resetDates.first ?? exclusiveWeekEnd),
@@ -5960,6 +6066,8 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
                 usedValue: cycleUsedValue,
                 remainingValue: max(0, estimator.weeklyBudget - cycleUsedValue),
                 budgetValue: estimator.weeklyBudget,
+                apiEquivalentUSD: proportionalAPICostUSD(estimate: apiEstimate, usedValue: cycleUsedValue, totalUsedValue: cycleAwareUsedValue),
+                apiEquivalentCoveragePercent: apiEstimate.coveragePercent,
                 hasData: true,
                 isFuture: false,
                 isShortCycle: !isActiveCurrentCycle && (cycleStart.map { isShortCostCycle(start: $0, end: effectiveCycleEnd) } ?? false),
@@ -5995,6 +6103,8 @@ private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: I
             usedValue: usedValue,
             remainingValue: remainingValue,
             budgetValue: max(estimator.monthlyCost, usedValue),
+            apiEquivalentUSD: nil,
+            apiEquivalentCoveragePercent: 0,
             hasData: usedValue > 0,
             isFuture: month > currentMonth,
             isShortCycle: false,
