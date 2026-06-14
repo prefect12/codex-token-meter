@@ -4267,7 +4267,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             (AppSettings.modelLimitSegmentTitle, compactDashboardTotal(snapshot.spark.usage.total), .systemCyan),
             (t(.other), compactDashboardTotal(snapshot.other.usage.total), .systemOrange),
             (t(.cache), String(format: "%.0f%%", snapshot.all.usage.cachePercent), .systemTeal),
-            (t(.apiEquivalent), displayAPIMoney(apiEstimate.usdValue), accentTeal)
+            (t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), accentTeal)
         ]
         let cardW = (content.width - gap * CGFloat(cards.count - 1)) / CGFloat(cards.count)
         let valueFontSize: CGFloat = cardW < 136 ? 18 : (cardW < 176 ? 21 : 24)
@@ -6220,6 +6220,36 @@ private func money(_ value: Double, currency: CurrencyCode) -> String {
     return "\(currency.rawValue) \(formatted)"
 }
 
+private func compactMoney(_ value: Double, currency: CurrencyCode) -> String {
+    let absValue = abs(value)
+    let amount: String
+    switch NumberUnitStyle.effective {
+    case .english:
+        if absValue >= 1_000_000_000 {
+            amount = String(format: "%.2fB", value / 1_000_000_000)
+        } else if absValue >= 1_000_000 {
+            amount = String(format: "%.1fM", value / 1_000_000)
+        } else if absValue >= 1_000 {
+            amount = String(format: "%.1fK", value / 1_000)
+        } else if absValue >= 100 {
+            amount = String(format: "%.0f", value)
+        } else {
+            amount = String(format: "%.2f", value)
+        }
+    case .chinese:
+        if absValue >= 100_000_000 {
+            amount = String(format: "%.2f亿", value / 100_000_000)
+        } else if absValue >= 10_000 {
+            amount = String(format: "%.1f万", value / 10_000)
+        } else if absValue >= 1_000 {
+            amount = String(format: "%.0f", value)
+        } else {
+            amount = String(format: "%.2f", value)
+        }
+    }
+    return "\(amount) \(currency.rawValue)"
+}
+
 private func paymentMoney(_ value: Double) -> String {
     money(value, currency: AppSettings.paymentCurrency)
 }
@@ -6244,6 +6274,11 @@ private func displayMoney(_ paymentValue: Double) -> String {
 private func displayAPIMoney(_ usdValue: Double) -> String {
     let converted = convertCurrency(usdValue, from: .usd, to: AppSettings.displayCurrency)
     return money(converted, currency: AppSettings.displayCurrency)
+}
+
+private func compactDisplayAPIMoney(_ usdValue: Double) -> String {
+    let converted = convertCurrency(usdValue, from: .usd, to: AppSettings.displayCurrency)
+    return compactMoney(converted, currency: AppSettings.displayCurrency)
 }
 
 private func todayKey() -> String {
