@@ -4261,18 +4261,22 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func drawMetricCards(snapshot: DetailsSnapshot, content: NSRect) {
         let gap: CGFloat = 12
-        let cardW = (content.width - gap * 3) / 4
+        let apiEstimate = APICostEstimator.estimate(report: snapshot.all)
         let cards: [(String, String, NSColor)] = [
             (t(.all), compactDashboardTotal(snapshot.all.usage.total), .systemGreen),
             (AppSettings.modelLimitSegmentTitle, compactDashboardTotal(snapshot.spark.usage.total), .systemCyan),
             (t(.other), compactDashboardTotal(snapshot.other.usage.total), .systemOrange),
-            (t(.cache), String(format: "%.0f%%", snapshot.all.usage.cachePercent), .systemTeal)
+            (t(.cache), String(format: "%.0f%%", snapshot.all.usage.cachePercent), .systemTeal),
+            (t(.apiEquivalent), displayAPIMoney(apiEstimate.usdValue), accentTeal)
         ]
+        let cardW = (content.width - gap * CGFloat(cards.count - 1)) / CGFloat(cards.count)
+        let valueFontSize: CGFloat = cardW < 136 ? 18 : (cardW < 176 ? 21 : 24)
+        let titleFontSize: CGFloat = cardW < 136 ? 11 : 12
         for (index, card) in cards.enumerated() {
             let rect = NSRect(x: content.minX + CGFloat(index) * (cardW + gap), y: content.minY + 78, width: cardW, height: 82)
             drawPanel(rect)
-            drawText(card.0, rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
-            drawText(card.1, rect: NSRect(x: rect.minX + 16, y: rect.minY + 34, width: rect.width - 32, height: 30), font: .monospacedDigitSystemFont(ofSize: 24, weight: .bold), color: card.2)
+            drawText(card.0, rect: NSRect(x: rect.minX + 14, y: rect.minY + 12, width: rect.width - 28, height: 18), font: .systemFont(ofSize: titleFontSize, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
+            drawText(card.1, rect: NSRect(x: rect.minX + 14, y: rect.minY + 34, width: rect.width - 28, height: 30), font: .monospacedDigitSystemFont(ofSize: valueFontSize, weight: .bold), color: card.2)
         }
     }
 
