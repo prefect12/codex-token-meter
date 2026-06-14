@@ -8,6 +8,9 @@ Codex Token Meter 是一个原生 macOS 状态栏工具，用来查看本机 Cod
 
 ```text
 ~/.codex/sessions/**/rollout-*.jsonl
+~/.codex/archived_sessions/rollout-*.jsonl
+$CODEX_HOME/sessions/**/rollout-*.jsonl
+$CODEX_HOME/archived_sessions/rollout-*.jsonl
 ```
 
 在可用时，它还会通过本机 Codex 运行时读取实时限额信息，例如 5 小时窗口、周窗口、重置时间和剩余比例。
@@ -51,20 +54,22 @@ Codex Token Meter 是一个原生 macOS 状态栏工具，用来查看本机 Cod
 - 详情窗口包含概览、模型、日历、金额、设置和关于页面。
 - 过去 365 天日历热力图，点击某一天可查看当天用量详情。
 - 模型页面按模型聚合长期 token 用量。
-- 金额页面支持月付金额、本周剩余预算、历史消耗、当日价值和币种折算。
+- 金额页面支持月付金额、本周剩余预算、历史消耗、当日价值、API 等价成本和币种折算。
+- 默认覆盖当前会话、归档会话，以及已设置 `$CODEX_HOME` 时对应的会话目录。
 - 支持 English、简体中文、繁体中文、日本語、Français、Deutsch、Español、한국어。
 - 数字单位会跟随界面语言：英文使用 `K / M / B`，中文使用 `万 / 亿`。
-- 可配置 Codex 日志目录、状态栏显示内容、付款币种、展示币种和付费开始日期。
+- 可配置 Codex 日志目录、状态栏显示内容、开机启动、付款币种、展示币种和付费开始日期。
 - 支持手动刷新、打开本地日志目录和命令行统计检查。
 
 ## 数据与计算口径
 
 Codex Token Meter 使用两类本机数据源：
 
-- **token 用量**：来自本地 Codex 会话日志 `~/.codex/sessions/**/rollout-*.jsonl`。应用扫描 `token_count` 事件，读取 `input_tokens`、`cached_input_tokens`、`output_tokens`、`reasoning_output_tokens` 和 `total_tokens`，再用相邻累计值的差值计算本次新增 token，并按小时、日期、会话和模型聚合。
+- **token 用量**：来自本地 Codex 会话日志。默认扫描 `~/.codex/sessions`、`~/.codex/archived_sessions`，以及设置了 `$CODEX_HOME` 时其中的 `sessions` / `archived_sessions` 目录。如果在设置里手动选择日志目录，该目录会覆盖默认扫描范围。应用扫描 `token_count` 事件，读取 `input_tokens`、`cached_input_tokens`、`output_tokens`、`reasoning_output_tokens` 和 `total_tokens`，再用相邻累计值的差值计算本次新增 token，并按小时、日期、会话和模型聚合。
 - **实时额度比例**：来自本机 Codex 运行时。应用启动 `codex app-server`，调用 `account/rateLimits/read`，读取 5 小时窗口和周窗口的 `usedPercent`、`resetsAt` 等信息。状态栏和圆环里的剩余额度按 `100 - usedPercent` 显示。
 - **缓存比例**：来自本地 token 明细，计算方式是 `cached_input_tokens / input_tokens * 100`。
 - **金额估算**：不是官方账单。月付金额来自设置项，默认 `$200`；周预算按 `月付金额 * 12 / 52` 计算。本周已用金额优先使用实时周 `usedPercent` 换算，历史日期和历史周则按本地 token 用量、历史峰值和已记录的周额度比例估算。
+- **API 等价成本**：这是另一套独立估算，用来回答“如果这些本地 Codex token 直接按 API token 计费，大约会花多少钱”。应用会按可识别模型分别计价 fresh input、cached input 和 output。当前内置价格使用 GPT-5.5、GPT-5.4、GPT-5.4 mini 的官方 API 单价，以及 GPT-5.3-Codex / GPT-5.2 风格 Codex 模型的 token-based Codex rate card 等价口径。`reasoning_output_tokens` 不会再次叠加，因为本地 `token_count` 事件里的 `total_tokens` 已经等于 input 加 output。无法识别模型标签的记录不会被强行估价，并会降低界面中的 priced-token 覆盖率。
 
 如果一周内 OpenAI 重置或刷新了额度，实时周比例会按新的 `usedPercent` 更新，所以状态栏和周额度圆环可能会突然显示更多剩余额度。本地 token 日志不会被清零；金额页会记录观察到的周使用比例下降，并保留历史周见过的最大周使用比例，避免历史金额在重置后被当前低比例冲掉。这个处理仍然是本地观测估算，不等同于官方账单导出。
 
@@ -86,6 +91,9 @@ Codex Token Meter 使用两类本机数据源：
 
 ```text
 ~/.codex/sessions
+~/.codex/archived_sessions
+$CODEX_HOME/sessions
+$CODEX_HOME/archived_sessions
 ~/Library/Application Support/Codex Token Meter/ParsedRollouts
 ```
 

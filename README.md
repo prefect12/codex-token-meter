@@ -8,6 +8,9 @@ It reads your local Codex session logs directly:
 
 ```text
 ~/.codex/sessions/**/rollout-*.jsonl
+~/.codex/archived_sessions/rollout-*.jsonl
+$CODEX_HOME/sessions/**/rollout-*.jsonl
+$CODEX_HOME/archived_sessions/rollout-*.jsonl
 ```
 
 When available, it also reads live quota data from the local Codex runtime, including the 5-hour window, weekly window, reset time, and remaining percentage.
@@ -47,20 +50,22 @@ When available, it also reads live quota data from the local Codex runtime, incl
 - Details window with overview, model, calendar, cost, settings, and about pages.
 - 365-day activity calendar with daily detail cards.
 - Model-level aggregation for long-term usage analysis.
-- Cost page for monthly plan cost, remaining budget, historical spend, and estimated daily value.
+- Cost page for monthly plan cost, remaining budget, historical spend, estimated daily value, and API-equivalent token cost.
+- Default scan coverage for current sessions, archived sessions, and `CODEX_HOME` when that environment variable is set.
 - Localized UI for English, Simplified Chinese, Traditional Chinese, Japanese, French, German, Spanish, and Korean.
 - Language-aware number units: English uses `K / M / B`; Chinese uses `万 / 亿`.
-- Configurable Codex log folder, menu bar display mode, payment currency, display currency, and payment start date.
+- Configurable Codex log folder, menu bar display mode, launch at login, payment currency, display currency, and payment start date.
 - Manual refresh, local log folder shortcut, and CLI inspection mode.
 
 ## Data And Calculation Model
 
 Codex Token Meter uses two local data sources:
 
-- **Token usage** comes from local Codex session logs at `~/.codex/sessions/**/rollout-*.jsonl`. The app scans `token_count` events, reads `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`, and `total_tokens`, calculates the delta between adjacent cumulative counters, and aggregates those deltas by hour, day, session, and model.
+- **Token usage** comes from local Codex session logs. By default the app scans `~/.codex/sessions`, `~/.codex/archived_sessions`, and matching `sessions` / `archived_sessions` folders under `$CODEX_HOME` when that environment variable is set. If you choose a custom log folder in Settings, that folder overrides the default roots. The app scans `token_count` events, reads `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`, and `total_tokens`, calculates the delta between adjacent cumulative counters, and aggregates those deltas by hour, day, session, and model.
 - **Live quota percentages** come from the local Codex runtime. The app starts `codex app-server`, calls `account/rateLimits/read`, and reads fields such as `usedPercent` and `resetsAt` for the 5-hour and weekly windows. Remaining quota in the menu bar and quota rings is displayed as `100 - usedPercent`.
 - **Cache percentage** comes from local token detail and is calculated as `cached_input_tokens / input_tokens * 100`.
 - **Cost estimates** are not official billing. The monthly plan cost comes from settings and defaults to `$200`; weekly budget is `monthly plan cost * 12 / 52`. Current-week used value prefers the live weekly `usedPercent`. Historical days and weeks are estimated from local token usage, historical peaks, and recorded weekly quota percentages.
+- **API-equivalent cost** is a separate estimate. It answers: "if this same local Codex token usage had been billed directly through API-style token pricing, roughly how much would it cost?" The app prices recognized models by token type: fresh input, cached input, and output. Current built-in rates use the official API prices for GPT-5.5, GPT-5.4, and GPT-5.4 mini, plus the token-based Codex rate-card equivalent for GPT-5.3-Codex / GPT-5.2-style Codex models. `reasoning_output_tokens` is not added again because local `total_tokens` already equals input plus output in Codex token-count events. Unknown model labels are left unpriced and reduce the displayed priced-token coverage.
 
 If OpenAI resets or refreshes your quota during a week, the live weekly percentage follows the new `usedPercent`, so the menu bar and weekly quota ring may suddenly show more remaining quota. Local token logs are not cleared. The cost page records observed weekly-percentage drops and keeps the highest weekly percentage seen for historical weeks so past estimated value is not overwritten by a later low live percentage. This is still a local observation-based estimate, not an official billing export.
 
@@ -82,6 +87,9 @@ At runtime, the app reads:
 
 ```text
 ~/.codex/sessions
+~/.codex/archived_sessions
+$CODEX_HOME/sessions
+$CODEX_HOME/archived_sessions
 ~/Library/Application Support/Codex Token Meter/ParsedRollouts
 ```
 

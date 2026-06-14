@@ -1,5 +1,6 @@
 import Cocoa
 import Foundation
+import ServiceManagement
 
 struct Usage: Codable {
     var input: Int64 = 0
@@ -63,6 +64,106 @@ struct ModelUsage {
     var usage: Usage
     var events: Int
     var sessions: Int
+}
+
+struct APICostEstimate {
+    var usdValue: Double = 0
+    var pricedTokens: Int64 = 0
+    var totalTokens: Int64 = 0
+
+    var hasUsage: Bool { totalTokens > 0 }
+    var hasPricedUsage: Bool { pricedTokens > 0 }
+    var coveragePercent: Double {
+        guard totalTokens > 0 else { return 0 }
+        return Double(pricedTokens) / Double(totalTokens) * 100
+    }
+
+    mutating func add(_ other: APICostEstimate) {
+        usdValue += other.usdValue
+        pricedTokens += other.pricedTokens
+        totalTokens += other.totalTokens
+    }
+}
+
+private struct APIModelRate {
+    let inputPerMillionUSD: Double
+    let cachedInputPerMillionUSD: Double
+    let outputPerMillionUSD: Double
+}
+
+private enum APICostEstimator {
+    static func estimate(report: TokenReport) -> APICostEstimate {
+        var estimate = APICostEstimate()
+        if report.modelBreakdown.isEmpty {
+            estimate.totalTokens = report.usage.total
+            return estimate
+        }
+
+        var modelTotal: Int64 = 0
+        for model in report.modelBreakdown {
+            modelTotal += model.usage.total
+            estimate.add(Self.estimate(usage: model.usage, modelName: model.name))
+        }
+        if report.usage.total > modelTotal {
+            estimate.totalTokens += report.usage.total - modelTotal
+        }
+        return estimate
+    }
+
+    static func estimate(day: DayUsage) -> APICostEstimate {
+        var estimate = APICostEstimate()
+        if day.modelBreakdown.isEmpty {
+            estimate.totalTokens = day.usage.total
+            return estimate
+        }
+
+        var modelTotal: Int64 = 0
+        for model in day.modelBreakdown {
+            modelTotal += model.usage.total
+            estimate.add(Self.estimate(usage: model.usage, modelName: model.name))
+        }
+        if day.usage.total > modelTotal {
+            estimate.totalTokens += day.usage.total - modelTotal
+        }
+        return estimate
+    }
+
+    static func estimate(usage: Usage, modelName: String) -> APICostEstimate {
+        guard let rate = rate(for: modelName) else {
+            return APICostEstimate(usdValue: 0, pricedTokens: 0, totalTokens: usage.total)
+        }
+        let cachedInput = max(Int64(0), min(usage.cachedInput, usage.input))
+        let freshInput = max(Int64(0), usage.input - cachedInput)
+        let value = (
+            Double(freshInput) * rate.inputPerMillionUSD
+                + Double(cachedInput) * rate.cachedInputPerMillionUSD
+                + Double(usage.output) * rate.outputPerMillionUSD
+        ) / 1_000_000
+        return APICostEstimate(usdValue: value, pricedTokens: usage.total, totalTokens: usage.total)
+    }
+
+    private static func rate(for modelName: String) -> APIModelRate? {
+        let name = modelName.lowercased()
+        if name.contains("gpt-5.5") && name.contains("cyber") {
+            return APIModelRate(inputPerMillionUSD: 20, cachedInputPerMillionUSD: 2, outputPerMillionUSD: 120)
+        }
+        if name.contains("gpt-5.5") {
+            return APIModelRate(inputPerMillionUSD: 5, cachedInputPerMillionUSD: 0.5, outputPerMillionUSD: 30)
+        }
+        if name.contains("gpt-5.4-mini") || name.contains("gpt-5.4 mini") {
+            return APIModelRate(inputPerMillionUSD: 0.75, cachedInputPerMillionUSD: 0.075, outputPerMillionUSD: 4.5)
+        }
+        if name.contains("gpt-5.4") {
+            return APIModelRate(inputPerMillionUSD: 2.5, cachedInputPerMillionUSD: 0.25, outputPerMillionUSD: 15)
+        }
+        if name.contains("gpt-5.3-codex-spark") {
+            return APIModelRate(inputPerMillionUSD: 1.75, cachedInputPerMillionUSD: 0.175, outputPerMillionUSD: 14)
+        }
+        if name.contains("gpt-5.3-codex") || name.contains("gpt-5.2-codex") || name.contains("gpt-5.2") || name.contains("gpt-5-codex") {
+            return APIModelRate(inputPerMillionUSD: 1.75, cachedInputPerMillionUSD: 0.175, outputPerMillionUSD: 14)
+        }
+        return nil
+    }
 }
 
 struct TokenReport {
@@ -273,6 +374,9 @@ private enum L10nKey {
     case aboutSubtitle
     case all
     case allDescription
+    case apiEquivalent
+    case apiEquivalentHint
+    case before
     case budget
     case cache
     case cacheHit
@@ -304,6 +408,8 @@ private enum L10nKey {
     case japanese
     case language
     case languageHint
+    case launchAtLogin
+    case launchAtLoginHint
     case liveLimitUnavailable
     case logFolder
     case logFolderHint
@@ -312,6 +418,7 @@ private enum L10nKey {
     case logFolderOpen
     case loadingUsageDetails
     case logs
+    case manualRefreshCycle
     case modelGroupingNote
     case modelMissingNote
     case monthlySpendHistory
@@ -322,6 +429,7 @@ private enum L10nKey {
     case noDataLoaded
     case noDaySelected
     case noUsage
+    case now
     case future
     case noModelLabelForDay
     case noModelLabelsFound
@@ -347,6 +455,7 @@ private enum L10nKey {
     case paymentCurrency
     case paymentMonthly
     case paymentStartDate
+    case priced
     case quotaViews
     case quit
     case refresh
@@ -397,6 +506,9 @@ private enum L10nKey {
         case .aboutSubtitle: return "How the meter reads and groups Codex usage"
         case .all: return "All"
         case .allDescription: return "Everything with token detail"
+        case .apiEquivalent: return "API equivalent"
+        case .apiEquivalentHint: return "Estimated from official API-style token prices for recognized models."
+        case .before: return "Before"
         case .budget: return "Budget"
         case .cache: return "Cache"
         case .cacheHit: return "Cache Hit"
@@ -411,7 +523,7 @@ private enum L10nKey {
         case .costHistory: return "Spend History"
         case .dayValue: return "Day value"
         case .dataSource: return "Data Source"
-        case .dataSourceLine1: return "The app reads local Codex session logs under ~/.codex/sessions and live rate-limit data from the local Codex runtime."
+        case .dataSourceLine1: return "The app reads local Codex session logs under ~/.codex/sessions, ~/.codex/archived_sessions, and CODEX_HOME when set."
         case .dataSourceLine2: return "Totals are local-observed token usage, not an official billing export."
         case .definitions: return "Definitions"
         case .details: return "Details"
@@ -428,14 +540,17 @@ private enum L10nKey {
         case .japanese: return "Japanese"
         case .language: return "Language"
         case .languageHint: return "Changes apply immediately to the popover and details window."
+        case .launchAtLogin: return "Open at Login"
+        case .launchAtLoginHint: return "Start Codex Token Meter automatically when you sign in."
         case .liveLimitUnavailable: return "Live limit unavailable"
         case .logFolder: return "Log Folder"
-        case .logFolderHint: return "Choose the Codex session log folder used for scanning."
+        case .logFolderHint: return "Default scans sessions and archived_sessions; choosing a folder overrides the scan roots."
         case .logFolderChoose: return "Choose..."
         case .logFolderDefault: return "Default"
         case .logFolderOpen: return "Finder"
         case .loadingUsageDetails: return "Loading usage details..."
         case .logs: return "Logs"
+        case .manualRefreshCycle: return "OpenAI refresh"
         case .modelGroupingNote: return "Model grouping comes from turn_context.model in local Codex rollout logs."
         case .modelMissingNote: return "Rows without a model label are counted in totals but cannot be assigned to a model."
         case .monthlySpendHistory: return "Monthly spend history"
@@ -446,6 +561,7 @@ private enum L10nKey {
         case .noDataLoaded: return "No data loaded"
         case .noDaySelected: return "No Day Selected"
         case .noUsage: return "No usage"
+        case .now: return "now"
         case .future: return "Future"
         case .noModelLabelForDay: return "No model label found for this day"
         case .noModelLabelsFound: return "No model labels found in logs"
@@ -471,6 +587,7 @@ private enum L10nKey {
         case .paymentCurrency: return "Payment currency"
         case .paymentMonthly: return "Monthly paid"
         case .paymentStartDate: return "Paid since"
+        case .priced: return "priced"
         case .quotaViews: return "Quota Views"
         case .quit: return "Quit"
         case .refresh: return "Refresh"
@@ -523,6 +640,9 @@ private enum L10nKey {
         case .aboutSubtitle: return "Codex 用量的读取和分组方式"
         case .all: return "全部"
         case .allDescription: return "包含 token 明细的全部记录"
+        case .apiEquivalent: return "API 等价成本"
+        case .apiEquivalentHint: return "按可识别模型的官方 API/token 单价估算。"
+        case .before: return "刷新前"
         case .budget: return "预算"
         case .cache: return "缓存"
         case .cacheHit: return "缓存命中"
@@ -537,7 +657,7 @@ private enum L10nKey {
         case .costHistory: return "金额历史"
         case .dayValue: return "当日价值"
         case .dataSource: return "数据来源"
-        case .dataSourceLine1: return "应用读取 ~/.codex/sessions 下的本地 Codex 会话日志，以及本地 Codex 运行时的实时限额。"
+        case .dataSourceLine1: return "应用读取 ~/.codex/sessions、~/.codex/archived_sessions，以及已设置的 CODEX_HOME。"
         case .dataSourceLine2: return "这里是本地观测到的 token 用量，不是官方账单导出。"
         case .definitions: return "定义"
         case .details: return "详情"
@@ -554,14 +674,17 @@ private enum L10nKey {
         case .japanese: return "日语"
         case .language: return "语言"
         case .languageHint: return "切换后会立即应用到弹窗和详情窗口。"
+        case .launchAtLogin: return "开机启动"
+        case .launchAtLoginHint: return "登录 macOS 后自动启动 Codex Token Meter。"
         case .liveLimitUnavailable: return "实时限额不可用"
         case .logFolder: return "日志目录"
-        case .logFolderHint: return "选择用于扫描的 Codex 会话日志目录。"
+        case .logFolderHint: return "默认扫描 sessions 和 archived_sessions；手动选择目录会覆盖默认扫描范围。"
         case .logFolderChoose: return "选择..."
         case .logFolderDefault: return "默认"
         case .logFolderOpen: return "Finder"
         case .loadingUsageDetails: return "正在加载用量详情..."
         case .logs: return "日志"
+        case .manualRefreshCycle: return "OpenAI 手动刷新"
         case .modelGroupingNote: return "模型分组来自本地 Codex rollout 日志里的 turn_context.model。"
         case .modelMissingNote: return "没有模型标签的记录会计入总量，但无法归入单个模型。"
         case .monthlySpendHistory: return "月度金额历史"
@@ -572,6 +695,7 @@ private enum L10nKey {
         case .noDataLoaded: return "没有加载数据"
         case .noDaySelected: return "未选择日期"
         case .noUsage: return "无用量"
+        case .now: return "现在"
         case .future: return "未来"
         case .noModelLabelForDay: return "这一天没有模型标签"
         case .noModelLabelsFound: return "日志中没有模型标签"
@@ -597,6 +721,7 @@ private enum L10nKey {
         case .paymentCurrency: return "付款币种"
         case .paymentMonthly: return "月付金额"
         case .paymentStartDate: return "付费开始日期"
+        case .priced: return "已计价"
         case .quotaViews: return "限额视图"
         case .quit: return "退出"
         case .refresh: return "刷新"
@@ -649,6 +774,9 @@ private enum L10nKey {
         case .aboutSubtitle: return "Codex 使用量の読み取りと分類方法"
         case .all: return "すべて"
         case .allDescription: return "token 詳細を含むすべての記録"
+        case .apiEquivalent: return "API 換算"
+        case .apiEquivalentHint: return "認識できるモデルの公式 API/token 単価から推定します。"
+        case .before: return "更新前"
         case .budget: return "予算"
         case .cache: return "キャッシュ"
         case .cacheHit: return "キャッシュ率"
@@ -663,7 +791,7 @@ private enum L10nKey {
         case .costHistory: return "金額履歴"
         case .dayValue: return "当日の価値"
         case .dataSource: return "データソース"
-        case .dataSourceLine1: return "このアプリは ~/.codex/sessions のローカル Codex セッションログと、ローカル実行環境のリアルタイム制限を読み取ります。"
+        case .dataSourceLine1: return "このアプリは ~/.codex/sessions、~/.codex/archived_sessions、設定済みの CODEX_HOME を読み取ります。"
         case .dataSourceLine2: return "表示値はローカルで観測した token 使用量であり、公式の請求書エクスポートではありません。"
         case .definitions: return "定義"
         case .details: return "詳細"
@@ -680,14 +808,17 @@ private enum L10nKey {
         case .japanese: return "日本語"
         case .language: return "言語"
         case .languageHint: return "変更はポップオーバーと詳細ウィンドウにすぐ反映されます。"
+        case .launchAtLogin: return "ログイン時に開く"
+        case .launchAtLoginHint: return "macOS にサインインしたときに Codex Token Meter を自動起動します。"
         case .liveLimitUnavailable: return "リアルタイム制限を取得できません"
         case .logFolder: return "ログフォルダ"
-        case .logFolderHint: return "スキャンに使う Codex セッションログのフォルダを選択します。"
+        case .logFolderHint: return "既定では sessions と archived_sessions をスキャンし、選択したフォルダは既定の範囲を上書きします。"
         case .logFolderChoose: return "選択..."
         case .logFolderDefault: return "既定"
         case .logFolderOpen: return "Finder"
         case .loadingUsageDetails: return "使用量の詳細を読み込み中..."
         case .logs: return "ログ"
+        case .manualRefreshCycle: return "OpenAI 手動更新"
         case .modelGroupingNote: return "モデル別集計はローカル Codex rollout ログの turn_context.model から取得します。"
         case .modelMissingNote: return "モデル名がない行は合計に含まれますが、個別モデルには割り当てられません。"
         case .monthlySpendHistory: return "月次金額履歴"
@@ -698,6 +829,7 @@ private enum L10nKey {
         case .noDataLoaded: return "データ未読み込み"
         case .noDaySelected: return "日付未選択"
         case .noUsage: return "使用なし"
+        case .now: return "現在"
         case .future: return "未来"
         case .noModelLabelForDay: return "この日のモデル名は見つかりません"
         case .noModelLabelsFound: return "ログ内にモデル名が見つかりません"
@@ -723,6 +855,7 @@ private enum L10nKey {
         case .paymentCurrency: return "支払い通貨"
         case .paymentMonthly: return "月額支払い"
         case .paymentStartDate: return "課金開始日"
+        case .priced: return "価格対象"
         case .quotaViews: return "制限枠ビュー"
         case .quit: return "終了"
         case .refresh: return "更新"
@@ -864,8 +997,58 @@ private enum AppSettings {
     static let showHistoricalEmptyWeeksKey = "showHistoricalEmptyWeeks"
     static let paymentStartDayKey = "paymentStartDay"
 
+    static var defaultCodexHomeURL: URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex", isDirectory: true)
+    }
+
+    static var environmentCodexHomeURL: URL? {
+        guard let path = ProcessInfo.processInfo.environment["CODEX_HOME"], !path.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+    }
+
     static var defaultLogFolderURL: URL {
-        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/sessions", isDirectory: true)
+        defaultCodexHomeURL.appendingPathComponent("sessions", isDirectory: true)
+    }
+
+    static var defaultArchivedLogFolderURL: URL {
+        defaultCodexHomeURL.appendingPathComponent("archived_sessions", isDirectory: true)
+    }
+
+    static var hasCustomLogFolder: Bool {
+        guard let path = UserDefaults.standard.string(forKey: logFolderKey) else { return false }
+        return !path.isEmpty
+    }
+
+    static var logFolderURLs: [URL] {
+        if hasCustomLogFolder {
+            return [logFolderURL]
+        }
+
+        var roots = [
+            defaultLogFolderURL,
+            defaultArchivedLogFolderURL
+        ]
+        if let codexHome = environmentCodexHomeURL {
+            roots.append(codexHome.appendingPathComponent("sessions", isDirectory: true))
+            roots.append(codexHome.appendingPathComponent("archived_sessions", isDirectory: true))
+        }
+        return uniqueDirectoryURLs(roots)
+    }
+
+    static var logFolderDisplayPath: String {
+        if hasCustomLogFolder {
+            return displayPath(for: logFolderURL)
+        }
+        return logFolderURLs.map { displayPath(for: $0) }.joined(separator: " + ")
+    }
+
+    static var logFolderOpenURL: URL {
+        if hasCustomLogFolder {
+            return logFolderURL
+        }
+        return logFolderURLs.first { FileManager.default.fileExists(atPath: $0.path) } ?? defaultLogFolderURL
     }
 
     static var appSupportDirectoryURL: URL {
@@ -894,6 +1077,31 @@ private enum AppSettings {
 
     static func resetLogFolder() {
         UserDefaults.standard.removeObject(forKey: logFolderKey)
+    }
+
+    private static func uniqueDirectoryURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        var unique: [URL] = []
+        for url in urls {
+            let standardized = url.standardizedFileURL
+            let key = (standardized.path as NSString).standardizingPath
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            unique.append(standardized)
+        }
+        return unique
+    }
+
+    private static func displayPath(for url: URL) -> String {
+        let path = url.path
+        let home = NSHomeDirectory()
+        if path == home {
+            return "~"
+        }
+        if path.hasPrefix(home + "/") {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
     }
 
     static var monthlyPlanCost: Double {
@@ -970,6 +1178,36 @@ private enum AppSettings {
                 UserDefaults.standard.removeObject(forKey: paymentStartDayKey)
             }
         }
+    }
+}
+
+private enum LoginItemManager {
+    static var isEnabled: Bool {
+        if #available(macOS 13.0, *) {
+            return SMAppService.mainApp.status == .enabled
+        }
+        return false
+    }
+
+    @discardableResult
+    static func setEnabled(_ enabled: Bool) -> Bool {
+        if #available(macOS 13.0, *) {
+            do {
+                if enabled {
+                    if SMAppService.mainApp.status != .enabled {
+                        try SMAppService.mainApp.register()
+                    }
+                } else {
+                    if SMAppService.mainApp.status == .enabled {
+                        try SMAppService.mainApp.unregister()
+                    }
+                }
+            } catch {
+                NSLog("Codex Token Meter login item update failed: \(error.localizedDescription)")
+            }
+            return SMAppService.mainApp.status == .enabled
+        }
+        return false
     }
 }
 
@@ -1079,6 +1317,9 @@ struct CostHistoryFile: Codable {
 final class CostHistoryStore {
     static let shared = CostHistoryStore(url: AppSettings.costHistoryURL)
 
+    private static let resetDropThreshold = 1.0
+    private static let resetLowWatermark = 0.5
+
     private let url: URL
     private var file: CostHistoryFile
     private let isoFormatter: ISO8601DateFormatter = {
@@ -1102,6 +1343,31 @@ final class CostHistoryStore {
         return file.weeks[key]?.maxUsedPercent
     }
 
+    func resetCycleCount(limitID: String, weekStart: Date) -> Int {
+        resetEvents(limitID: limitID, weekStart: weekStart).count
+    }
+
+    func resetBaseUsedPercent(limitID: String, weekStart: Date) -> Double? {
+        let explicitEvents = resetEvents(limitID: limitID, weekStart: weekStart)
+        if let first = explicitEvents.first {
+            return first.previousUsedPercent
+        }
+        return nil
+    }
+
+    func resetEvents(limitID: String, weekStart: Date) -> [CostHistoryEvent] {
+        let weekStartText = dayFormatter().string(from: weekStart)
+        return file.events
+            .filter {
+                $0.type == "weekly_usage_percent_drop"
+                    && $0.limitID == limitID
+                    && $0.weekStart == weekStartText
+            }
+            .sorted {
+                eventDate($0) ?? .distantPast < eventDate($1) ?? .distantPast
+            }
+    }
+
     func record(limits: [LiveRateLimit], observedAt: Date = Date()) {
         guard !limits.isEmpty else { return }
         var changed = false
@@ -1114,7 +1380,7 @@ final class CostHistoryStore {
             let resetAtText = limit.secondary.resetsAt.map { isoFormatter.string(from: $0) }
 
             if var snapshot = file.weeks[key] {
-                if snapshot.lastUsedPercent - usedPercent >= 20 {
+                if Self.isResetDrop(previousUsedPercent: snapshot.lastUsedPercent, currentUsedPercent: usedPercent) {
                     file.events.append(CostHistoryEvent(
                         type: "weekly_usage_percent_drop",
                         limitID: limit.id,
@@ -1159,6 +1425,16 @@ final class CostHistoryStore {
 
     private func snapshotKey(limitID: String, weekStart: Date) -> String {
         "\(limitID)|\(dayFormatter().string(from: weekStart))"
+    }
+
+    private static func isResetDrop(previousUsedPercent: Double, currentUsedPercent: Double) -> Bool {
+        let drop = previousUsedPercent - currentUsedPercent
+        guard drop >= resetDropThreshold else { return false }
+        return currentUsedPercent <= resetLowWatermark
+    }
+
+    private func eventDate(_ event: CostHistoryEvent) -> Date? {
+        isoFormatter.date(from: event.observedAt)
     }
 
     private func save() {
@@ -1223,6 +1499,8 @@ struct CostPeriodRow {
     let budgetValue: Double
     let hasData: Bool
     let isFuture: Bool
+    let isShortCycle: Bool
+    let cycleIndex: Int
 
     var usedPercent: Double {
         guard budgetValue > 0 else { return 0 }
@@ -1430,16 +1708,20 @@ struct CostEstimator {
 
     private func localWeeklyUsedValue(forWeekStart start: Date, total: Int64) -> Double {
         guard total > 0 else { return 0 }
+        let localValue: Double
+        if isHistoricalFullWeek(start: start, total: total) {
+            localValue = weeklyBudget
+        } else {
+            localValue = min(weeklyBudget, value(forTotal: total))
+        }
         if start < currentWeekStart,
            let limitID,
            let recordedPercent = CostHistoryStore.shared.maxUsedPercent(limitID: limitID, weekStart: start),
            recordedPercent > 0 {
-            return weeklyBudget * min(100, recordedPercent) / 100
+            let recordedValue = weeklyBudget * min(100, recordedPercent) / 100
+            return max(localValue, recordedValue)
         }
-        if isHistoricalFullWeek(start: start, total: total) {
-            return weeklyBudget
-        }
-        return min(weeklyBudget, value(forTotal: total))
+        return localValue
     }
 
     private func isHistoricalFullWeek(start: Date, total: Int64) -> Bool {
@@ -1477,7 +1759,7 @@ final class CodexTokenScanner {
         let turns: [Date]
     }
 
-    private let rootURL: URL
+    private let rootURLs: [URL]
     private let cacheDirectory: URL
     private let jsonEncoder = JSONEncoder()
     private let jsonDecoder = JSONDecoder()
@@ -1500,8 +1782,12 @@ final class CodexTokenScanner {
     private let modelKey = Array(#""model":""#.utf8)
     private var cache: [String: FileCache] = [:]
 
-    init(rootURL: URL) {
-        self.rootURL = rootURL
+    convenience init(rootURL: URL) {
+        self.init(rootURLs: [rootURL])
+    }
+
+    init(rootURLs: [URL]) {
+        self.rootURLs = Self.uniqueRootURLs(rootURLs)
         let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         self.cacheDirectory = applicationSupport
@@ -1517,6 +1803,23 @@ final class CodexTokenScanner {
         calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
         self.calendar = calendar
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+    }
+
+    var rootPaths: [String] {
+        rootURLs.map(\.path)
+    }
+
+    private static func uniqueRootURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        var unique: [URL] = []
+        for url in urls {
+            let standardized = url.standardizedFileURL
+            let key = (standardized.path as NSString).standardizingPath
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            unique.append(standardized)
+        }
+        return unique
     }
 
     func scan(window: WindowOption, limitID: String? = nil, excludedLimitID: String? = nil, includedModelName: String? = nil, excludedModelName: String? = nil) -> TokenReport {
@@ -1719,6 +2022,22 @@ final class CodexTokenScanner {
     }
 
     private func rolloutFiles(modifiedSince start: Date) -> [URL] {
+        var files: [URL] = []
+        var seen = Set<String>()
+
+        for rootURL in rootURLs {
+            for url in rolloutFiles(in: rootURL, modifiedSince: start) {
+                let key = (url.path as NSString).standardizingPath
+                guard !seen.contains(key) else { continue }
+                seen.insert(key)
+                files.append(url)
+            }
+        }
+
+        return files.sorted { $0.path < $1.path }
+    }
+
+    private func rolloutFiles(in rootURL: URL, modifiedSince start: Date) -> [URL] {
         guard let enumerator = FileManager.default.enumerator(
             at: rootURL,
             includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey],
@@ -1991,7 +2310,7 @@ final class CodexTokenScanner {
 }
 
 final class LiveRateLimitReader {
-    func read(timeout: TimeInterval = 8) -> [LiveRateLimit] {
+    func read(timeout: TimeInterval = 12) -> [LiveRateLimit] {
         guard let codexPath = codexExecutablePath() else {
             return []
         }
@@ -2000,9 +2319,10 @@ final class LiveRateLimitReader {
         process.arguments = ["app-server"]
         let input = Pipe()
         let output = Pipe()
+        let error = Pipe()
         process.standardInput = input
         process.standardOutput = output
-        process.standardError = Pipe()
+        process.standardError = error
 
         do {
             try process.run()
@@ -2010,34 +2330,69 @@ final class LiveRateLimitReader {
             return []
         }
 
+        let outputLock = NSLock()
+        var outputData = Data()
+        output.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            outputLock.lock()
+            outputData.append(chunk)
+            outputLock.unlock()
+        }
+
+        let errorLock = NSLock()
+        var errorData = Data()
+        error.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            errorLock.lock()
+            errorData.append(chunk)
+            errorLock.unlock()
+        }
+
         let writer = input.fileHandleForWriting
         let messages = [
             #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-token-meter","version":"0.2.0"},"capabilities":{}}}"#,
             #"{"method":"initialized"}"#,
-            #"{"id":2,"method":"account/rateLimits/read"}"#
+            #"{"id":2,"method":"account/read","params":{"refreshAuth":false}}"#,
+            #"{"id":3,"method":"account/rateLimits/read"}"#
         ]
-        DispatchQueue.global(qos: .utility).async {
-            for message in messages {
-                if let data = (message + "\n").data(using: .utf8) {
-                    try? writer.write(contentsOf: data)
-                }
-                Thread.sleep(forTimeInterval: 0.35)
-            }
-            Thread.sleep(forTimeInterval: 4.5)
-            try? writer.close()
+        let requestBody = messages.joined(separator: "\n") + "\n"
+        if let data = requestBody.data(using: .utf8) {
+            writer.write(data)
         }
 
         let deadline = Date().addingTimeInterval(timeout)
+        let rateLimitsMarker = Data(#""rateLimits""#.utf8)
         while process.isRunning && Date() < deadline {
+            outputLock.lock()
+            let hasRateLimits = outputData.range(of: rateLimitsMarker) != nil
+            outputLock.unlock()
+            if hasRateLimits {
+                break
+            }
             Thread.sleep(forTimeInterval: 0.1)
         }
+        try? writer.close()
         if process.isRunning {
             process.terminate()
             Thread.sleep(forTimeInterval: 0.2)
         }
 
-        let data = output.fileHandleForReading.readDataToEndOfFile()
+        output.fileHandleForReading.readabilityHandler = nil
+        error.fileHandleForReading.readabilityHandler = nil
+        outputLock.lock()
+        let data = outputData
+        outputLock.unlock()
         guard let text = String(data: data, encoding: .utf8) else { return [] }
+        if ProcessInfo.processInfo.environment["CODEX_TOKEN_METER_DEBUG_LIVE"] == "1" {
+            errorLock.lock()
+            let errorData = errorData
+            errorLock.unlock()
+            let errorText = String(data: errorData, encoding: .utf8) ?? ""
+            FileHandle.standardError.write(Data("LIVE RAW OUTPUT:\n\(text)\n".utf8))
+            FileHandle.standardError.write(Data("LIVE RAW ERROR:\n\(errorText)\n".utf8))
+        }
         return parse(text)
     }
 
@@ -2055,9 +2410,10 @@ final class LiveRateLimitReader {
         for line in text.split(separator: "\n") {
             guard let data = String(line).data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let id = object["id"] as? Int,
-                  id == 2,
                   let result = object["result"] as? [String: Any] else {
+                continue
+            }
+            guard result["rateLimits"] != nil || result["rateLimitsByLimitId"] != nil else {
                 continue
             }
 
@@ -2948,6 +3304,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private struct CostPageData {
         let key: String
         let estimate: PlanCostEstimate?
+        let apiEstimate: APICostEstimate
         let weeklyRows: [CostPeriodRow]
         let monthlyRows: [MonthlySpendRow]
     }
@@ -2974,6 +3331,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     fileprivate var onResetLogFolder: (() -> Void)?
     fileprivate var onOpenLogFolder: (() -> Void)?
     fileprivate var onShowHistoricalEmptyWeeksChanged: ((Bool) -> Void)?
+    fileprivate var onLaunchAtLoginChanged: ((Bool) -> Void)?
     fileprivate var onPreferredHeightChanged: (() -> Void)?
     private var selectedSection: DetailsSection = .overview {
         didSet {
@@ -3019,6 +3377,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private let costYearPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let languagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let showHistoricalEmptyWeeksSwitch = NSSwitch(frame: .zero)
+    private let launchAtLoginSwitch = NSSwitch(frame: .zero)
     private var isUpdatingCostControls = false
     private var detailsTrackingArea: NSTrackingArea?
 
@@ -3142,6 +3501,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         showHistoricalEmptyWeeksSwitch.action = #selector(showHistoricalEmptyWeeksChanged)
         addSubview(showHistoricalEmptyWeeksSwitch)
 
+        launchAtLoginSwitch.controlSize = .small
+        launchAtLoginSwitch.isHidden = true
+        launchAtLoginSwitch.target = self
+        launchAtLoginSwitch.action = #selector(launchAtLoginChanged)
+        addSubview(launchAtLoginSwitch)
+
         for popup in [paymentCurrencyPopup, displayCurrencyPopup, costYearPopup, languagePopup] {
             popup.controlSize = .regular
             popup.font = .systemFont(ofSize: 12, weight: .semibold)
@@ -3189,11 +3554,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         paymentStartDayField.frame = NSRect(x: controlX, y: settingsRect.minY + 82, width: controlWidth, height: 36)
         paymentCurrencyPopup.frame = NSRect(x: controlX, y: settingsRect.minY + 132, width: controlWidth, height: 36)
         displayCurrencyPopup.frame = NSRect(x: controlX, y: settingsRect.minY + 182, width: controlWidth, height: 36)
-        let gap: CGFloat = 12
-        let cardWidth = max(150, (content.width - gap * 2) / 3)
-        let summaryCardHeight: CGFloat = cardWidth < 190 ? 92 : 82
         let summaryY = settingsRect.maxY + 16
-        let summaryHeight = summaryCardHeight * 2 + gap
+        let summaryHeight: CGFloat = 168
         let chartY = summaryY + summaryHeight + 16
         let chartRect = NSRect(x: content.minX, y: chartY, width: content.width, height: 332)
         let headerLayout = costHistoryHeaderLayout(chartRect: chartRect)
@@ -3204,13 +3566,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private func layoutSettingsControls() {
         let visible = selectedSection == .settings
         languagePopup.isHidden = !visible
+        launchAtLoginSwitch.isHidden = !visible
         guard visible else { return }
 
         let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(432, content.height - 78))
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(492, content.height - 78))
         let popupWidth = min(300, max(252, rect.width * 0.34))
         languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
+        launchAtLoginSwitch.frame = NSRect(x: rect.maxX - 64, y: rect.minY + 414, width: 48, height: 24)
         updateLanguagePopupFromSettings()
+        updateSettingsControlsFromSystem()
     }
 
     private func updateLanguagePopupFromSettings() {
@@ -3221,6 +3586,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         if let index = AppLanguage.allCases.firstIndex(of: AppLanguage.current) {
             languagePopup.selectItem(at: index)
         }
+    }
+
+    private func updateSettingsControlsFromSystem() {
+        guard selectedSection == .settings else { return }
+        launchAtLoginSwitch.state = LoginItemManager.isEnabled ? .on : .off
     }
 
     private func updateCostControlsFromSettings() {
@@ -3283,7 +3653,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             let annualChartHeight: CGFloat = 332
             let topOffset: CGFloat = 78
             let settingsHeight: CGFloat = 244
-            let summaryHeight: CGFloat = 142
+            let summaryHeight: CGFloat = 168
             let sectionGap: CGFloat = 16
             let bottomPadding: CGFloat = 44
             let firstBlock = topOffset + settingsHeight + sectionGap + summaryHeight
@@ -3307,7 +3677,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
         let limit = costEstimateLimit(from: snapshot.liveLimits)
         let cost = planCostEstimate(report: report, selectedDay: day, limit: limit, quotaReferenceReport: snapshot.costReferenceReport)
-        let metricsCount = cost == nil ? 4 : 5
+        let apiEstimate = APICostEstimator.estimate(day: day)
+        let metricsCount = 4 + (cost == nil ? 0 : 1) + (apiEstimate.hasPricedUsage ? 1 : 0)
         let startX: CGFloat = 310
         let horizontalPadding: CGFloat = 36
         let availableMetricWidth = max(180, contentWidth - startX - horizontalPadding)
@@ -3488,6 +3859,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         hoveredCostHistoryIndex = nil
         needsDisplay = true
         needsLayout = true
+    }
+
+    @objc private func launchAtLoginChanged() {
+        onLaunchAtLoginChanged?(launchAtLoginSwitch.state == .on)
+        updateSettingsControlsFromSystem()
+        needsDisplay = true
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
@@ -3701,6 +4078,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             "\(report.events)",
             "\(report.turns)",
             "\(report.usage.total)",
+            "\(report.usage.input)",
+            "\(report.usage.cachedInput)",
+            "\(report.usage.output)",
+            "\(report.modelBreakdown.count)",
             "\(report.byDay.count)",
             first?.day ?? "",
             "\(first?.usage.total ?? 0)",
@@ -3751,6 +4132,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let data = CostPageData(
             key: key,
             estimate: planCostEstimate(report: snapshot.all, selectedDay: nil, limit: limit, quotaReferenceReport: snapshot.costReferenceReport),
+            apiEstimate: APICostEstimator.estimate(report: snapshot.all),
             weeklyRows: weeklySpendRows(report: snapshot.all, limit: limit, year: year, quotaReferenceReport: snapshot.costReferenceReport),
             monthlyRows: monthlySpendRows(report: snapshot.all, limit: limit, year: year, quotaReferenceReport: snapshot.costReferenceReport)
         )
@@ -3758,9 +4140,17 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         return data
     }
 
-    private func drawCostOverviewPanel(estimate: PlanCostEstimate?, rect: NSRect) {
+    private func drawCostOverviewPanel(estimate: PlanCostEstimate?, apiEstimate: APICostEstimate, rect: NSRect) {
         drawPanel(rect)
         guard let estimate else {
+            if apiEstimate.hasUsage {
+                let coverage = String(format: "%.0f%%", apiEstimate.coveragePercent)
+                drawText(t(.apiEquivalent), rect: NSRect(x: rect.minX + 18, y: rect.minY + 20, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
+                drawText(displayAPIMoney(apiEstimate.usdValue), rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: rect.width - 36, height: 34), font: .monospacedDigitSystemFont(ofSize: 26, weight: .bold), color: accentTeal)
+                drawText("\(coverage) \(t(.priced)) · \(t(.apiEquivalentHint))", rect: NSRect(x: rect.minX + 18, y: rect.minY + 92, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
+                drawText(t(.planCostUnavailable), rect: NSRect(x: rect.minX + 18, y: rect.minY + 124, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42))
+                return
+            }
             drawText(t(.planCostUnavailable), rect: NSRect(x: rect.minX + 16, y: rect.minY + 54, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
             return
         }
@@ -3795,9 +4185,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
         let planLine = "\(t(.paymentMonthly)) \(paymentMoney(AppSettings.monthlyPlanCost))  ·  \(t(.displayEquivalent)) \(displayMoney(AppSettings.monthlyPlanCost))"
         drawText(planLine, rect: NSRect(x: rightRect.minX, y: rightRect.minY, width: rightRect.width, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.54))
-        drawCostOverviewRow(title: t(.usageRate), value: String(format: "%.0f%%", usageRate * 100), color: usedColor, rect: NSRect(x: rightRect.minX, y: rightRect.minY + 32, width: rightRect.width, height: 20))
-        drawCostOverviewRow(title: t(.totalSpendValue), value: displayMoney(estimate.totalSpentValue), color: accentAmber, rect: NSRect(x: rightRect.minX, y: rightRect.minY + 62, width: rightRect.width, height: 20))
-        drawCostOverviewRow(title: t(.totalWasteValue), value: displayMoney(estimate.totalWastedValue), color: accentRose.withAlphaComponent(0.92), rect: NSRect(x: rightRect.minX, y: rightRect.minY + 92, width: rightRect.width, height: 20))
+        drawCostOverviewRow(title: t(.usageRate), value: String(format: "%.0f%%", usageRate * 100), color: usedColor, rect: NSRect(x: rightRect.minX, y: rightRect.minY + 28, width: rightRect.width, height: 20))
+        drawCostOverviewRow(title: t(.totalSpendValue), value: displayMoney(estimate.totalSpentValue), color: accentAmber, rect: NSRect(x: rightRect.minX, y: rightRect.minY + 54, width: rightRect.width, height: 20))
+        let apiTitle = apiEstimate.hasUsage && apiEstimate.coveragePercent < 99.5
+            ? "\(t(.apiEquivalent)) \(String(format: "%.0f%%", apiEstimate.coveragePercent))"
+            : t(.apiEquivalent)
+        drawCostOverviewRow(title: apiTitle, value: displayAPIMoney(apiEstimate.usdValue), color: accentTeal, rect: NSRect(x: rightRect.minX, y: rightRect.minY + 80, width: rightRect.width, height: 20))
+        drawCostOverviewRow(title: t(.totalWasteValue), value: displayMoney(estimate.totalWastedValue), color: accentRose.withAlphaComponent(0.92), rect: NSRect(x: rightRect.minX, y: rightRect.minY + 106, width: rightRect.width, height: 20))
     }
 
     private func drawCostOverviewRow(title: String, value: String, color: NSColor, rect: NSRect) {
@@ -3901,9 +4295,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawInputFieldBackground(paymentStartDayField.frame)
 
         let summaryY = settingsRect.maxY + 16
-        let summaryHeight: CGFloat = 142
+        let summaryHeight: CGFloat = 168
         let summaryRect = NSRect(x: content.minX, y: summaryY, width: content.width, height: summaryHeight)
-        drawCostOverviewPanel(estimate: estimate, rect: summaryRect)
+        drawCostOverviewPanel(estimate: estimate, apiEstimate: costData.apiEstimate, rect: summaryRect)
 
         let chartY = summaryRect.maxY + 16
         let chartRect = NSRect(x: content.minX, y: chartY, width: content.width, height: 332)
@@ -3989,6 +4383,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         ]
         if let cost {
             metrics.append(("\(t(.dayValue)) ?", displayMoney(cost.selectedDayValue), NSColor.systemGreen, true, nil))
+        }
+        let apiEstimate = APICostEstimator.estimate(day: day)
+        if apiEstimate.hasPricedUsage {
+            let footer = apiEstimate.coveragePercent < 99.5 ? "\(String(format: "%.0f%%", apiEstimate.coveragePercent)) \(t(.priced))" : nil
+            metrics.append((t(.apiEquivalent), displayAPIMoney(apiEstimate.usdValue), accentTeal, false, footer))
         }
         let startX = rect.minX + 310
         let gap: CGFloat = 12
@@ -4089,7 +4488,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func drawSettingsPage(content: NSRect) {
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(432, content.height - 78))
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(492, content.height - 78))
         drawPanel(rect)
         drawText(t(.language), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.interfaceLanguage), rect: NSRect(x: rect.minX + 16, y: rect.minY + 56, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
@@ -4115,7 +4514,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let pathRect = NSRect(x: rect.minX + 16, y: rect.minY + 246, width: rect.width - 300, height: 34)
         NSColor.black.withAlphaComponent(0.14).setFill()
         NSBezierPath(roundedRect: pathRect, xRadius: 7, yRadius: 7).fill()
-        drawText(AppSettings.logFolderURL.path, rect: pathRect.insetBy(dx: 12, dy: 9), font: .monospacedSystemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.62))
+        drawText(AppSettings.logFolderDisplayPath, rect: pathRect.insetBy(dx: 12, dy: 9), font: .monospacedSystemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.62))
 
         let logButtonY = rect.minY + 246
         openLogFolderRect = NSRect(x: rect.maxX - 284, y: logButtonY, width: 76, height: 34)
@@ -4137,6 +4536,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             drawSelectablePill(option.title, rect: optionRect, selected: option == StatusDisplayOption.current)
         }
         drawText(t(.statusDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 378, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+
+        drawText(t(.launchAtLogin), rect: NSRect(x: rect.minX + 16, y: rect.minY + 414, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.launchAtLoginHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 444, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
     }
 
     private var costUsedColor: NSColor {
@@ -4144,11 +4546,26 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private var costRemainingColor: NSColor {
-        accentBlue.withAlphaComponent(0.80)
+        NSColor(calibratedRed: 0.52, green: 0.58, blue: 0.69, alpha: 1.0)
     }
 
     private var costRemainingMutedColor: NSColor {
-        NSColor(calibratedRed: 0.186, green: 0.218, blue: 0.274, alpha: 1.0)
+        NSColor(calibratedRed: 0.168, green: 0.196, blue: 0.244, alpha: 1.0)
+    }
+
+    private func costUsedColor(for row: CostPeriodRow) -> NSColor {
+        guard row.isShortCycle else { return costUsedColor }
+        return accentAmber
+    }
+
+    private func costRemainingColor(for row: CostPeriodRow) -> NSColor {
+        guard row.isShortCycle else { return costRemainingColor }
+        return costRemainingColor.withAlphaComponent(0.78)
+    }
+
+    private func costRemainingMutedColor(for row: CostPeriodRow) -> NSColor {
+        guard row.isShortCycle else { return costRemainingMutedColor }
+        return costRemainingMutedColor.withAlphaComponent(0.95)
     }
 
     private func drawCurrencyOptions(rect: NSRect, y: CGFloat, selected: CurrencyCode, store: inout [CurrencyCode: NSRect]) {
@@ -4302,7 +4719,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 String(format: "%.4f", $0.remainingValue),
                 String(format: "%.4f", $0.budgetValue),
                 $0.hasData ? "1" : "0",
-                $0.isFuture ? "1" : "0"
+                $0.isFuture ? "1" : "0",
+                $0.isShortCycle ? "1" : "0",
+                "\($0.cycleIndex)"
             ].joined(separator: "|")
         }.joined(separator: ";")
         return sizePart + "#" + rowsPart
@@ -4336,7 +4755,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let start = -CGFloat.pi / 2
         let end = start + CGFloat.pi * 2
         let fullCircleRect = NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-        let baseColor = row.isFuture ? NSColor.white.withAlphaComponent(0.055) : costRemainingMutedColor.withAlphaComponent(row.hasData ? 0.62 : 0.50)
+        let baseColor = row.isFuture ? NSColor.white.withAlphaComponent(0.055) : costRemainingMutedColor(for: row).withAlphaComponent(row.hasData ? 0.62 : 0.50)
 
         fillDonut(in: fullCircleRect, thickness: lineWidth, color: baseColor)
 
@@ -4350,10 +4769,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                     thickness: lineWidth,
                     startAngle: usedEnd,
                     endAngle: end,
-                    color: costRemainingColor.withAlphaComponent(0.58)
+                    color: costRemainingColor(for: row).withAlphaComponent(0.58)
                 )
             }
-            let ringColor: NSColor = row.usedPercent > 100 ? accentAmber : costUsedColor
+            let ringColor: NSColor = row.usedPercent > 100 ? accentAmber : costUsedColor(for: row)
             if progress >= 0.999 {
                 fillDonut(in: fullCircleRect, thickness: lineWidth, color: ringColor)
             } else if progress > 0.001 {
@@ -4372,7 +4791,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             fillDonut(in: fullCircleRect, thickness: max(3, lineWidth * 0.72), color: NSColor.white.withAlphaComponent(0.18))
         }
 
-        let ringColor: NSColor = row.usedPercent > 100 ? accentAmber : costUsedColor
+        let ringColor: NSColor = row.usedPercent > 100 ? accentAmber : costUsedColor(for: row)
 
         if highlighted {
             NSColor.white.withAlphaComponent(0.18).setFill()
@@ -4396,8 +4815,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
         let row = costHistoryRows[hoveredCostHistoryIndex]
         let lines: [(String, String, NSColor)] = [
-            (t(.used), displayMoney(row.usedValue), costUsedColor),
-            (t(.remaining), displayMoney(row.remainingValue), costRemainingColor),
+            (t(.used), displayMoney(row.usedValue), costUsedColor(for: row)),
+            (t(.remaining), displayMoney(row.remainingValue), costRemainingColor(for: row)),
             (t(.budget), displayMoney(row.budgetValue), .white),
             (t(.usageRate), String(format: "%.1f%%", row.usedPercent), NSColor.white.withAlphaComponent(0.82))
         ]
@@ -4709,7 +5128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private let dashboardController = DashboardViewController()
     private let detailsController = UsageDetailsWindowController()
-    private var scanner = CodexTokenScanner(rootURL: AppSettings.logFolderURL)
+    private var scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
     private let rateLimitReader = LiveRateLimitReader()
     private let localFormatter = DateFormatter()
     private let scanQueue = DispatchQueue(label: "local.codex-token-meter.scan", qos: .utility)
@@ -4720,12 +5139,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var reportCache: [ReportCacheKey: TokenReport] = [:]
     private var liveLimits: [LiveRateLimit] = []
     private var refreshTimer: Timer?
+    private var liveRefreshTimer: Timer?
     private var activeScans: Set<ReportCacheKey> = []
     private var liveRefreshInFlight = false
     private var statusSpinnerTimer: Timer?
     private var statusSpinnerFrame = 0
     private var statusIsLoading = false
     private let refreshInterval: TimeInterval = 300
+    private let liveRefreshInterval: TimeInterval = 60
     private let statusIconSize = NSSize(width: 14, height: 14)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -4776,12 +5197,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onChooseLogFolder = { [weak self] in self?.chooseLogFolder() }
         detailsController.detailsView.onResetLogFolder = { [weak self] in self?.resetLogFolder() }
         detailsController.detailsView.onOpenLogFolder = { [weak self] in self?.openSessionsFolder() }
+        detailsController.detailsView.onLaunchAtLoginChanged = { [weak self] isOn in self?.changeLaunchAtLogin(isOn) }
         applyLanguage()
 
         refresh(forceLive: false)
         refreshLiveLimits()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh(forceLive: false)
+        }
+        liveRefreshTimer = Timer.scheduledTimer(withTimeInterval: liveRefreshInterval, repeats: true) { [weak self] _ in
             self?.refreshLiveLimits()
         }
     }
@@ -4983,7 +5407,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             DispatchQueue.main.async {
                 self.liveRefreshInFlight = false
-                guard !limits.isEmpty else { return }
+                guard !limits.isEmpty else {
+                    self.updateStatusTitle(report: self.latestState.report, limits: self.liveLimits, quota: self.latestState.selectedQuota)
+                    self.dashboardController.dashboardView.update(self.latestState)
+                    return
+                }
                 self.liveLimits = limits
                 self.latestState.liveLimits = limits
                 self.latestState.error = nil
@@ -5120,7 +5548,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openSessionsFolder() {
-        NSWorkspace.shared.open(AppSettings.logFolderURL)
+        NSWorkspace.shared.open(AppSettings.logFolderOpenURL)
     }
 
     private func chooseLogFolder() {
@@ -5187,8 +5615,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.needsLayout = true
     }
 
+    private func changeLaunchAtLogin(_ value: Bool) {
+        _ = LoginItemManager.setEnabled(value)
+        detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
+    }
+
     private func reloadScannerFromSettings() {
-        scanner = CodexTokenScanner(rootURL: AppSettings.logFolderURL)
+        scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
         reportCache.removeAll()
         activeScans.removeAll()
         detailsController.detailsView.needsDisplay = true
@@ -5300,6 +5734,11 @@ private func displayMoney(_ paymentValue: Double) -> String {
     return money(converted, currency: AppSettings.displayCurrency)
 }
 
+private func displayAPIMoney(_ usdValue: Double) -> String {
+    let converted = convertCurrency(usdValue, from: .usd, to: AppSettings.displayCurrency)
+    return money(converted, currency: AppSettings.displayCurrency)
+}
+
 private func todayKey() -> String {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -5330,6 +5769,33 @@ private func shortMonthDayFormatter() -> DateFormatter {
     formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
     formatter.dateFormat = "MM-dd"
     return formatter
+}
+
+private func shortMonthDayTimeFormatter() -> DateFormatter {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+    formatter.dateFormat = "MM-dd HH:mm"
+    return formatter
+}
+
+private func cycleRangeTitle(start: Date?, end: Date?, fallback: String, formatter: DateFormatter) -> String {
+    switch (start, end) {
+    case let (start?, end?):
+        return "\(formatter.string(from: start)) - \(formatter.string(from: end))"
+    case let (start?, nil):
+        return "\(formatter.string(from: start)) - \(t(.now))"
+    case let (nil, end?):
+        return "\(t(.before)) \(formatter.string(from: end))"
+    default:
+        return fallback
+    }
+}
+
+private func isShortCostCycle(start: Date, end: Date) -> Bool {
+    let duration = end.timeIntervalSince(start)
+    let fullWeek: TimeInterval = 7 * 24 * 60 * 60
+    return duration > 0 && duration < fullWeek - 60
 }
 
 private func effectivePaymentStartDay(in report: TokenReport?) -> String {
@@ -5383,6 +5849,12 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
     let parser = dayFormatter()
     let labelFormatter = shortMonthDayFormatter()
     let titleFormatter = dayFormatter()
+    let eventFormatter = shortMonthDayTimeFormatter()
+    let eventParser: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
     let startDate = parser.date(from: estimator.startDay) ?? calendar.startOfDay(for: Date())
     let startWeek = calendar.dateInterval(of: .weekOfYear, for: startDate)?.start ?? startDate
     let startWeekYear = calendar.component(.yearForWeekOfYear, from: startDate)
@@ -5400,22 +5872,101 @@ private func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: I
         starts = Array(buckets.keys.sorted().reversed().prefix(8).reversed())
     }
     let currentWeekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? calendar.startOfDay(for: Date())
-    let rows = starts.map { start in
+    let rows = starts.flatMap { start -> [CostPeriodRow] in
         let total = buckets[start] ?? 0
         let usedValue = estimator.weeklyUsedValue(forWeekStart: start, total: total)
         let remainingValue = estimator.weeklyUnusedValue(forWeekStart: start, total: total)
         let end = calendar.date(byAdding: .day, value: 6, to: start) ?? start
+        let exclusiveWeekEnd = calendar.date(byAdding: .day, value: 7, to: start) ?? end
         let weekNumber = calendar.component(.weekOfYear, from: start)
-        return CostPeriodRow(
-            label: labelFormatter.string(from: start),
-            title: "\(titleFormatter.string(from: start)) - \(titleFormatter.string(from: end))",
-            subtitle: "\(t(.week)) \(weekNumber)",
-            usedValue: usedValue,
-            remainingValue: remainingValue,
-            budgetValue: estimator.weeklyBudget,
-            hasData: total > 0 || (start == currentWeekStart && usedValue > 0),
-            isFuture: start > currentWeekStart
-        )
+        let label = labelFormatter.string(from: start)
+        let fullWeekTitle = "\(titleFormatter.string(from: start)) - \(titleFormatter.string(from: end))"
+        let subtitle = "\(t(.week)) \(weekNumber)"
+        let isFuture = start > currentWeekStart
+        let title = start == currentWeekStart
+            ? cycleRangeTitle(start: start, end: nil, fallback: fullWeekTitle, formatter: titleFormatter)
+            : fullWeekTitle
+        let resetEvents = estimator.limitID.map {
+            CostHistoryStore.shared.resetEvents(limitID: $0, weekStart: start)
+        } ?? []
+        let resetDates = resetEvents.compactMap { eventParser.date(from: $0.observedAt) }
+        guard !isFuture, !resetEvents.isEmpty else {
+            return [CostPeriodRow(
+                label: label,
+                title: title,
+                subtitle: subtitle,
+                usedValue: usedValue,
+                remainingValue: remainingValue,
+                budgetValue: estimator.weeklyBudget,
+                hasData: total > 0 || (start == currentWeekStart && usedValue > 0),
+                isFuture: isFuture,
+                isShortCycle: false,
+                cycleIndex: 0
+            )]
+        }
+
+        let currentCycleValue = start == currentWeekStart
+            ? estimator.weeklyBudget * min(100, max(0, limit?.secondary.usedPercent ?? 0)) / 100
+            : 0
+        let eventPercents: [Double]
+        if !resetEvents.isEmpty {
+            eventPercents = resetEvents.map { min(100, max(0, $0.previousUsedPercent)) }
+        } else {
+            eventPercents = []
+        }
+        let observedEventValue = eventPercents.reduce(0.0) { partial, percent in
+            partial + estimator.weeklyBudget * percent / 100
+        }
+        let cycleAwareUsedValue = max(usedValue, min(estimator.weeklyBudget * Double(max(eventPercents.count, 1)), observedEventValue) + currentCycleValue)
+        let baseUsedValue = min(estimator.weeklyBudget, max(0, eventPercents.first ?? 0) * estimator.weeklyBudget / 100)
+        var remainingCycleValue = max(0, cycleAwareUsedValue - baseUsedValue)
+
+        var periodRows: [CostPeriodRow] = [
+            CostPeriodRow(
+                label: label,
+                title: cycleRangeTitle(start: start, end: resetDates.first, fallback: title, formatter: eventFormatter),
+                subtitle: subtitle,
+                usedValue: baseUsedValue,
+                remainingValue: max(0, estimator.weeklyBudget - baseUsedValue),
+                budgetValue: estimator.weeklyBudget,
+                hasData: total > 0 || baseUsedValue > 0,
+                isFuture: false,
+                isShortCycle: isShortCostCycle(start: start, end: resetDates.first ?? exclusiveWeekEnd),
+                cycleIndex: 0
+            )
+        ]
+
+        let extraPercents = Array(eventPercents.dropFirst())
+        let extraCycleCount = resetEvents.count
+        for cycleIndex in 1...extraCycleCount {
+            let resetEvent = resetEvents.indices.contains(cycleIndex - 1) ? resetEvents[cycleIndex - 1] : nil
+            let cycleStart = resetDates.indices.contains(cycleIndex - 1) ? resetDates[cycleIndex - 1] : nil
+            let cycleEnd = resetDates.indices.contains(cycleIndex) ? resetDates[cycleIndex] : nil
+            let isActiveCurrentCycle = start == currentWeekStart && cycleEnd == nil
+            let effectiveCycleEnd = cycleEnd ?? (start == currentWeekStart ? Date() : exclusiveWeekEnd)
+            let displayedCycleEnd = isActiveCurrentCycle ? nil : effectiveCycleEnd
+            let refreshTime = resetEvent
+                .flatMap { eventParser.date(from: $0.observedAt) }
+                .map { eventFormatter.string(from: $0) }
+            let eventValue = extraPercents.indices.contains(cycleIndex - 1)
+                ? estimator.weeklyBudget * extraPercents[cycleIndex - 1] / 100
+                : remainingCycleValue
+            let cycleUsedValue = min(estimator.weeklyBudget, max(0, eventValue))
+            remainingCycleValue = max(0, remainingCycleValue - cycleUsedValue)
+            periodRows.append(CostPeriodRow(
+                label: label,
+                title: cycleRangeTitle(start: cycleStart, end: displayedCycleEnd, fallback: title, formatter: eventFormatter),
+                subtitle: [subtitle, refreshTime, t(.manualRefreshCycle)].compactMap { $0 }.joined(separator: " · "),
+                usedValue: cycleUsedValue,
+                remainingValue: max(0, estimator.weeklyBudget - cycleUsedValue),
+                budgetValue: estimator.weeklyBudget,
+                hasData: true,
+                isFuture: false,
+                isShortCycle: !isActiveCurrentCycle && (cycleStart.map { isShortCostCycle(start: $0, end: effectiveCycleEnd) } ?? false),
+                cycleIndex: cycleIndex
+            ))
+        }
+        return periodRows
     }
     guard !AppSettings.showHistoricalEmptyWeeks else { return rows }
     return rows.filter { $0.hasData || $0.isFuture }
@@ -5445,7 +5996,9 @@ private func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: I
             remainingValue: remainingValue,
             budgetValue: max(estimator.monthlyCost, usedValue),
             hasData: usedValue > 0,
-            isFuture: month > currentMonth
+            isFuture: month > currentMonth,
+            isShortCycle: false,
+            cycleIndex: 0
         )
     }
 }
@@ -5537,7 +6090,7 @@ if CommandLine.arguments.contains("--print-live") {
 }
 
 if CommandLine.arguments.contains("--print") {
-    let scanner = CodexTokenScanner(rootURL: URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/sessions"))
+    let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
     let requestedWindow = CommandLine.arguments
         .compactMap { argument -> WindowOption? in
             guard argument.hasPrefix("--window=") else { return nil }
@@ -5563,10 +6116,12 @@ if CommandLine.arguments.contains("--print") {
         .first
     let report = requestedWindow.map { scanner.scan(window: $0, includedModelName: quota?.includedModelName, excludedModelName: quota?.excludedModelName) }
         ?? scanner.scan(hours: hours, includedModelName: quota?.includedModelName, excludedModelName: quota?.excludedModelName)
+    let apiEstimate = APICostEstimator.estimate(report: report)
     let payload: [String: Any] = [
         "hours": requestedWindow?.rawValue ?? hours,
         "window": requestedWindow?.shortTitle ?? "rolling",
         "quota": quota?.rawValue ?? "all",
+        "log_roots": scanner.rootPaths,
         "sessions": report.sessions,
         "events": report.events,
         "turns": report.turns,
@@ -5577,19 +6132,27 @@ if CommandLine.arguments.contains("--print") {
         "reasoning_output": report.usage.reasoningOutput,
         "total": report.usage.total,
         "cache_percent": report.usage.cachePercent,
+        "api_equivalent_usd": apiEstimate.usdValue,
+        "api_equivalent_priced_tokens": apiEstimate.pricedTokens,
+        "api_equivalent_total_tokens": apiEstimate.totalTokens,
+        "api_equivalent_coverage_percent": apiEstimate.coveragePercent,
         "hour_buckets": report.byHour.count,
         "model_breakdown": report.modelBreakdown.map { model in
-            [
+            let modelAPIEstimate = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
+            return [
                 "name": model.name,
                 "sessions": model.sessions,
                 "events": model.events,
                 "total": model.usage.total,
                 "input": model.usage.input,
-                "output": model.usage.output
+                "output": model.usage.output,
+                "api_equivalent_usd": modelAPIEstimate.usdValue,
+                "api_equivalent_priced_tokens": modelAPIEstimate.pricedTokens
             ] as [String: Any]
         },
         "by_day": report.byDay.map { day in
-            [
+            let dayAPIEstimate = APICostEstimator.estimate(day: day)
+            return [
                 "day": day.day,
                 "turns": day.turns,
                 "input": day.usage.input,
@@ -5598,14 +6161,18 @@ if CommandLine.arguments.contains("--print") {
                 "output": day.usage.output,
                 "reasoning_output": day.usage.reasoningOutput,
                 "total": day.usage.total,
+                "api_equivalent_usd": dayAPIEstimate.usdValue,
+                "api_equivalent_coverage_percent": dayAPIEstimate.coveragePercent,
                 "model_breakdown": day.modelBreakdown.map { model in
-                    [
+                    let modelAPIEstimate = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
+                    return [
                         "name": model.name,
                         "sessions": model.sessions,
                         "events": model.events,
                         "total": model.usage.total,
                         "input": model.usage.input,
-                        "output": model.usage.output
+                        "output": model.usage.output,
+                        "api_equivalent_usd": modelAPIEstimate.usdValue
                     ] as [String: Any]
                 }
             ] as [String: Any]
