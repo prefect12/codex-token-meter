@@ -14,6 +14,7 @@ swift "$ROOT/Tools/make_logo.swift" "$ROOT"
 swiftc \
   -O \
   -framework Cocoa \
+  -framework UserNotifications \
   "$ROOT/Sources/CodexTokenMeter/main.swift" \
   -o "$BIN"
 

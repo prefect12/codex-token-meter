@@ -1,6 +1,7 @@
 import Cocoa
 import Foundation
 import ServiceManagement
+import UserNotifications
 
 struct Usage: Codable {
     var input: Int64 = 0
@@ -82,6 +83,17 @@ struct APICostEstimate {
         usdValue += other.usdValue
         pricedTokens += other.pricedTokens
         totalTokens += other.totalTokens
+    }
+}
+
+struct ExternalAPICostSnapshot {
+    let usdValue: Double
+    let totalTokens: Int64
+    let updatedAt: String?
+    let sourcePath: String
+
+    var hasData: Bool {
+        usdValue > 0 || totalTokens > 0
     }
 }
 
@@ -394,13 +406,22 @@ private enum L10nKey {
     case dataSourceLine1
     case dataSourceLine2
     case definitions
+    case detectedNotTracked
     case details
     case detailsWindowTitle
+    case diagnostics
+    case diagnosticsSubtitle
+    case disabled
     case displayCurrency
     case dayValueHint
     case displayEquivalent
+    case enabled
     case english
     case events
+    case externalAPICost
+    case externalAPICostHint
+    case fileMissing
+    case filePresent
     case fresh
     case inShort
     case input
@@ -410,6 +431,7 @@ private enum L10nKey {
     case languageHint
     case launchAtLogin
     case launchAtLoginHint
+    case liveQuota
     case liveLimitUnavailable
     case logFolder
     case logFolderHint
@@ -419,6 +441,7 @@ private enum L10nKey {
     case loadingUsageDetails
     case logs
     case manualRefreshCycle
+    case modelLimit
     case modelGroupingNote
     case modelMissingNote
     case monthlySpendHistory
@@ -439,6 +462,7 @@ private enum L10nKey {
     case other
     case otherDefinition
     case otherDescription
+    case otherTools
     case outShort
     case output
     case overview
@@ -457,6 +481,9 @@ private enum L10nKey {
     case paymentStartDate
     case priced
     case quotaViews
+    case quotaWarnings
+    case quotaWarningsHint
+    case recentRollouts
     case quit
     case refresh
     case refreshing
@@ -466,6 +493,7 @@ private enum L10nKey {
     case sessions
     case settings
     case settingsSubtitle
+    case sourceHealth
     case spark
     case sparkDescription
     case sparkModel
@@ -476,6 +504,7 @@ private enum L10nKey {
     case statusWeeklyPercent
     case statusWeeklyTokens
     case tokenMeter
+    case tracked
     case total
     case totalSpendValue
     case totalWasteValue
@@ -526,13 +555,22 @@ private enum L10nKey {
         case .dataSourceLine1: return "The app reads local Codex session logs under ~/.codex/sessions, ~/.codex/archived_sessions, and CODEX_HOME when set."
         case .dataSourceLine2: return "Totals are local-observed token usage, not an official billing export."
         case .definitions: return "Definitions"
+        case .detectedNotTracked: return "Detected, not counted"
         case .details: return "Details"
         case .detailsWindowTitle: return "Codex Token Meter Details"
+        case .diagnostics: return "Diagnostics"
+        case .diagnosticsSubtitle: return "Data sources, warnings, and tool coverage"
+        case .disabled: return "Disabled"
         case .displayCurrency: return "Display currency"
         case .dayValueHint: return "Estimated by converting that day's token usage into money based on your plan price, not official billing."
         case .displayEquivalent: return "Display equivalent"
+        case .enabled: return "Enabled"
         case .english: return "English"
         case .events: return "events"
+        case .externalAPICost: return "External API cost"
+        case .externalAPICostHint: return "Optional local JSON at api-usage.json can add direct OpenAI API usage that bypasses Codex logs."
+        case .fileMissing: return "File missing"
+        case .filePresent: return "File present"
         case .fresh: return "Fresh"
         case .inShort: return "in"
         case .input: return "Input"
@@ -542,6 +580,7 @@ private enum L10nKey {
         case .languageHint: return "Changes apply immediately to the popover and details window."
         case .launchAtLogin: return "Open at Login"
         case .launchAtLoginHint: return "Start Codex Token Meter automatically when you sign in."
+        case .liveQuota: return "Live quota"
         case .liveLimitUnavailable: return "Live limit unavailable"
         case .logFolder: return "Log Folder"
         case .logFolderHint: return "Default scans sessions and archived_sessions; choosing a folder overrides the scan roots."
@@ -551,6 +590,7 @@ private enum L10nKey {
         case .loadingUsageDetails: return "Loading usage details..."
         case .logs: return "Logs"
         case .manualRefreshCycle: return "OpenAI refresh"
+        case .modelLimit: return "Model"
         case .modelGroupingNote: return "Model grouping comes from turn_context.model in local Codex rollout logs."
         case .modelMissingNote: return "Rows without a model label are counted in totals but cannot be assigned to a model."
         case .monthlySpendHistory: return "Monthly spend history"
@@ -565,12 +605,13 @@ private enum L10nKey {
         case .future: return "Future"
         case .noModelLabelForDay: return "No model label found for this day"
         case .noModelLabelsFound: return "No model labels found in logs"
-        case .nonSparkUsage: return "Non-Spark usage"
+        case .nonSparkUsage: return "Other model usage"
         case .numberUnits: return "Number units"
         case .numberUnitsHint: return "Controls compact token counts only. Currency formatting is unchanged."
         case .other: return "Other"
-        case .otherDefinition: return "All token-detail events after subtracting the Spark model."
-        case .otherDescription: return "All non-Spark models"
+        case .otherDefinition: return "All token-detail events after subtracting the model-level limit."
+        case .otherDescription: return "All other models"
+        case .otherTools: return "Other tools"
         case .outShort: return "out"
         case .output: return "Output"
         case .overview: return "Overview"
@@ -589,6 +630,9 @@ private enum L10nKey {
         case .paymentStartDate: return "Paid since"
         case .priced: return "priced"
         case .quotaViews: return "Quota Views"
+        case .quotaWarnings: return "Quota warnings"
+        case .quotaWarningsHint: return "Notify once when a live quota window drops below 15% remaining."
+        case .recentRollouts: return "Recent rollouts"
         case .quit: return "Quit"
         case .refresh: return "Refresh"
         case .refreshing: return "Refreshing..."
@@ -598,6 +642,7 @@ private enum L10nKey {
         case .sessions: return "Sessions"
         case .settings: return "Settings"
         case .settingsSubtitle: return "Language and display preferences"
+        case .sourceHealth: return "Source health"
         case .spark: return "Spark"
         case .sparkDescription: return "Events whose model is GPT-5.3-Codex-Spark."
         case .sparkModel: return "GPT-5.3-Codex-Spark model"
@@ -608,6 +653,7 @@ private enum L10nKey {
         case .statusWeeklyPercent: return "Weekly %"
         case .statusWeeklyTokens: return "7d tokens"
         case .tokenMeter: return "Token Meter"
+        case .tracked: return "Tracked"
         case .total: return "total"
         case .totalSpendValue: return "Total spend"
         case .totalWasteValue: return "Total waste"
@@ -660,13 +706,22 @@ private enum L10nKey {
         case .dataSourceLine1: return "应用读取 ~/.codex/sessions、~/.codex/archived_sessions，以及已设置的 CODEX_HOME。"
         case .dataSourceLine2: return "这里是本地观测到的 token 用量，不是官方账单导出。"
         case .definitions: return "定义"
+        case .detectedNotTracked: return "已检测，未计入"
         case .details: return "详情"
         case .detailsWindowTitle: return "Codex Token Meter 详情"
+        case .diagnostics: return "诊断"
+        case .diagnosticsSubtitle: return "数据源、提醒和工具覆盖"
+        case .disabled: return "已关闭"
         case .displayCurrency: return "展示币种"
         case .dayValueHint: return "按你的套餐价格，把当天 token 开销折算成金额的估算值，不是官方账单。"
         case .displayEquivalent: return "展示折合"
+        case .enabled: return "已开启"
         case .english: return "英语"
         case .events: return "事件"
+        case .externalAPICost: return "外部 API 成本"
+        case .externalAPICostHint: return "可选读取本地 api-usage.json，用来补充绕过 Codex 日志的 OpenAI API 用量。"
+        case .fileMissing: return "文件不存在"
+        case .filePresent: return "文件存在"
         case .fresh: return "新输入"
         case .inShort: return "输入"
         case .input: return "输入"
@@ -676,6 +731,7 @@ private enum L10nKey {
         case .languageHint: return "切换后会立即应用到弹窗和详情窗口。"
         case .launchAtLogin: return "开机启动"
         case .launchAtLoginHint: return "登录 macOS 后自动启动 Codex Token Meter。"
+        case .liveQuota: return "实时额度"
         case .liveLimitUnavailable: return "实时限额不可用"
         case .logFolder: return "日志目录"
         case .logFolderHint: return "默认扫描 sessions 和 archived_sessions；手动选择目录会覆盖默认扫描范围。"
@@ -685,6 +741,7 @@ private enum L10nKey {
         case .loadingUsageDetails: return "正在加载用量详情..."
         case .logs: return "日志"
         case .manualRefreshCycle: return "OpenAI 手动刷新"
+        case .modelLimit: return "模型"
         case .modelGroupingNote: return "模型分组来自本地 Codex rollout 日志里的 turn_context.model。"
         case .modelMissingNote: return "没有模型标签的记录会计入总量，但无法归入单个模型。"
         case .monthlySpendHistory: return "月度金额历史"
@@ -699,12 +756,13 @@ private enum L10nKey {
         case .future: return "未来"
         case .noModelLabelForDay: return "这一天没有模型标签"
         case .noModelLabelsFound: return "日志中没有模型标签"
-        case .nonSparkUsage: return "非 Spark 用量"
+        case .nonSparkUsage: return "其他模型用量"
         case .numberUnits: return "数字单位"
         case .numberUnitsHint: return "只影响 token 数字缩写；金额格式不变。"
         case .other: return "其他"
-        case .otherDefinition: return "全部 token 明细减去 Spark 模型后的记录。"
-        case .otherDescription: return "全部非 Spark 模型"
+        case .otherDefinition: return "全部 token 明细减去模型级限额用量后的记录。"
+        case .otherDescription: return "全部其他模型"
+        case .otherTools: return "其他工具"
         case .outShort: return "输出"
         case .output: return "输出"
         case .overview: return "概览"
@@ -723,6 +781,9 @@ private enum L10nKey {
         case .paymentStartDate: return "付费开始日期"
         case .priced: return "已计价"
         case .quotaViews: return "限额视图"
+        case .quotaWarnings: return "额度提醒"
+        case .quotaWarningsHint: return "实时额度低于 15% 时，每个窗口只提醒一次。"
+        case .recentRollouts: return "近期日志"
         case .quit: return "退出"
         case .refresh: return "刷新"
         case .refreshing: return "刷新中..."
@@ -732,6 +793,7 @@ private enum L10nKey {
         case .sessions: return "会话"
         case .settings: return "设置"
         case .settingsSubtitle: return "语言和显示偏好"
+        case .sourceHealth: return "数据源健康"
         case .spark: return "Spark"
         case .sparkDescription: return "模型为 GPT-5.3-Codex-Spark 的事件。"
         case .sparkModel: return "GPT-5.3-Codex-Spark 模型"
@@ -742,6 +804,7 @@ private enum L10nKey {
         case .statusWeeklyPercent: return "周百分比"
         case .statusWeeklyTokens: return "7d 用量"
         case .tokenMeter: return "Token 统计"
+        case .tracked: return "已计入"
         case .total: return "总计"
         case .totalSpendValue: return "总开销"
         case .totalWasteValue: return "总浪费"
@@ -794,13 +857,22 @@ private enum L10nKey {
         case .dataSourceLine1: return "このアプリは ~/.codex/sessions、~/.codex/archived_sessions、設定済みの CODEX_HOME を読み取ります。"
         case .dataSourceLine2: return "表示値はローカルで観測した token 使用量であり、公式の請求書エクスポートではありません。"
         case .definitions: return "定義"
+        case .detectedNotTracked: return "検出済み・未集計"
         case .details: return "詳細"
         case .detailsWindowTitle: return "Codex Token Meter 詳細"
+        case .diagnostics: return "診断"
+        case .diagnosticsSubtitle: return "データソース、通知、ツール範囲"
+        case .disabled: return "無効"
         case .displayCurrency: return "表示通貨"
         case .dayValueHint: return "プラン料金を基準に、その日の token 使用量を金額換算した推定値であり、公式請求ではありません。"
         case .displayEquivalent: return "表示換算"
+        case .enabled: return "有効"
         case .english: return "英語"
         case .events: return "イベント"
+        case .externalAPICost: return "外部 API コスト"
+        case .externalAPICostHint: return "任意のローカル api-usage.json で Codex ログ外の OpenAI API 使用量を補足できます。"
+        case .fileMissing: return "ファイルなし"
+        case .filePresent: return "ファイルあり"
         case .fresh: return "新規入力"
         case .inShort: return "入力"
         case .input: return "入力"
@@ -810,6 +882,7 @@ private enum L10nKey {
         case .languageHint: return "変更はポップオーバーと詳細ウィンドウにすぐ反映されます。"
         case .launchAtLogin: return "ログイン時に開く"
         case .launchAtLoginHint: return "macOS にサインインしたときに Codex Token Meter を自動起動します。"
+        case .liveQuota: return "リアルタイム制限"
         case .liveLimitUnavailable: return "リアルタイム制限を取得できません"
         case .logFolder: return "ログフォルダ"
         case .logFolderHint: return "既定では sessions と archived_sessions をスキャンし、選択したフォルダは既定の範囲を上書きします。"
@@ -819,6 +892,7 @@ private enum L10nKey {
         case .loadingUsageDetails: return "使用量の詳細を読み込み中..."
         case .logs: return "ログ"
         case .manualRefreshCycle: return "OpenAI 手動更新"
+        case .modelLimit: return "モデル"
         case .modelGroupingNote: return "モデル別集計はローカル Codex rollout ログの turn_context.model から取得します。"
         case .modelMissingNote: return "モデル名がない行は合計に含まれますが、個別モデルには割り当てられません。"
         case .monthlySpendHistory: return "月次金額履歴"
@@ -833,12 +907,13 @@ private enum L10nKey {
         case .future: return "未来"
         case .noModelLabelForDay: return "この日のモデル名は見つかりません"
         case .noModelLabelsFound: return "ログ内にモデル名が見つかりません"
-        case .nonSparkUsage: return "Spark 以外の使用量"
+        case .nonSparkUsage: return "その他モデル使用量"
         case .numberUnits: return "数値単位"
         case .numberUnitsHint: return "token 数の省略表示だけに適用します。金額表示は変わりません。"
         case .other: return "その他"
-        case .otherDefinition: return "Spark モデルを除いた token 詳細イベント。"
-        case .otherDescription: return "Spark 以外のすべてのモデル"
+        case .otherDefinition: return "モデル別制限枠を除いた token 詳細イベント。"
+        case .otherDescription: return "その他すべてのモデル"
+        case .otherTools: return "その他ツール"
         case .outShort: return "出力"
         case .output: return "出力"
         case .overview: return "概要"
@@ -857,6 +932,9 @@ private enum L10nKey {
         case .paymentStartDate: return "課金開始日"
         case .priced: return "価格対象"
         case .quotaViews: return "制限枠ビュー"
+        case .quotaWarnings: return "制限通知"
+        case .quotaWarningsHint: return "残り 15% 未満になった制限枠ごとに一度だけ通知します。"
+        case .recentRollouts: return "最近の rollout"
         case .quit: return "終了"
         case .refresh: return "更新"
         case .refreshing: return "更新中..."
@@ -866,6 +944,7 @@ private enum L10nKey {
         case .sessions: return "セッション"
         case .settings: return "設定"
         case .settingsSubtitle: return "言語と表示設定"
+        case .sourceHealth: return "ソース状態"
         case .spark: return "Spark"
         case .sparkDescription: return "モデルが GPT-5.3-Codex-Spark のイベント。"
         case .sparkModel: return "GPT-5.3-Codex-Spark モデル"
@@ -876,6 +955,7 @@ private enum L10nKey {
         case .statusWeeklyPercent: return "週 %"
         case .statusWeeklyTokens: return "7日使用量"
         case .tokenMeter: return "Token メーター"
+        case .tracked: return "集計対象"
         case .total: return "合計"
         case .totalSpendValue: return "総支出"
         case .totalWasteValue: return "総浪費"
@@ -996,6 +1076,13 @@ private enum AppSettings {
     static let selectedCalendarDayKey = "selectedCalendarDay"
     static let showHistoricalEmptyWeeksKey = "showHistoricalEmptyWeeks"
     static let paymentStartDayKey = "paymentStartDay"
+    static let learnedModelLimitIDKey = "learnedModelLimitID"
+    static let learnedModelLimitNameKey = "learnedModelLimitName"
+    static let quotaWarningsEnabledKey = "quotaWarningsEnabled"
+    static let externalAPICostPathKey = "externalAPICostPath"
+
+    static let fallbackModelLimitID = "codex_bengalfox"
+    static let fallbackModelLimitName = "GPT-5.3-Codex-Spark"
 
     static var defaultCodexHomeURL: URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex", isDirectory: true)
@@ -1061,6 +1148,10 @@ private enum AppSettings {
 
     static var costHistoryURL: URL {
         appSupportDirectoryURL.appendingPathComponent("cost-history.json")
+    }
+
+    static var defaultExternalAPICostURL: URL {
+        appSupportDirectoryURL.appendingPathComponent("api-usage.json")
     }
 
     static var logFolderURL: URL {
@@ -1179,6 +1270,50 @@ private enum AppSettings {
             }
         }
     }
+
+    static var modelLimitID: String {
+        let value = UserDefaults.standard.string(forKey: learnedModelLimitIDKey)
+        return (value?.isEmpty == false) ? value! : fallbackModelLimitID
+    }
+
+    static var modelLimitName: String {
+        let value = UserDefaults.standard.string(forKey: learnedModelLimitNameKey)
+        return (value?.isEmpty == false) ? value! : fallbackModelLimitName
+    }
+
+    static var modelLimitSegmentTitle: String {
+        modelLimitName.localizedCaseInsensitiveContains("spark") ? t(.spark) : t(.modelLimit)
+    }
+
+    static func learnModelLimit(from limits: [LiveRateLimit]) {
+        guard let modelLimit = limits.first(where: { $0.id != "codex" }) else { return }
+        UserDefaults.standard.set(modelLimit.id, forKey: learnedModelLimitIDKey)
+        UserDefaults.standard.set(modelLimit.name, forKey: learnedModelLimitNameKey)
+    }
+
+    static var quotaWarningsEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: quotaWarningsEnabledKey) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: quotaWarningsEnabledKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: quotaWarningsEnabledKey)
+        }
+    }
+
+    static var externalAPICostURL: URL {
+        get {
+            guard let path = UserDefaults.standard.string(forKey: externalAPICostPathKey), !path.isEmpty else {
+                return defaultExternalAPICostURL
+            }
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        }
+        set {
+            UserDefaults.standard.set(newValue.path, forKey: externalAPICostPathKey)
+        }
+    }
 }
 
 private enum LoginItemManager {
@@ -1211,6 +1346,85 @@ private enum LoginItemManager {
     }
 }
 
+private enum ExternalAPICostStore {
+    static func read(url: URL = AppSettings.externalAPICostURL) -> ExternalAPICostSnapshot? {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let usdValue = double(object["usd_value"])
+            ?? double(object["total_usd"])
+            ?? double(object["usd"])
+            ?? double(object["cost_usd"])
+            ?? 0
+        let totalTokens = int64(object["total_tokens"])
+            ?? int64(object["tokens"])
+            ?? int64(object["usage_tokens"])
+            ?? 0
+        let updatedAt = object["updated_at"] as? String ?? object["updatedAt"] as? String
+        return ExternalAPICostSnapshot(
+            usdValue: usdValue,
+            totalTokens: totalTokens,
+            updatedAt: updatedAt,
+            sourcePath: url.path
+        )
+    }
+
+    private static func double(_ value: Any?) -> Double? {
+        if let value = value as? Double { return value }
+        if let value = value as? Int { return Double(value) }
+        if let value = value as? Int64 { return Double(value) }
+        if let value = value as? String { return Double(value) }
+        return nil
+    }
+
+    private static func int64(_ value: Any?) -> Int64? {
+        if let value = value as? Int64 { return value }
+        if let value = value as? Int { return Int64(value) }
+        if let value = value as? Double { return Int64(value) }
+        if let value = value as? String { return Int64(value) }
+        return nil
+    }
+}
+
+final class QuotaWarningManager {
+    static let shared = QuotaWarningManager()
+
+    private let threshold: Double = 15
+    private var deliveredKeys = Set<String>()
+
+    private init() {}
+
+    func requestAuthorization() {
+        guard AppSettings.quotaWarningsEnabled else { return }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    func evaluate(limits: [LiveRateLimit]) {
+        guard AppSettings.quotaWarningsEnabled else { return }
+        for limit in limits {
+            evaluate(limit: limit, windowName: "5h", window: limit.primary)
+            evaluate(limit: limit, windowName: "weekly", window: limit.secondary)
+        }
+    }
+
+    private func evaluate(limit: LiveRateLimit, windowName: String, window: RateWindow) {
+        let remaining = window.remainingPercent
+        guard remaining <= threshold else { return }
+        let resetKey = window.resetsAt.map { String(Int($0.timeIntervalSince1970)) } ?? "no-reset"
+        let key = "\(limit.id)|\(windowName)|\(resetKey)|\(Int(threshold))"
+        guard !deliveredKeys.contains(key) else { return }
+        deliveredKeys.insert(key)
+
+        let content = UNMutableNotificationContent()
+        content.title = "Codex quota low"
+        content.body = "\(limit.name) \(windowName) remaining \(String(format: "%.0f%%", remaining))"
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: "codex-token-meter-\(key)", content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+}
+
 enum QuotaViewOption: String, CaseIterable {
     case all = "codex"
     case other
@@ -1219,27 +1433,27 @@ enum QuotaViewOption: String, CaseIterable {
     var scanLimitID: String? {
         switch self {
         case .all, .other: return nil
-        case .spark: return "codex_bengalfox"
+        case .spark: return AppSettings.modelLimitID
         }
     }
 
     var excludedScanLimitID: String? {
         switch self {
         case .all, .spark: return nil
-        case .other: return "codex_bengalfox"
+        case .other: return AppSettings.modelLimitID
         }
     }
 
     var includedModelName: String? {
         switch self {
-        case .spark: return "gpt-5.3-codex-spark"
+        case .spark: return AppSettings.modelLimitName.lowercased()
         case .all, .other: return nil
         }
     }
 
     var excludedModelName: String? {
         switch self {
-        case .other: return "gpt-5.3-codex-spark"
+        case .other: return AppSettings.modelLimitName.lowercased()
         case .all, .spark: return nil
         }
     }
@@ -1247,14 +1461,14 @@ enum QuotaViewOption: String, CaseIterable {
     var liveLimitID: String {
         switch self {
         case .all, .other: return "codex"
-        case .spark: return "codex_bengalfox"
+        case .spark: return AppSettings.modelLimitID
         }
     }
 
     var shortTitle: String {
         switch self {
         case .all: return t(.all)
-        case .spark: return t(.spark)
+        case .spark: return AppSettings.modelLimitSegmentTitle
         case .other: return t(.other)
         }
     }
@@ -1262,7 +1476,7 @@ enum QuotaViewOption: String, CaseIterable {
     var fallbackTitle: String {
         switch self {
         case .all: return t(.codexAppTotal)
-        case .spark: return "GPT-5.3-Codex-Spark"
+        case .spark: return AppSettings.modelLimitName
         case .other: return t(.nonSparkUsage)
         }
     }
@@ -1984,11 +2198,12 @@ final class CodexTokenScanner {
         if let model = event.model, !model.isEmpty {
             return model
         }
-        if event.limitID == "codex_bengalfox" {
-            return "GPT-5.3-Codex-Spark"
+        if event.limitID == AppSettings.modelLimitID {
+            return AppSettings.modelLimitName
         }
-        if let limitName = event.limitName, limitName.contains("GPT-5.3-Codex-Spark") {
-            return "GPT-5.3-Codex-Spark"
+        if let limitName = event.limitName,
+           limitName.localizedCaseInsensitiveContains(AppSettings.modelLimitName) {
+            return AppSettings.modelLimitName
         }
         return event.limitID ?? "Unknown model"
     }
@@ -2011,16 +2226,23 @@ final class CodexTokenScanner {
 
     private func matchesModel(_ event: TokenEvent, modelName: String?) -> Bool {
         guard let modelName else { return true }
-        return normalizedModelName(for: event) == modelName.lowercased()
+        return modelNameMatches(normalizedModelName(for: event), target: modelName)
     }
 
     private func matchesExcludedModel(_ event: TokenEvent, modelName: String?) -> Bool {
         guard let modelName else { return false }
-        return normalizedModelName(for: event) == modelName.lowercased()
+        return modelNameMatches(normalizedModelName(for: event), target: modelName)
     }
 
     private func normalizedModelName(for event: TokenEvent) -> String {
         modelDisplayName(for: event).lowercased()
+    }
+
+    private func modelNameMatches(_ value: String, target: String) -> Bool {
+        let normalizedTarget = target.lowercased()
+        return value == normalizedTarget
+            || value.contains(normalizedTarget)
+            || normalizedTarget.contains(value)
     }
 
     private func rolloutFiles(modifiedSince start: Date) -> [URL] {
@@ -2313,7 +2535,7 @@ final class CodexTokenScanner {
 
 final class LiveRateLimitReader {
     func read(timeout: TimeInterval = 12) -> [LiveRateLimit] {
-        guard let codexPath = codexExecutablePath() else {
+        guard let codexPath = Self.codexExecutablePath() else {
             return []
         }
         let process = Process()
@@ -2398,7 +2620,7 @@ final class LiveRateLimitReader {
         return parse(text)
     }
 
-    private func codexExecutablePath() -> String? {
+    static func codexExecutablePath() -> String? {
         let candidates = [
             "/Applications/Codex.app/Contents/Resources/codex",
             "/opt/homebrew/bin/codex",
@@ -2940,6 +3162,7 @@ final class DashboardView: NSView {
         usageLabel.stringValue = "\(compactDashboardMetric(report.usage.input)) \(t(.inShort))  |  \(compactDashboardMetric(report.usage.output)) \(t(.outShort))"
         refreshLabel.stringValue = state.isLoading ? t(.refreshing) : "\(t(.updated)) \(relative(report.scannedAt))  |  \(t(.next)) \(relative(state.nextRefreshAt))"
         let apiEstimate = APICostEstimator.estimate(report: report)
+        let externalAPI = ExternalAPICostStore.read()
 
         quotaSegment.selectedSegment = QuotaViewOption.allCases.firstIndex(of: state.selectedQuota) ?? 0
         segment.selectedSegment = WindowOption.allCases.firstIndex(of: state.selectedWindow) ?? 1
@@ -2969,9 +3192,16 @@ final class DashboardView: NSView {
         dayChart.costEstimator = state.selectedWindow == .day ? nil : CostEstimator(report: report, limit: displayLimit)
         dayChart.apiEstimate = apiEstimate
         sessionsLabel.stringValue = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
+        var costParts: [String] = []
         if apiEstimate.hasPricedUsage {
-            let coverage = apiEstimate.coveragePercent < 99.5 ? " · \(String(format: "%.0f%%", apiEstimate.coveragePercent)) \(t(.priced))" : ""
-            costLabel.stringValue = "\(t(.apiEquivalent)) \(displayAPIMoney(apiEstimate.usdValue))\(coverage)"
+            let coverage = apiEstimate.coveragePercent < 99.5 ? " \(String(format: "%.0f%%", apiEstimate.coveragePercent)) \(t(.priced))" : ""
+            costParts.append("\(t(.apiEquivalent)) \(displayAPIMoney(apiEstimate.usdValue))\(coverage)")
+        }
+        if let externalAPI, externalAPI.hasData {
+            costParts.append("\(t(.externalAPICost)) \(displayAPIMoney(externalAPI.usdValue))")
+        }
+        if !costParts.isEmpty {
+            costLabel.stringValue = costParts.joined(separator: "  |  ")
         } else {
             costLabel.stringValue = ""
         }
@@ -3126,7 +3356,13 @@ final class DashboardView: NSView {
     }
 
     private func selectedLimit(from limits: [LiveRateLimit], quota: QuotaViewOption) -> LiveRateLimit? {
-        limits.first { $0.id == quota.liveLimitID }
+        if let exact = limits.first(where: { $0.id == quota.liveLimitID }) {
+            return exact
+        }
+        if quota == .spark {
+            return limits.first { $0.id != QuotaViewOption.all.liveLimitID }
+        }
+        return nil
     }
 
     private func displayName(for limit: LiveRateLimit) -> String {
@@ -3265,6 +3501,7 @@ private enum DetailsSection: CaseIterable {
     case calendar
     case costs
     case settings
+    case diagnostics
     case about
 
     var title: String {
@@ -3274,6 +3511,7 @@ private enum DetailsSection: CaseIterable {
         case .calendar: return t(.calendar)
         case .costs: return t(.costs)
         case .settings: return t(.settings)
+        case .diagnostics: return t(.diagnostics)
         case .about: return t(.about)
         }
     }
@@ -3285,6 +3523,7 @@ private enum DetailsSection: CaseIterable {
         case .calendar: return t(.calendarSubtitle)
         case .costs: return t(.costsSubtitle)
         case .settings: return t(.settingsSubtitle)
+        case .diagnostics: return t(.diagnosticsSubtitle)
         case .about: return t(.aboutSubtitle)
         }
     }
@@ -3357,6 +3596,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     fileprivate var onOpenLogFolder: (() -> Void)?
     fileprivate var onShowHistoricalEmptyWeeksChanged: ((Bool) -> Void)?
     fileprivate var onLaunchAtLoginChanged: ((Bool) -> Void)?
+    fileprivate var onQuotaWarningsChanged: ((Bool) -> Void)?
     fileprivate var onPreferredHeightChanged: (() -> Void)?
     private var selectedSection: DetailsSection = .overview {
         didSet {
@@ -3403,6 +3643,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private let languagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let showHistoricalEmptyWeeksSwitch = NSSwitch(frame: .zero)
     private let launchAtLoginSwitch = NSSwitch(frame: .zero)
+    private let quotaWarningsSwitch = NSSwitch(frame: .zero)
     private var isUpdatingCostControls = false
     private var detailsTrackingArea: NSTrackingArea?
 
@@ -3532,6 +3773,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         launchAtLoginSwitch.action = #selector(launchAtLoginChanged)
         addSubview(launchAtLoginSwitch)
 
+        quotaWarningsSwitch.controlSize = .small
+        quotaWarningsSwitch.isHidden = true
+        quotaWarningsSwitch.target = self
+        quotaWarningsSwitch.action = #selector(quotaWarningsChanged)
+        addSubview(quotaWarningsSwitch)
+
         for popup in [paymentCurrencyPopup, displayCurrencyPopup, costYearPopup, languagePopup] {
             popup.controlSize = .regular
             popup.font = .systemFont(ofSize: 12, weight: .semibold)
@@ -3592,13 +3839,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let visible = selectedSection == .settings
         languagePopup.isHidden = !visible
         launchAtLoginSwitch.isHidden = !visible
+        quotaWarningsSwitch.isHidden = !visible
         guard visible else { return }
 
         let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(492, content.height - 78))
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(548, content.height - 78))
         let popupWidth = min(300, max(252, rect.width * 0.34))
         languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
         launchAtLoginSwitch.frame = NSRect(x: rect.maxX - 64, y: rect.minY + 414, width: 48, height: 24)
+        quotaWarningsSwitch.frame = NSRect(x: rect.maxX - 64, y: rect.minY + 472, width: 48, height: 24)
         updateLanguagePopupFromSettings()
         updateSettingsControlsFromSystem()
     }
@@ -3616,6 +3865,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private func updateSettingsControlsFromSystem() {
         guard selectedSection == .settings else { return }
         launchAtLoginSwitch.state = LoginItemManager.isEnabled ? .on : .off
+        quotaWarningsSwitch.state = AppSettings.quotaWarningsEnabled ? .on : .off
     }
 
     private func updateCostControlsFromSettings() {
@@ -3684,6 +3934,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             let firstBlock = topOffset + settingsHeight + sectionGap + summaryHeight
             let secondBlock = sectionGap + annualChartHeight + sectionGap + monthlyTableHeight
             targetHeight = firstBlock + secondBlock + bottomPadding
+        case .diagnostics:
+            targetHeight = 714
         case .settings:
             targetHeight = 470
         case .about:
@@ -3892,6 +4144,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
+    @objc private func quotaWarningsChanged() {
+        onQuotaWarningsChanged?(quotaWarningsSwitch.state == .on)
+        updateSettingsControlsFromSystem()
+        needsDisplay = true
+    }
+
     func controlTextDidEndEditing(_ obj: Notification) {
         guard let field = obj.object as? NSTextField else { return }
         if field === costAmountField {
@@ -3958,6 +4216,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             drawCostPage(snapshot: snapshot, content: content)
         case .settings:
             drawSettingsPage(content: content)
+        case .diagnostics:
+            drawDiagnosticsPage(snapshot: snapshot, content: content)
         case .about:
             drawAboutPage(snapshot: snapshot, content: content)
         }
@@ -4004,7 +4264,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let cardW = (content.width - gap * 3) / 4
         let cards: [(String, String, NSColor)] = [
             (t(.all), compactDashboardTotal(snapshot.all.usage.total), .systemGreen),
-            (t(.spark), compactDashboardTotal(snapshot.spark.usage.total), .systemCyan),
+            (AppSettings.modelLimitSegmentTitle, compactDashboardTotal(snapshot.spark.usage.total), .systemCyan),
             (t(.other), compactDashboardTotal(snapshot.other.usage.total), .systemOrange),
             (t(.cache), String(format: "%.0f%%", snapshot.all.usage.cachePercent), .systemTeal)
         ]
@@ -4022,7 +4282,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawText(t(.quotaViews), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
         let rows = [
             (t(.all), t(.allDescription), snapshot.all),
-            (t(.spark), t(.sparkModel), snapshot.spark),
+            (AppSettings.modelLimitSegmentTitle, AppSettings.modelLimitName, snapshot.spark),
             (t(.other), t(.otherDescription), snapshot.other)
         ]
         let outputW: CGFloat = 92
@@ -4093,6 +4353,121 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawPanel(noteRect)
         drawText(t(.modelGroupingNote), rect: NSRect(x: noteRect.minX + 16, y: noteRect.minY + 16, width: noteRect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.62))
         drawText(t(.modelMissingNote), rect: NSRect(x: noteRect.minX + 16, y: noteRect.minY + 40, width: noteRect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+    }
+
+    private func drawDiagnosticsPage(snapshot: DetailsSnapshot, content: NSRect) {
+        let sourceRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 268)
+        drawPanel(sourceRect)
+        drawText(t(.sourceHealth), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 14, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
+        drawDiagnosticRows(sourceDiagnostics(snapshot: snapshot), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 48, width: sourceRect.width - 32, height: sourceRect.height - 64))
+
+        let apiRect = NSRect(x: content.minX, y: sourceRect.maxY + 16, width: content.width, height: 124)
+        drawPanel(apiRect)
+        drawText(t(.externalAPICost), rect: NSRect(x: apiRect.minX + 16, y: apiRect.minY + 14, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
+        drawText(t(.externalAPICostHint), rect: NSRect(x: apiRect.minX + 16, y: apiRect.minY + 40, width: apiRect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        drawDiagnosticRows(apiDiagnostics(), rect: NSRect(x: apiRect.minX + 16, y: apiRect.minY + 66, width: apiRect.width - 32, height: 44))
+
+        let toolsRect = NSRect(x: content.minX, y: apiRect.maxY + 16, width: content.width, height: 168)
+        drawPanel(toolsRect)
+        drawText(t(.otherTools), rect: NSRect(x: toolsRect.minX + 16, y: toolsRect.minY + 14, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
+        drawDiagnosticRows(otherToolDiagnostics(), rect: NSRect(x: toolsRect.minX + 16, y: toolsRect.minY + 48, width: toolsRect.width - 32, height: toolsRect.height - 64))
+    }
+
+    private func drawDiagnosticRows(_ rows: [(String, String, NSColor)], rect: NSRect) {
+        for (index, row) in rows.enumerated() {
+            let y = rect.minY + CGFloat(index) * 28
+            guard y + 22 <= rect.maxY else { break }
+            drawText(row.0, rect: NSRect(x: rect.minX, y: y + 2, width: min(220, rect.width * 0.34), height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.58))
+            let dot = NSRect(x: rect.maxX - 10, y: y + 8, width: 8, height: 8)
+            row.2.setFill()
+            NSBezierPath(ovalIn: dot).fill()
+            drawRight(row.1, rect: NSRect(x: rect.minX + rect.width * 0.34, y: y + 1, width: rect.width * 0.64 - 18, height: 18), color: .white, font: .systemFont(ofSize: 12, weight: .semibold))
+        }
+    }
+
+    private func sourceDiagnostics(snapshot: DetailsSnapshot) -> [(String, String, NSColor)] {
+        let cliPath = LiveRateLimitReader.codexExecutablePath()
+        let authURL = AppSettings.defaultCodexHomeURL.appendingPathComponent("auth.json")
+        let liveText = snapshot.liveLimits.isEmpty
+            ? t(.liveLimitUnavailable)
+            : "\(snapshot.liveLimits.count) windows"
+        let rollouts = AppSettings.logFolderURLs.reduce(0) { $0 + rolloutCount(in: $1, modifiedWithinDays: 14) }
+        return [
+            ("Codex CLI", cliPath ?? t(.fileMissing), cliPath == nil ? accentRose : accentTeal),
+            ("auth.json", FileManager.default.fileExists(atPath: authURL.path) ? t(.filePresent) : t(.fileMissing), FileManager.default.fileExists(atPath: authURL.path) ? accentTeal : accentAmber),
+            (t(.liveQuota), liveText, snapshot.liveLimits.isEmpty ? accentRose : accentTeal),
+            (t(.modelLimit), "\(AppSettings.modelLimitName) / \(AppSettings.modelLimitID)", accentTeal),
+            (t(.logFolder), "\(AppSettings.logFolderURLs.count) roots", AppSettings.logFolderURLs.isEmpty ? accentRose : accentTeal),
+            (t(.recentRollouts), "\(rollouts) files / 14d", rollouts > 0 ? accentTeal : accentAmber),
+            (t(.quotaWarnings), AppSettings.quotaWarningsEnabled ? t(.enabled) : t(.disabled), AppSettings.quotaWarningsEnabled ? accentTeal : accentAmber)
+        ]
+    }
+
+    private func apiDiagnostics() -> [(String, String, NSColor)] {
+        let url = AppSettings.externalAPICostURL
+        if let snapshot = ExternalAPICostStore.read(url: url), snapshot.hasData {
+            let tokenPart = snapshot.totalTokens > 0 ? " · \(compact(snapshot.totalTokens)) tokens" : ""
+            return [
+                ("api-usage.json", "\(displayAPIMoney(snapshot.usdValue))\(tokenPart)", accentTeal),
+                ("Path", shortenedPath(url.path), NSColor.white.withAlphaComponent(0.62))
+            ]
+        }
+        return [
+            ("api-usage.json", t(.fileMissing), accentAmber),
+            ("Path", shortenedPath(url.path), NSColor.white.withAlphaComponent(0.62))
+        ]
+    }
+
+    private func otherToolDiagnostics() -> [(String, String, NSColor)] {
+        let home = NSHomeDirectory()
+        let probes: [(String, String, Bool)] = [
+            ("Codex", AppSettings.logFolderDisplayPath, true),
+            ("Claude Code", "\(home)/.claude/projects", false),
+            ("Cursor", "\(home)/Library/Application Support/Cursor", false),
+            ("OpenCode", "\(home)/.local/share/opencode", false),
+            ("Gemini CLI", "\(home)/.gemini", false)
+        ]
+        return probes.map { name, path, tracked in
+            let exists = FileManager.default.fileExists(atPath: path)
+            let value: String
+            if tracked {
+                value = t(.tracked)
+            } else if exists {
+                value = t(.detectedNotTracked)
+            } else {
+                value = t(.fileMissing)
+            }
+            let color: NSColor = tracked ? accentTeal : (exists ? accentAmber : NSColor.white.withAlphaComponent(0.36))
+            return (name, value, color)
+        }
+    }
+
+    private func rolloutCount(in root: URL, modifiedWithinDays days: Int) -> Int {
+        let start = Date().addingTimeInterval(-TimeInterval(days) * 24 * 3600)
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+        var count = 0
+        for case let url as URL in enumerator {
+            guard url.lastPathComponent.hasPrefix("rollout-"), url.pathExtension == "jsonl" else { continue }
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+            if (values?.contentModificationDate ?? .distantPast) >= start {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    private func shortenedPath(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        if path.hasPrefix(home) {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path.count > 72 ? "..." + path.suffix(69) : path
     }
 
     private func drawCalendarPage(snapshot: DetailsSnapshot, content: NSRect) {
@@ -4180,13 +4555,24 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func drawCostOverviewPanel(estimate: PlanCostEstimate?, apiEstimate: APICostEstimate, rect: NSRect) {
         drawPanel(rect)
+        let externalAPI = ExternalAPICostStore.read()
         guard let estimate else {
             if apiEstimate.hasUsage {
                 let coverage = String(format: "%.0f%%", apiEstimate.coveragePercent)
                 drawText(t(.apiEquivalent), rect: NSRect(x: rect.minX + 18, y: rect.minY + 20, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
                 drawText(displayAPIMoney(apiEstimate.usdValue), rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: rect.width - 36, height: 34), font: .monospacedDigitSystemFont(ofSize: 26, weight: .bold), color: accentTeal)
                 drawText("\(coverage) \(t(.priced)) · \(t(.apiEquivalentHint))", rect: NSRect(x: rect.minX + 18, y: rect.minY + 92, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
-                drawText(t(.planCostUnavailable), rect: NSRect(x: rect.minX + 18, y: rect.minY + 124, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42))
+                let unavailableY: CGFloat = externalAPI?.hasData == true ? 138 : 124
+                if let externalAPI, externalAPI.hasData {
+                    drawCostOverviewRow(title: t(.externalAPICost), value: displayAPIMoney(externalAPI.usdValue), color: accentAmber, rect: NSRect(x: rect.minX + 18, y: rect.minY + 116, width: rect.width - 36, height: 20))
+                }
+                drawText(t(.planCostUnavailable), rect: NSRect(x: rect.minX + 18, y: rect.minY + unavailableY, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42))
+                return
+            }
+            if let externalAPI, externalAPI.hasData {
+                drawText(t(.externalAPICost), rect: NSRect(x: rect.minX + 18, y: rect.minY + 20, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
+                drawText(displayAPIMoney(externalAPI.usdValue), rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: rect.width - 36, height: 34), font: .monospacedDigitSystemFont(ofSize: 26, weight: .bold), color: accentAmber)
+                drawText(t(.planCostUnavailable), rect: NSRect(x: rect.minX + 18, y: rect.minY + 92, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42))
                 return
             }
             drawText(t(.planCostUnavailable), rect: NSRect(x: rect.minX + 16, y: rect.minY + 54, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
@@ -4223,13 +4609,27 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
         let planLine = "\(t(.paymentMonthly)) \(paymentMoney(AppSettings.monthlyPlanCost))  ·  \(t(.displayEquivalent)) \(displayMoney(AppSettings.monthlyPlanCost))"
         drawText(planLine, rect: NSRect(x: rightRect.minX, y: rightRect.minY, width: rightRect.width, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.54))
-        drawCostOverviewRow(title: t(.usageRate), value: String(format: "%.0f%%", usageRate * 100), color: usedColor, rect: NSRect(x: rightRect.minX, y: rightRect.minY + 28, width: rightRect.width, height: 20))
-        drawCostOverviewRow(title: t(.totalSpendValue), value: displayMoney(estimate.totalSpentValue), color: accentAmber, rect: NSRect(x: rightRect.minX, y: rightRect.minY + 54, width: rightRect.width, height: 20))
         let apiTitle = apiEstimate.hasUsage && apiEstimate.coveragePercent < 99.5
             ? "\(t(.apiEquivalent)) \(String(format: "%.0f%%", apiEstimate.coveragePercent))"
             : t(.apiEquivalent)
-        drawCostOverviewRow(title: apiTitle, value: displayAPIMoney(apiEstimate.usdValue), color: accentTeal, rect: NSRect(x: rightRect.minX, y: rightRect.minY + 80, width: rightRect.width, height: 20))
-        drawCostOverviewRow(title: t(.totalWasteValue), value: displayMoney(estimate.totalWastedValue), color: accentRose.withAlphaComponent(0.92), rect: NSRect(x: rightRect.minX, y: rightRect.minY + 106, width: rightRect.width, height: 20))
+        var summaryRows: [(String, String, NSColor)] = [
+            (t(.usageRate), String(format: "%.0f%%", usageRate * 100), usedColor),
+            (t(.totalSpendValue), displayMoney(estimate.totalSpentValue), accentAmber),
+            (apiTitle, displayAPIMoney(apiEstimate.usdValue), accentTeal)
+        ]
+        if let externalAPI, externalAPI.hasData {
+            summaryRows.append((t(.externalAPICost), displayAPIMoney(externalAPI.usdValue), accentAmber))
+        }
+        summaryRows.append((t(.totalWasteValue), displayMoney(estimate.totalWastedValue), accentRose.withAlphaComponent(0.92)))
+        let rowSpacing: CGFloat = summaryRows.count > 4 ? 22 : 26
+        for (index, row) in summaryRows.enumerated() {
+            drawCostOverviewRow(
+                title: row.0,
+                value: row.1,
+                color: row.2,
+                rect: NSRect(x: rightRect.minX, y: rightRect.minY + 28 + CGFloat(index) * rowSpacing, width: rightRect.width, height: 20)
+            )
+        }
     }
 
     private func drawCostOverviewRow(title: String, value: String, color: NSColor, rect: NSRect) {
@@ -4526,7 +4926,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func drawSettingsPage(content: NSRect) {
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(492, content.height - 78))
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(548, content.height - 78))
         drawPanel(rect)
         drawText(t(.language), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.interfaceLanguage), rect: NSRect(x: rect.minX + 16, y: rect.minY + 56, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
@@ -4577,6 +4977,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
         drawText(t(.launchAtLogin), rect: NSRect(x: rect.minX + 16, y: rect.minY + 414, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         drawText(t(.launchAtLoginHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 444, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+
+        drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 472, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.quotaWarningsHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 502, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
     }
 
     private var costUsedColor: NSColor {
@@ -4941,7 +5344,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawText(t(.definitions), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         let rows = [
             (t(.all), t(.allDescription)),
-            (t(.spark), t(.sparkDescription)),
+            (AppSettings.modelLimitSegmentTitle, AppSettings.modelLimitName),
             (t(.other), t(.otherDefinition)),
             (t(.cacheHit), t(.cacheHitDescription))
         ]
@@ -5244,7 +5647,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onResetLogFolder = { [weak self] in self?.resetLogFolder() }
         detailsController.detailsView.onOpenLogFolder = { [weak self] in self?.openSessionsFolder() }
         detailsController.detailsView.onLaunchAtLoginChanged = { [weak self] isOn in self?.changeLaunchAtLogin(isOn) }
+        detailsController.detailsView.onQuotaWarningsChanged = { [weak self] isOn in self?.changeQuotaWarnings(isOn) }
         applyLanguage()
+        QuotaWarningManager.shared.requestAuthorization()
 
         refresh(forceLive: false)
         refreshLiveLimits()
@@ -5411,7 +5816,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let report = self.scanner.scan(window: window, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
             let limits = forceLive ? self.rateLimitReader.read() : currentLimits
             if forceLive, !limits.isEmpty {
+                AppSettings.learnModelLimit(from: limits)
                 CostHistoryStore.shared.record(limits: limits)
+                QuotaWarningManager.shared.evaluate(limits: limits)
             }
             let nextRefresh = Date().addingTimeInterval(self.refreshInterval)
             DispatchQueue.main.async {
@@ -5449,7 +5856,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveRefreshInFlight = true
         liveQueue.async {
             let limits = self.rateLimitReader.read()
+            AppSettings.learnModelLimit(from: limits)
             CostHistoryStore.shared.record(limits: limits)
+            QuotaWarningManager.shared.evaluate(limits: limits)
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             DispatchQueue.main.async {
                 self.liveRefreshInFlight = false
@@ -5590,7 +5999,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func selectedLimit(from limits: [LiveRateLimit], quota: QuotaViewOption) -> LiveRateLimit? {
-        limits.first { $0.id == quota.liveLimitID }
+        if let exact = limits.first(where: { $0.id == quota.liveLimitID }) {
+            return exact
+        }
+        if quota == .spark {
+            return limits.first { $0.id != QuotaViewOption.all.liveLimitID }
+        }
+        return nil
     }
 
     private func openSessionsFolder() {
@@ -5663,6 +6078,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func changeLaunchAtLogin(_ value: Bool) {
         _ = LoginItemManager.setEnabled(value)
+        detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
+    }
+
+    private func changeQuotaWarnings(_ value: Bool) {
+        AppSettings.quotaWarningsEnabled = value
+        if value {
+            QuotaWarningManager.shared.requestAuthorization()
+            QuotaWarningManager.shared.evaluate(limits: liveLimits)
+        }
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
     }
@@ -6179,6 +6604,7 @@ private func relative(_ date: Date) -> String {
 
 if CommandLine.arguments.contains("--print-live") {
     let limits = LiveRateLimitReader().read()
+    AppSettings.learnModelLimit(from: limits)
     CostHistoryStore.shared.record(limits: limits)
     let payload = limits.map { limit in
         [
@@ -6205,9 +6631,9 @@ if CommandLine.arguments.contains("--print") {
         .compactMap { argument -> WindowOption? in
             guard argument.hasPrefix("--window=") else { return nil }
             switch argument.dropFirst("--window=".count) {
-            case "24h": return .day
-            case "7d": return .week
-            case "30d": return .month
+            case "24h", "day": return .day
+            case "7d", "week": return .week
+            case "30d", "month": return .month
             default: return nil
             }
         }
@@ -6227,10 +6653,21 @@ if CommandLine.arguments.contains("--print") {
     let report = requestedWindow.map { scanner.scan(window: $0, includedModelName: quota?.includedModelName, excludedModelName: quota?.excludedModelName) }
         ?? scanner.scan(hours: hours, includedModelName: quota?.includedModelName, excludedModelName: quota?.excludedModelName)
     let apiEstimate = APICostEstimator.estimate(report: report)
+    let externalAPI = ExternalAPICostStore.read()
+    let externalAPIPayload: [String: Any] = [
+        "configured_path": AppSettings.externalAPICostURL.path,
+        "present": externalAPI != nil,
+        "has_data": externalAPI?.hasData ?? false,
+        "usd_value": externalAPI?.usdValue ?? 0,
+        "total_tokens": externalAPI?.totalTokens ?? 0,
+        "updated_at": externalAPI?.updatedAt ?? ""
+    ]
     let payload: [String: Any] = [
         "hours": requestedWindow?.rawValue ?? hours,
         "window": requestedWindow?.shortTitle ?? "rolling",
         "quota": quota?.rawValue ?? "all",
+        "model_limit_id": AppSettings.modelLimitID,
+        "model_limit_name": AppSettings.modelLimitName,
         "log_roots": scanner.rootPaths,
         "sessions": report.sessions,
         "events": report.events,
@@ -6246,6 +6683,7 @@ if CommandLine.arguments.contains("--print") {
         "api_equivalent_priced_tokens": apiEstimate.pricedTokens,
         "api_equivalent_total_tokens": apiEstimate.totalTokens,
         "api_equivalent_coverage_percent": apiEstimate.coveragePercent,
+        "external_api_cost": externalAPIPayload,
         "hour_buckets": report.byHour.count,
         "model_breakdown": report.modelBreakdown.map { model in
             let modelAPIEstimate = APICostEstimator.estimate(usage: model.usage, modelName: model.name)

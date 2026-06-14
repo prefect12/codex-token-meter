@@ -44,32 +44,44 @@ When available, it also reads live quota data from the local Codex runtime, incl
 
 - Menu bar status item showing remaining quota, weekly quota, daily tokens, or weekly tokens.
 - Compact popover with `24h / 7d / 30d` windows.
-- `All / Spark / Other` quota views for total Codex usage, `GPT-5.3-Codex-Spark`, and non-Spark usage.
+- `All / model limit / Other` quota views for total Codex usage, the current learned model-level limit, and non-model-limit usage.
 - Live rings for 5-hour quota, weekly quota, and cache hit rate.
 - Token breakdown for input, output, cached input, fresh input, and total tokens.
-- Details window with overview, model, calendar, cost, settings, and about pages.
+- Details window with overview, model, calendar, cost, diagnostics, settings, and about pages.
 - 365-day activity calendar with daily detail cards.
 - Model-level aggregation for long-term usage analysis.
-- Cost page for monthly plan cost, remaining budget, historical spend, estimated daily value, and API-equivalent token cost.
+- Cost page for monthly plan cost, remaining budget, historical spend, estimated daily value, API-equivalent token cost, and optional external API cost.
+- Diagnostics page for Codex CLI/auth health, live quota availability, log coverage, optional API cost input, and other tool detection.
 - Default scan coverage for current sessions, archived sessions, and `CODEX_HOME` when that environment variable is set.
 - Localized UI for English, Simplified Chinese, Traditional Chinese, Japanese, French, German, Spanish, and Korean.
 - Language-aware number units: English uses `K / M / B`; Chinese uses `万 / 亿`.
-- Configurable Codex log folder, menu bar display mode, launch at login, payment currency, display currency, and payment start date.
+- Configurable Codex log folder, menu bar display mode, launch at login, low-quota notifications, payment currency, display currency, and payment start date.
 - Manual refresh, local log folder shortcut, and CLI inspection mode.
 
 ## Data And Calculation Model
 
-Codex Token Meter uses two local data sources:
+Codex Token Meter uses local data sources:
 
 - **Token usage** comes from local Codex session logs. By default the app scans `~/.codex/sessions`, `~/.codex/archived_sessions`, and matching `sessions` / `archived_sessions` folders under `$CODEX_HOME` when that environment variable is set. If you choose a custom log folder in Settings, that folder overrides the default roots. The app scans `token_count` events, reads `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`, and `total_tokens`, calculates the delta between adjacent cumulative counters, and aggregates those deltas by hour, day, session, and model.
-- **Live quota percentages** come from the local Codex runtime. The app starts `codex app-server`, calls `account/rateLimits/read`, and reads fields such as `usedPercent` and `resetsAt` for the 5-hour and weekly windows. Remaining quota in the menu bar and quota rings is displayed as `100 - usedPercent`.
+- **Live quota percentages** come from the local Codex runtime. The app starts `codex app-server`, calls `account/rateLimits/read`, and reads fields such as `usedPercent` and `resetsAt` for the 5-hour and weekly windows. Remaining quota in the menu bar and quota rings is displayed as `100 - usedPercent`. The app learns the current non-Codex model-level quota window from the live response instead of relying only on the historical Spark ID.
 - **Cache percentage** comes from local token detail and is calculated as `cached_input_tokens / input_tokens * 100`.
 - **Cost estimates** are not official billing. The monthly plan cost comes from settings and defaults to `$200`; weekly budget is `monthly plan cost * 12 / 52`. Current-week used value prefers the live weekly `usedPercent`. Historical days and weeks are estimated from local token usage, historical peaks, and recorded weekly quota percentages.
 - **API-equivalent cost** is a separate estimate. It answers: "if this same local Codex token usage had been billed directly through API-style token pricing, roughly how much would it cost?" The app prices recognized models by token type: fresh input, cached input, and output. Current built-in rates use the official API prices for GPT-5.5, GPT-5.4, and GPT-5.4 mini, plus the token-based Codex rate-card equivalent for GPT-5.3-Codex / GPT-5.2-style Codex models. `reasoning_output_tokens` is not added again because local `total_tokens` already equals input plus output in Codex token-count events. Unknown model labels are left unpriced and reduce the displayed priced-token coverage.
+- **External API cost** is an optional local JSON input for direct OpenAI API usage that bypasses Codex logs. By default the app reads `~/Library/Application Support/Codex Token Meter/api-usage.json` when present. Supported keys include `usd_value`, `total_usd`, `usd`, or `cost_usd` for cost, plus `total_tokens`, `tokens`, or `usage_tokens` for token count.
+
+Example external API cost file:
+
+```json
+{
+  "usd": 12.34,
+  "total_tokens": 123456,
+  "updated_at": "2026-06-15T00:00:00Z"
+}
+```
 
 If OpenAI resets or refreshes your quota during a week, the live weekly percentage follows the new `usedPercent`, so the menu bar and weekly quota ring may suddenly show more remaining quota. Local token logs are not cleared. The cost page records observed weekly-percentage drops and keeps the highest weekly percentage seen for historical weeks so past estimated value is not overwritten by a later low live percentage. This is still a local observation-based estimate, not an official billing export.
 
-If you run work through Codex CLI or the Codex app with API-based authentication, local token usage can still be counted as long as Codex continues writing local `rollout-*.jsonl` logs. Live quota percentages depend on whether `codex app-server` can return `account/rateLimits/read` for that authentication mode. Direct OpenAI API calls that bypass the local Codex client are not tracked today; supporting them would require adding a separate data source for API response usage, organization usage, or billing data.
+If you run work through Codex CLI or the Codex app with API-based authentication, local token usage can still be counted as long as Codex continues writing local `rollout-*.jsonl` logs. Live quota percentages depend on whether `codex app-server` can return `account/rateLimits/read` for that authentication mode. Direct OpenAI API calls that bypass the local Codex client can be represented through the optional local `api-usage.json` file; the app does not call billing APIs itself.
 
 ## Recent Updates
 
@@ -91,9 +103,10 @@ At runtime, the app reads:
 $CODEX_HOME/sessions
 $CODEX_HOME/archived_sessions
 ~/Library/Application Support/Codex Token Meter/ParsedRollouts
+~/Library/Application Support/Codex Token Meter/api-usage.json
 ```
 
-Those files are used locally on your Mac. The app does not upload session logs and does not actively send network requests. Live quota reading depends on your local Codex runtime; `codex app-server` may use your existing Codex login state to access normal Codex usage endpoints.
+Those files are used locally on your Mac. The app does not upload session logs and does not actively send network requests beyond invoking the local Codex runtime for live quota reads. `codex app-server` may use your existing Codex login state to access normal Codex usage endpoints.
 
 ## Build
 
@@ -146,6 +159,8 @@ Example with a specific window and quota view:
 ```bash
 "./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --window=month --quota=all
 ```
+
+The JSON output includes `model_limit_id`, `model_limit_name`, API-equivalent cost fields, and `external_api_cost` status.
 
 ## Project Layout
 
