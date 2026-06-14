@@ -507,7 +507,9 @@ private enum L10nKey {
     case tracked
     case total
     case totalSpendValue
+    case totalSpendValueHint
     case totalWasteValue
+    case totalWasteValueHint
     case totalsObservedNote
     case turns
     case todayValue
@@ -515,6 +517,7 @@ private enum L10nKey {
     case used
     case usageDetails
     case usageIntensityHint
+    case usageRateHint
     case usageWindow
     case visibleWeekShare
     case week
@@ -525,6 +528,8 @@ private enum L10nKey {
     case weeklyLeft
     case costHistoryHint
     case usageRate
+    case apiEquivalentCostHint
+    case externalAPICostCalculationHint
     case month
     case fiveHourLeft
     case chinese
@@ -656,7 +661,9 @@ private enum L10nKey {
         case .tracked: return "Tracked"
         case .total: return "total"
         case .totalSpendValue: return "Total spend"
+        case .totalSpendValueHint: return "Accumulated plan value since the paid-start date, estimated from local token usage and weekly quota references."
         case .totalWasteValue: return "Total waste"
+        case .totalWasteValueHint: return "Accrued budget minus total spend. Negative values are clamped to zero."
         case .totalsObservedNote: return "local-observed usage, not official billing"
         case .turns: return "turns"
         case .todayValue: return "Today value"
@@ -664,6 +671,7 @@ private enum L10nKey {
         case .used: return "Used"
         case .usageDetails: return "Usage Details"
         case .usageIntensityHint: return "darker means more token usage"
+        case .usageRateHint: return "This week used value divided by this week budget. Current week prefers live weekly quota usedPercent."
         case .usageWindow: return "Usage window"
         case .visibleWeekShare: return "7d share"
         case .week: return "Week"
@@ -674,6 +682,8 @@ private enum L10nKey {
         case .weeklyLeft: return "Weekly Left"
         case .costHistoryHint: return "Hover a ring to inspect used, remaining, budget, and usage rate."
         case .usageRate: return "Usage rate"
+        case .apiEquivalentCostHint: return "fresh input × input price + cached input × cache price + output × output price, using recognized model API-style rates."
+        case .externalAPICostCalculationHint: return "Direct API usage read from local api-usage.json. It is separate from Codex rollout logs."
         case .month: return "Month"
         case .fiveHourLeft: return "5h Left"
         case .chinese: return "Chinese"
@@ -807,7 +817,9 @@ private enum L10nKey {
         case .tracked: return "已计入"
         case .total: return "总计"
         case .totalSpendValue: return "总开销"
+        case .totalSpendValueHint: return "从付费开始日起，按本地 token 用量和周额度参考值折算出的累计套餐价值。"
         case .totalWasteValue: return "总浪费"
+        case .totalWasteValueHint: return "已累积预算减去总开销；如果结果为负数则按 0 处理。"
         case .totalsObservedNote: return "本地观测用量，非官方账单"
         case .turns: return "轮次"
         case .todayValue: return "今日价值"
@@ -815,6 +827,7 @@ private enum L10nKey {
         case .used: return "已用"
         case .usageDetails: return "用量详情"
         case .usageIntensityHint: return "颜色越深代表 token 用量越高"
+        case .usageRateHint: return "本周已用金额除以本周预算；当前周优先使用实时周额度 usedPercent。"
         case .usageWindow: return "用量窗口"
         case .visibleWeekShare: return "占7天用量"
         case .week: return "周"
@@ -825,6 +838,8 @@ private enum L10nKey {
         case .weeklyLeft: return "周额度剩余"
         case .costHistoryHint: return "悬停圆环可查看已用、剩余、预算和使用率。"
         case .usageRate: return "使用率"
+        case .apiEquivalentCostHint: return "按可识别模型单价估算：fresh input × 输入价 + cached input × 缓存价 + output × 输出价。"
+        case .externalAPICostCalculationHint: return "从本地 api-usage.json 读取的直接 API 用量成本，独立于 Codex rollout 日志。"
         case .month: return "月"
         case .fiveHourLeft: return "5小时剩余"
         case .chinese: return "中文"
@@ -958,7 +973,9 @@ private enum L10nKey {
         case .tracked: return "集計対象"
         case .total: return "合計"
         case .totalSpendValue: return "総支出"
+        case .totalSpendValueHint: return "課金開始日からの累積プラン価値を、ローカル token 使用量と週制限の参照値から推定します。"
         case .totalWasteValue: return "総浪費"
+        case .totalWasteValueHint: return "累積予算から総支出を引いた値です。負の値は 0 として扱います。"
         case .totalsObservedNote: return "ローカル観測値であり公式請求ではありません"
         case .turns: return "ターン"
         case .todayValue: return "今日の価値"
@@ -966,6 +983,7 @@ private enum L10nKey {
         case .used: return "使用済み"
         case .usageDetails: return "使用量詳細"
         case .usageIntensityHint: return "色が濃いほど token 使用量が多い"
+        case .usageRateHint: return "今週の使用額を今週の予算で割った値です。現在週はリアルタイム週制限の usedPercent を優先します。"
         case .usageWindow: return "使用量ウィンドウ"
         case .visibleWeekShare: return "7日内比率"
         case .week: return "週"
@@ -976,6 +994,8 @@ private enum L10nKey {
         case .weeklyLeft: return "週制限の残り"
         case .costHistoryHint: return "リングに重ねると使用額、残額、予算、使用率を確認できます。"
         case .usageRate: return "使用率"
+        case .apiEquivalentCostHint: return "認識できるモデル単価で fresh input × 入力価格 + cached input × キャッシュ価格 + output × 出力価格を推定します。"
+        case .externalAPICostCalculationHint: return "ローカル api-usage.json から読み取る直接 API 使用コストです。Codex rollout ログとは別扱いです。"
         case .month: return "月"
         case .fiveHourLeft: return "5時間残り"
         case .chinese: return "中国語"
@@ -3573,6 +3593,34 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let monthlyRows: [MonthlySpendRow]
     }
 
+    private enum CostOverviewInfo: Hashable {
+        case usageRate
+        case totalSpend
+        case apiEquivalent
+        case externalAPI
+        case totalWaste
+
+        var title: String {
+            switch self {
+            case .usageRate: return t(.usageRate)
+            case .totalSpend: return t(.totalSpendValue)
+            case .apiEquivalent: return t(.apiEquivalent)
+            case .externalAPI: return t(.externalAPICost)
+            case .totalWaste: return t(.totalWasteValue)
+            }
+        }
+
+        var hint: String {
+            switch self {
+            case .usageRate: return t(.usageRateHint)
+            case .totalSpend: return t(.totalSpendValueHint)
+            case .apiEquivalent: return t(.apiEquivalentCostHint)
+            case .externalAPI: return t(.externalAPICostCalculationHint)
+            case .totalWaste: return t(.totalWasteValueHint)
+            }
+        }
+    }
+
     var snapshot: DetailsSnapshot? {
         didSet {
             if let report = snapshot?.all {
@@ -3602,6 +3650,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         didSet {
             if selectedSection != .costs {
                 hoveredCostHistoryIndex = nil
+                hoveredCostOverviewInfo = nil
             }
             onPreferredHeightChanged?()
             needsDisplay = true
@@ -3617,10 +3666,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private var contributionDayRects: [String: NSRect] = [:]
     private var costHistoryBarRects: [Int: NSRect] = [:]
     private var costHistoryRows: [CostPeriodRow] = []
+    private var costOverviewInfoRects: [CostOverviewInfo: NSRect] = [:]
     private var dayValueInfoRect: NSRect?
     private var showHistoricalEmptyWeeksToggleRect: NSRect?
     private var selectedDay: String?
     private var hoveredCostHistoryIndex: Int?
+    private var hoveredCostOverviewInfo: CostOverviewInfo?
     private var isHoveringDayValueInfo = false
     private var selectedCostYear = Calendar.current.component(.year, from: Date())
     private var costRingCache: CostRingCache?
@@ -3987,9 +4038,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let point = convert(event.locationInWindow, from: nil)
         if selectedSection == .costs {
             updateCostHistoryHover(at: point)
+            updateCostOverviewInfoHover(at: point)
         } else {
             if hoveredCostHistoryIndex != nil {
                 hoveredCostHistoryIndex = nil
+                needsDisplay = true
+            }
+            if hoveredCostOverviewInfo != nil {
+                hoveredCostOverviewInfo = nil
                 needsDisplay = true
             }
         }
@@ -3998,6 +4054,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     override func mouseExited(with event: NSEvent) {
         hoveredCostHistoryIndex = nil
+        hoveredCostOverviewInfo = nil
         isHoveringDayValueInfo = false
         needsDisplay = true
     }
@@ -4006,6 +4063,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         var shouldRedraw = false
         if hoveredCostHistoryIndex != nil {
             hoveredCostHistoryIndex = nil
+            shouldRedraw = true
+        }
+        if hoveredCostOverviewInfo != nil {
+            hoveredCostOverviewInfo = nil
             shouldRedraw = true
         }
         if isHoveringDayValueInfo {
@@ -4023,6 +4084,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let newIndex = match?.key
         if hoveredCostHistoryIndex != newIndex {
             hoveredCostHistoryIndex = newIndex
+            needsDisplay = true
+        }
+    }
+
+    private func updateCostOverviewInfoHover(at point: CGPoint) {
+        let match = costOverviewInfoRects.first { $0.value.insetBy(dx: -4, dy: -4).contains(point) }
+        let newInfo = match?.key
+        if hoveredCostOverviewInfo != newInfo {
+            hoveredCostOverviewInfo = newInfo
             needsDisplay = true
         }
     }
@@ -4193,6 +4263,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         contributionDayRects.removeAll()
         costHistoryBarRects.removeAll()
         costHistoryRows.removeAll()
+        costOverviewInfoRects.removeAll()
         dayValueInfoRect = nil
         numberUnitOptionRects.removeAll()
         statusOptionRects.removeAll()
@@ -4224,6 +4295,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
         if selectedSection == .costs {
             drawCostHistoryTooltip()
+            drawCostOverviewInfoTooltip()
         } else if selectedSection == .calendar {
             drawDayValueInfoTooltip()
         }
@@ -4568,7 +4640,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 drawText("\(coverage) \(t(.priced)) · \(t(.apiEquivalentHint))", rect: NSRect(x: rect.minX + 18, y: rect.minY + 92, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
                 let unavailableY: CGFloat = externalAPI?.hasData == true ? 138 : 124
                 if let externalAPI, externalAPI.hasData {
-                    drawCostOverviewRow(title: t(.externalAPICost), value: displayAPIMoney(externalAPI.usdValue), color: accentAmber, rect: NSRect(x: rect.minX + 18, y: rect.minY + 116, width: rect.width - 36, height: 20))
+                    drawCostOverviewRow(title: t(.externalAPICost), value: displayAPIMoney(externalAPI.usdValue), color: accentAmber, rect: NSRect(x: rect.minX + 18, y: rect.minY + 116, width: rect.width - 36, height: 20), info: .externalAPI)
                 }
                 drawText(t(.planCostUnavailable), rect: NSRect(x: rect.minX + 18, y: rect.minY + unavailableY, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42))
                 return
@@ -4616,28 +4688,37 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let apiTitle = apiEstimate.hasUsage && apiEstimate.coveragePercent < 99.5
             ? "\(t(.apiEquivalent)) \(String(format: "%.0f%%", apiEstimate.coveragePercent))"
             : t(.apiEquivalent)
-        var summaryRows: [(String, String, NSColor)] = [
-            (t(.usageRate), String(format: "%.0f%%", usageRate * 100), usedColor),
-            (t(.totalSpendValue), displayMoney(estimate.totalSpentValue), accentAmber),
-            (apiTitle, displayAPIMoney(apiEstimate.usdValue), accentTeal)
+        var summaryRows: [(String, String, NSColor, CostOverviewInfo)] = [
+            (t(.usageRate), String(format: "%.0f%%", usageRate * 100), usedColor, .usageRate),
+            (t(.totalSpendValue), displayMoney(estimate.totalSpentValue), accentAmber, .totalSpend),
+            (apiTitle, displayAPIMoney(apiEstimate.usdValue), accentTeal, .apiEquivalent)
         ]
         if let externalAPI, externalAPI.hasData {
-            summaryRows.append((t(.externalAPICost), displayAPIMoney(externalAPI.usdValue), accentAmber))
+            summaryRows.append((t(.externalAPICost), displayAPIMoney(externalAPI.usdValue), accentAmber, .externalAPI))
         }
-        summaryRows.append((t(.totalWasteValue), displayMoney(estimate.totalWastedValue), accentRose.withAlphaComponent(0.92)))
+        summaryRows.append((t(.totalWasteValue), displayMoney(estimate.totalWastedValue), accentRose.withAlphaComponent(0.92), .totalWaste))
         let rowSpacing: CGFloat = summaryRows.count > 4 ? 22 : 26
         for (index, row) in summaryRows.enumerated() {
             drawCostOverviewRow(
                 title: row.0,
                 value: row.1,
                 color: row.2,
-                rect: NSRect(x: rightRect.minX, y: rightRect.minY + 28 + CGFloat(index) * rowSpacing, width: rightRect.width, height: 20)
+                rect: NSRect(x: rightRect.minX, y: rightRect.minY + 28 + CGFloat(index) * rowSpacing, width: rightRect.width, height: 20),
+                info: row.3
             )
         }
     }
 
-    private func drawCostOverviewRow(title: String, value: String, color: NSColor, rect: NSRect) {
-        drawText(title, rect: NSRect(x: rect.minX, y: rect.minY + 2, width: max(90, rect.width * 0.34), height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
+    private func drawCostOverviewRow(title: String, value: String, color: NSColor, rect: NSRect, info: CostOverviewInfo? = nil) {
+        let titleFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let titleRect = NSRect(x: rect.minX, y: rect.minY + 2, width: max(90, rect.width * 0.34), height: 16)
+        drawText(title, rect: titleRect, font: titleFont, color: NSColor.white.withAlphaComponent(0.48))
+        if let info {
+            let titleWidth = min(titleRect.width - 16, measuredTextWidth(title, font: titleFont))
+            let iconRect = NSRect(x: titleRect.minX + titleWidth + 5, y: rect.minY + 1, width: 16, height: 16)
+            costOverviewInfoRects[info] = iconRect
+            drawInfoMark(rect: iconRect, highlighted: hoveredCostOverviewInfo == info)
+        }
         drawRight(value, rect: NSRect(x: rect.minX + rect.width * 0.34, y: rect.minY, width: rect.width * 0.66, height: 20), color: color, font: .monospacedDigitSystemFont(ofSize: 15, weight: .bold))
     }
 
@@ -5314,6 +5395,32 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
     }
 
+    private func drawCostOverviewInfoTooltip() {
+        guard let info = hoveredCostOverviewInfo,
+              let anchorRect = costOverviewInfoRects[info] else {
+            return
+        }
+        let width: CGFloat = 330
+        let height: CGFloat = 86
+        var origin = CGPoint(x: anchorRect.midX - width / 2, y: anchorRect.maxY + 10)
+        if origin.y + height > bounds.maxY - 12 {
+            origin.y = anchorRect.minY - height - 10
+        }
+        origin.x = max(bounds.minX + 12, min(origin.x, bounds.maxX - width - 12))
+        origin.y = max(bounds.minY + 12, min(origin.y, bounds.maxY - height - 12))
+
+        let rect = NSRect(origin: origin, size: CGSize(width: width, height: height))
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 9, yRadius: 9).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        let border = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
+        border.lineWidth = 1
+        border.stroke()
+
+        drawText(info.title, rect: NSRect(x: rect.minX + 12, y: rect.minY + 10, width: rect.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: .white)
+        drawMultilineText(info.hint, rect: NSRect(x: rect.minX + 12, y: rect.minY + 30, width: rect.width - 24, height: 42), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.62))
+    }
+
     private func drawDayValueInfoTooltip() {
         guard isHoveringDayValueInfo, let anchorRect = dayValueInfoRect else { return }
         let width: CGFloat = 300
@@ -5496,6 +5603,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         (emphasized ? accentTeal.withAlphaComponent(0.34) : NSColor.white.withAlphaComponent(0.09)).setStroke()
         NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7).stroke()
         drawCentered(title, rect: rect.insetBy(dx: 6, dy: 0), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(emphasized ? 0.96 : 0.78))
+    }
+
+    private func drawInfoMark(rect: NSRect, highlighted: Bool) {
+        (highlighted ? accentTeal.withAlphaComponent(0.28) : NSColor.white.withAlphaComponent(0.10)).setFill()
+        NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+        (highlighted ? accentTeal.withAlphaComponent(0.74) : NSColor.white.withAlphaComponent(0.18)).setStroke()
+        NSBezierPath(ovalIn: rect.insetBy(dx: 1.5, dy: 1.5)).stroke()
+        drawCentered("?", rect: rect.offsetBy(dx: 0, dy: -0.5), font: .systemFont(ofSize: 10, weight: .bold), color: highlighted ? accentTeal : NSColor.white.withAlphaComponent(0.58))
     }
 
     private func drawSelectablePill(_ title: String, rect: NSRect, selected: Bool) {
