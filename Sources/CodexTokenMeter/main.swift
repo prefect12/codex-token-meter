@@ -4228,7 +4228,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         case .diagnostics:
             targetHeight = 714
         case .settings:
-            targetHeight = 620
+            targetHeight = 760
         case .about:
             targetHeight = 580
         }
