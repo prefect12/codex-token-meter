@@ -191,6 +191,77 @@ struct TokenReport {
     var scannedAt = Date()
 }
 
+struct AccountUsageSummary {
+    let lifetimeTokens: Int64?
+    let peakDailyTokens: Int64?
+    let longestRunningTurnSec: Int64?
+    let currentStreakDays: Int64?
+    let longestStreakDays: Int64?
+}
+
+struct AccountUsageDailyBucket {
+    let startDate: String
+    let tokens: Int64
+}
+
+struct AccountUsageSnapshot {
+    let summary: AccountUsageSummary
+    let dailyUsageBuckets: [AccountUsageDailyBucket]
+    let readAt: Date
+
+    var hasData: Bool {
+        (summary.lifetimeTokens ?? 0) > 0 || dailyUsageBuckets.contains { $0.tokens > 0 }
+    }
+
+    func report(days dayCount: Int, useLifetimeTotal: Bool = false) -> TokenReport {
+        let count = max(dayCount, 1)
+        let calendar = appCalendar()
+        let formatter = dayFormatter()
+        let today = calendar.startOfDay(for: Date())
+        let start = calendar.date(byAdding: .day, value: -(count - 1), to: today) ?? today
+        var byDate: [String: Int64] = [:]
+        for bucket in dailyUsageBuckets {
+            byDate[String(bucket.startDate.prefix(10)), default: 0] += bucket.tokens
+        }
+        var report = TokenReport(scannedAt: readAt)
+        report.byDay = (0..<count).map { offset in
+            let date = calendar.date(byAdding: .day, value: offset, to: start) ?? start
+            let key = formatter.string(from: date)
+            let total = byDate[key] ?? 0
+            return DayUsage(day: key, usage: Usage(total: total), turns: 0)
+        }
+        let dailyTotal = report.byDay.reduce(Int64(0)) { $0 + $1.usage.total }
+        report.usage.total = useLifetimeTotal ? max(summary.lifetimeTokens ?? 0, dailyTotal) : dailyTotal
+        return report
+    }
+
+    func report(window: WindowOption) -> TokenReport {
+        switch window {
+        case .day:
+            let todayReport = report(days: 1)
+            if todayReport.usage.total > 0 {
+                return todayReport
+            }
+            return latestDayReport() ?? todayReport
+        case .week:
+            return report(days: 7)
+        case .month:
+            return report(days: 30)
+        }
+    }
+
+    private func latestDayReport() -> TokenReport? {
+        guard let bucket = dailyUsageBuckets.last(where: { $0.tokens > 0 }) else {
+            return nil
+        }
+        var report = TokenReport(scannedAt: readAt)
+        let day = String(bucket.startDate.prefix(10))
+        report.usage.total = bucket.tokens
+        report.byDay = [DayUsage(day: day, usage: Usage(total: bucket.tokens), turns: 0)]
+        return report
+    }
+}
+
 enum WindowOption: Int, CaseIterable {
     case day = 24
     case week = 168
@@ -480,6 +551,9 @@ private enum L10nKey {
     case paymentMonthly
     case paymentStartDate
     case priced
+    case profileAPISource
+    case profileAPITotals
+    case profileAPITotalsHint
     case quotaViews
     case quotaWarnings
     case quotaWarningsHint
@@ -634,6 +708,9 @@ private enum L10nKey {
         case .paymentMonthly: return "Monthly paid"
         case .paymentStartDate: return "Paid since"
         case .priced: return "priced"
+        case .profileAPISource: return "Profile API"
+        case .profileAPITotals: return "Profile API totals"
+        case .profileAPITotalsHint: return "Use account/usage/read for official lifetime totals and daily buckets; local logs still power model, input/output, cache, and cost details."
         case .quotaViews: return "Quota Views"
         case .quotaWarnings: return "Quota warnings"
         case .quotaWarningsHint: return "Notify once when a live quota window drops below 15% remaining."
@@ -790,6 +867,9 @@ private enum L10nKey {
         case .paymentMonthly: return "月付金额"
         case .paymentStartDate: return "付费开始日期"
         case .priced: return "已计价"
+        case .profileAPISource: return "Profile API"
+        case .profileAPITotals: return "Profile API 总量"
+        case .profileAPITotalsHint: return "用 account/usage/read 读取官方累计总量和每日桶；模型、输入输出、缓存和金额明细仍来自本地日志。"
         case .quotaViews: return "限额视图"
         case .quotaWarnings: return "额度提醒"
         case .quotaWarningsHint: return "实时额度低于 15% 时，每个窗口只提醒一次。"
@@ -946,6 +1026,9 @@ private enum L10nKey {
         case .paymentMonthly: return "月額支払い"
         case .paymentStartDate: return "課金開始日"
         case .priced: return "価格対象"
+        case .profileAPISource: return "Profile API"
+        case .profileAPITotals: return "Profile API 合計"
+        case .profileAPITotalsHint: return "account/usage/read で公式の累計と日別バケットを使います。モデル、入出力、キャッシュ、金額詳細は引き続きローカルログです。"
         case .quotaViews: return "制限枠ビュー"
         case .quotaWarnings: return "制限通知"
         case .quotaWarningsHint: return "残り 15% 未満になった制限枠ごとに一度だけ通知します。"
@@ -1100,6 +1183,7 @@ private enum AppSettings {
     static let learnedModelLimitNameKey = "learnedModelLimitName"
     static let quotaWarningsEnabledKey = "quotaWarningsEnabled"
     static let externalAPICostPathKey = "externalAPICostPath"
+    static let profileAPITotalsEnabledKey = "profileAPITotalsEnabled"
 
     static let fallbackModelLimitID = "codex_bengalfox"
     static let fallbackModelLimitName = "GPT-5.3-Codex-Spark"
@@ -1320,6 +1404,18 @@ private enum AppSettings {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: quotaWarningsEnabledKey)
+        }
+    }
+
+    static var profileAPITotalsEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: profileAPITotalsEnabledKey) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: profileAPITotalsEnabledKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: profileAPITotalsEnabledKey)
         }
     }
 
@@ -1696,6 +1792,8 @@ private func costEstimateLimit(from limits: [LiveRateLimit]) -> LiveRateLimit? {
 
 struct DashboardState {
     var report = TokenReport()
+    var profileReport: TokenReport?
+    var accountUsage: AccountUsageSnapshot?
     var costReferenceReport: TokenReport?
     var liveLimits: [LiveRateLimit] = []
     var selectedWindow: WindowOption = .week
@@ -2708,6 +2806,132 @@ final class LiveRateLimitReader {
     }
 }
 
+final class AccountUsageReader {
+    func read(timeout: TimeInterval = 12) -> AccountUsageSnapshot? {
+        guard let codexPath = LiveRateLimitReader.codexExecutablePath() else {
+            return nil
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: codexPath)
+        process.arguments = ["app-server"]
+        let input = Pipe()
+        let output = Pipe()
+        let error = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = error
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        let outputLock = NSLock()
+        var outputData = Data()
+        output.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            outputLock.lock()
+            outputData.append(chunk)
+            outputLock.unlock()
+        }
+
+        let errorLock = NSLock()
+        var errorData = Data()
+        error.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            errorLock.lock()
+            errorData.append(chunk)
+            errorLock.unlock()
+        }
+
+        let writer = input.fileHandleForWriting
+        let messages = [
+            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-token-meter","version":"0.2.0"},"capabilities":{"experimentalApi":true}}}"#,
+            #"{"method":"initialized"}"#,
+            #"{"id":2,"method":"account/read","params":{"refreshAuth":false}}"#,
+            #"{"id":3,"method":"account/usage/read"}"#
+        ]
+        let requestBody = messages.joined(separator: "\n") + "\n"
+        if let data = requestBody.data(using: .utf8) {
+            writer.write(data)
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        let usageMarker = Data(#""dailyUsageBuckets""#.utf8)
+        while process.isRunning && Date() < deadline {
+            outputLock.lock()
+            let hasUsage = outputData.range(of: usageMarker) != nil
+            outputLock.unlock()
+            if hasUsage {
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        try? writer.close()
+        if process.isRunning {
+            process.terminate()
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+
+        output.fileHandleForReading.readabilityHandler = nil
+        error.fileHandleForReading.readabilityHandler = nil
+        outputLock.lock()
+        let data = outputData
+        outputLock.unlock()
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        if ProcessInfo.processInfo.environment["CODEX_TOKEN_METER_DEBUG_PROFILE"] == "1" {
+            errorLock.lock()
+            let errorData = errorData
+            errorLock.unlock()
+            let errorText = String(data: errorData, encoding: .utf8) ?? ""
+            FileHandle.standardError.write(Data("PROFILE RAW OUTPUT:\n\(text)\n".utf8))
+            FileHandle.standardError.write(Data("PROFILE RAW ERROR:\n\(errorText)\n".utf8))
+        }
+        return parse(text)
+    }
+
+    private func parse(_ text: String) -> AccountUsageSnapshot? {
+        for line in text.split(separator: "\n") {
+            guard let data = String(line).data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let result = object["result"] as? [String: Any],
+                  let summaryDict = result["summary"] as? [String: Any] else {
+                continue
+            }
+            let bucketsRaw = result["dailyUsageBuckets"] as? [[String: Any]]
+                ?? result["daily_usage_buckets"] as? [[String: Any]]
+                ?? []
+            let buckets = bucketsRaw.compactMap { dict -> AccountUsageDailyBucket? in
+                let startDate = dict["startDate"] as? String ?? dict["start_date"] as? String
+                let tokens = int64(dict["tokens"])
+                guard let startDate, let tokens else { return nil }
+                return AccountUsageDailyBucket(startDate: startDate, tokens: tokens)
+            }
+            let summary = AccountUsageSummary(
+                lifetimeTokens: int64(summaryDict["lifetimeTokens"] ?? summaryDict["lifetime_tokens"]),
+                peakDailyTokens: int64(summaryDict["peakDailyTokens"] ?? summaryDict["peak_daily_tokens"]),
+                longestRunningTurnSec: int64(summaryDict["longestRunningTurnSec"] ?? summaryDict["longest_running_turn_sec"]),
+                currentStreakDays: int64(summaryDict["currentStreakDays"] ?? summaryDict["current_streak_days"]),
+                longestStreakDays: int64(summaryDict["longestStreakDays"] ?? summaryDict["longest_streak_days"])
+            )
+            return AccountUsageSnapshot(summary: summary, dailyUsageBuckets: buckets.sorted { $0.startDate < $1.startDate }, readAt: Date())
+        }
+        return nil
+    }
+
+    private func int64(_ value: Any?) -> Int64? {
+        if value == nil || value is NSNull { return nil }
+        if let value = value as? Int64 { return value }
+        if let value = value as? Int { return Int64(value) }
+        if let value = value as? Double { return Int64(value) }
+        if let value = value as? String { return Int64(value) }
+        return nil
+    }
+}
+
 final class RingView: NSView {
     var percent: Double = 0 { didSet { needsDisplay = true } }
     var title: String = "" { didSet { needsDisplay = true } }
@@ -3173,12 +3397,15 @@ final class DashboardView: NSView {
     func update(_ state: DashboardState) {
         self.state = state
         let report = state.report
+        let totalReport = state.selectedQuota == .all ? (state.profileReport ?? report) : report
         applyLanguage()
         titleLabel.stringValue = "Codex Token Meter"
         let displayLimit = selectedLimit(from: state.liveLimits, quota: state.selectedQuota)
         subtitleLabel.stringValue = state.selectedQuota.fallbackTitle
-        totalLabel.stringValue = compactDashboardTotal(report.usage.total)
-        detailLabel.stringValue = state.selectedWindow.title
+        totalLabel.stringValue = compactDashboardTotal(totalReport.usage.total)
+        detailLabel.stringValue = state.profileReport != nil && state.selectedQuota == .all
+            ? "\(state.selectedWindow.title) · \(t(.profileAPISource))"
+            : state.selectedWindow.title
         usageLabel.stringValue = "\(compactDashboardMetric(report.usage.input)) \(t(.inShort))  |  \(compactDashboardMetric(report.usage.output)) \(t(.outShort))"
         refreshLabel.stringValue = state.isLoading ? t(.refreshing) : "\(t(.updated)) \(relative(report.scannedAt))  |  \(t(.next)) \(relative(state.nextRefreshAt))"
         let apiEstimate = APICostEstimator.estimate(report: report)
@@ -3435,6 +3662,7 @@ struct DetailsSnapshot {
     var other: TokenReport
     var liveLimits: [LiveRateLimit]
     var costReferenceReport: TokenReport?
+    var accountUsage: AccountUsageSnapshot? = nil
 }
 
 final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
@@ -3623,7 +3851,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     var snapshot: DetailsSnapshot? {
         didSet {
-            if let report = snapshot?.all {
+            if let snapshot {
+                let report = calendarReport(for: snapshot)
                 selectedDay = preferredSelectedDay(in: report, fallback: selectedDay)
             }
             onPreferredHeightChanged?()
@@ -3645,6 +3874,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     fileprivate var onShowHistoricalEmptyWeeksChanged: ((Bool) -> Void)?
     fileprivate var onLaunchAtLoginChanged: ((Bool) -> Void)?
     fileprivate var onQuotaWarningsChanged: ((Bool) -> Void)?
+    fileprivate var onProfileAPITotalsChanged: ((Bool) -> Void)?
     fileprivate var onPreferredHeightChanged: (() -> Void)?
     private var selectedSection: DetailsSection = .overview {
         didSet {
@@ -3695,6 +3925,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private let showHistoricalEmptyWeeksSwitch = NSSwitch(frame: .zero)
     private let launchAtLoginSwitch = NSSwitch(frame: .zero)
     private let quotaWarningsSwitch = NSSwitch(frame: .zero)
+    private let profileAPITotalsSwitch = NSSwitch(frame: .zero)
     private var isUpdatingCostControls = false
     private var detailsTrackingArea: NSTrackingArea?
 
@@ -3830,6 +4061,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         quotaWarningsSwitch.action = #selector(quotaWarningsChanged)
         addSubview(quotaWarningsSwitch)
 
+        profileAPITotalsSwitch.controlSize = .small
+        profileAPITotalsSwitch.isHidden = true
+        profileAPITotalsSwitch.target = self
+        profileAPITotalsSwitch.action = #selector(profileAPITotalsChanged)
+        addSubview(profileAPITotalsSwitch)
+
         for popup in [paymentCurrencyPopup, displayCurrencyPopup, costYearPopup, languagePopup] {
             popup.controlSize = .regular
             popup.font = .systemFont(ofSize: 12, weight: .semibold)
@@ -3891,14 +4128,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         languagePopup.isHidden = !visible
         launchAtLoginSwitch.isHidden = !visible
         quotaWarningsSwitch.isHidden = !visible
+        profileAPITotalsSwitch.isHidden = !visible
         guard visible else { return }
 
         let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(548, content.height - 78))
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(612, content.height - 78))
         let popupWidth = min(300, max(252, rect.width * 0.34))
         languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
         launchAtLoginSwitch.frame = NSRect(x: rect.maxX - 64, y: rect.minY + 414, width: 48, height: 24)
         quotaWarningsSwitch.frame = NSRect(x: rect.maxX - 64, y: rect.minY + 472, width: 48, height: 24)
+        profileAPITotalsSwitch.frame = NSRect(x: rect.maxX - 64, y: rect.minY + 530, width: 48, height: 24)
         updateLanguagePopupFromSettings()
         updateSettingsControlsFromSystem()
     }
@@ -3917,6 +4156,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         guard selectedSection == .settings else { return }
         launchAtLoginSwitch.state = LoginItemManager.isEnabled ? .on : .off
         quotaWarningsSwitch.state = AppSettings.quotaWarningsEnabled ? .on : .off
+        profileAPITotalsSwitch.state = AppSettings.profileAPITotalsEnabled ? .on : .off
     }
 
     private func updateCostControlsFromSettings() {
@@ -3988,7 +4228,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         case .diagnostics:
             targetHeight = 714
         case .settings:
-            targetHeight = 470
+            targetHeight = 620
         case .about:
             targetHeight = 580
         }
@@ -3997,6 +4237,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func selectedDayPanelPreferredHeight(contentWidth: CGFloat) -> CGFloat {
         guard let snapshot else { return 248 }
+        if usesProfileAPIReport(for: snapshot) {
+            return 206
+        }
         let report = snapshot.all
         let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
             ?? report.byDay.last(where: { $0.usage.total > 0 })
@@ -4032,6 +4275,27 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let modelY = max(CGFloat(112), metricsBottom + 12)
         let contentHeight = modelY + minimumModelHeight + 18
         return max(248, contentHeight)
+    }
+
+    private func usesProfileAPIReport(for snapshot: DetailsSnapshot) -> Bool {
+        AppSettings.profileAPITotalsEnabled && snapshot.accountUsage?.hasData == true
+    }
+
+    private func calendarReport(for snapshot: DetailsSnapshot) -> TokenReport {
+        guard usesProfileAPIReport(for: snapshot),
+              let accountUsage = snapshot.accountUsage else {
+            return snapshot.all
+        }
+        return accountUsage.report(days: 365)
+    }
+
+    private func profileLifetimeTotal(for snapshot: DetailsSnapshot) -> Int64? {
+        guard usesProfileAPIReport(for: snapshot),
+              let value = snapshot.accountUsage?.summary.lifetimeTokens,
+              value > 0 else {
+            return nil
+        }
+        return value
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -4220,6 +4484,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
+    @objc private func profileAPITotalsChanged() {
+        onProfileAPITotalsChanged?(profileAPITotalsSwitch.state == .on)
+        updateSettingsControlsFromSystem()
+        needsDisplay = true
+        needsLayout = true
+    }
+
     func controlTextDidEndEditing(_ obj: Notification) {
         guard let field = obj.object as? NSTextField else { return }
         if field === costAmountField {
@@ -4323,19 +4594,25 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let quotaY = cardsY + 98
         let modelsY = quotaY + 136
         let gridY = modelsY + 146
+        let gridReport = calendarReport(for: snapshot)
+        let gridTitle = usesProfileAPIReport(for: snapshot)
+            ? "\(t(.pastYear)) · \(t(.profileAPISource))"
+            : t(.pastYear)
         drawMetricCards(snapshot: snapshot, content: content)
         drawQuotaRows(snapshot: snapshot, content: content, y: quotaY, height: 120)
         drawModelRows(snapshot: snapshot, content: content, y: modelsY, height: 130, maxRows: 4)
-        let gridHeight = contributionGridPreferredHeight(report: snapshot.all, width: content.width, compact: true)
+        let gridHeight = contributionGridPreferredHeight(report: gridReport, width: content.width, compact: true)
         let gridRect = NSRect(x: content.minX, y: gridY, width: content.width, height: min(gridHeight, max(168, content.maxY - gridY)))
-        drawContributionGrid(report: snapshot.all, rect: gridRect, title: t(.pastYear), compact: true)
+        drawContributionGrid(report: gridReport, rect: gridRect, title: gridTitle, compact: true)
     }
 
     private func drawMetricCards(snapshot: DetailsSnapshot, content: NSRect) {
         let gap: CGFloat = 12
         let apiEstimate = APICostEstimator.estimate(report: snapshot.all)
+        let allTotal = profileLifetimeTotal(for: snapshot) ?? snapshot.all.usage.total
+        let allTitle = profileLifetimeTotal(for: snapshot) == nil ? t(.all) : "\(t(.all)) API"
         let cards: [(String, String, NSColor)] = [
-            (t(.all), compactDashboardTotal(snapshot.all.usage.total), .systemGreen),
+            (allTitle, compactDashboardTotal(allTotal), profileLifetimeTotal(for: snapshot) == nil ? .systemGreen : accentTeal),
             (AppSettings.modelLimitSegmentTitle, compactDashboardTotal(snapshot.spark.usage.total), .systemCyan),
             (t(.other), compactDashboardTotal(snapshot.other.usage.total), .systemOrange),
             (t(.cache), String(format: "%.0f%%", snapshot.all.usage.cachePercent), .systemTeal),
@@ -4450,11 +4727,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func drawDiagnosticRows(_ rows: [(String, String, NSColor)], rect: NSRect) {
+        let rowHeight = min(CGFloat(28), rect.height / CGFloat(max(rows.count, 1)))
         for (index, row) in rows.enumerated() {
-            let y = rect.minY + CGFloat(index) * 28
-            guard y + 22 <= rect.maxY else { break }
+            let y = rect.minY + CGFloat(index) * rowHeight
+            guard y + min(22, rowHeight) <= rect.maxY + 0.5 else { break }
             drawText(row.0, rect: NSRect(x: rect.minX, y: y + 2, width: min(220, rect.width * 0.34), height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.58))
-            let dot = NSRect(x: rect.maxX - 10, y: y + 8, width: 8, height: 8)
+            let dot = NSRect(x: rect.maxX - 10, y: y + max(5, (rowHeight - 8) / 2), width: 8, height: 8)
             row.2.setFill()
             NSBezierPath(ovalIn: dot).fill()
             drawRight(row.1, rect: NSRect(x: rect.minX + rect.width * 0.34, y: y + 1, width: rect.width * 0.64 - 18, height: 18), color: .white, font: .systemFont(ofSize: 12, weight: .semibold))
@@ -4467,11 +4745,24 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let liveText = snapshot.liveLimits.isEmpty
             ? t(.liveLimitUnavailable)
             : "\(snapshot.liveLimits.count) windows"
+        let profileText: String
+        let profileColor: NSColor
+        if !AppSettings.profileAPITotalsEnabled {
+            profileText = t(.disabled)
+            profileColor = accentAmber
+        } else if let accountUsage = snapshot.accountUsage, accountUsage.hasData {
+            profileText = accountUsage.summary.lifetimeTokens.map { compact($0) } ?? "\(accountUsage.dailyUsageBuckets.count) days"
+            profileColor = accentTeal
+        } else {
+            profileText = t(.liveLimitUnavailable)
+            profileColor = accentRose
+        }
         let rollouts = AppSettings.logFolderURLs.reduce(0) { $0 + rolloutCount(in: $1, modifiedWithinDays: 14) }
         return [
             ("Codex CLI", cliPath ?? t(.fileMissing), cliPath == nil ? accentRose : accentTeal),
             ("auth.json", FileManager.default.fileExists(atPath: authURL.path) ? t(.filePresent) : t(.fileMissing), FileManager.default.fileExists(atPath: authURL.path) ? accentTeal : accentAmber),
             (t(.liveQuota), liveText, snapshot.liveLimits.isEmpty ? accentRose : accentTeal),
+            (t(.profileAPITotals), profileText, profileColor),
             (t(.modelLimit), "\(AppSettings.modelLimitName) / \(AppSettings.modelLimitID)", accentTeal),
             (t(.logFolder), "\(AppSettings.logFolderURLs.count) roots", AppSettings.logFolderURLs.isEmpty ? accentRose : accentTeal),
             (t(.recentRollouts), "\(rollouts) files / 14d", rollouts > 0 ? accentTeal : accentAmber),
@@ -4547,15 +4838,23 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func drawCalendarPage(snapshot: DetailsSnapshot, content: NSRect) {
-        let preferredGridHeight = contributionGridPreferredHeight(report: snapshot.all, width: content.width, compact: false)
+        let report = calendarReport(for: snapshot)
+        let title = usesProfileAPIReport(for: snapshot)
+            ? "\(t(.pastYear)) · \(t(.profileAPISource))"
+            : t(.pastYear)
+        let preferredGridHeight = contributionGridPreferredHeight(report: report, width: content.width, compact: false)
         let gridHeight = min(preferredGridHeight, max(214, content.height * 0.36))
         let gridRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: gridHeight)
-        drawContributionGrid(report: snapshot.all, rect: gridRect, title: t(.pastYear), compact: false)
+        drawContributionGrid(report: report, rect: gridRect, title: title, compact: false)
 
         let available = max(248, content.maxY - gridRect.maxY - 16)
         let preferredHeight = selectedDayPanelPreferredHeight(contentWidth: content.width)
         let detailRect = NSRect(x: content.minX, y: gridRect.maxY + 16, width: content.width, height: min(preferredHeight, available))
-        drawSelectedDayPanel(snapshot: snapshot, rect: detailRect)
+        if usesProfileAPIReport(for: snapshot) {
+            drawProfileSelectedDayPanel(snapshot: snapshot, report: report, rect: detailRect)
+        } else {
+            drawSelectedDayPanel(snapshot: snapshot, rect: detailRect)
+        }
     }
 
     private func reportCostSignature(_ report: TokenReport?) -> String {
@@ -4874,6 +5173,44 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
     }
 
+    private func drawProfileSelectedDayPanel(snapshot: DetailsSnapshot, report: TokenReport, rect: NSRect) {
+        drawPanel(rect)
+        let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
+            ?? report.byDay.last(where: { $0.usage.total > 0 })
+            ?? report.byDay.last
+        guard let day else {
+            drawText(t(.noDaySelected), rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
+            return
+        }
+
+        let localDay = snapshot.all.byDay.first { $0.day == day.day }
+        let maxTotal = max(report.byDay.map { $0.usage.total }.max() ?? 1, 1)
+        let intensity = Double(day.usage.total) / Double(maxTotal)
+        drawText(day.day, rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: 180, height: 24), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold), color: .white)
+        drawText(compact(day.usage.total), rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: 260, height: 34), font: .monospacedDigitSystemFont(ofSize: 28, weight: .bold), color: accentTeal)
+        let dayMeta = "\(t(.profileAPISource))  |  \(Int(round(intensity * 100)))% \(t(.peakDay))"
+        drawText(dayMeta, rect: NSRect(x: rect.minX + 18, y: rect.minY + 90, width: 420, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
+        drawMultilineText(t(.profileAPITotalsHint), rect: NSRect(x: rect.minX + 18, y: rect.minY + 120, width: min(420, rect.width * 0.48), height: 52), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+
+        let metrics: [(String, String, NSColor)] = [
+            (t(.profileAPISource), compact(day.usage.total), accentTeal),
+            (t(.logs), localDay.map { compact($0.usage.total) } ?? "--", NSColor.systemGreen),
+            (t(.peakDay), snapshot.accountUsage?.summary.peakDailyTokens.map { compact($0) } ?? "--", NSColor.systemCyan)
+        ]
+        let startX = rect.minX + min(420, max(292, rect.width * 0.50))
+        let gap: CGFloat = 12
+        let availableMetricWidth = max(0, rect.maxX - startX - 18)
+        let columns = min(3, metrics.count)
+        let metricW = (availableMetricWidth - gap * CGFloat(columns - 1)) / CGFloat(columns)
+        for (index, metric) in metrics.enumerated() {
+            let card = NSRect(x: startX + CGFloat(index) * (metricW + gap), y: rect.minY + 42, width: metricW, height: 74)
+            NSColor.black.withAlphaComponent(0.12).setFill()
+            NSBezierPath(roundedRect: card, xRadius: 7, yRadius: 7).fill()
+            drawText(metric.0, rect: NSRect(x: card.minX + 12, y: card.minY + 14, width: card.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
+            drawText(metric.1, rect: NSRect(x: card.minX + 12, y: card.minY + 38, width: card.width - 24, height: 22), font: .monospacedDigitSystemFont(ofSize: metricW < 96 ? 13 : 15, weight: .bold), color: metric.2)
+        }
+    }
+
     private func drawSelectedDayPanel(snapshot: DetailsSnapshot, rect: NSRect) {
         drawPanel(rect)
         let report = snapshot.all
@@ -5011,7 +5348,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func drawSettingsPage(content: NSRect) {
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(548, content.height - 78))
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(612, content.height - 78))
         drawPanel(rect)
         drawText(t(.language), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.interfaceLanguage), rect: NSRect(x: rect.minX + 16, y: rect.minY + 56, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
@@ -5065,6 +5402,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
         drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 472, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         drawText(t(.quotaWarningsHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 502, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+
+        drawText(t(.profileAPITotals), rect: NSRect(x: rect.minX + 16, y: rect.minY + 530, width: 240, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.profileAPITotalsHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 560, width: rect.width - 32, height: 34), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
     }
 
     private var costUsedColor: NSColor {
@@ -5474,7 +5814,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func drawContributionGrid(report: TokenReport, rect: NSRect, title: String, compact: Bool) {
         drawPanel(rect)
-        drawText(title, rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 180, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+        drawText(title, rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
         let days = report.byDay
         guard !days.isEmpty else {
             drawText(t(.noDailyTokenData), rect: NSRect(x: rect.minX + 16, y: rect.minY + 52, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
@@ -5698,6 +6038,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let detailsController = UsageDetailsWindowController()
     private var scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
     private let rateLimitReader = LiveRateLimitReader()
+    private let accountUsageReader = AccountUsageReader()
     private let localFormatter = DateFormatter()
     private let scanQueue = DispatchQueue(label: "local.codex-token-meter.scan", qos: .utility)
     private let liveQueue = DispatchQueue(label: "local.codex-token-meter.live", qos: .utility)
@@ -5705,6 +6046,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var selectedQuota: QuotaViewOption = .all
     private var latestState = DashboardState()
     private var reportCache: [ReportCacheKey: TokenReport] = [:]
+    private var accountUsage: AccountUsageSnapshot?
     private var liveLimits: [LiveRateLimit] = []
     private var refreshTimer: Timer?
     private var liveRefreshTimer: Timer?
@@ -5767,6 +6109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onOpenLogFolder = { [weak self] in self?.openSessionsFolder() }
         detailsController.detailsView.onLaunchAtLoginChanged = { [weak self] isOn in self?.changeLaunchAtLogin(isOn) }
         detailsController.detailsView.onQuotaWarningsChanged = { [weak self] isOn in self?.changeQuotaWarnings(isOn) }
+        detailsController.detailsView.onProfileAPITotalsChanged = { [weak self] isOn in self?.changeProfileAPITotals(isOn) }
         applyLanguage()
         QuotaWarningManager.shared.requestAuthorization()
 
@@ -5884,6 +6227,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let cached = reportCache[key] {
             latestState = DashboardState(
                 report: cached,
+                profileReport: profileReport(window: selectedWindow, quota: selectedQuota, accountUsage: accountUsage),
+                accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: cached),
                 liveLimits: liveLimits,
                 selectedWindow: selectedWindow,
@@ -5897,6 +6242,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             latestState = DashboardState(
                 report: TokenReport(scannedAt: Date()),
+                profileReport: profileReport(window: selectedWindow, quota: selectedQuota, accountUsage: accountUsage),
+                accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: nil),
                 liveLimits: liveLimits,
                 selectedWindow: selectedWindow,
@@ -5919,6 +6266,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         latestState = DashboardState(
             report: reportCache[key] ?? TokenReport(scannedAt: Date()),
+            profileReport: profileReport(window: window, quota: quota, accountUsage: accountUsage),
+            accountUsage: accountUsage,
             costReferenceReport: costReferenceReport(quota: quota, fallback: reportCache[key]),
             liveLimits: liveLimits,
             selectedWindow: window,
@@ -5930,9 +6279,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dashboardController.dashboardView.update(latestState)
         updateStatusTitle(report: latestState.report, limits: liveLimits, quota: quota)
         let currentLimits = liveLimits
+        let currentAccountUsage = accountUsage
 
         scanQueue.async {
             let report = self.scanner.scan(window: window, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
+            let accountUsage = self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
             let limits = forceLive ? self.rateLimitReader.read() : currentLimits
             if forceLive, !limits.isEmpty {
                 AppSettings.learnModelLimit(from: limits)
@@ -5943,6 +6294,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self.activeScans.remove(key)
                 self.reportCache[key] = report
+                if let accountUsage {
+                    self.accountUsage = accountUsage
+                } else if !AppSettings.profileAPITotalsEnabled {
+                    self.accountUsage = nil
+                }
                 if forceLive, !limits.isEmpty {
                     self.liveLimits = limits
                 }
@@ -5950,6 +6306,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let effectiveLimits = forceLive && !limits.isEmpty ? limits : self.liveLimits
                     self.latestState = DashboardState(
                         report: report,
+                        profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage),
+                        accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
                         liveLimits: effectiveLimits,
                         selectedWindow: window,
@@ -5962,6 +6320,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.dashboardController.dashboardView.update(self.latestState)
                 } else if forceLive, !limits.isEmpty {
                     self.latestState.liveLimits = limits
+                    self.latestState.accountUsage = self.accountUsage
+                    self.latestState.profileReport = self.profileReport(window: self.latestState.selectedWindow, quota: self.latestState.selectedQuota, accountUsage: self.accountUsage)
                     self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
                     self.dashboardController.dashboardView.update(self.latestState)
                 }
@@ -6017,6 +6377,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if self.selectedWindow == window && self.selectedQuota == quota {
                     self.latestState = DashboardState(
                         report: report,
+                        profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage),
+                        accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
                         liveLimits: self.liveLimits,
                         selectedWindow: window,
@@ -6033,6 +6395,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    private func readAccountUsageIfNeeded(fallback: AccountUsageSnapshot?) -> AccountUsageSnapshot? {
+        guard AppSettings.profileAPITotalsEnabled else { return nil }
+        return accountUsageReader.read() ?? fallback
+    }
+
+    private func profileReport(window: WindowOption, quota: QuotaViewOption, accountUsage: AccountUsageSnapshot?) -> TokenReport? {
+        guard AppSettings.profileAPITotalsEnabled,
+              quota == .all,
+              let accountUsage,
+              accountUsage.hasData else {
+            return nil
+        }
+        return accountUsage.report(window: window)
     }
 
     private func costReferenceReport(quota: QuotaViewOption, fallback: TokenReport?) -> TokenReport? {
@@ -6107,6 +6484,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func statusUsage(window: WindowOption, quota: QuotaViewOption) -> TokenReport? {
+        if let profileReport = profileReport(window: window, quota: quota, accountUsage: accountUsage) {
+            return profileReport
+        }
         let key = ReportCacheKey(window: window, quota: quota)
         if let cached = reportCache[key] {
             return cached
@@ -6211,6 +6591,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.needsLayout = true
     }
 
+    private func changeProfileAPITotals(_ value: Bool) {
+        AppSettings.profileAPITotalsEnabled = value
+        if !value {
+            accountUsage = nil
+            latestState.accountUsage = nil
+            latestState.profileReport = nil
+            if var snapshot = detailsController.detailsView.snapshot {
+                snapshot.accountUsage = nil
+                detailsController.detailsView.snapshot = snapshot
+            }
+        }
+        detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
+        dashboardController.dashboardView.update(latestState)
+        updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
+        refresh(forceLive: false)
+        if detailsController.window?.isVisible == true {
+            openDetailsWindow()
+        }
+    }
+
     private func reloadScannerFromSettings() {
         scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
         reportCache.removeAll()
@@ -6225,13 +6626,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             refreshLiveLimits()
         }
         let limits = liveLimits
+        let currentAccountUsage = accountUsage
         scanQueue.async {
             let all = self.scanner.scan(days: 365)
             let spark = self.scanner.scan(days: 365, includedModelName: QuotaViewOption.spark.includedModelName)
             let other = self.scanner.scan(days: 365, excludedModelName: QuotaViewOption.other.excludedModelName)
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
-            let snapshot = DetailsSnapshot(all: all, spark: spark, other: other, liveLimits: limits, costReferenceReport: costReferenceReport)
+            let accountUsage = self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
+            let snapshot = DetailsSnapshot(all: all, spark: spark, other: other, liveLimits: limits, costReferenceReport: costReferenceReport, accountUsage: accountUsage)
             DispatchQueue.main.async {
+                if let accountUsage {
+                    self.accountUsage = accountUsage
+                    self.latestState.accountUsage = accountUsage
+                    self.latestState.profileReport = self.profileReport(window: self.latestState.selectedWindow, quota: self.latestState.selectedQuota, accountUsage: accountUsage)
+                    self.dashboardController.dashboardView.update(self.latestState)
+                    self.updateStatusTitle(report: self.latestState.report, limits: self.liveLimits, quota: self.selectedQuota)
+                } else if !AppSettings.profileAPITotalsEnabled {
+                    self.accountUsage = nil
+                    self.latestState.accountUsage = nil
+                    self.latestState.profileReport = nil
+                }
                 self.detailsController.update(snapshot: snapshot)
             }
         }
@@ -6754,6 +7168,30 @@ private func relative(_ date: Date) -> String {
     if absSeconds < 3600 { return "\(absSeconds / 60)m\(suffix)" }
     if absSeconds < 86400 { return "\(absSeconds / 3600)h\((absSeconds % 3600) / 60)m\(suffix)" }
     return "\(absSeconds / 86400)d\(suffix)"
+}
+
+if CommandLine.arguments.contains("--print-profile") {
+    let snapshot = AccountUsageReader().read()
+    let payload: [String: Any] = [
+        "profile_api_totals_enabled": AppSettings.profileAPITotalsEnabled,
+        "present": snapshot != nil,
+        "has_data": snapshot?.hasData ?? false,
+        "lifetime_tokens": snapshot?.summary.lifetimeTokens ?? 0,
+        "peak_daily_tokens": snapshot?.summary.peakDailyTokens ?? 0,
+        "longest_running_turn_sec": snapshot?.summary.longestRunningTurnSec ?? 0,
+        "current_streak_days": snapshot?.summary.currentStreakDays ?? 0,
+        "longest_streak_days": snapshot?.summary.longestStreakDays ?? 0,
+        "daily_bucket_count": snapshot?.dailyUsageBuckets.count ?? 0,
+        "profile_day_total": snapshot?.report(window: .day).usage.total ?? 0,
+        "profile_week_total": snapshot?.report(window: .week).usage.total ?? 0,
+        "profile_month_total": snapshot?.report(window: .month).usage.total ?? 0,
+        "last_daily_bucket": snapshot?.dailyUsageBuckets.last.map { ["start_date": $0.startDate, "tokens": $0.tokens] } ?? [:]
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+       let text = String(data: data, encoding: .utf8) {
+        print(text)
+    }
+    exit(0)
 }
 
 if CommandLine.arguments.contains("--print-live") {
