@@ -710,7 +710,7 @@ private enum L10nKey {
         case .priced: return "priced"
         case .profileAPISource: return "Profile API"
         case .profileAPITotals: return "Profile API totals"
-        case .profileAPITotalsHint: return "Use account/usage/read for official lifetime totals and daily buckets; local logs still power model, input/output, cache, and cost details."
+        case .profileAPITotalsHint: return "Uses account/usage/read for official lifetime totals and daily buckets. If an API day is 0 but same-day local logs have usage, daily views fall back to local logs."
         case .quotaViews: return "Quota Views"
         case .quotaWarnings: return "Quota warnings"
         case .quotaWarningsHint: return "Notify once when a live quota window drops below 15% remaining."
@@ -869,7 +869,7 @@ private enum L10nKey {
         case .priced: return "已计价"
         case .profileAPISource: return "Profile API"
         case .profileAPITotals: return "Profile API 总量"
-        case .profileAPITotalsHint: return "用 account/usage/read 读取官方累计总量和每日桶；模型、输入输出、缓存和金额明细仍来自本地日志。"
+        case .profileAPITotalsHint: return "用 account/usage/read 读取官方累计总量和每日桶；如果某天 API 为 0 但本地同日日志有用量，日历会用本地值兜底。"
         case .quotaViews: return "限额视图"
         case .quotaWarnings: return "额度提醒"
         case .quotaWarningsHint: return "实时额度低于 15% 时，每个窗口只提醒一次。"
@@ -1028,7 +1028,7 @@ private enum L10nKey {
         case .priced: return "価格対象"
         case .profileAPISource: return "Profile API"
         case .profileAPITotals: return "Profile API 合計"
-        case .profileAPITotalsHint: return "account/usage/read で公式の累計と日別バケットを使います。モデル、入出力、キャッシュ、金額詳細は引き続きローカルログです。"
+        case .profileAPITotalsHint: return "account/usage/read で公式の累計と日別バケットを使います。API の日別値が 0 で同日のローカルログに使用量があれば、日別表示はローカル値で補完します。"
         case .quotaViews: return "制限枠ビュー"
         case .quotaWarnings: return "制限通知"
         case .quotaWarningsHint: return "残り 15% 未満になった制限枠ごとに一度だけ通知します。"
@@ -1788,6 +1788,63 @@ private extension JSONEncoder {
 
 private func costEstimateLimit(from limits: [LiveRateLimit]) -> LiveRateLimit? {
     limits.first { $0.id == QuotaViewOption.all.liveLimitID }
+}
+
+private func profileReportWithLocalFallback(_ profileReport: TokenReport, localReport: TokenReport?) -> TokenReport {
+    guard let localReport, !profileReport.byDay.isEmpty, !localReport.byDay.isEmpty else {
+        return profileReport
+    }
+
+    var localByDay: [String: DayUsage] = [:]
+    for day in localReport.byDay {
+        localByDay[day.day] = day
+    }
+
+    var merged = profileReport
+    var fallbackUsage = Usage()
+    var fallbackTurns = 0
+    var fallbackModels: [String: ModelUsage] = [:]
+    var didFallback = false
+
+    merged.byDay = profileReport.byDay.map { profileDay in
+        guard profileDay.usage.total == 0,
+              let localDay = localByDay[profileDay.day],
+              localDay.usage.total > 0 else {
+            return profileDay
+        }
+
+        didFallback = true
+        fallbackUsage.add(localDay.usage)
+        fallbackTurns += localDay.turns
+        for model in localDay.modelBreakdown {
+            var existing = fallbackModels[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
+            existing.usage.add(model.usage)
+            existing.events += model.events
+            existing.sessions += model.sessions
+            fallbackModels[model.name] = existing
+        }
+        return DayUsage(day: profileDay.day, usage: localDay.usage, turns: localDay.turns, modelBreakdown: localDay.modelBreakdown)
+    }
+
+    guard didFallback else { return profileReport }
+
+    merged.usage.add(fallbackUsage)
+    merged.turns += fallbackTurns
+    if !fallbackModels.isEmpty {
+        var modelsByName: [String: ModelUsage] = [:]
+        for model in merged.modelBreakdown {
+            modelsByName[model.name] = model
+        }
+        for model in fallbackModels.values {
+            var existing = modelsByName[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
+            existing.usage.add(model.usage)
+            existing.events += model.events
+            existing.sessions += model.sessions
+            modelsByName[model.name] = existing
+        }
+        merged.modelBreakdown = modelsByName.values.sorted { $0.usage.total > $1.usage.total }
+    }
+    return merged
 }
 
 struct DashboardState {
@@ -4296,9 +4353,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func calendarReport(for snapshot: DetailsSnapshot) -> TokenReport {
+        guard let report = rawProfileCalendarReport(for: snapshot) else {
+            return snapshot.all
+        }
+        return profileReportWithLocalFallback(report, localReport: snapshot.all)
+    }
+
+    private func rawProfileCalendarReport(for snapshot: DetailsSnapshot) -> TokenReport? {
         guard usesProfileAPIReport(for: snapshot),
               let accountUsage = snapshot.accountUsage else {
-            return snapshot.all
+            return nil
         }
         return accountUsage.report(days: 365)
     }
@@ -5214,11 +5278,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
 
         let localDay = snapshot.all.byDay.first { $0.day == day.day }
+        let rawProfileDay = rawProfileCalendarReport(for: snapshot)?.byDay.first { $0.day == day.day }
+        let rawProfileTotal = rawProfileDay?.usage.total ?? 0
+        let localTotal = localDay?.usage.total ?? 0
+        let isLocalFallback = rawProfileTotal == 0 && localTotal > 0 && day.usage.total == localTotal
         let maxTotal = max(report.byDay.map { $0.usage.total }.max() ?? 1, 1)
         let intensity = Double(day.usage.total) / Double(maxTotal)
         drawText(day.day, rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: 180, height: 24), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold), color: .white)
-        drawText(compact(day.usage.total), rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: 260, height: 34), font: .monospacedDigitSystemFont(ofSize: 28, weight: .bold), color: accentTeal)
-        let dayMeta = "\(t(.profileAPISource))  |  \(Int(round(intensity * 100)))% \(t(.peakDay))"
+        drawText(compact(day.usage.total), rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: 260, height: 34), font: .monospacedDigitSystemFont(ofSize: 28, weight: .bold), color: isLocalFallback ? NSColor.systemGreen : accentTeal)
+        let sourceTitle = isLocalFallback ? "\(t(.profileAPISource)) + \(t(.logs))" : t(.profileAPISource)
+        let dayMeta = "\(sourceTitle)  |  \(Int(round(intensity * 100)))% \(t(.peakDay))"
         let metaFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
         let metaRect = NSRect(x: rect.minX + 18, y: rect.minY + 90, width: 420, height: 18)
         drawText(dayMeta, rect: metaRect, font: metaFont, color: NSColor.white.withAlphaComponent(0.48))
@@ -5228,7 +5297,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawInfoMark(rect: iconRect, highlighted: isHoveringProfileAPIInfo)
 
         let metrics: [(String, String, NSColor)] = [
-            (t(.profileAPISource), compact(day.usage.total), accentTeal),
+            (t(.profileAPISource), rawProfileDay.map { compact($0.usage.total) } ?? "--", accentTeal),
             (t(.logs), localDay.map { compact($0.usage.total) } ?? "--", NSColor.systemGreen),
             (t(.peakDay), snapshot.accountUsage?.summary.peakDailyTokens.map { compact($0) } ?? "--", NSColor.systemCyan)
         ]
@@ -6298,7 +6367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let cached = reportCache[key] {
             latestState = DashboardState(
                 report: cached,
-                profileReport: profileReport(window: selectedWindow, quota: selectedQuota, accountUsage: accountUsage),
+                profileReport: profileReport(window: selectedWindow, quota: selectedQuota, accountUsage: accountUsage, localReport: cached),
                 accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: cached),
                 liveLimits: liveLimits,
@@ -6313,7 +6382,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             latestState = DashboardState(
                 report: TokenReport(scannedAt: Date()),
-                profileReport: profileReport(window: selectedWindow, quota: selectedQuota, accountUsage: accountUsage),
+                profileReport: profileReport(window: selectedWindow, quota: selectedQuota, accountUsage: accountUsage, localReport: nil),
                 accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: nil),
                 liveLimits: liveLimits,
@@ -6337,7 +6406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         latestState = DashboardState(
             report: reportCache[key] ?? TokenReport(scannedAt: Date()),
-            profileReport: profileReport(window: window, quota: quota, accountUsage: accountUsage),
+            profileReport: profileReport(window: window, quota: quota, accountUsage: accountUsage, localReport: reportCache[key]),
             accountUsage: accountUsage,
             costReferenceReport: costReferenceReport(quota: quota, fallback: reportCache[key]),
             liveLimits: liveLimits,
@@ -6377,7 +6446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let effectiveLimits = forceLive && !limits.isEmpty ? limits : self.liveLimits
                     self.latestState = DashboardState(
                         report: report,
-                        profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage),
+                        profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage, localReport: report),
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
                         liveLimits: effectiveLimits,
@@ -6392,7 +6461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else if forceLive, !limits.isEmpty {
                     self.latestState.liveLimits = limits
                     self.latestState.accountUsage = self.accountUsage
-                    self.latestState.profileReport = self.profileReport(window: self.latestState.selectedWindow, quota: self.latestState.selectedQuota, accountUsage: self.accountUsage)
+                    self.latestState.profileReport = self.profileReport(window: self.latestState.selectedWindow, quota: self.latestState.selectedQuota, accountUsage: self.accountUsage, localReport: self.latestState.report)
                     self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
                     self.dashboardController.dashboardView.update(self.latestState)
                 }
@@ -6448,7 +6517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if self.selectedWindow == window && self.selectedQuota == quota {
                     self.latestState = DashboardState(
                         report: report,
-                        profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage),
+                        profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage, localReport: report),
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
                         liveLimits: self.liveLimits,
@@ -6473,14 +6542,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return accountUsageReader.read() ?? fallback
     }
 
-    private func profileReport(window: WindowOption, quota: QuotaViewOption, accountUsage: AccountUsageSnapshot?) -> TokenReport? {
+    private func profileReport(window: WindowOption, quota: QuotaViewOption, accountUsage: AccountUsageSnapshot?, localReport: TokenReport?) -> TokenReport? {
         guard AppSettings.profileAPITotalsEnabled,
               quota == .all,
               let accountUsage,
               accountUsage.hasData else {
             return nil
         }
-        return accountUsage.report(window: window)
+        let report: TokenReport
+        if window == .day {
+            let todayReport = accountUsage.report(days: 1)
+            if todayReport.usage.total == 0, localReport?.usage.total ?? 0 > 0 {
+                report = todayReport
+            } else {
+                report = accountUsage.report(window: window)
+            }
+        } else {
+            report = accountUsage.report(window: window)
+        }
+        return profileReportWithLocalFallback(report, localReport: localReport)
     }
 
     private func costReferenceReport(quota: QuotaViewOption, fallback: TokenReport?) -> TokenReport? {
@@ -6555,10 +6635,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func statusUsage(window: WindowOption, quota: QuotaViewOption) -> TokenReport? {
-        if let profileReport = profileReport(window: window, quota: quota, accountUsage: accountUsage) {
+        let key = ReportCacheKey(window: window, quota: quota)
+        let localReport = reportCache[key] ?? (latestState.selectedWindow == window && latestState.selectedQuota == quota ? latestState.report : nil)
+        if let profileReport = profileReport(window: window, quota: quota, accountUsage: accountUsage, localReport: localReport) {
             return profileReport
         }
-        let key = ReportCacheKey(window: window, quota: quota)
         if let cached = reportCache[key] {
             return cached
         }
@@ -6709,7 +6790,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let accountUsage {
                     self.accountUsage = accountUsage
                     self.latestState.accountUsage = accountUsage
-                    self.latestState.profileReport = self.profileReport(window: self.latestState.selectedWindow, quota: self.latestState.selectedQuota, accountUsage: accountUsage)
+                    self.latestState.profileReport = self.profileReport(window: self.latestState.selectedWindow, quota: self.latestState.selectedQuota, accountUsage: accountUsage, localReport: self.latestState.report)
                     self.dashboardController.dashboardView.update(self.latestState)
                     self.updateStatusTitle(report: self.latestState.report, limits: self.liveLimits, quota: self.selectedQuota)
                 } else if !AppSettings.profileAPITotalsEnabled {
