@@ -85,11 +85,11 @@ If you run work through Codex CLI or the Codex app with API-based authentication
 
 ## Recent Updates
 
-- Centralized historical cost and quota-value estimation into one shared `CostEstimator` path.
-- Fixed day-value estimates so high-token days no longer show cents-level spend.
-- Reused the same cost estimator across calendar details, model rows, amount totals, tooltips, and cost history.
-- Fixed English UI number units so saved Chinese unit preferences cannot leak `万 / 亿` into English screens.
-- Tightened Chinese localization on the About page and reduced excess spacing in the yearly heatmap area.
+- Added day-level per-rollout aggregate caching so `7d`, `30d`, and yearly detail scans reuse derived summaries instead of re-walking every cached event.
+- Kept the rolling `24h` window event-accurate while speeding up natural-day windows and details-page warm scans.
+- Added migration from the older parsed-rollout cache format to the new aggregate cache without rereading unchanged JSONL logs.
+- Improved menu popover readability with stronger secondary text contrast and SF Symbol icons on the main actions.
+- Added basic accessibility labels for quota rings, segmented controls, settings inputs, popups, and switches.
 
 ## Privacy
 
@@ -143,7 +143,7 @@ Package a DMG:
 DMG output:
 
 ```text
-dist/Codex-Token-Meter-0.1.6.dmg
+dist/Codex-Token-Meter-0.1.7.dmg
 ```
 
 ## CLI Inspection

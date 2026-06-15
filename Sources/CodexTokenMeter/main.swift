@@ -2134,14 +2134,38 @@ struct ReportCacheKey: Hashable {
 }
 
 final class CodexTokenScanner {
+    private struct FileModelAggregate: Codable {
+        let name: String
+        var usage: Usage
+        var events: Int
+    }
+
+    private struct FileDayAggregate: Codable {
+        let day: String
+        var usage: Usage
+        var turns: Int
+        var models: [FileModelAggregate]
+    }
+
     private struct FileCache {
         let size: Int64
         let modifiedAt: Date
         let events: [TokenEvent]
         let turns: [Date]
+        let days: [FileDayAggregate]
     }
 
     private struct DiskFileCache: Codable {
+        let version: Int
+        let path: String
+        let size: Int64
+        let modifiedAt: Double
+        let events: [TokenEvent]
+        let turns: [Date]
+        let days: [FileDayAggregate]
+    }
+
+    private struct LegacyDiskFileCache: Codable {
         let version: Int
         let path: String
         let size: Int64
@@ -2245,6 +2269,10 @@ final class CodexTokenScanner {
     }
 
     private func scan(start: Date, now: Date, limitID: String?, excludedLimitID: String?, includedModelName: String?, excludedModelName: String?, fillDayCount: Int?) -> TokenReport {
+        if limitID == nil, excludedLimitID == nil, fillDayCount != nil {
+            return scanDayAggregates(start: start, now: now, includedModelName: includedModelName, excludedModelName: excludedModelName, fillDayCount: fillDayCount)
+        }
+
         var report = TokenReport(scannedAt: now)
         var dayBuckets: [String: Usage] = [:]
         var dayTurns: [String: Int] = [:]
@@ -2369,6 +2397,145 @@ final class CodexTokenScanner {
         return report
     }
 
+    private func scanDayAggregates(start: Date, now: Date, includedModelName: String?, excludedModelName: String?, fillDayCount: Int?) -> TokenReport {
+        var report = TokenReport(scannedAt: now)
+        let startDay = dayFormatter.string(from: start)
+        let endDay = dayFormatter.string(from: now)
+        let isUnfilteredScan = includedModelName == nil && excludedModelName == nil
+        var dayBuckets: [String: Usage] = [:]
+        var dayTurns: [String: Int] = [:]
+        var dayModelBuckets: [String: [String: Usage]] = [:]
+        var dayModelEvents: [String: [String: Int]] = [:]
+        var dayModelSessions: [String: [String: Int]] = [:]
+        var modelBuckets: [String: Usage] = [:]
+        var modelEvents: [String: Int] = [:]
+        var modelSessions: [String: Int] = [:]
+        var sessions: [SessionUsage] = []
+
+        for fileURL in rolloutFiles(modifiedSince: start) {
+            let file = cachedFile(fileURL)
+            var sessionUsage = Usage()
+            var sessionTurns = 0
+            var lastEvent = now
+            var hasLastEvent = false
+            var sessionModels = Set<String>()
+            var sessionDayModels: [String: Set<String>] = [:]
+
+            for day in file.days where day.day >= startDay && day.day <= endDay {
+                let matchingModels = day.models.filter {
+                    matchesAggregateModel($0.name, includedModelName: includedModelName, excludedModelName: excludedModelName)
+                }
+                let dayUsage: Usage
+                let selectedTurns: Int
+                if isUnfilteredScan {
+                    dayUsage = day.usage
+                    selectedTurns = day.turns
+                } else {
+                    dayUsage = matchingModels.reduce(Usage()) { partial, model in
+                        var next = partial
+                        next.add(model.usage)
+                        return next
+                    }
+                    selectedTurns = matchingModels.reduce(0) { $0 + $1.events }
+                }
+                guard dayUsage.total > 0 || dayUsage.input > 0 || dayUsage.output > 0 || selectedTurns > 0 else {
+                    continue
+                }
+
+                sessionUsage.add(dayUsage)
+                sessionTurns += selectedTurns
+                dayTurns[day.day, default: 0] += selectedTurns
+                var usage = dayBuckets[day.day] ?? Usage()
+                usage.add(dayUsage)
+                dayBuckets[day.day] = usage
+                if let date = dayFormatter.date(from: day.day) {
+                    lastEvent = date
+                    hasLastEvent = true
+                }
+
+                for model in matchingModels {
+                    let modelName = model.name
+                    sessionModels.insert(modelName)
+                    sessionDayModels[day.day, default: []].insert(modelName)
+                    var totalModelUsage = modelBuckets[modelName] ?? Usage()
+                    totalModelUsage.add(model.usage)
+                    modelBuckets[modelName] = totalModelUsage
+                    modelEvents[modelName, default: 0] += model.events
+
+                    var dayModels = dayModelBuckets[day.day] ?? [:]
+                    var dayModelUsage = dayModels[modelName] ?? Usage()
+                    dayModelUsage.add(model.usage)
+                    dayModels[modelName] = dayModelUsage
+                    dayModelBuckets[day.day] = dayModels
+
+                    var dayEvents = dayModelEvents[day.day] ?? [:]
+                    dayEvents[modelName, default: 0] += model.events
+                    dayModelEvents[day.day] = dayEvents
+                }
+            }
+
+            guard sessionUsage.total > 0 || sessionUsage.input > 0 || sessionUsage.output > 0 || sessionTurns > 0 else {
+                continue
+            }
+            report.sessions += 1
+            report.events += isUnfilteredScan ? file.days
+                .filter { $0.day >= startDay && $0.day <= endDay }
+                .reduce(0) { $0 + $1.models.reduce(0) { $0 + $1.events } } : sessionTurns
+            report.turns += sessionTurns
+            report.usage.add(sessionUsage)
+            sessions.append(SessionUsage(path: fileURL.path, lastEvent: hasLastEvent ? lastEvent : now, turns: sessionTurns, usage: sessionUsage))
+            for model in sessionModels {
+                modelSessions[model, default: 0] += 1
+            }
+            for (day, models) in sessionDayModels {
+                var sessionsForDay = dayModelSessions[day] ?? [:]
+                for model in models {
+                    sessionsForDay[model, default: 0] += 1
+                }
+                dayModelSessions[day] = sessionsForDay
+            }
+        }
+
+        let days: Set<String>
+        if let fillDayCount {
+            days = Set((0..<fillDayCount).compactMap { offset in
+                calendar.date(byAdding: .day, value: offset, to: start).map { dayFormatter.string(from: $0) }
+            })
+        } else {
+            days = Set(dayBuckets.keys).union(dayTurns.keys)
+        }
+        report.byDay = days
+            .map { day in
+                let models = (dayModelBuckets[day] ?? [:]).map { name, usage in
+                    ModelUsage(
+                        name: name,
+                        usage: usage,
+                        events: dayModelEvents[day]?[name] ?? 0,
+                        sessions: dayModelSessions[day]?[name] ?? 0
+                    )
+                }
+                .sorted { $0.usage.total > $1.usage.total }
+                return DayUsage(day: day, usage: dayBuckets[day] ?? Usage(), turns: dayTurns[day] ?? 0, modelBreakdown: models)
+            }
+            .sorted { $0.day < $1.day }
+        report.topSessions = sessions.sorted { $0.usage.total > $1.usage.total }.prefix(8).map { $0 }
+        report.modelBreakdown = modelBuckets.map { name, usage in
+            ModelUsage(name: name, usage: usage, events: modelEvents[name] ?? 0, sessions: modelSessions[name] ?? 0)
+        }
+        .sorted { $0.usage.total > $1.usage.total }
+        return report
+    }
+
+    private func matchesAggregateModel(_ value: String, includedModelName: String?, excludedModelName: String?) -> Bool {
+        if let includedModelName, !modelNameMatches(value.lowercased(), target: includedModelName) {
+            return false
+        }
+        if let excludedModelName, modelNameMatches(value.lowercased(), target: excludedModelName) {
+            return false
+        }
+        return true
+    }
+
     private func modelDisplayName(for event: TokenEvent) -> String {
         if let model = event.model, !model.isEmpty {
             return model
@@ -2472,7 +2639,13 @@ final class CodexTokenScanner {
         }
 
         let parsed = parse(fileURL: fileURL)
-        let file = FileCache(size: size, modifiedAt: modifiedAt, events: parsed.events, turns: parsed.turns)
+        let file = FileCache(
+            size: size,
+            modifiedAt: modifiedAt,
+            events: parsed.events,
+            turns: parsed.turns,
+            days: dayAggregates(events: parsed.events, turns: parsed.turns)
+        )
         cache[key] = file
         writeDiskCache(file, fileURL: fileURL)
         return file
@@ -2480,29 +2653,90 @@ final class CodexTokenScanner {
 
     private func readDiskCache(fileURL: URL, size: Int64, modifiedAt: Date) -> FileCache? {
         let url = diskCacheURL(for: fileURL)
-        guard let data = try? Data(contentsOf: url),
-              let disk = try? jsonDecoder.decode(DiskFileCache.self, from: data),
-            disk.version == 2,
-              disk.path == fileURL.path,
-              disk.size == size,
-              abs(disk.modifiedAt - modifiedAt.timeIntervalSinceReferenceDate) < 0.001 else {
+        guard let data = try? Data(contentsOf: url) else {
             return nil
         }
-        return FileCache(size: disk.size, modifiedAt: modifiedAt, events: disk.events, turns: disk.turns)
+
+        if let disk = try? jsonDecoder.decode(DiskFileCache.self, from: data),
+              disk.version == 3,
+              disk.path == fileURL.path,
+              disk.size == size,
+              abs(disk.modifiedAt - modifiedAt.timeIntervalSinceReferenceDate) < 0.001 {
+            return FileCache(size: disk.size, modifiedAt: modifiedAt, events: disk.events, turns: disk.turns, days: disk.days)
+        }
+
+        if let legacy = try? jsonDecoder.decode(LegacyDiskFileCache.self, from: data),
+           legacy.version == 2,
+           legacy.path == fileURL.path,
+           legacy.size == size,
+           abs(legacy.modifiedAt - modifiedAt.timeIntervalSinceReferenceDate) < 0.001 {
+            let file = FileCache(
+                size: legacy.size,
+                modifiedAt: modifiedAt,
+                events: legacy.events,
+                turns: legacy.turns,
+                days: dayAggregates(events: legacy.events, turns: legacy.turns)
+            )
+            writeDiskCache(file, fileURL: fileURL)
+            return file
+        }
+
+        return nil
     }
 
     private func writeDiskCache(_ file: FileCache, fileURL: URL) {
         let disk = DiskFileCache(
-            version: 2,
+            version: 3,
             path: fileURL.path,
             size: file.size,
             modifiedAt: file.modifiedAt.timeIntervalSinceReferenceDate,
             events: file.events,
-            turns: file.turns
+            turns: file.turns,
+            days: file.days
         )
         guard let data = try? jsonEncoder.encode(disk) else { return }
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         try? data.write(to: diskCacheURL(for: fileURL), options: [.atomic])
+    }
+
+    private func dayAggregates(events: [TokenEvent], turns: [Date]) -> [FileDayAggregate] {
+        var dayBuckets: [String: Usage] = [:]
+        var dayTurns: [String: Int] = [:]
+        var dayModelBuckets: [String: [String: Usage]] = [:]
+        var dayModelEvents: [String: [String: Int]] = [:]
+
+        for turn in turns {
+            dayTurns[dayFormatter.string(from: turn), default: 0] += 1
+        }
+
+        for event in events {
+            let day = dayFormatter.string(from: event.timestamp)
+            var usage = dayBuckets[day] ?? Usage()
+            usage.add(event.usage)
+            dayBuckets[day] = usage
+
+            let modelName = modelDisplayName(for: event)
+            var dayModels = dayModelBuckets[day] ?? [:]
+            var modelUsage = dayModels[modelName] ?? Usage()
+            modelUsage.add(event.usage)
+            dayModels[modelName] = modelUsage
+            dayModelBuckets[day] = dayModels
+
+            var modelEvents = dayModelEvents[day] ?? [:]
+            modelEvents[modelName, default: 0] += 1
+            dayModelEvents[day] = modelEvents
+        }
+
+        return Set(dayBuckets.keys).union(dayTurns.keys)
+            .map { day in
+                let models = (dayModelBuckets[day] ?? [:])
+                    .map { name, usage in
+                        FileModelAggregate(name: name, usage: usage, events: dayModelEvents[day]?[name] ?? 0)
+                    }
+                    .sorted { $0.usage.total > $1.usage.total }
+                return FileDayAggregate(day: day, usage: dayBuckets[day] ?? Usage(), turns: dayTurns[day] ?? 0, models: models)
+            }
+            .sorted { $0.day < $1.day }
     }
 
     private func diskCacheURL(for fileURL: URL) -> URL {
@@ -2996,6 +3230,12 @@ final class RingView: NSView {
     var color: NSColor = NSColor.systemGreen { didSet { needsDisplay = true } }
 
     override var isFlipped: Bool { true }
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityLabel() -> String? { title }
+    override func accessibilityValue() -> Any? {
+        "\(Int(round(percent)))%, \(subtitle)"
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -3025,8 +3265,8 @@ final class RingView: NSView {
 
         let pText = "\(Int(round(percent)))%"
         drawCenteredAt(pText, center: center, font: .systemFont(ofSize: 22, weight: .bold), color: .white)
-        drawCentered(title, rect: NSRect(x: bounds.minX, y: rect.maxY + 2, width: bounds.width, height: 18), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.86))
-        drawCentered(subtitle, rect: NSRect(x: bounds.minX, y: rect.maxY + 20, width: bounds.width, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.45))
+        drawCentered(title, rect: NSRect(x: bounds.minX, y: rect.maxY + 2, width: bounds.width, height: 18), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.90))
+        drawCentered(subtitle, rect: NSRect(x: bounds.minX, y: rect.maxY + 20, width: bounds.width, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.58))
     }
 
     private func drawCenteredAt(_ text: String, center: CGPoint, font: NSFont, color: NSColor) {
@@ -3509,6 +3749,7 @@ final class DashboardView: NSView {
         } else {
             costLabel.stringValue = ""
         }
+        updateAccessibilityLabels(report: report, totalReport: totalReport)
         needsDisplay = true
     }
 
@@ -3588,7 +3829,7 @@ final class DashboardView: NSView {
         titleLabel.usesSingleLineMode = true
         titleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        subtitleLabel.textColor = NSColor.white.withAlphaComponent(0.46)
+        subtitleLabel.textColor = NSColor.white.withAlphaComponent(0.58)
         subtitleLabel.usesSingleLineMode = true
         subtitleLabel.lineBreakMode = .byTruncatingTail
         totalLabel.font = .monospacedDigitSystemFont(ofSize: 28, weight: .bold)
@@ -3598,18 +3839,22 @@ final class DashboardView: NSView {
         totalLabel.lineBreakMode = .byTruncatingHead
         detailLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         detailLabel.alignment = .right
-        detailLabel.textColor = NSColor.white.withAlphaComponent(0.45)
+        detailLabel.textColor = NSColor.white.withAlphaComponent(0.58)
         detailLabel.usesSingleLineMode = true
         detailLabel.lineBreakMode = .byTruncatingTail
         usageLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
         usageLabel.alignment = .right
-        usageLabel.textColor = NSColor.white.withAlphaComponent(0.34)
+        usageLabel.textColor = NSColor.white.withAlphaComponent(0.52)
         usageLabel.usesSingleLineMode = true
         usageLabel.lineBreakMode = .byTruncatingMiddle
         refreshLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-        refreshLabel.textColor = NSColor.white.withAlphaComponent(0.36)
+        refreshLabel.textColor = NSColor.white.withAlphaComponent(0.50)
+        refreshLabel.usesSingleLineMode = true
+        refreshLabel.lineBreakMode = .byTruncatingMiddle
         sessionsLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-        sessionsLabel.textColor = NSColor.white.withAlphaComponent(0.44)
+        sessionsLabel.textColor = NSColor.white.withAlphaComponent(0.56)
+        sessionsLabel.usesSingleLineMode = true
+        sessionsLabel.lineBreakMode = .byTruncatingTail
         costLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
         costLabel.textColor = NSColor.systemTeal.withAlphaComponent(0.88)
         costLabel.usesSingleLineMode = true
@@ -3623,6 +3868,7 @@ final class DashboardView: NSView {
         segment.target = self
         segment.action = #selector(segmentChanged)
         segment.segmentStyle = .rounded
+        segment.toolTip = t(.usageWindow)
         addSubview(segment)
 
         [primaryRing, weeklyRing, cacheRing, dayChart].forEach { addSubview($0) }
@@ -3642,8 +3888,41 @@ final class DashboardView: NSView {
         let button = NSButton(title: t(titleKey), target: self, action: action)
         button.bezelStyle = .rounded
         button.font = .systemFont(ofSize: 12, weight: .semibold)
+        button.image = symbolImage(for: titleKey)
+        button.imagePosition = .imageLeading
+        button.toolTip = t(titleKey)
         buttonsByKey[titleKey] = button
         buttonsStack.addArrangedSubview(button)
+    }
+
+    private func symbolImage(for key: L10nKey) -> NSImage? {
+        let name: String
+        switch key {
+        case .refresh:
+            name = "arrow.clockwise"
+        case .settings:
+            name = "gearshape"
+        case .logs:
+            name = "folder"
+        case .quit:
+            name = "power"
+        default:
+            return nil
+        }
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: t(key))
+        image?.isTemplate = true
+        return image
+    }
+
+    private func updateAccessibilityLabels(report: TokenReport, totalReport: TokenReport) {
+        titleLabel.setAccessibilityLabel("Codex Token Meter")
+        subtitleLabel.setAccessibilityLabel(subtitleLabel.stringValue)
+        totalLabel.setAccessibilityLabel("\(t(.total)) \(compactDashboardTotal(totalReport.usage.total))")
+        usageLabel.setAccessibilityLabel("\(t(.input)) \(compactDashboardMetric(report.usage.input)), \(t(.output)) \(compactDashboardMetric(report.usage.output))")
+        sessionsLabel.setAccessibilityLabel(sessionsLabel.stringValue)
+        refreshLabel.setAccessibilityLabel(refreshLabel.stringValue)
+        quotaSegment.setAccessibilityLabel(t(.quotaViews))
+        segment.setAccessibilityLabel(t(.usageWindow))
     }
 
     private func shortenedLimitName(_ value: String) -> String {
@@ -4077,7 +4356,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private func setupControls() {
         costAmountField.isBordered = false
         costAmountField.drawsBackground = false
-        costAmountField.focusRingType = .none
+        costAmountField.focusRingType = .default
         costAmountField.isEditable = true
         costAmountField.isSelectable = true
         costAmountField.isEnabled = true
@@ -4092,7 +4371,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
         paymentStartDayField.isBordered = false
         paymentStartDayField.drawsBackground = false
-        paymentStartDayField.focusRingType = .none
+        paymentStartDayField.focusRingType = .default
         paymentStartDayField.isEditable = true
         paymentStartDayField.isSelectable = true
         paymentStartDayField.isEnabled = true
@@ -4148,6 +4427,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         costYearPopup.removeAllItems()
         languagePopup.removeAllItems()
         languagePopup.addItems(withTitles: AppLanguage.allCases.map(\.displayName))
+        costAmountField.setAccessibilityLabel(t(.paymentMonthly))
+        paymentStartDayField.setAccessibilityLabel(t(.paymentStartDate))
+        paymentCurrencyPopup.setAccessibilityLabel(t(.paymentCurrency))
+        displayCurrencyPopup.setAccessibilityLabel(t(.displayCurrency))
+        costYearPopup.setAccessibilityLabel(t(.costHistory))
+        languagePopup.setAccessibilityLabel(t(.interfaceLanguage))
+        showHistoricalEmptyWeeksSwitch.setAccessibilityLabel(t(.showPastEmptyWeeks))
+        launchAtLoginSwitch.setAccessibilityLabel(t(.launchAtLogin))
+        quotaWarningsSwitch.setAccessibilityLabel(t(.quotaWarnings))
+        profileAPITotalsSwitch.setAccessibilityLabel(t(.profileAPITotals))
         paymentCurrencyPopup.target = self
         paymentCurrencyPopup.action = #selector(paymentCurrencyPopupChanged)
         displayCurrencyPopup.target = self
@@ -6270,6 +6559,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.imagePosition = .imageLeading
         button.imageHugsTitle = true
         button.title = "--%"
+        button.toolTip = "Codex Token Meter"
         button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
         button.action = #selector(togglePopover)
         button.target = self
