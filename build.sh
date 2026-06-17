@@ -9,7 +9,9 @@ BIN="$APP/Contents/MacOS/CodexTokenMeter"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-swift "$ROOT/Tools/make_logo.swift" "$ROOT"
+if [[ "${REGENERATE_ASSETS:-0}" == "1" ]]; then
+  swift "$ROOT/Tools/make_logo.swift" "$ROOT"
+fi
 
 swiftc \
   -O \
