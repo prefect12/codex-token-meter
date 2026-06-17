@@ -104,11 +104,12 @@ private struct APIModelRate {
 }
 
 private enum APICostEstimator {
+    private static let defaultUnlabeledModelName = "gpt-5.5"
+
     static func estimate(report: TokenReport) -> APICostEstimate {
         var estimate = APICostEstimate()
         if report.modelBreakdown.isEmpty {
-            estimate.totalTokens = report.usage.total
-            return estimate
+            return Self.estimateAsDefaultModel(usage: report.usage)
         }
 
         var modelTotal: Int64 = 0
@@ -117,7 +118,7 @@ private enum APICostEstimator {
             estimate.add(Self.estimate(usage: model.usage, modelName: model.name))
         }
         if report.usage.total > modelTotal {
-            estimate.totalTokens += report.usage.total - modelTotal
+            estimate.add(Self.estimateAsDefaultModel(totalTokens: report.usage.total - modelTotal))
         }
         return estimate
     }
@@ -125,8 +126,7 @@ private enum APICostEstimator {
     static func estimate(day: DayUsage) -> APICostEstimate {
         var estimate = APICostEstimate()
         if day.modelBreakdown.isEmpty {
-            estimate.totalTokens = day.usage.total
-            return estimate
+            return Self.estimateAsDefaultModel(usage: day.usage)
         }
 
         var modelTotal: Int64 = 0
@@ -135,7 +135,7 @@ private enum APICostEstimator {
             estimate.add(Self.estimate(usage: model.usage, modelName: model.name))
         }
         if day.usage.total > modelTotal {
-            estimate.totalTokens += day.usage.total - modelTotal
+            estimate.add(Self.estimateAsDefaultModel(totalTokens: day.usage.total - modelTotal))
         }
         return estimate
     }
@@ -144,14 +144,30 @@ private enum APICostEstimator {
         guard let rate = rate(for: modelName) else {
             return APICostEstimate(usdValue: 0, pricedTokens: 0, totalTokens: usage.total)
         }
-        let cachedInput = max(Int64(0), min(usage.cachedInput, usage.input))
-        let freshInput = max(Int64(0), usage.input - cachedInput)
+        let totalOnlyInput = usage.input == 0 && usage.output == 0 && usage.total > 0 ? usage.total : usage.input
+        let cachedInput = max(Int64(0), min(usage.cachedInput, totalOnlyInput))
+        let freshInput = max(Int64(0), totalOnlyInput - cachedInput)
         let value = (
             Double(freshInput) * rate.inputPerMillionUSD
                 + Double(cachedInput) * rate.cachedInputPerMillionUSD
                 + Double(usage.output) * rate.outputPerMillionUSD
         ) / 1_000_000
         return APICostEstimate(usdValue: value, pricedTokens: usage.total, totalTokens: usage.total)
+    }
+
+    private static func estimateAsDefaultModel(totalTokens: Int64) -> APICostEstimate {
+        guard totalTokens > 0 else { return APICostEstimate() }
+        return estimate(
+            usage: Usage(input: totalTokens, cachedInput: 0, output: 0, reasoningOutput: 0, total: totalTokens),
+            modelName: defaultUnlabeledModelName
+        )
+    }
+
+    private static func estimateAsDefaultModel(usage: Usage) -> APICostEstimate {
+        if usage.input == 0 && usage.output == 0 && usage.total > 0 {
+            return estimateAsDefaultModel(totalTokens: usage.total)
+        }
+        return estimate(usage: usage, modelName: defaultUnlabeledModelName)
     }
 
     private static func rate(for modelName: String) -> APIModelRate? {
@@ -413,6 +429,33 @@ private enum StatusDisplayOption: String, CaseIterable {
     }
 }
 
+private enum QuotaDisplayStyle: String, CaseIterable {
+    case rings
+    case bullet
+
+    static let storageKey = "quotaDisplayStyle"
+
+    static var current: QuotaDisplayStyle {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: storageKey),
+                  let style = QuotaDisplayStyle(rawValue: raw) else {
+                return .rings
+            }
+            return style
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: storageKey)
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .rings: return t(.quotaDisplayRings)
+        case .bullet: return t(.quotaDisplayBullet)
+        }
+    }
+}
+
 private enum NumberUnitStyle: String, CaseIterable {
     case english
     case chinese
@@ -472,6 +515,18 @@ private enum L10nKey {
     case costs
     case costsSubtitle
     case costHistory
+    case codexIncident
+    case codexNoActiveIncident
+    case codexStatus
+    case codexStatusDegraded
+    case codexStatusInvestigating
+    case codexStatusMaintenance
+    case codexStatusMajorOutage
+    case codexStatusMonitoring
+    case codexStatusOperational
+    case codexStatusPartialOutage
+    case codexStatusResolved
+    case codexStatusUnavailable
     case dayValue
     case dataSource
     case dataSourceLine1
@@ -554,6 +609,10 @@ private enum L10nKey {
     case profileAPISource
     case profileAPITotals
     case profileAPITotalsHint
+    case quotaDisplayBullet
+    case quotaDisplayHint
+    case quotaDisplayRings
+    case quotaDisplayStyle
     case quotaViews
     case quotaWarnings
     case quotaWarningsHint
@@ -563,6 +622,7 @@ private enum L10nKey {
     case refreshing
     case remaining
     case showPastEmptyWeeks
+    case showCodexStatus
     case reset
     case sessions
     case settings
@@ -615,7 +675,7 @@ private enum L10nKey {
         case .all: return "All"
         case .allDescription: return "Everything with token detail"
         case .apiEquivalent: return "API equivalent"
-        case .apiEquivalentHint: return "Estimated from official API-style token prices for recognized models."
+        case .apiEquivalentHint: return "Estimated from official API-style token prices. Unlabeled tokens default to GPT-5.5."
         case .before: return "Before"
         case .budget: return "Budget"
         case .cache: return "Cache"
@@ -629,6 +689,18 @@ private enum L10nKey {
         case .costs: return "Costs"
         case .costsSubtitle: return "Plan settings and estimated money usage"
         case .costHistory: return "Spend History"
+        case .codexIncident: return "Incident"
+        case .codexNoActiveIncident: return "No active incidents"
+        case .codexStatus: return "Codex Status"
+        case .codexStatusDegraded: return "Degraded"
+        case .codexStatusInvestigating: return "Investigating"
+        case .codexStatusMaintenance: return "Maintenance"
+        case .codexStatusMajorOutage: return "Major Outage"
+        case .codexStatusMonitoring: return "Monitoring"
+        case .codexStatusOperational: return "Operational"
+        case .codexStatusPartialOutage: return "Partial Outage"
+        case .codexStatusResolved: return "Resolved"
+        case .codexStatusUnavailable: return "Status unavailable"
         case .dayValue: return "Day value"
         case .dataSource: return "Data Source"
         case .dataSourceLine1: return "The app reads local Codex session logs under ~/.codex/sessions, ~/.codex/archived_sessions, and CODEX_HOME when set."
@@ -711,6 +783,10 @@ private enum L10nKey {
         case .profileAPISource: return "Profile API"
         case .profileAPITotals: return "Profile API totals"
         case .profileAPITotalsHint: return "Uses account/usage/read for official lifetime totals and daily buckets. If an API day is 0 but same-day local logs have usage, daily views fall back to local logs."
+        case .quotaDisplayBullet: return "Bullet"
+        case .quotaDisplayHint: return "Choose how the 5h and weekly quota pace are shown."
+        case .quotaDisplayRings: return "Rings"
+        case .quotaDisplayStyle: return "Quota Display"
         case .quotaViews: return "Quota Views"
         case .quotaWarnings: return "Quota warnings"
         case .quotaWarningsHint: return "Notify once when a live quota window drops below 15% remaining."
@@ -720,6 +796,7 @@ private enum L10nKey {
         case .refreshing: return "Refreshing..."
         case .remaining: return "Remaining"
         case .showPastEmptyWeeks: return "Show past empty weeks"
+        case .showCodexStatus: return "Show Codex status"
         case .reset: return "Reset"
         case .sessions: return "Sessions"
         case .settings: return "Settings"
@@ -759,7 +836,7 @@ private enum L10nKey {
         case .weeklyLeft: return "Weekly Left"
         case .costHistoryHint: return "Hover a ring to inspect used, remaining, budget, and usage rate."
         case .usageRate: return "Usage rate"
-        case .apiEquivalentCostHint: return "fresh input × input price + cached input × cache price + output × output price, using recognized model API-style rates."
+        case .apiEquivalentCostHint: return "fresh input × input price + cached input × cache price + output × output price. Unlabeled tokens use GPT-5.5."
         case .externalAPICostCalculationHint: return "Direct API usage read from local api-usage.json. It is separate from Codex rollout logs."
         case .month: return "Month"
         case .fiveHourLeft: return "5h Left"
@@ -774,7 +851,7 @@ private enum L10nKey {
         case .all: return "全部"
         case .allDescription: return "包含 token 明细的全部记录"
         case .apiEquivalent: return "API 等价成本"
-        case .apiEquivalentHint: return "按可识别模型的官方 API/token 单价估算。"
+        case .apiEquivalentHint: return "按官方 API/token 单价估算；没有模型标签的 token 默认按 GPT-5.5。"
         case .before: return "刷新前"
         case .budget: return "预算"
         case .cache: return "缓存"
@@ -788,6 +865,18 @@ private enum L10nKey {
         case .costs: return "金额"
         case .costsSubtitle: return "套餐设置和金额估算"
         case .costHistory: return "金额历史"
+        case .codexIncident: return "故障"
+        case .codexNoActiveIncident: return "当前没有故障"
+        case .codexStatus: return "Codex 状态"
+        case .codexStatusDegraded: return "降级"
+        case .codexStatusInvestigating: return "排查中"
+        case .codexStatusMaintenance: return "维护中"
+        case .codexStatusMajorOutage: return "重大故障"
+        case .codexStatusMonitoring: return "观察中"
+        case .codexStatusOperational: return "正常"
+        case .codexStatusPartialOutage: return "部分中断"
+        case .codexStatusResolved: return "已恢复"
+        case .codexStatusUnavailable: return "状态暂不可用"
         case .dayValue: return "当日价值"
         case .dataSource: return "数据来源"
         case .dataSourceLine1: return "应用读取 ~/.codex/sessions、~/.codex/archived_sessions，以及已设置的 CODEX_HOME。"
@@ -870,6 +959,10 @@ private enum L10nKey {
         case .profileAPISource: return "Profile API"
         case .profileAPITotals: return "Profile API 总量"
         case .profileAPITotalsHint: return "用 account/usage/read 读取官方累计总量和每日桶；如果某天 API 为 0 但本地同日日志有用量，日历会用本地值兜底。"
+        case .quotaDisplayBullet: return "子弹图"
+        case .quotaDisplayHint: return "选择 5小时和周额度的节奏展示方式。"
+        case .quotaDisplayRings: return "圆环"
+        case .quotaDisplayStyle: return "额度样式"
         case .quotaViews: return "限额视图"
         case .quotaWarnings: return "额度提醒"
         case .quotaWarningsHint: return "实时额度低于 15% 时，每个窗口只提醒一次。"
@@ -879,6 +972,7 @@ private enum L10nKey {
         case .refreshing: return "刷新中..."
         case .remaining: return "剩余"
         case .showPastEmptyWeeks: return "显示以前的无数据周"
+        case .showCodexStatus: return "显示 Codex 状态"
         case .reset: return "重置"
         case .sessions: return "会话"
         case .settings: return "设置"
@@ -918,7 +1012,7 @@ private enum L10nKey {
         case .weeklyLeft: return "周额度剩余"
         case .costHistoryHint: return "悬停圆环可查看已用、剩余、预算和使用率。"
         case .usageRate: return "使用率"
-        case .apiEquivalentCostHint: return "按可识别模型单价估算：fresh input × 输入价 + cached input × 缓存价 + output × 输出价。"
+        case .apiEquivalentCostHint: return "按模型单价估算：fresh input × 输入价 + cached input × 缓存价 + output × 输出价；没有模型标签时按 GPT-5.5。"
         case .externalAPICostCalculationHint: return "从本地 api-usage.json 读取的直接 API 用量成本，独立于 Codex rollout 日志。"
         case .month: return "月"
         case .fiveHourLeft: return "5小时剩余"
@@ -933,7 +1027,7 @@ private enum L10nKey {
         case .all: return "すべて"
         case .allDescription: return "token 詳細を含むすべての記録"
         case .apiEquivalent: return "API 換算"
-        case .apiEquivalentHint: return "認識できるモデルの公式 API/token 単価から推定します。"
+        case .apiEquivalentHint: return "公式 API/token 単価から推定します。モデル名のない token は GPT-5.5 として扱います。"
         case .before: return "更新前"
         case .budget: return "予算"
         case .cache: return "キャッシュ"
@@ -947,6 +1041,18 @@ private enum L10nKey {
         case .costs: return "金額"
         case .costsSubtitle: return "プラン設定と金額推定"
         case .costHistory: return "金額履歴"
+        case .codexIncident: return "障害"
+        case .codexNoActiveIncident: return "進行中の障害はありません"
+        case .codexStatus: return "Codex 状態"
+        case .codexStatusDegraded: return "低下"
+        case .codexStatusInvestigating: return "調査中"
+        case .codexStatusMaintenance: return "メンテ中"
+        case .codexStatusMajorOutage: return "大規模障害"
+        case .codexStatusMonitoring: return "監視中"
+        case .codexStatusOperational: return "正常"
+        case .codexStatusPartialOutage: return "一部停止"
+        case .codexStatusResolved: return "復旧済み"
+        case .codexStatusUnavailable: return "状態を取得できません"
         case .dayValue: return "当日の価値"
         case .dataSource: return "データソース"
         case .dataSourceLine1: return "このアプリは ~/.codex/sessions、~/.codex/archived_sessions、設定済みの CODEX_HOME を読み取ります。"
@@ -1029,6 +1135,10 @@ private enum L10nKey {
         case .profileAPISource: return "Profile API"
         case .profileAPITotals: return "Profile API 合計"
         case .profileAPITotalsHint: return "account/usage/read で公式の累計と日別バケットを使います。API の日別値が 0 で同日のローカルログに使用量があれば、日別表示はローカル値で補完します。"
+        case .quotaDisplayBullet: return "Bullet"
+        case .quotaDisplayHint: return "5h と週制限のペース表示を選びます。"
+        case .quotaDisplayRings: return "リング"
+        case .quotaDisplayStyle: return "制限表示"
         case .quotaViews: return "制限枠ビュー"
         case .quotaWarnings: return "制限通知"
         case .quotaWarningsHint: return "残り 15% 未満になった制限枠ごとに一度だけ通知します。"
@@ -1038,6 +1148,7 @@ private enum L10nKey {
         case .refreshing: return "更新中..."
         case .remaining: return "残り"
         case .showPastEmptyWeeks: return "過去の空週を表示"
+        case .showCodexStatus: return "Codex 状態を表示"
         case .reset: return "リセット"
         case .sessions: return "セッション"
         case .settings: return "設定"
@@ -1077,7 +1188,7 @@ private enum L10nKey {
         case .weeklyLeft: return "週制限の残り"
         case .costHistoryHint: return "リングに重ねると使用額、残額、予算、使用率を確認できます。"
         case .usageRate: return "使用率"
-        case .apiEquivalentCostHint: return "認識できるモデル単価で fresh input × 入力価格 + cached input × キャッシュ価格 + output × 出力価格を推定します。"
+        case .apiEquivalentCostHint: return "fresh input × 入力価格 + cached input × キャッシュ価格 + output × 出力価格で推定します。モデル名のない token は GPT-5.5 として扱います。"
         case .externalAPICostCalculationHint: return "ローカル api-usage.json から読み取る直接 API 使用コストです。Codex rollout ログとは別扱いです。"
         case .month: return "月"
         case .fiveHourLeft: return "5時間残り"
@@ -1184,6 +1295,7 @@ private enum AppSettings {
     static let quotaWarningsEnabledKey = "quotaWarningsEnabled"
     static let externalAPICostPathKey = "externalAPICostPath"
     static let profileAPITotalsEnabledKey = "profileAPITotalsEnabled"
+    static let showCodexStatusEnabledKey = "showCodexStatusEnabled"
 
     static let fallbackModelLimitID = "codex_bengalfox"
     static let fallbackModelLimitName = "GPT-5.3-Codex-Spark"
@@ -1419,6 +1531,18 @@ private enum AppSettings {
         }
     }
 
+    static var showCodexStatusEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: showCodexStatusEnabledKey) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: showCodexStatusEnabledKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: showCodexStatusEnabledKey)
+        }
+    }
+
     static var externalAPICostURL: URL {
         get {
             guard let path = UserDefaults.standard.string(forKey: externalAPICostPathKey), !path.isEmpty else {
@@ -1606,12 +1730,306 @@ struct RateWindow {
     var remainingPercent: Double { max(0, 100 - usedPercent) }
 }
 
+private enum PaceStatus {
+    case ahead
+    case onTrack
+    case behind
+}
+
+private struct PaceComparison {
+    let progressPercent: Double
+    let usedPercent: Double
+    let status: PaceStatus
+}
+
+fileprivate struct RingRemainingComparison {
+    let expectedRemainingPercent: Double
+    let actualRemainingPercent: Double
+    let status: PaceStatus
+}
+
+private func paceComparison(for window: RateWindow, now: Date = Date()) -> PaceComparison? {
+    guard window.windowMinutes > 0,
+          let resetsAt = window.resetsAt else {
+        return nil
+    }
+    let duration = TimeInterval(window.windowMinutes) * 60
+    let start = resetsAt.addingTimeInterval(-duration)
+    guard duration > 0, start < resetsAt else { return nil }
+
+    let elapsedRatio = min(1, max(0, now.timeIntervalSince(start) / duration))
+    let progressPercent = elapsedRatio * 100
+    let usedPercent = max(0, window.usedPercent)
+    let delta = usedPercent - progressPercent
+    let tolerance = 4.0
+    let status: PaceStatus
+    if delta > tolerance {
+        status = .ahead
+    } else if delta < -tolerance {
+        status = .behind
+    } else {
+        status = .onTrack
+    }
+
+    return PaceComparison(
+        progressPercent: progressPercent,
+        usedPercent: usedPercent,
+        status: status
+    )
+}
+
 struct LiveRateLimit {
     let id: String
     let name: String
     let primary: RateWindow
     let secondary: RateWindow
     let planType: String?
+}
+
+struct CodexServiceComponentStatus {
+    let name: String
+    let status: String
+}
+
+struct CodexServiceIncidentStatus {
+    let name: String
+    let status: String
+    let message: String
+    let createdAt: Date?
+    let updatedAt: Date?
+}
+
+struct CodexServiceStatusSnapshot {
+    let statusPageUpdatedAt: Date?
+    let readAt: Date
+    let components: [CodexServiceComponentStatus]
+    let incidents: [CodexServiceIncidentStatus]
+
+    var activeIncident: CodexServiceIncidentStatus? { incidents.first }
+
+    var degradedComponents: [CodexServiceComponentStatus] {
+        components.filter { $0.status != "operational" }
+    }
+
+    var overallStatus: String {
+        let statuses = degradedComponents.map(\.status)
+        if statuses.contains(where: { $0 == "major_outage" }) { return "major_outage" }
+        if statuses.contains(where: { $0 == "partial_outage" }) { return "partial_outage" }
+        if statuses.contains(where: { $0 == "under_maintenance" }) { return "under_maintenance" }
+        if statuses.contains(where: { $0 == "degraded_performance" }) { return "degraded_performance" }
+        return "operational"
+    }
+}
+
+final class CodexServiceStatusReader {
+    private static let componentOrder = [
+        "Codex Web",
+        "App",
+        "Codex API",
+        "CLI",
+        "VS Code extension"
+    ]
+
+    private let summaryURL = URL(string: "https://status.openai.com/api/v2/summary.json")!
+    private let session: URLSession
+    private let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    init() {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 15
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        self.session = URLSession(configuration: configuration)
+    }
+
+    deinit {
+        session.invalidateAndCancel()
+    }
+
+    func read(timeout: TimeInterval = 12) -> CodexServiceStatusSnapshot? {
+        guard let data = fetch(url: summaryURL, timeout: timeout) else {
+            return nil
+        }
+        return parse(data: data)
+    }
+
+    private func fetch(url: URL, timeout: TimeInterval) -> Data? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var responseData: Data?
+
+        let task = session.dataTask(with: request) { data, response, error in
+            defer { semaphore.signal() }
+            guard error == nil,
+                  let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode),
+                  let data else {
+                return
+            }
+            lock.lock()
+            responseData = data
+            lock.unlock()
+        }
+        task.resume()
+
+        let deadline = DispatchTime.now() + timeout + 1
+        if semaphore.wait(timeout: deadline) == .timedOut {
+            task.cancel()
+            return nil
+        }
+
+        lock.lock()
+        let data = responseData
+        lock.unlock()
+        return data
+    }
+
+    private func parse(data: Data) -> CodexServiceStatusSnapshot? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        let components = ((object["components"] as? [[String: Any]]) ?? [])
+            .compactMap(parseComponent)
+            .sorted { componentSortIndex($0.name) < componentSortIndex($1.name) }
+
+        guard !components.isEmpty else { return nil }
+
+        let allIncidents = ((object["incidents"] as? [[String: Any]]) ?? [])
+            .compactMap(parseIncident)
+            .sorted { lhs, rhs in
+                (lhs.updatedAt ?? lhs.createdAt ?? .distantPast) > (rhs.updatedAt ?? rhs.createdAt ?? .distantPast)
+            }
+
+        var incidents = allIncidents.filter(isCodexRelated)
+        if incidents.isEmpty,
+           !components.filter({ $0.status != "operational" }).isEmpty,
+           allIncidents.count == 1 {
+            incidents = allIncidents
+        }
+
+        let pageUpdatedAt = ((object["page"] as? [String: Any])?["updated_at"] as? String).flatMap(parseDate)
+
+        return CodexServiceStatusSnapshot(
+            statusPageUpdatedAt: pageUpdatedAt,
+            readAt: Date(),
+            components: components,
+            incidents: incidents
+        )
+    }
+
+    private func parseComponent(_ dict: [String: Any]) -> CodexServiceComponentStatus? {
+        guard let name = dict["name"] as? String,
+              let status = dict["status"] as? String,
+              isCodexComponent(name) else {
+            return nil
+        }
+        return CodexServiceComponentStatus(name: name, status: status)
+    }
+
+    private func parseIncident(_ dict: [String: Any]) -> CodexServiceIncidentStatus? {
+        guard let name = dict["name"] as? String else { return nil }
+        let createdAt = (dict["created_at"] as? String).flatMap(parseDate)
+        let updatedAt = (dict["updated_at"] as? String).flatMap(parseDate)
+        let updates = (dict["incident_updates"] as? [[String: Any]]) ?? []
+        let latestUpdate = updates.max { lhs, rhs in
+            let left = ((lhs["updated_at"] as? String).flatMap(parseDate))
+                ?? ((lhs["created_at"] as? String).flatMap(parseDate))
+                ?? .distantPast
+            let right = ((rhs["updated_at"] as? String).flatMap(parseDate))
+                ?? ((rhs["created_at"] as? String).flatMap(parseDate))
+                ?? .distantPast
+            return left < right
+        }
+        let status = (latestUpdate?["status"] as? String) ?? (dict["status"] as? String) ?? "investigating"
+        let message = (latestUpdate?["body"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let latestUpdatedAt = (latestUpdate?["updated_at"] as? String).flatMap(parseDate)
+            ?? (latestUpdate?["created_at"] as? String).flatMap(parseDate)
+
+        return CodexServiceIncidentStatus(
+            name: name,
+            status: status,
+            message: message,
+            createdAt: createdAt,
+            updatedAt: latestUpdatedAt ?? updatedAt
+        )
+    }
+
+    private func componentSortIndex(_ name: String) -> Int {
+        Self.componentOrder.firstIndex(of: name) ?? Self.componentOrder.count
+    }
+
+    private func isCodexComponent(_ name: String) -> Bool {
+        Self.componentOrder.contains(name)
+    }
+
+    private func isCodexRelated(_ incident: CodexServiceIncidentStatus) -> Bool {
+        let haystack = "\(incident.name)\n\(incident.message)".lowercased()
+        if haystack.contains("codex") || haystack.contains("cli") || haystack.contains("vs code") {
+            return true
+        }
+        return false
+    }
+
+    private func parseDate(_ value: String) -> Date? {
+        if let date = isoFormatter.date(from: value) {
+            return date
+        }
+        let fallback = ISO8601DateFormatter()
+        fallback.formatOptions = [.withInternetDateTime]
+        return fallback.date(from: value)
+    }
+}
+
+private func localizedCodexStatus(_ status: String) -> String {
+    switch status {
+    case "operational":
+        return t(.codexStatusOperational)
+    case "degraded_performance":
+        return t(.codexStatusDegraded)
+    case "partial_outage":
+        return t(.codexStatusPartialOutage)
+    case "major_outage":
+        return t(.codexStatusMajorOutage)
+    case "under_maintenance":
+        return t(.codexStatusMaintenance)
+    case "investigating":
+        return t(.codexStatusInvestigating)
+    case "identified":
+        return t(.codexStatusDegraded)
+    case "monitoring":
+        return t(.codexStatusMonitoring)
+    case "resolved":
+        return t(.codexStatusResolved)
+    default:
+        return status.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+private func codexStatusColor(_ status: String) -> NSColor {
+    switch status {
+    case "operational":
+        return NSColor.systemGreen
+    case "degraded_performance", "identified", "monitoring":
+        return NSColor.systemOrange
+    case "investigating", "partial_outage":
+        return NSColor.systemYellow
+    case "major_outage":
+        return NSColor.systemRed
+    case "under_maintenance":
+        return NSColor.systemBlue
+    case "resolved":
+        return NSColor.systemGreen
+    default:
+        return NSColor.white.withAlphaComponent(0.58)
+    }
 }
 
 struct CostHistoryWeekSnapshot: Codable {
@@ -1853,6 +2271,7 @@ struct DashboardState {
     var accountUsage: AccountUsageSnapshot?
     var costReferenceReport: TokenReport?
     var liveLimits: [LiveRateLimit] = []
+    var serviceStatus: CodexServiceStatusSnapshot?
     var selectedWindow: WindowOption = .week
     var selectedQuota: QuotaViewOption = .all
     var nextRefreshAt = Date()
@@ -3228,6 +3647,15 @@ final class RingView: NSView {
     var title: String = "" { didSet { needsDisplay = true } }
     var subtitle: String = "" { didSet { needsDisplay = true } }
     var color: NSColor = NSColor.systemGreen { didSet { needsDisplay = true } }
+    fileprivate var resetTooltip: String? {
+        didSet { updateTooltip() }
+    }
+    fileprivate var remainingComparison: RingRemainingComparison? {
+        didSet {
+            needsDisplay = true
+            updateTooltip()
+        }
+    }
 
     override var isFlipped: Bool { true }
     override func isAccessibilityElement() -> Bool { true }
@@ -3240,7 +3668,8 @@ final class RingView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         let bounds = self.bounds.insetBy(dx: 8, dy: 8)
-        let diameter = min(bounds.width, bounds.height - 20)
+        let labelReserve: CGFloat = 20
+        let diameter = min(bounds.width, bounds.height - labelReserve)
         let rect = NSRect(x: bounds.midX - diameter / 2, y: bounds.minY, width: diameter, height: diameter)
         let center = CGPoint(x: rect.midX, y: rect.midY)
         let radius = diameter / 2 - 8
@@ -3248,25 +3677,187 @@ final class RingView: NSView {
         let start = -CGFloat.pi * 0.82
         let end = CGFloat.pi * 0.82
 
-        NSColor.white.withAlphaComponent(0.10).setStroke()
-        let bg = NSBezierPath()
-        bg.lineWidth = lineWidth
-        bg.lineCapStyle = .round
-        bg.appendArc(withCenter: center, radius: radius, startAngle: start * 180 / .pi, endAngle: end * 180 / .pi, clockwise: false)
-        bg.stroke()
+        drawArc(center: center, radius: radius, lineWidth: lineWidth, start: start, end: end, percent: 100, color: NSColor.white.withAlphaComponent(0.10))
+        drawArc(center: center, radius: radius, lineWidth: lineWidth, start: start, end: end, percent: percent, color: color)
 
-        color.setStroke()
-        let fg = NSBezierPath()
-        fg.lineWidth = lineWidth
-        fg.lineCapStyle = .round
+        if let remainingComparison {
+            drawRemainingComparison(
+                remainingComparison,
+                center: center,
+                radius: radius,
+                lineWidth: lineWidth,
+                start: start,
+                end: end
+            )
+        } else {
+            let pText = "\(Int(round(percent)))%"
+            drawCenteredAt(pText, center: center, font: meterNumberFont(ofSize: 23), color: .white)
+        }
+        drawCentered(title, rect: NSRect(x: bounds.minX, y: rect.maxY + 2, width: bounds.width, height: 18), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.86))
+        drawCentered(subtitle, rect: NSRect(x: bounds.minX, y: rect.maxY + 20, width: bounds.width, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.45))
+    }
+
+    private func drawArc(center: CGPoint, radius: CGFloat, lineWidth: CGFloat, start: CGFloat, end: CGFloat, percent: Double, color: NSColor) {
         let clamped = max(0, min(100, percent)) / 100
-        fg.appendArc(withCenter: center, radius: radius, startAngle: start * 180 / .pi, endAngle: (start + (end - start) * clamped) * 180 / .pi, clockwise: false)
-        fg.stroke()
+        let path = NSBezierPath()
+        path.lineWidth = lineWidth
+        path.lineCapStyle = .round
+        color.setStroke()
+        path.appendArc(
+            withCenter: center,
+            radius: radius,
+            startAngle: start * 180 / .pi,
+            endAngle: (start + (end - start) * CGFloat(clamped)) * 180 / .pi,
+            clockwise: false
+        )
+        path.stroke()
+    }
 
-        let pText = "\(Int(round(percent)))%"
-        drawCenteredAt(pText, center: center, font: .systemFont(ofSize: 22, weight: .bold), color: .white)
-        drawCentered(title, rect: NSRect(x: bounds.minX, y: rect.maxY + 2, width: bounds.width, height: 18), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.90))
-        drawCentered(subtitle, rect: NSRect(x: bounds.minX, y: rect.maxY + 20, width: bounds.width, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.58))
+    private func drawRemainingComparison(
+        _ comparison: RingRemainingComparison,
+        center: CGPoint,
+        radius: CGFloat,
+        lineWidth: CGFloat,
+        start: CGFloat,
+        end: CGFloat
+    ) {
+        let actualColor: NSColor
+        switch comparison.status {
+        case .ahead:
+            actualColor = NSColor.systemOrange
+        case .behind:
+            actualColor = NSColor.systemGreen
+        case .onTrack:
+            actualColor = NSColor.white.withAlphaComponent(0.92)
+        }
+        let markerColor = expectedRemainingMarkerColor(
+            expected: comparison.expectedRemainingPercent,
+            actual: comparison.actualRemainingPercent
+        )
+        drawExpectedRemainingMarker(
+            percent: comparison.expectedRemainingPercent,
+            center: center,
+            radius: radius,
+            lineWidth: lineWidth,
+            start: start,
+            end: end,
+            color: markerColor
+        )
+        drawComparisonValue(
+            value: "\(Int(round(comparison.actualRemainingPercent)))%",
+            center: center,
+            fontSize: 23,
+            maxWidth: 76,
+            valueColor: actualColor
+        )
+    }
+
+    private func drawExpectedRemainingMarker(percent: Double, center: CGPoint, radius: CGFloat, lineWidth: CGFloat, start: CGFloat, end: CGFloat, color: NSColor) {
+        let clamped = max(0, min(100, percent)) / 100
+        let angle = start + (end - start) * CGFloat(clamped)
+        let markerLineWidth = max(2.4, lineWidth * 0.32)
+        let markerCenter = CGPoint(
+            x: center.x + cos(angle) * radius,
+            y: center.y + sin(angle) * radius
+        )
+        let radial = CGPoint(x: cos(angle), y: sin(angle))
+        let markerLength = max(15, lineWidth * 1.9)
+        let markerDash: [CGFloat] = [4.4, 2.6]
+        let halfLength = markerLength / 2
+        let startPoint = CGPoint(
+            x: markerCenter.x - radial.x * halfLength,
+            y: markerCenter.y - radial.y * halfLength
+        )
+        let endPoint = CGPoint(
+            x: markerCenter.x + radial.x * halfLength,
+            y: markerCenter.y + radial.y * halfLength
+        )
+
+        let underlay = NSBezierPath()
+        underlay.lineWidth = markerLineWidth + 0.9
+        underlay.lineCapStyle = .round
+        underlay.setLineDash(markerDash, count: markerDash.count, phase: 0)
+        underlay.move(to: startPoint)
+        underlay.line(to: endPoint)
+        NSColor.black.withAlphaComponent(0.24).setStroke()
+        underlay.stroke()
+
+        let marker = NSBezierPath()
+        marker.lineWidth = markerLineWidth
+        marker.lineCapStyle = .round
+        marker.setLineDash(markerDash, count: markerDash.count, phase: 0)
+        marker.move(to: startPoint)
+        marker.line(to: endPoint)
+        color.setStroke()
+        marker.stroke()
+    }
+
+    private func expectedRemainingMarkerColor(expected: Double, actual: Double) -> NSColor {
+        let tolerance = 1.0
+        if expected < actual - tolerance {
+            return NSColor(calibratedRed: 0.56, green: 1.0, blue: 0.16, alpha: 0.98)
+        }
+        if expected > actual + tolerance {
+            return NSColor.systemRed.withAlphaComponent(0.98)
+        }
+        return NSColor.white.withAlphaComponent(0.72)
+    }
+
+    private func drawComparisonValue(value: String, center: CGPoint, fontSize: CGFloat, maxWidth: CGFloat, valueColor: NSColor) {
+        var valueFontSize = fontSize
+        var valueFont = meterNumberFont(ofSize: valueFontSize)
+        var valueAttributes: [NSAttributedString.Key: Any] = [
+            .font: valueFont,
+            .foregroundColor: valueColor
+        ]
+        var valueSize = (value as NSString).size(withAttributes: valueAttributes)
+        while valueSize.width > maxWidth, valueFontSize > 12 {
+            valueFontSize -= 0.5
+            valueFont = meterNumberFont(ofSize: valueFontSize)
+            valueAttributes = [.font: valueFont, .foregroundColor: valueColor]
+            valueSize = (value as NSString).size(withAttributes: valueAttributes)
+        }
+        let rowHeight = valueSize.height
+        let valueY = center.y - ceil(valueSize.height) / 2 - 0.5
+        (value as NSString).draw(
+            in: NSRect(x: center.x - ceil(valueSize.width) / 2, y: valueY, width: ceil(valueSize.width), height: ceil(rowHeight)),
+            withAttributes: valueAttributes
+        )
+    }
+
+    private func updateTooltip() {
+        guard remainingComparison != nil || resetTooltip != nil else {
+            toolTip = nil
+            return
+        }
+        var lines: [String] = []
+        if let comparison = remainingComparison {
+            let statusText: String
+            switch comparison.status {
+            case .ahead:
+                statusText = "实际剩余低于预计，用得偏快"
+            case .behind:
+                statusText = "实际剩余高于预计，用得较少"
+            case .onTrack:
+                statusText = "实际剩余接近预计"
+            }
+            lines.append("圈内数字：实际剩余 \(Int(round(comparison.actualRemainingPercent)))%")
+            lines.append("彩色虚线：预计剩余 \(Int(round(comparison.expectedRemainingPercent)))%")
+            lines.append(statusText)
+        }
+        if let resetTooltip {
+            lines.append("重置：\(resetTooltip)")
+        }
+        toolTip = lines.joined(separator: "\n")
+    }
+
+    private func meterNumberFont(ofSize size: CGFloat) -> NSFont {
+        for name in ["DIN Alternate", "DIN Condensed", "Avenir Next Condensed Heavy", "Menlo-Bold"] {
+            if let font = NSFont(name: name, size: size) {
+                return font
+            }
+        }
+        return .monospacedDigitSystemFont(ofSize: size, weight: .bold)
     }
 
     private func drawCenteredAt(_ text: String, center: CGPoint, font: NSFont, color: NSColor) {
@@ -3295,6 +3886,133 @@ final class RingView: NSView {
             height: ceil(size.height)
         )
         (text as NSString).draw(in: textRect, withAttributes: attributes)
+    }
+}
+
+final class QuotaBulletView: NSView {
+    var actualRemainingPercent: Double = 0 { didSet { needsDisplay = true } }
+    var title: String = "" { didSet { needsDisplay = true } }
+    var subtitle: String = "" { didSet { needsDisplay = true } }
+    var color: NSColor = NSColor.systemGreen { didSet { needsDisplay = true } }
+    fileprivate var resetTooltip: String? {
+        didSet { updateTooltip() }
+    }
+    fileprivate var remainingComparison: RingRemainingComparison? {
+        didSet {
+            needsDisplay = true
+            updateTooltip()
+        }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let bounds = self.bounds.insetBy(dx: 2, dy: 2)
+        let valueFont = meterNumberFont(ofSize: 16)
+        let value = "\(Int(round(actualRemainingPercent)))%"
+        let valueWidth = max(48, measuredTextWidth(value, font: valueFont) + 4)
+        let titleFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let titleWidth = min(bounds.width - valueWidth - 16, measuredTextWidth(title, font: titleFont) + 2)
+        drawText(title, rect: NSRect(x: bounds.minX, y: bounds.minY + 1, width: titleWidth, height: 16), font: titleFont, color: NSColor.white.withAlphaComponent(0.86))
+        drawText(subtitle, rect: NSRect(x: bounds.minX + titleWidth + 7, y: bounds.minY + 1, width: max(0, bounds.width - titleWidth - valueWidth - 18), height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+        drawRight(value, rect: NSRect(x: bounds.maxX - valueWidth, y: bounds.minY - 2, width: valueWidth, height: 20), font: valueFont, color: color.withAlphaComponent(0.96))
+
+        let bar = NSRect(x: bounds.minX, y: bounds.minY + 24, width: bounds.width, height: 10)
+        drawTrack(in: bar)
+
+        let actualRatio = CGFloat(max(0, min(100, actualRemainingPercent)) / 100)
+        let fillWidth = max(actualRatio <= 0 ? 0 : 4, bar.width * actualRatio)
+        if fillWidth > 0 {
+            let fill = NSRect(x: bar.minX, y: bar.minY, width: min(bar.width, fillWidth), height: bar.height)
+            color.withAlphaComponent(0.86).setFill()
+            NSBezierPath(roundedRect: fill, xRadius: 5, yRadius: 5).fill()
+        }
+
+        if let comparison = remainingComparison {
+            drawExpectedMarker(comparison: comparison, bar: bar)
+        }
+    }
+
+    private func drawTrack(in rect: NSRect) {
+        NSColor.white.withAlphaComponent(0.11).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5).fill()
+        NSColor.white.withAlphaComponent(0.05).setStroke()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5).stroke()
+    }
+
+    private func drawExpectedMarker(comparison: RingRemainingComparison, bar: NSRect) {
+        let expected = max(0, min(100, comparison.expectedRemainingPercent))
+        let x = bar.minX + bar.width * CGFloat(expected / 100)
+        let markerColor = expectedRemainingMarkerColor(
+            expected: comparison.expectedRemainingPercent,
+            actual: comparison.actualRemainingPercent
+        )
+        let markerRect = NSRect(x: x - 1.5, y: bar.minY - 5, width: 3, height: bar.height + 10)
+        NSColor.black.withAlphaComponent(0.38).setFill()
+        NSBezierPath(roundedRect: markerRect.insetBy(dx: -1, dy: -1), xRadius: 3, yRadius: 3).fill()
+        markerColor.withAlphaComponent(0.92).setFill()
+        NSBezierPath(roundedRect: markerRect, xRadius: 2, yRadius: 2).fill()
+    }
+
+    private func updateTooltip() {
+        guard remainingComparison != nil || resetTooltip != nil else {
+            toolTip = nil
+            return
+        }
+        var lines: [String] = []
+        if let comparison = remainingComparison {
+            let statusText: String
+            switch comparison.status {
+            case .ahead:
+                statusText = "实际剩余低于预计，用得偏快"
+            case .behind:
+                statusText = "实际剩余高于预计，用得较少"
+            case .onTrack:
+                statusText = "实际剩余接近预计"
+            }
+            lines.append("填充条：实际剩余 \(Int(round(comparison.actualRemainingPercent)))%")
+            lines.append("竖标线：预计剩余 \(Int(round(comparison.expectedRemainingPercent)))%")
+            lines.append(statusText)
+        }
+        if let resetTooltip {
+            lines.append("重置：\(resetTooltip)")
+        }
+        toolTip = lines.joined(separator: "\n")
+    }
+
+    private func expectedRemainingMarkerColor(expected: Double, actual: Double) -> NSColor {
+        let tolerance = 1.0
+        if expected < actual - tolerance {
+            return NSColor(calibratedRed: 0.56, green: 1.0, blue: 0.16, alpha: 0.98)
+        }
+        if expected > actual + tolerance {
+            return NSColor.systemRed.withAlphaComponent(0.98)
+        }
+        return NSColor.white.withAlphaComponent(0.72)
+    }
+
+    private func meterNumberFont(ofSize size: CGFloat) -> NSFont {
+        for name in ["DIN Alternate", "DIN Condensed", "Avenir Next Condensed Heavy", "Menlo-Bold"] {
+            if let font = NSFont(name: name, size: size) {
+                return font
+            }
+        }
+        return .monospacedDigitSystemFont(ofSize: size, weight: .bold)
+    }
+
+    private func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+        (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color])
+    }
+
+    private func drawRight(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .right
+        (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+    }
+
+    private func measuredTextWidth(_ text: String, font: NSFont) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: font]).width)
     }
 }
 
@@ -3649,8 +4367,59 @@ final class UsageChartView: NSView {
     }
 }
 
+final class CodexStatusChipView: NSView {
+    var snapshot: CodexServiceStatusSnapshot? { didSet { needsDisplay = true } }
+
+    private let chipFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let rect = bounds
+
+        let text = statusText
+        let dotColor = statusColor
+        dotColor.setFill()
+        NSBezierPath(ovalIn: NSRect(x: rect.minX + 4, y: rect.midY - 3, width: 6, height: 6)).fill()
+        drawText(
+            text,
+            rect: NSRect(x: rect.minX + 16, y: rect.minY + 4, width: rect.width - 18, height: rect.height - 8),
+            font: chipFont,
+            color: NSColor.white.withAlphaComponent(0.82)
+        )
+    }
+
+    private func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        (text as NSString).draw(in: rect, withAttributes: [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraph
+        ])
+    }
+
+    private var statusText: String {
+        let label = snapshot.map { localizedCodexStatus($0.overallStatus) } ?? t(.codexStatusUnavailable)
+        return "Codex \(label)"
+    }
+
+    private var statusColor: NSColor {
+        snapshot.map { codexStatusColor($0.overallStatus) } ?? NSColor.white.withAlphaComponent(0.42)
+    }
+
+    func preferredWidth(maxWidth: CGFloat) -> CGFloat {
+        let textWidth = (statusText as NSString).size(withAttributes: [
+            .font: chipFont
+        ]).width
+        return min(maxWidth, ceil(textWidth) + 22)
+    }
+}
+
 final class DashboardView: NSView {
-    static let idealSize = NSSize(width: 430, height: 560)
+    static let idealSize = NSSize(width: 430, height: 610)
 
     private var state = DashboardState()
     private let logoImageView = NSImageView()
@@ -3666,7 +4435,11 @@ final class DashboardView: NSView {
     private let primaryRing = RingView()
     private let weeklyRing = RingView()
     private let cacheRing = RingView()
+    private let primaryBullet = QuotaBulletView()
+    private let weeklyBullet = QuotaBulletView()
+    private let cacheBullet = QuotaBulletView()
     private let dayChart = UsageChartView()
+    private let serviceStatusView = CodexStatusChipView()
     private let sessionsLabel = NSTextField(labelWithString: "")
     private let buttonsStack = NSStackView()
     private var buttonsByKey: [L10nKey: NSButton] = [:]
@@ -3676,6 +4449,7 @@ final class DashboardView: NSView {
     var onRefresh: (() -> Void)?
     var onOpenDetails: (() -> Void)?
     var onOpenLogs: (() -> Void)?
+    var onOpenCodexStatus: (() -> Void)?
     var onQuit: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
@@ -3713,20 +4487,56 @@ final class DashboardView: NSView {
 
         let primary = displayLimit?.primary
         let weekly = displayLimit?.secondary
+        let primaryComparison = remainingComparison(for: primary)
+        let weeklyComparison = remainingComparison(for: weekly)
+        let quotaStyle = QuotaDisplayStyle.current
         primaryRing.percent = primary?.remainingPercent ?? 0
         primaryRing.title = t(.fiveHourLeft)
-        primaryRing.subtitle = primary.map { "\(t(.reset)) \(relative($0.resetsAt))" } ?? t(.liveLimitUnavailable)
+        primaryRing.subtitle = primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? t(.liveLimitUnavailable)
         primaryRing.color = colorForRemaining(percent: primaryRing.percent)
+        primaryRing.resetTooltip = primary?.resetsAt.map { relative($0) }
+        primaryRing.remainingComparison = primaryComparison
+        primaryRing.isHidden = quotaStyle != .rings
+
+        primaryBullet.actualRemainingPercent = primary?.remainingPercent ?? 0
+        primaryBullet.title = t(.fiveHourLeft)
+        primaryBullet.subtitle = primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? t(.liveLimitUnavailable)
+        primaryBullet.color = colorForRemaining(percent: primaryBullet.actualRemainingPercent)
+        primaryBullet.resetTooltip = primary?.resetsAt.map { relative($0) }
+        primaryBullet.remainingComparison = primaryComparison
+        primaryBullet.isHidden = quotaStyle != .bullet
 
         weeklyRing.percent = weekly?.remainingPercent ?? 0
         weeklyRing.title = t(.weeklyLeft)
-        weeklyRing.subtitle = weekly.map { "\(t(.reset)) \(relative($0.resetsAt))" } ?? t(.usageWindow)
+        weeklyRing.subtitle = weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? t(.usageWindow)
         weeklyRing.color = colorForRemaining(percent: weeklyRing.percent)
+        weeklyRing.resetTooltip = weekly?.resetsAt.map { relative($0) }
+        weeklyRing.remainingComparison = weeklyComparison
+        weeklyRing.isHidden = quotaStyle != .rings
+
+        weeklyBullet.actualRemainingPercent = weekly?.remainingPercent ?? 0
+        weeklyBullet.title = t(.weeklyLeft)
+        weeklyBullet.subtitle = weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? t(.usageWindow)
+        weeklyBullet.color = colorForRemaining(percent: weeklyBullet.actualRemainingPercent)
+        weeklyBullet.resetTooltip = weekly?.resetsAt.map { relative($0) }
+        weeklyBullet.remainingComparison = weeklyComparison
+        weeklyBullet.isHidden = quotaStyle != .bullet
 
         cacheRing.percent = report.usage.cachePercent
         cacheRing.title = t(.cacheHit)
         cacheRing.subtitle = "\(compact(report.usage.freshInput)) \(t(.fresh).lowercased())"
         cacheRing.color = NSColor.systemTeal
+        cacheRing.resetTooltip = nil
+        cacheRing.remainingComparison = nil
+        cacheRing.isHidden = quotaStyle == .bullet
+
+        cacheBullet.actualRemainingPercent = report.usage.cachePercent
+        cacheBullet.title = t(.cacheHit)
+        cacheBullet.subtitle = "\(compact(report.usage.freshInput)) \(t(.fresh).lowercased())"
+        cacheBullet.color = NSColor.systemTeal
+        cacheBullet.resetTooltip = nil
+        cacheBullet.remainingComparison = nil
+        cacheBullet.isHidden = quotaStyle != .bullet
 
         dayChart.selectedWindow = state.selectedWindow
         dayChart.days = report.byDay
@@ -3735,6 +4545,8 @@ final class DashboardView: NSView {
         dayChart.weeklyQuotaReferenceTotal = state.selectedWindow == .day ? nil : report.byDay.suffix(7).reduce(Int64(0)) { $0 + $1.usage.total }
         dayChart.costEstimator = state.selectedWindow == .day ? nil : CostEstimator(report: report, limit: displayLimit)
         dayChart.apiEstimate = apiEstimate
+        serviceStatusView.snapshot = state.serviceStatus
+        serviceStatusView.isHidden = !AppSettings.showCodexStatusEnabled
         sessionsLabel.stringValue = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
         var costParts: [String] = []
         if apiEstimate.hasPricedUsage {
@@ -3750,6 +4562,7 @@ final class DashboardView: NSView {
             costLabel.stringValue = ""
         }
         updateAccessibilityLabels(report: report, totalReport: totalReport)
+        needsLayout = true
         needsDisplay = true
     }
 
@@ -3797,16 +4610,54 @@ final class DashboardView: NSView {
 
         let ringY = content.minY + 132
         let ringW = (content.width - 24) / 3
-        primaryRing.frame = NSRect(x: content.minX, y: ringY, width: ringW, height: 136)
-        weeklyRing.frame = NSRect(x: content.minX + ringW + 12, y: ringY, width: ringW, height: 136)
-        cacheRing.frame = NSRect(x: content.minX + (ringW + 12) * 2, y: ringY, width: ringW, height: 136)
+        if QuotaDisplayStyle.current == .bullet {
+            let rowH: CGFloat = 40
+            let rowGap: CGFloat = 8
+            primaryRing.frame = .zero
+            weeklyRing.frame = .zero
+            cacheRing.frame = .zero
+            primaryBullet.frame = NSRect(x: content.minX, y: ringY + 2, width: content.width, height: rowH)
+            weeklyBullet.frame = NSRect(x: content.minX, y: ringY + 2 + rowH + rowGap, width: content.width, height: rowH)
+            cacheBullet.frame = NSRect(x: content.minX, y: ringY + 2 + (rowH + rowGap) * 2, width: content.width, height: rowH)
+        } else {
+            primaryRing.frame = NSRect(x: content.minX, y: ringY, width: ringW, height: 136)
+            weeklyRing.frame = NSRect(x: content.minX + ringW + 12, y: ringY, width: ringW, height: 136)
+            primaryBullet.frame = .zero
+            weeklyBullet.frame = .zero
+            cacheBullet.frame = .zero
+            cacheRing.frame = NSRect(x: content.minX + (ringW + 12) * 2, y: ringY, width: ringW, height: 136)
+        }
 
         let statsY = ringY + 154
-        dayChart.frame = NSRect(x: content.minX, y: statsY, width: content.width, height: 118)
-        sessionsLabel.frame = NSRect(x: content.minX, y: statsY + 128, width: content.width, height: 18)
-        costLabel.frame = NSRect(x: content.minX, y: statsY + 152, width: content.width, height: 16)
-        refreshLabel.frame = NSRect(x: content.minX, y: content.maxY - 58, width: content.width, height: 18)
         buttonsStack.frame = NSRect(x: content.minX, y: content.maxY - 36, width: content.width, height: 28)
+        let showsStatus = AppSettings.showCodexStatusEnabled
+        let chipGap: CGFloat = 10
+        let maxChipWidth = min(136, max(108, content.width * 0.36))
+        let chipWidth = showsStatus ? serviceStatusView.preferredWidth(maxWidth: maxChipWidth) : 0
+        let infoWidth = showsStatus ? max(120, content.width - chipWidth - chipGap) : content.width
+        refreshLabel.frame = NSRect(x: content.minX, y: buttonsStack.frame.minY - 24, width: infoWidth, height: 18)
+        costLabel.frame = NSRect(x: content.minX, y: refreshLabel.frame.minY - 20, width: infoWidth, height: 16)
+        sessionsLabel.frame = NSRect(x: content.minX, y: costLabel.frame.minY - 22, width: infoWidth, height: 18)
+        if showsStatus {
+            let chipHeight: CGFloat = 24
+            let chipX = content.maxX - chipWidth
+            let chipY = sessionsLabel.frame.minY + max(0, (refreshLabel.frame.maxY - sessionsLabel.frame.minY - chipHeight) / 2)
+            serviceStatusView.frame = NSRect(x: chipX, y: chipY, width: chipWidth, height: chipHeight)
+        } else {
+            serviceStatusView.frame = .zero
+        }
+        let chartBottom = sessionsLabel.frame.minY
+        dayChart.frame = NSRect(x: content.minX, y: statsY, width: content.width, height: max(72, chartBottom - statsY - 12))
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if !serviceStatusView.isHidden,
+           serviceStatusView.frame.insetBy(dx: -2, dy: -2).contains(point) {
+            onOpenCodexStatus?()
+            return
+        }
+        super.mouseDown(with: event)
     }
 
     private func setup() {
@@ -3871,7 +4722,8 @@ final class DashboardView: NSView {
         segment.toolTip = t(.usageWindow)
         addSubview(segment)
 
-        [primaryRing, weeklyRing, cacheRing, dayChart].forEach { addSubview($0) }
+        [primaryRing, weeklyRing, primaryBullet, weeklyBullet, cacheBullet, cacheRing, dayChart, serviceStatusView].forEach { addSubview($0) }
+        serviceStatusView.toolTip = "Open OpenAI Status"
 
         buttonsStack.orientation = .horizontal
         buttonsStack.spacing = 8
@@ -3980,6 +4832,18 @@ final class DashboardView: NSView {
         if percent <= 35 { return .systemOrange }
         return .systemGreen
     }
+
+    private func remainingComparison(for window: RateWindow?) -> RingRemainingComparison? {
+        guard let window,
+              let comparison = paceComparison(for: window) else {
+            return nil
+        }
+        return RingRemainingComparison(
+            expectedRemainingPercent: max(0, min(100, 100 - comparison.progressPercent)),
+            actualRemainingPercent: window.remainingPercent,
+            status: comparison.status
+        )
+    }
 }
 
 final class DashboardViewController: NSViewController {
@@ -3997,6 +4861,7 @@ struct DetailsSnapshot {
     var spark: TokenReport
     var other: TokenReport
     var liveLimits: [LiveRateLimit]
+    var serviceStatus: CodexServiceStatusSnapshot?
     var costReferenceReport: TokenReport?
     var accountUsage: AccountUsageSnapshot? = nil
 }
@@ -4049,12 +4914,20 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
         updateDocumentLayout()
     }
 
-    func updateLiveLimits(_ limits: [LiveRateLimit], costReferenceReport: TokenReport?) {
+    func updateLiveLimits(_ limits: [LiveRateLimit], costReferenceReport: TokenReport?, serviceStatus: CodexServiceStatusSnapshot?) {
         guard var snapshot = detailsView.snapshot else { return }
         snapshot.liveLimits = limits
+        snapshot.serviceStatus = serviceStatus ?? snapshot.serviceStatus
         if let costReferenceReport {
             snapshot.costReferenceReport = costReferenceReport
         }
+        detailsView.snapshot = snapshot
+        updateDocumentLayout()
+    }
+
+    func updateServiceStatus(_ serviceStatus: CodexServiceStatusSnapshot?) {
+        guard var snapshot = detailsView.snapshot else { return }
+        snapshot.serviceStatus = serviceStatus
         detailsView.snapshot = snapshot
         updateDocumentLayout()
     }
@@ -4200,6 +5073,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     fileprivate var onLanguageChanged: ((AppLanguage) -> Void)?
     fileprivate var onNumberUnitStyleChanged: ((NumberUnitStyle) -> Void)?
     fileprivate var onStatusDisplayChanged: ((StatusDisplayOption) -> Void)?
+    fileprivate var onQuotaDisplayStyleChanged: ((QuotaDisplayStyle) -> Void)?
     fileprivate var onPlanCostChanged: ((Double) -> Void)?
     fileprivate var onPaymentStartDayChanged: ((String) -> Void)?
     fileprivate var onPaymentCurrencyChanged: ((CurrencyCode) -> Void)?
@@ -4209,6 +5083,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     fileprivate var onOpenLogFolder: (() -> Void)?
     fileprivate var onShowHistoricalEmptyWeeksChanged: ((Bool) -> Void)?
     fileprivate var onLaunchAtLoginChanged: ((Bool) -> Void)?
+    fileprivate var onShowCodexStatusChanged: ((Bool) -> Void)?
     fileprivate var onQuotaWarningsChanged: ((Bool) -> Void)?
     fileprivate var onProfileAPITotalsChanged: ((Bool) -> Void)?
     fileprivate var onPreferredHeightChanged: (() -> Void)?
@@ -4230,6 +5105,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private var sidebarItemRects: [DetailsSection: NSRect] = [:]
     private var numberUnitOptionRects: [NumberUnitStyle: NSRect] = [:]
     private var statusOptionRects: [StatusDisplayOption: NSRect] = [:]
+    private var quotaDisplayStyleRects: [QuotaDisplayStyle: NSRect] = [:]
     private var chooseLogFolderRect: NSRect?
     private var resetLogFolderRect: NSRect?
     private var openLogFolderRect: NSRect?
@@ -4266,6 +5142,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private let languagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let showHistoricalEmptyWeeksSwitch = NSSwitch(frame: .zero)
     private let launchAtLoginSwitch = NSSwitch(frame: .zero)
+    private let showCodexStatusSwitch = NSSwitch(frame: .zero)
     private let quotaWarningsSwitch = NSSwitch(frame: .zero)
     private let profileAPITotalsSwitch = NSSwitch(frame: .zero)
     private var isUpdatingCostControls = false
@@ -4397,6 +5274,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         launchAtLoginSwitch.action = #selector(launchAtLoginChanged)
         addSubview(launchAtLoginSwitch)
 
+        showCodexStatusSwitch.controlSize = .small
+        showCodexStatusSwitch.isHidden = true
+        showCodexStatusSwitch.target = self
+        showCodexStatusSwitch.action = #selector(showCodexStatusChanged)
+        addSubview(showCodexStatusSwitch)
+
         quotaWarningsSwitch.controlSize = .small
         quotaWarningsSwitch.isHidden = true
         quotaWarningsSwitch.target = self
@@ -4479,6 +5362,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let visible = selectedSection == .settings
         languagePopup.isHidden = !visible
         launchAtLoginSwitch.isHidden = !visible
+        showCodexStatusSwitch.isHidden = !visible
         quotaWarningsSwitch.isHidden = !visible
         profileAPITotalsSwitch.isHidden = !visible
         guard visible else { return }
@@ -4487,9 +5371,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(612, content.height - 78))
         let popupWidth = min(300, max(252, rect.width * 0.34))
         languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
-        launchAtLoginSwitch.frame = NSRect(x: rect.maxX - 64, y: rect.minY + 414, width: 48, height: 24)
-        quotaWarningsSwitch.frame = NSRect(x: rect.maxX - 64, y: rect.minY + 472, width: 48, height: 24)
-        profileAPITotalsSwitch.frame = NSRect(x: rect.maxX - 64, y: rect.minY + 530, width: 48, height: 24)
+        let leftSwitchX = rect.midX - 64
+        let rightSwitchX = rect.maxX - 64
+        showCodexStatusSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 474, width: 48, height: 24)
+        launchAtLoginSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 474, width: 48, height: 24)
+        quotaWarningsSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 502, width: 48, height: 24)
+        profileAPITotalsSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 502, width: 48, height: 24)
         updateLanguagePopupFromSettings()
         updateSettingsControlsFromSystem()
     }
@@ -4507,6 +5394,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private func updateSettingsControlsFromSystem() {
         guard selectedSection == .settings else { return }
         launchAtLoginSwitch.state = LoginItemManager.isEnabled ? .on : .off
+        showCodexStatusSwitch.state = AppSettings.showCodexStatusEnabled ? .on : .off
         quotaWarningsSwitch.state = AppSettings.quotaWarningsEnabled ? .on : .off
         profileAPITotalsSwitch.state = AppSettings.profileAPITotalsEnabled ? .on : .off
     }
@@ -4595,9 +5483,18 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 ?? report.byDay.last(where: { $0.usage.total > 0 })
                 ?? report.byDay.last
             let localDay = day.flatMap { profileDay in snapshot.all.byDay.first { $0.day == profileDay.day } }
+            let apiEstimate = day.map { profileAPIDayEstimate(profileDay: $0, localDay: localDay) }
+            let metricsCount = 3 + (apiEstimate?.hasPricedUsage == true ? 1 : 0)
+            let startX = min(CGFloat(420), max(CGFloat(292), contentWidth * 0.50))
+            let gap: CGFloat = 12
+            let availableMetricWidth = max(0, contentWidth - startX - 18)
+            let columns = metricsCount > 3 && availableMetricWidth >= 500 ? 4 : min(3, metricsCount)
+            let metricRows = Int(ceil(Double(metricsCount) / Double(max(columns, 1))))
+            let metricH: CGFloat = 74
+            let metricsBottom = CGFloat(42) + CGFloat(metricRows) * metricH + CGFloat(max(0, metricRows - 1)) * gap
             let visibleModelRows = max(1, min(localDay?.modelBreakdown.count ?? 0, 5))
             let minimumModelHeight = 22 + CGFloat(visibleModelRows) * 22
-            let modelY: CGFloat = 134
+            let modelY = max(CGFloat(134), metricsBottom + 18)
             return max(284, modelY + minimumModelHeight + 18)
         }
         let report = snapshot.all
@@ -4768,6 +5665,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 onStatusDisplayChanged?(option)
                 return
             }
+            for (style, rect) in quotaDisplayStyleRects where rect.contains(point) {
+                onQuotaDisplayStyleChanged?(style)
+                return
+            }
             if chooseLogFolderRect?.contains(point) == true {
                 onChooseLogFolder?()
                 return
@@ -4859,6 +5760,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
+    @objc private func showCodexStatusChanged() {
+        onShowCodexStatusChanged?(showCodexStatusSwitch.state == .on)
+        updateSettingsControlsFromSystem()
+        needsDisplay = true
+        needsLayout = true
+    }
+
     @objc private func quotaWarningsChanged() {
         onQuotaWarningsChanged?(quotaWarningsSwitch.state == .on)
         updateSettingsControlsFromSystem()
@@ -4920,6 +5828,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         profileAPIInfoRect = nil
         numberUnitOptionRects.removeAll()
         statusOptionRects.removeAll()
+        quotaDisplayStyleRects.removeAll()
         chooseLogFolderRect = nil
         resetLogFolderRect = nil
         openLogFolderRect = nil
@@ -5128,6 +6037,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let liveText = snapshot.liveLimits.isEmpty
             ? t(.liveLimitUnavailable)
             : "\(snapshot.liveLimits.count) windows"
+        let serviceText = snapshot.serviceStatus.map { localizedCodexStatus($0.overallStatus) } ?? t(.codexStatusUnavailable)
+        let serviceColor = snapshot.serviceStatus.map { codexStatusColor($0.overallStatus) } ?? accentAmber
+        let incidentText = snapshot.serviceStatus?.activeIncident?.name ?? t(.codexNoActiveIncident)
+        let incidentColor = snapshot.serviceStatus?.activeIncident.map { codexStatusColor($0.status) } ?? NSColor.white.withAlphaComponent(0.58)
         let profileText: String
         let profileColor: NSColor
         if !AppSettings.profileAPITotalsEnabled {
@@ -5145,6 +6058,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             ("Codex CLI", cliPath ?? t(.fileMissing), cliPath == nil ? accentRose : accentTeal),
             ("auth.json", FileManager.default.fileExists(atPath: authURL.path) ? t(.filePresent) : t(.fileMissing), FileManager.default.fileExists(atPath: authURL.path) ? accentTeal : accentAmber),
             (t(.liveQuota), liveText, snapshot.liveLimits.isEmpty ? accentRose : accentTeal),
+            (t(.codexStatus), serviceText, serviceColor),
+            (t(.codexIncident), incidentText, incidentColor),
             (t(.profileAPITotals), profileText, profileColor),
             (t(.modelLimit), "\(AppSettings.modelLimitName) / \(AppSettings.modelLimitID)", accentTeal),
             (t(.logFolder), "\(AppSettings.logFolderURLs.count) roots", AppSettings.logFolderURLs.isEmpty ? accentRose : accentTeal),
@@ -5585,31 +6500,62 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         profileAPIInfoRect = iconRect
         drawInfoMark(rect: iconRect, highlighted: isHoveringProfileAPIInfo)
 
-        let metrics: [(String, String, NSColor)] = [
-            (t(.profileAPISource), rawProfileDay.map { compact($0.usage.total) } ?? "--", accentTeal),
-            (t(.logs), localDay.map { compact($0.usage.total) } ?? "--", NSColor.systemGreen),
-            (t(.peakDay), snapshot.accountUsage?.summary.peakDailyTokens.map { compact($0) } ?? "--", NSColor.systemCyan)
+        typealias ProfileDayMetric = (title: String, value: String, color: NSColor, footer: String?)
+        var metrics: [ProfileDayMetric] = [
+            (t(.profileAPISource), rawProfileDay.map { compact($0.usage.total) } ?? "--", accentTeal, nil),
+            (t(.logs), localDay.map { compact($0.usage.total) } ?? "--", NSColor.systemGreen, nil),
+            (t(.peakDay), snapshot.accountUsage?.summary.peakDailyTokens.map { compact($0) } ?? "--", NSColor.systemCyan, nil)
         ]
+        let apiEstimate = profileAPIDayEstimate(profileDay: day, localDay: localDay)
+        if apiEstimate.hasPricedUsage {
+            let footer = apiEstimate.coveragePercent < 99.5 ? "\(String(format: "%.0f%%", apiEstimate.coveragePercent)) \(t(.priced))" : nil
+            metrics.append((t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), accentTeal, footer))
+        }
+
         let startX = rect.minX + min(420, max(292, rect.width * 0.50))
         let gap: CGFloat = 12
         let availableMetricWidth = max(0, rect.maxX - startX - 18)
-        let columns = min(3, metrics.count)
+        let columns = metrics.count > 3 && availableMetricWidth >= 500 ? 4 : min(3, metrics.count)
         let metricW = (availableMetricWidth - gap * CGFloat(columns - 1)) / CGFloat(columns)
+        let metricH: CGFloat = 74
         for (index, metric) in metrics.enumerated() {
-            let card = NSRect(x: startX + CGFloat(index) * (metricW + gap), y: rect.minY + 42, width: metricW, height: 74)
+            let col = index % columns
+            let row = index / columns
+            let card = NSRect(x: startX + CGFloat(col) * (metricW + gap), y: rect.minY + 42 + CGFloat(row) * (metricH + gap), width: metricW, height: metricH)
             NSColor.black.withAlphaComponent(0.12).setFill()
             NSBezierPath(roundedRect: card, xRadius: 7, yRadius: 7).fill()
-            drawText(metric.0, rect: NSRect(x: card.minX + 12, y: card.minY + 14, width: card.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
-            drawText(metric.1, rect: NSRect(x: card.minX + 12, y: card.minY + 38, width: card.width - 24, height: 22), font: .monospacedDigitSystemFont(ofSize: metricW < 96 ? 13 : 15, weight: .bold), color: metric.2)
+            let labelH: CGFloat = 16
+            let valueH: CGFloat = 22
+            let footerH: CGFloat = metric.footer == nil ? 0 : 14
+            let blockH = labelH + 3 + valueH + (metric.footer == nil ? 0 : 2 + footerH)
+            let blockY = card.midY - blockH / 2
+            drawText(metric.title, rect: NSRect(x: card.minX + 12, y: blockY, width: card.width - 24, height: labelH), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
+            drawText(metric.value, rect: NSRect(x: card.minX + 12, y: blockY + labelH + 3, width: card.width - 24, height: valueH), font: .monospacedDigitSystemFont(ofSize: metricW < 96 ? 13 : 15, weight: .bold), color: metric.color)
+            if let footer = metric.footer {
+                drawText(footer, rect: NSRect(x: card.minX + 12, y: blockY + labelH + 3 + valueH + 2, width: card.width - 24, height: footerH), font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.54))
+            }
         }
 
+        let metricRows = Int(ceil(Double(metrics.count) / Double(max(columns, 1))))
+        let metricsBottom = rect.minY + 42 + CGFloat(metricRows) * metricH + CGFloat(max(0, metricRows - 1)) * gap
+        let modelY = max(rect.minY + 134, metricsBottom + 18)
         let modelRect = NSRect(
             x: rect.minX + 18,
-            y: rect.minY + 134,
+            y: modelY,
             width: rect.width - 36,
-            height: max(88, rect.maxY - rect.minY - 152)
+            height: max(88, rect.maxY - modelY - 18)
         )
         drawSelectedDayModels(localDay?.modelBreakdown ?? [], rect: modelRect)
+    }
+
+    private func profileAPIDayEstimate(profileDay: DayUsage, localDay: DayUsage?) -> APICostEstimate {
+        guard let localDay else {
+            return APICostEstimator.estimate(day: profileDay)
+        }
+        let modelBreakdown = localDay.modelBreakdown.isEmpty ? profileDay.modelBreakdown : localDay.modelBreakdown
+        let usage = profileDay.usage.total > 0 ? profileDay.usage : localDay.usage
+        let mergedDay = DayUsage(day: profileDay.day, usage: usage, turns: profileDay.turns, modelBreakdown: modelBreakdown)
+        return APICostEstimator.estimate(day: mergedDay)
     }
 
     private func drawSelectedDayPanel(snapshot: DetailsSnapshot, rect: NSRect) {
@@ -5648,7 +6594,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let apiEstimate = APICostEstimator.estimate(day: day)
         if apiEstimate.hasPricedUsage {
             let footer = apiEstimate.coveragePercent < 99.5 ? "\(String(format: "%.0f%%", apiEstimate.coveragePercent)) \(t(.priced))" : nil
-            metrics.append((t(.apiEquivalent), displayAPIMoney(apiEstimate.usdValue), accentTeal, false, footer))
+            metrics.append((t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), accentTeal, false, footer))
         }
         let startX = rect.minX + 310
         let gap: CGFloat = 12
@@ -5798,14 +6744,25 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
         drawText(t(.statusDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 378, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.launchAtLogin), rect: NSRect(x: rect.minX + 16, y: rect.minY + 414, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.launchAtLoginHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 444, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        drawText(t(.quotaDisplayStyle), rect: NSRect(x: rect.minX + 16, y: rect.minY + 410, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        let quotaStyleY = rect.minY + 406
+        let quotaStyleGap: CGFloat = 10
+        let quotaStyleW: CGFloat = 116
+        let quotaStyleStartX = rect.maxX - 16 - quotaStyleW * CGFloat(QuotaDisplayStyle.allCases.count) - quotaStyleGap * CGFloat(QuotaDisplayStyle.allCases.count - 1)
+        for (index, style) in QuotaDisplayStyle.allCases.enumerated() {
+            let optionRect = NSRect(x: quotaStyleStartX + CGFloat(index) * (quotaStyleW + quotaStyleGap), y: quotaStyleY, width: quotaStyleW, height: 36)
+            quotaDisplayStyleRects[style] = optionRect
+            drawSelectablePill(style.title, rect: optionRect, selected: style == QuotaDisplayStyle.current)
+        }
+        drawText(t(.quotaDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 452, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 472, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.quotaWarningsHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 502, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
-
-        drawText(t(.profileAPITotals), rect: NSRect(x: rect.minX + 16, y: rect.minY + 530, width: 240, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.profileAPITotalsHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 560, width: rect.width - 32, height: 34), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        let leftSwitchLabelW = max(120, showCodexStatusSwitch.frame.minX - rect.minX - 24)
+        let rightSwitchLabelX = rect.midX + 18
+        let rightSwitchLabelW = max(120, launchAtLoginSwitch.frame.minX - rightSwitchLabelX - 8)
+        drawText(t(.showCodexStatus), rect: NSRect(x: rect.minX + 16, y: rect.minY + 476, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.launchAtLogin), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 476, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 504, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.profileAPITotals), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 504, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
     }
 
     private var costUsedColor: NSColor {
@@ -6468,6 +7425,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
     private let rateLimitReader = LiveRateLimitReader()
     private let accountUsageReader = AccountUsageReader()
+    private let serviceStatusReader = CodexServiceStatusReader()
     private let localFormatter = DateFormatter()
     private let scanQueue = DispatchQueue(label: "local.codex-token-meter.scan", qos: .utility)
     private let liveQueue = DispatchQueue(label: "local.codex-token-meter.live", qos: .utility)
@@ -6477,6 +7435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var reportCache: [ReportCacheKey: TokenReport] = [:]
     private var accountUsage: AccountUsageSnapshot?
     private var liveLimits: [LiveRateLimit] = []
+    private var serviceStatus: CodexServiceStatusSnapshot?
     private var refreshTimer: Timer?
     private var liveRefreshTimer: Timer?
     private var activeScans: Set<ReportCacheKey> = []
@@ -6514,6 +7473,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         dashboardController.dashboardView.onOpenDetails = { [weak self] in self?.openDetailsWindow() }
         dashboardController.dashboardView.onOpenLogs = { [weak self] in self?.openSessionsFolder() }
+        dashboardController.dashboardView.onOpenCodexStatus = { [weak self] in self?.openCodexStatusPage() }
         dashboardController.dashboardView.onQuit = { NSApp.terminate(nil) }
         detailsController.detailsView.onLanguageChanged = { [weak self] language in
             AppLanguage.current = language
@@ -6528,6 +7488,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             detailsController.detailsView.needsDisplay = true
             updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
         }
+        detailsController.detailsView.onQuotaDisplayStyleChanged = { [weak self] style in
+            self?.changeQuotaDisplayStyle(style)
+        }
         detailsController.detailsView.onPlanCostChanged = { [weak self] value in self?.changePlanCost(value) }
         detailsController.detailsView.onPaymentStartDayChanged = { [weak self] value in self?.changePaymentStartDay(value) }
         detailsController.detailsView.onPaymentCurrencyChanged = { [weak self] currency in self?.changePaymentCurrency(currency) }
@@ -6537,6 +7500,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onResetLogFolder = { [weak self] in self?.resetLogFolder() }
         detailsController.detailsView.onOpenLogFolder = { [weak self] in self?.openSessionsFolder() }
         detailsController.detailsView.onLaunchAtLoginChanged = { [weak self] isOn in self?.changeLaunchAtLogin(isOn) }
+        detailsController.detailsView.onShowCodexStatusChanged = { [weak self] isOn in self?.changeShowCodexStatus(isOn) }
         detailsController.detailsView.onQuotaWarningsChanged = { [weak self] isOn in self?.changeQuotaWarnings(isOn) }
         detailsController.detailsView.onProfileAPITotalsChanged = { [weak self] isOn in self?.changeProfileAPITotals(isOn) }
         applyLanguage()
@@ -6661,6 +7625,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: cached),
                 liveLimits: liveLimits,
+                serviceStatus: serviceStatus,
                 selectedWindow: selectedWindow,
                 selectedQuota: selectedQuota,
                 nextRefreshAt: latestState.nextRefreshAt,
@@ -6676,6 +7641,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: nil),
                 liveLimits: liveLimits,
+                serviceStatus: serviceStatus,
                 selectedWindow: selectedWindow,
                 selectedQuota: selectedQuota,
                 nextRefreshAt: latestState.nextRefreshAt,
@@ -6700,6 +7666,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             accountUsage: accountUsage,
             costReferenceReport: costReferenceReport(quota: quota, fallback: reportCache[key]),
             liveLimits: liveLimits,
+            serviceStatus: serviceStatus,
             selectedWindow: window,
             selectedQuota: quota,
             nextRefreshAt: latestState.nextRefreshAt,
@@ -6740,6 +7707,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
                         liveLimits: effectiveLimits,
+                        serviceStatus: self.serviceStatus,
                         selectedWindow: window,
                         selectedQuota: quota,
                         nextRefreshAt: nextRefresh,
@@ -6750,6 +7718,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.dashboardController.dashboardView.update(self.latestState)
                 } else if forceLive, !limits.isEmpty {
                     self.latestState.liveLimits = limits
+                    self.latestState.serviceStatus = self.serviceStatus
                     self.latestState.accountUsage = self.accountUsage
                     self.latestState.profileReport = self.profileReport(window: self.latestState.selectedWindow, quota: self.latestState.selectedQuota, accountUsage: self.accountUsage, localReport: self.latestState.report)
                     self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
@@ -6765,12 +7734,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveRefreshInFlight = true
         liveQueue.async {
             let limits = self.rateLimitReader.read()
+            let serviceStatus = self.serviceStatusReader.read()
             AppSettings.learnModelLimit(from: limits)
             CostHistoryStore.shared.record(limits: limits)
             QuotaWarningManager.shared.evaluate(limits: limits)
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             DispatchQueue.main.async {
                 self.liveRefreshInFlight = false
+                if let serviceStatus {
+                    self.serviceStatus = serviceStatus
+                    self.latestState.serviceStatus = serviceStatus
+                    self.detailsController.updateServiceStatus(serviceStatus)
+                }
                 guard !limits.isEmpty else {
                     self.updateStatusTitle(report: self.latestState.report, limits: self.liveLimits, quota: self.latestState.selectedQuota)
                     self.dashboardController.dashboardView.update(self.latestState)
@@ -6781,7 +7756,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.latestState.error = nil
                 self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
                 self.dashboardController.dashboardView.update(self.latestState)
-                self.detailsController.updateLiveLimits(limits, costReferenceReport: costReferenceReport)
+                self.detailsController.updateLiveLimits(limits, costReferenceReport: costReferenceReport, serviceStatus: self.serviceStatus)
             }
         }
     }
@@ -6811,6 +7786,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
                         liveLimits: self.liveLimits,
+                        serviceStatus: self.serviceStatus,
                         selectedWindow: window,
                         selectedQuota: quota,
                         nextRefreshAt: self.latestState.nextRefreshAt,
@@ -6953,6 +7929,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(AppSettings.logFolderOpenURL)
     }
 
+    private func openCodexStatusPage() {
+        guard let url = URL(string: "https://status.openai.com") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     private func chooseLogFolder() {
         let panel = NSOpenPanel()
         panel.title = t(.logFolder)
@@ -7011,6 +7992,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
     }
 
+    private func changeQuotaDisplayStyle(_ style: QuotaDisplayStyle) {
+        QuotaDisplayStyle.current = style
+        detailsController.detailsView.needsDisplay = true
+        dashboardController.dashboardView.needsLayout = true
+        dashboardController.dashboardView.update(latestState)
+    }
+
     private func changeShowHistoricalEmptyWeeks(_ value: Bool) {
         AppSettings.showHistoricalEmptyWeeks = value
         detailsController.detailsView.needsDisplay = true
@@ -7021,6 +8009,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = LoginItemManager.setEnabled(value)
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
+    }
+
+    private func changeShowCodexStatus(_ value: Bool) {
+        AppSettings.showCodexStatusEnabled = value
+        detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
+        dashboardController.dashboardView.needsLayout = true
+        dashboardController.dashboardView.update(latestState)
     }
 
     private func changeQuotaWarnings(_ value: Bool) {
@@ -7068,6 +8064,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             refreshLiveLimits()
         }
         let limits = liveLimits
+        let currentServiceStatus = serviceStatus
         let currentAccountUsage = accountUsage
         scanQueue.async {
             let all = self.scanner.scan(days: 365)
@@ -7075,7 +8072,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let other = self.scanner.scan(days: 365, excludedModelName: QuotaViewOption.other.excludedModelName)
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             let accountUsage = self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
-            let snapshot = DetailsSnapshot(all: all, spark: spark, other: other, liveLimits: limits, costReferenceReport: costReferenceReport, accountUsage: accountUsage)
+            let snapshot = DetailsSnapshot(all: all, spark: spark, other: other, liveLimits: limits, serviceStatus: currentServiceStatus, costReferenceReport: costReferenceReport, accountUsage: accountUsage)
             DispatchQueue.main.async {
                 if let accountUsage {
                     self.accountUsage = accountUsage
@@ -7602,14 +8599,121 @@ private func relative(_ date: Date?) -> String {
     return relative(date)
 }
 
+private func compactResetRelative(_ date: Date?) -> String {
+    guard let date else { return "--" }
+    return compactResetRelative(date)
+}
+
+private func compactResetRelative(_ date: Date) -> String {
+    let seconds = Int(date.timeIntervalSinceNow)
+    let absSeconds = abs(seconds)
+    let suffix = seconds >= 0 ? "" : " ago"
+    if absSeconds < 60 { return "0m\(suffix)" }
+    let totalMinutes = absSeconds / 60
+    let days = totalMinutes / (24 * 60)
+    let hours = (totalMinutes % (24 * 60)) / 60
+    let minutes = totalMinutes % 60
+
+    if days > 0 {
+        return hours > 0 ? "\(days)d\(hours)h\(suffix)" : "\(days)d\(suffix)"
+    }
+    if hours > 0 { return "\(hours)h\(suffix)" }
+    return "\(minutes)m\(suffix)"
+}
+
 private func relative(_ date: Date) -> String {
     let seconds = Int(date.timeIntervalSinceNow)
     let absSeconds = abs(seconds)
     let suffix = seconds >= 0 ? "" : " ago"
-    if absSeconds < 60 { return seconds >= 0 ? "now" : "just now" }
-    if absSeconds < 3600 { return "\(absSeconds / 60)m\(suffix)" }
-    if absSeconds < 86400 { return "\(absSeconds / 3600)h\((absSeconds % 3600) / 60)m\(suffix)" }
-    return "\(absSeconds / 86400)d\(suffix)"
+    if absSeconds < 60 { return "0m\(suffix)" }
+    let totalMinutes = absSeconds / 60
+    let days = totalMinutes / (24 * 60)
+    let hours = (totalMinutes % (24 * 60)) / 60
+    let minutes = totalMinutes % 60
+
+    if days > 0 { return "\(days)d\(hours)h\(minutes)m\(suffix)" }
+    if hours > 0 { return "\(hours)h\(minutes)m\(suffix)" }
+    return "\(minutes)m\(suffix)"
+}
+
+private func requestedWindow(from arguments: [String]) -> WindowOption? {
+    arguments.compactMap { argument -> WindowOption? in
+        guard argument.hasPrefix("--window=") else { return nil }
+        switch argument.dropFirst("--window=".count) {
+        case "24h", "day": return .day
+        case "7d", "week": return .week
+        case "30d", "month": return .month
+        default: return nil
+        }
+    }.first
+}
+
+private func requestedQuota(from arguments: [String]) -> QuotaViewOption? {
+    arguments.compactMap { argument -> QuotaViewOption? in
+        guard argument.hasPrefix("--quota=") else { return nil }
+        return QuotaViewOption(rawValue: String(argument.dropFirst("--quota=".count)))
+    }.first
+}
+
+private func requestedHours(from arguments: [String], defaultValue: Int = WindowOption.week.rawValue) -> Int {
+    arguments.compactMap { argument -> Int? in
+        guard argument.hasPrefix("--hours=") else { return nil }
+        return Int(argument.dropFirst("--hours=".count))
+    }.first ?? defaultValue
+}
+
+private func writePNG(of view: NSView, to url: URL) throws {
+    guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+        throw NSError(domain: "CodexTokenMeter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create bitmap"])
+    }
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    guard let data = bitmap.representation(using: .png, properties: [:]) else {
+        throw NSError(domain: "CodexTokenMeter", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to encode PNG"])
+    }
+    try data.write(to: url, options: [.atomic])
+}
+
+private func renderDashboardSnapshot(arguments: [String]) throws -> URL {
+    let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
+    let window = requestedWindow(from: arguments) ?? .week
+    let quota = requestedQuota(from: arguments) ?? .other
+    let report = scanner.scan(window: window, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
+    let liveLimits = LiveRateLimitReader().read()
+    let serviceStatus = CodexServiceStatusReader().read()
+    let accountUsage = AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
+    let profileReport: TokenReport?
+    if quota == .all, let accountUsage, accountUsage.hasData {
+        profileReport = profileReportWithLocalFallback(accountUsage.report(window: window), localReport: report)
+    } else {
+        profileReport = nil
+    }
+
+    let outputURL = arguments
+        .compactMap { argument -> URL? in
+            guard argument.hasPrefix("--render-dashboard=") else { return nil }
+            return URL(fileURLWithPath: String(argument.dropFirst("--render-dashboard=".count)))
+        }
+        .first ?? URL(fileURLWithPath: "/tmp/codex-token-meter-dashboard.png")
+
+    let state = DashboardState(
+        report: report,
+        profileReport: profileReport,
+        accountUsage: accountUsage,
+        costReferenceReport: nil,
+        liveLimits: liveLimits,
+        serviceStatus: serviceStatus,
+        selectedWindow: window,
+        selectedQuota: quota,
+        nextRefreshAt: Date().addingTimeInterval(300),
+        isLoading: false,
+        error: nil
+    )
+
+    let view = DashboardView(frame: NSRect(origin: .zero, size: DashboardView.idealSize))
+    view.update(state)
+    view.layoutSubtreeIfNeeded()
+    try writePNG(of: view, to: outputURL)
+    return outputURL
 }
 
 if CommandLine.arguments.contains("--print-profile") {
@@ -7659,31 +8763,38 @@ if CommandLine.arguments.contains("--print-live") {
     exit(0)
 }
 
+if CommandLine.arguments.contains("--print-service-status") {
+    let snapshot = CodexServiceStatusReader().read()
+    let payload: [String: Any] = [
+        "present": snapshot != nil,
+        "updated_at": snapshot?.statusPageUpdatedAt?.description ?? "",
+        "read_at": snapshot?.readAt.description ?? "",
+        "overall_status": snapshot?.overallStatus ?? "",
+        "degraded_component_count": snapshot?.degradedComponents.count ?? 0,
+        "component_count": snapshot?.components.count ?? 0,
+        "components": snapshot?.components.map { ["name": $0.name, "status": $0.status] } ?? [],
+        "active_incident": snapshot?.activeIncident.map { incident in
+            [
+                "name": incident.name,
+                "status": incident.status,
+                "message": incident.message,
+                "created_at": incident.createdAt?.description ?? "",
+                "updated_at": incident.updatedAt?.description ?? ""
+            ] as [String: Any]
+        } ?? [:]
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+       let text = String(data: data, encoding: .utf8) {
+        print(text)
+    }
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--print") {
     let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
-    let requestedWindow = CommandLine.arguments
-        .compactMap { argument -> WindowOption? in
-            guard argument.hasPrefix("--window=") else { return nil }
-            switch argument.dropFirst("--window=".count) {
-            case "24h", "day": return .day
-            case "7d", "week": return .week
-            case "30d", "month": return .month
-            default: return nil
-            }
-        }
-        .first
-    let hours = CommandLine.arguments
-        .compactMap { argument -> Int? in
-            guard argument.hasPrefix("--hours=") else { return nil }
-            return Int(argument.dropFirst("--hours=".count))
-        }
-        .first ?? WindowOption.week.rawValue
-    let quota = CommandLine.arguments
-        .compactMap { argument -> QuotaViewOption? in
-            guard argument.hasPrefix("--quota=") else { return nil }
-            return QuotaViewOption(rawValue: String(argument.dropFirst("--quota=".count)))
-        }
-        .first
+    let requestedWindow = requestedWindow(from: CommandLine.arguments)
+    let hours = requestedHours(from: CommandLine.arguments)
+    let quota = requestedQuota(from: CommandLine.arguments)
     let report = requestedWindow.map { scanner.scan(window: $0, includedModelName: quota?.includedModelName, excludedModelName: quota?.excludedModelName) }
         ?? scanner.scan(hours: hours, includedModelName: quota?.includedModelName, excludedModelName: quota?.excludedModelName)
     let apiEstimate = APICostEstimator.estimate(report: report)
@@ -7763,6 +8874,17 @@ if CommandLine.arguments.contains("--print") {
     if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
        let text = String(data: data, encoding: .utf8) {
         print(text)
+    }
+    exit(0)
+}
+
+if CommandLine.arguments.contains("--render-dashboard") || CommandLine.arguments.contains(where: { $0.hasPrefix("--render-dashboard=") }) {
+    do {
+        let url = try renderDashboardSnapshot(arguments: CommandLine.arguments)
+        print(url.path)
+    } catch {
+        fputs("Failed to render dashboard: \(error)\n", stderr)
+        exit(1)
     }
     exit(0)
 }
