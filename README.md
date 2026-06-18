@@ -49,7 +49,7 @@ When available, it also reads live quota data from the local Codex runtime, incl
 - Cache hit-rate ring.
 - Compact Codex service-status chip sourced from `status.openai.com`, with a settings toggle to show or hide it.
 - Token breakdown for input, output, cached input, fresh input, and total tokens.
-- Details window with overview, model, calendar, cost, diagnostics, settings, and about pages.
+- Details window with overview, calendar, cost, model, settings, diagnostics, and about pages.
 - 365-day activity calendar with daily detail cards.
 - Model-level aggregation for long-term usage analysis.
 - Cost page for monthly plan cost, remaining budget, historical spend, estimated daily value, API-equivalent token cost, and optional external API cost.

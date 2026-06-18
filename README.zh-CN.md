@@ -53,7 +53,7 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 - 显示缓存命中率圆环。
 - 通过 `status.openai.com` 监控官方 Codex 服务状态，用一个极简的 Codex 状态 chip 展示，并可在设置里开关。
 - 展示 input、output、cached input、fresh input 和 total token。
-- 详情窗口包含概览、模型、日历、金额、诊断、设置和关于页面。
+- 详情窗口包含概览、日历、金额、模型、设置、诊断和关于页面。
 - 过去 365 天日历热力图，点击某一天可查看当天用量详情。
 - 模型页面按模型聚合长期 token 用量。
 - 金额页面支持月付金额、本周剩余预算、历史消耗、当日价值、API 等价成本、可选外部 API 成本和币种折算。
