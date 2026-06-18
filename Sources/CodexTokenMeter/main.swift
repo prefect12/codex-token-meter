@@ -3717,13 +3717,6 @@ final class RingView: NSView {
         start: CGFloat,
         end: CGFloat
     ) {
-        let actualColor: NSColor
-        switch comparison.status {
-        case .ahead:
-            actualColor = NSColor.systemRed
-        case .behind:
-            actualColor = NSColor.systemGreen
-        }
         let markerColor = expectedRemainingMarkerColor(
             expected: comparison.expectedRemainingPercent,
             actual: comparison.actualRemainingPercent
@@ -3742,14 +3735,14 @@ final class RingView: NSView {
             center: center,
             fontSize: 23,
             maxWidth: 76,
-            valueColor: actualColor
+            valueColor: .white
         )
     }
 
     private func drawExpectedRemainingMarker(percent: Double, center: CGPoint, radius: CGFloat, lineWidth: CGFloat, start: CGFloat, end: CGFloat, color: NSColor) {
         let clamped = max(0, min(100, percent)) / 100
         let angle = start + (end - start) * CGFloat(clamped)
-        let markerLineWidth = max(6.0, lineWidth * 0.92)
+        let markerLineWidth = max(2.4, lineWidth * 0.32)
         let markerCenter = CGPoint(
             x: center.x + cos(angle) * radius,
             y: center.y + sin(angle) * radius
@@ -3779,7 +3772,7 @@ final class RingView: NSView {
         if actual >= expected {
             return NSColor(calibratedRed: 0.56, green: 1.0, blue: 0.16, alpha: 0.98)
         }
-        return NSColor.systemRed.withAlphaComponent(0.98)
+        return NSColor.systemYellow.withAlphaComponent(0.98)
     }
 
     private func drawComparisonValue(value: String, center: CGPoint, fontSize: CGFloat, maxWidth: CGFloat, valueColor: NSColor) {
@@ -3958,7 +3951,7 @@ final class QuotaBulletView: NSView {
         if actual >= expected {
             return NSColor(calibratedRed: 0.56, green: 1.0, blue: 0.16, alpha: 0.98)
         }
-        return NSColor.systemRed.withAlphaComponent(0.98)
+        return NSColor.systemYellow.withAlphaComponent(0.98)
     }
 
     private func meterNumberFont(ofSize size: CGFloat) -> NSFont {
