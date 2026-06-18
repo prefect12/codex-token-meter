@@ -6609,6 +6609,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         guard let localDay else {
             return APICostEstimator.estimate(day: profileDay)
         }
+        let localEstimate = APICostEstimator.estimate(day: localDay)
+        if localEstimate.hasPricedUsage {
+            return APICostEstimate(
+                usdValue: localEstimate.usdValue,
+                pricedTokens: localEstimate.pricedTokens,
+                totalTokens: max(profileDay.usage.total, localEstimate.totalTokens)
+            )
+        }
         let modelBreakdown = localDay.modelBreakdown.isEmpty ? profileDay.modelBreakdown : localDay.modelBreakdown
         let usage = profileDay.usage.total > 0 ? profileDay.usage : localDay.usage
         let mergedDay = DayUsage(day: profileDay.day, usage: usage, turns: profileDay.turns, modelBreakdown: modelBreakdown)
