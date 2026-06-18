@@ -1732,7 +1732,6 @@ struct RateWindow {
 
 private enum PaceStatus {
     case ahead
-    case onTrack
     case behind
 }
 
@@ -1761,14 +1760,11 @@ private func paceComparison(for window: RateWindow, now: Date = Date()) -> PaceC
     let progressPercent = elapsedRatio * 100
     let usedPercent = max(0, window.usedPercent)
     let delta = usedPercent - progressPercent
-    let tolerance = 4.0
     let status: PaceStatus
-    if delta > tolerance {
+    if delta > 0 {
         status = .ahead
-    } else if delta < -tolerance {
-        status = .behind
     } else {
-        status = .onTrack
+        status = .behind
     }
 
     return PaceComparison(
@@ -3724,11 +3720,9 @@ final class RingView: NSView {
         let actualColor: NSColor
         switch comparison.status {
         case .ahead:
-            actualColor = NSColor.systemOrange
+            actualColor = NSColor.systemRed
         case .behind:
             actualColor = NSColor.systemGreen
-        case .onTrack:
-            actualColor = NSColor.white.withAlphaComponent(0.92)
         }
         let markerColor = expectedRemainingMarkerColor(
             expected: comparison.expectedRemainingPercent,
@@ -3755,14 +3749,13 @@ final class RingView: NSView {
     private func drawExpectedRemainingMarker(percent: Double, center: CGPoint, radius: CGFloat, lineWidth: CGFloat, start: CGFloat, end: CGFloat, color: NSColor) {
         let clamped = max(0, min(100, percent)) / 100
         let angle = start + (end - start) * CGFloat(clamped)
-        let markerLineWidth = max(2.4, lineWidth * 0.32)
+        let markerLineWidth = max(6.0, lineWidth * 0.92)
         let markerCenter = CGPoint(
             x: center.x + cos(angle) * radius,
             y: center.y + sin(angle) * radius
         )
         let radial = CGPoint(x: cos(angle), y: sin(angle))
         let markerLength = max(15, lineWidth * 1.9)
-        let markerDash: [CGFloat] = [4.4, 2.6]
         let halfLength = markerLength / 2
         let startPoint = CGPoint(
             x: markerCenter.x - radial.x * halfLength,
@@ -3773,19 +3766,9 @@ final class RingView: NSView {
             y: markerCenter.y + radial.y * halfLength
         )
 
-        let underlay = NSBezierPath()
-        underlay.lineWidth = markerLineWidth + 0.9
-        underlay.lineCapStyle = .round
-        underlay.setLineDash(markerDash, count: markerDash.count, phase: 0)
-        underlay.move(to: startPoint)
-        underlay.line(to: endPoint)
-        NSColor.black.withAlphaComponent(0.24).setStroke()
-        underlay.stroke()
-
         let marker = NSBezierPath()
         marker.lineWidth = markerLineWidth
         marker.lineCapStyle = .round
-        marker.setLineDash(markerDash, count: markerDash.count, phase: 0)
         marker.move(to: startPoint)
         marker.line(to: endPoint)
         color.setStroke()
@@ -3793,14 +3776,10 @@ final class RingView: NSView {
     }
 
     private func expectedRemainingMarkerColor(expected: Double, actual: Double) -> NSColor {
-        let tolerance = 1.0
-        if expected < actual - tolerance {
+        if actual >= expected {
             return NSColor(calibratedRed: 0.56, green: 1.0, blue: 0.16, alpha: 0.98)
         }
-        if expected > actual + tolerance {
-            return NSColor.systemRed.withAlphaComponent(0.98)
-        }
-        return NSColor.white.withAlphaComponent(0.72)
+        return NSColor.systemRed.withAlphaComponent(0.98)
     }
 
     private func drawComparisonValue(value: String, center: CGPoint, fontSize: CGFloat, maxWidth: CGFloat, valueColor: NSColor) {
@@ -3838,11 +3817,9 @@ final class RingView: NSView {
                 statusText = "实际剩余低于预计，用得偏快"
             case .behind:
                 statusText = "实际剩余高于预计，用得较少"
-            case .onTrack:
-                statusText = "实际剩余接近预计"
             }
             lines.append("圈内数字：实际剩余 \(Int(round(comparison.actualRemainingPercent)))%")
-            lines.append("彩色虚线：预计剩余 \(Int(round(comparison.expectedRemainingPercent)))%")
+            lines.append("彩色标记：预计剩余 \(Int(round(comparison.expectedRemainingPercent)))%")
             lines.append(statusText)
         }
         if let resetTooltip {
@@ -3949,9 +3926,7 @@ final class QuotaBulletView: NSView {
             actual: comparison.actualRemainingPercent
         )
         let markerRect = NSRect(x: x - 1.5, y: bar.minY - 5, width: 3, height: bar.height + 10)
-        NSColor.black.withAlphaComponent(0.38).setFill()
-        NSBezierPath(roundedRect: markerRect.insetBy(dx: -1, dy: -1), xRadius: 3, yRadius: 3).fill()
-        markerColor.withAlphaComponent(0.92).setFill()
+        markerColor.setFill()
         NSBezierPath(roundedRect: markerRect, xRadius: 2, yRadius: 2).fill()
     }
 
@@ -3968,8 +3943,6 @@ final class QuotaBulletView: NSView {
                 statusText = "实际剩余低于预计，用得偏快"
             case .behind:
                 statusText = "实际剩余高于预计，用得较少"
-            case .onTrack:
-                statusText = "实际剩余接近预计"
             }
             lines.append("填充条：实际剩余 \(Int(round(comparison.actualRemainingPercent)))%")
             lines.append("竖标线：预计剩余 \(Int(round(comparison.expectedRemainingPercent)))%")
@@ -3982,14 +3955,10 @@ final class QuotaBulletView: NSView {
     }
 
     private func expectedRemainingMarkerColor(expected: Double, actual: Double) -> NSColor {
-        let tolerance = 1.0
-        if expected < actual - tolerance {
+        if actual >= expected {
             return NSColor(calibratedRed: 0.56, green: 1.0, blue: 0.16, alpha: 0.98)
         }
-        if expected > actual + tolerance {
-            return NSColor.systemRed.withAlphaComponent(0.98)
-        }
-        return NSColor.white.withAlphaComponent(0.72)
+        return NSColor.systemRed.withAlphaComponent(0.98)
     }
 
     private func meterNumberFont(ofSize size: CGFloat) -> NSFont {
@@ -4448,7 +4417,7 @@ final class DashboardView: NSView {
     var onQuotaChanged: ((QuotaViewOption) -> Void)?
     var onRefresh: (() -> Void)?
     var onOpenDetails: (() -> Void)?
-    var onOpenLogs: (() -> Void)?
+    var onOpenSettings: (() -> Void)?
     var onOpenCodexStatus: (() -> Void)?
     var onQuit: (() -> Void)?
 
@@ -4573,10 +4542,12 @@ final class DashboardView: NSView {
         for (index, option) in WindowOption.allCases.enumerated() {
             segment.setLabel(option.shortTitle, forSegment: index)
         }
-        buttonsByKey[.refresh]?.title = t(.refresh)
-        buttonsByKey[.settings]?.title = t(.settings)
-        buttonsByKey[.logs]?.title = t(.logs)
-        buttonsByKey[.quit]?.title = t(.quit)
+        for key in [L10nKey.refresh, .details, .settings, .quit] {
+            guard let button = buttonsByKey[key] else { continue }
+            button.title = t(key)
+            button.toolTip = t(key)
+            button.image = symbolImage(for: key)
+        }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -4730,8 +4701,8 @@ final class DashboardView: NSView {
         buttonsStack.distribution = .fillEqually
         addSubview(buttonsStack)
         addButton(.refresh, action: #selector(refreshTapped))
-        addButton(.settings, action: #selector(detailsTapped))
-        addButton(.logs, action: #selector(logsTapped))
+        addButton(.details, action: #selector(detailsTapped))
+        addButton(.settings, action: #selector(settingsTapped))
         addButton(.quit, action: #selector(quitTapped))
         applyLanguage()
     }
@@ -4752,6 +4723,8 @@ final class DashboardView: NSView {
         switch key {
         case .refresh:
             name = "arrow.clockwise"
+        case .details:
+            name = "chart.bar"
         case .settings:
             name = "gearshape"
         case .logs:
@@ -4818,7 +4791,7 @@ final class DashboardView: NSView {
 
     @objc private func refreshTapped() { onRefresh?() }
     @objc private func detailsTapped() { onOpenDetails?() }
-    @objc private func logsTapped() { onOpenLogs?() }
+    @objc private func settingsTapped() { onOpenSettings?() }
     @objc private func quitTapped() { onQuit?() }
 
     private func colorFor(percent: Double) -> NSColor {
@@ -5147,6 +5120,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private let profileAPITotalsSwitch = NSSwitch(frame: .zero)
     private var isUpdatingCostControls = false
     private var detailsTrackingArea: NSTrackingArea?
+
+    func showUsagePage() {
+        selectedSection = .overview
+    }
+
+    func showSettingsPage() {
+        selectedSection = .settings
+    }
 
     private var visibleCostControlFrames: [NSRect] {
         guard selectedSection == .costs else { return [] }
@@ -6727,7 +6708,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         openLogFolderRect = NSRect(x: rect.maxX - 284, y: logButtonY, width: 76, height: 34)
         resetLogFolderRect = NSRect(x: rect.maxX - 196, y: logButtonY, width: 72, height: 34)
         chooseLogFolderRect = NSRect(x: rect.maxX - 112, y: logButtonY, width: 96, height: 34)
-        drawSmallButton(t(.logFolderOpen), rect: openLogFolderRect!, emphasized: false)
+        drawSmallButton(t(.logs), rect: openLogFolderRect!, emphasized: false)
         drawSmallButton(t(.logFolderDefault), rect: resetLogFolderRect!, emphasized: false)
         drawSmallButton(t(.logFolderChoose), rect: chooseLogFolderRect!, emphasized: true)
         drawText(t(.logFolderHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 286, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
@@ -7471,8 +7452,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.refresh(forceLive: false)
             self?.refreshLiveLimits()
         }
-        dashboardController.dashboardView.onOpenDetails = { [weak self] in self?.openDetailsWindow() }
-        dashboardController.dashboardView.onOpenLogs = { [weak self] in self?.openSessionsFolder() }
+        dashboardController.dashboardView.onOpenDetails = { [weak self] in self?.openUsageDetailsWindow() }
+        dashboardController.dashboardView.onOpenSettings = { [weak self] in self?.openSettingsWindow() }
         dashboardController.dashboardView.onOpenCodexStatus = { [weak self] in self?.openCodexStatusPage() }
         dashboardController.dashboardView.onQuit = { NSApp.terminate(nil) }
         detailsController.detailsView.onLanguageChanged = { [weak self] language in
@@ -8056,6 +8037,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activeScans.removeAll()
         detailsController.detailsView.needsDisplay = true
         refresh(forceLive: false)
+    }
+
+    private func openUsageDetailsWindow() {
+        detailsController.detailsView.showUsagePage()
+        openDetailsWindow()
+    }
+
+    private func openSettingsWindow() {
+        detailsController.detailsView.showSettingsPage()
+        openDetailsWindow()
     }
 
     private func openDetailsWindow() {
