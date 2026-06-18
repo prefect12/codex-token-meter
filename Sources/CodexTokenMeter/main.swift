@@ -510,6 +510,7 @@ private enum L10nKey {
     case cached
     case calendar
     case calendarSubtitle
+    case clickForDetails
     case codexAppTotal
     case copy
     case costs
@@ -637,6 +638,7 @@ private enum L10nKey {
     case statusFiveHourPercent
     case statusWeeklyPercent
     case statusWeeklyTokens
+    case tokenActivity
     case tokenMeter
     case tracked
     case total
@@ -684,6 +686,7 @@ private enum L10nKey {
         case .cached: return "Cached"
         case .calendar: return "Calendar"
         case .calendarSubtitle: return "Daily usage intensity over the last year"
+        case .clickForDetails: return "Click for details"
         case .codexAppTotal: return "Codex app total"
         case .copy: return "Copy"
         case .costs: return "Costs"
@@ -811,6 +814,7 @@ private enum L10nKey {
         case .statusFiveHourPercent: return "5h %"
         case .statusWeeklyPercent: return "Weekly %"
         case .statusWeeklyTokens: return "7d tokens"
+        case .tokenActivity: return "Token Activity"
         case .tokenMeter: return "Token Meter"
         case .tracked: return "Tracked"
         case .total: return "total"
@@ -860,6 +864,7 @@ private enum L10nKey {
         case .cached: return "缓存"
         case .calendar: return "日历"
         case .calendarSubtitle: return "过去一年的每日使用强度"
+        case .clickForDetails: return "点击查看详情"
         case .codexAppTotal: return "Codex 总用量"
         case .copy: return "复制"
         case .costs: return "金额"
@@ -987,6 +992,7 @@ private enum L10nKey {
         case .statusFiveHourPercent: return "5h 百分比"
         case .statusWeeklyPercent: return "周百分比"
         case .statusWeeklyTokens: return "7d 用量"
+        case .tokenActivity: return "Token 活动"
         case .tokenMeter: return "Token 统计"
         case .tracked: return "已计入"
         case .total: return "总计"
@@ -1036,6 +1042,7 @@ private enum L10nKey {
         case .cached: return "キャッシュ"
         case .calendar: return "カレンダー"
         case .calendarSubtitle: return "過去 1 年の日別使用量"
+        case .clickForDetails: return "クリックで詳細"
         case .codexAppTotal: return "Codex 全体使用量"
         case .copy: return "コピー"
         case .costs: return "金額"
@@ -1163,6 +1170,7 @@ private enum L10nKey {
         case .statusFiveHourPercent: return "5h %"
         case .statusWeeklyPercent: return "週 %"
         case .statusWeeklyTokens: return "7日使用量"
+        case .tokenActivity: return "Token アクティビティ"
         case .tokenMeter: return "Token メーター"
         case .tracked: return "集計対象"
         case .total: return "合計"
@@ -4996,6 +5004,21 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let monthlyRows: [MonthlySpendRow]
     }
 
+    private struct ContributionWeekSummary {
+        let key: String
+        let startDay: String
+        let endDay: String
+        let total: Int64
+        let activeDays: Int
+        let hitRect: NSRect
+        let cellRects: [NSRect]
+    }
+
+    private struct ContributionDaySummary {
+        let day: DayUsage
+        let hitRect: NSRect
+    }
+
     private enum CostOverviewInfo: Hashable {
         case usageRate
         case totalSpend
@@ -5063,6 +5086,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 isHoveringDayValueInfo = false
                 isHoveringProfileAPIInfo = false
             }
+            if selectedSection != .calendar {
+                hoveredContributionWeekKey = nil
+            }
+            if selectedSection != .overview {
+                hoveredContributionDay = nil
+            }
             onPreferredHeightChanged?()
             needsDisplay = true
             needsLayout = true
@@ -5076,6 +5105,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private var resetLogFolderRect: NSRect?
     private var openLogFolderRect: NSRect?
     private var contributionDayRects: [String: NSRect] = [:]
+    private var contributionDaySummaries: [String: ContributionDaySummary] = [:]
+    private var hoveredContributionDay: String?
+    private var contributionWeekSummaries: [String: ContributionWeekSummary] = [:]
+    private var hoveredContributionWeekKey: String?
     private var costHistoryBarRects: [Int: NSRect] = [:]
     private var costHistoryRows: [CostPeriodRow] = []
     private var costOverviewInfoRects: [CostOverviewInfo: NSRect] = [:]
@@ -5553,11 +5586,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
         updateDayValueInfoHover(at: point)
         updateProfileAPIInfoHover(at: point)
+        updateContributionDayHover(at: point)
+        updateContributionWeekHover(at: point)
     }
 
     override func mouseExited(with event: NSEvent) {
         hoveredCostHistoryIndex = nil
         hoveredCostOverviewInfo = nil
+        hoveredContributionDay = nil
+        hoveredContributionWeekKey = nil
         isHoveringDayValueInfo = false
         isHoveringProfileAPIInfo = false
         needsDisplay = true
@@ -5573,6 +5610,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             hoveredCostOverviewInfo = nil
             shouldRedraw = true
         }
+        if hoveredContributionDay != nil {
+            hoveredContributionDay = nil
+            shouldRedraw = true
+        }
+        if hoveredContributionWeekKey != nil {
+            hoveredContributionWeekKey = nil
+            shouldRedraw = true
+        }
         if isHoveringDayValueInfo {
             isHoveringDayValueInfo = false
             shouldRedraw = true
@@ -5585,6 +5630,42 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             needsDisplay = true
         }
         super.scrollWheel(with: event)
+    }
+
+    private func updateContributionDayHover(at point: CGPoint) {
+        guard selectedSection == .overview else {
+            if hoveredContributionDay != nil {
+                hoveredContributionDay = nil
+                needsDisplay = true
+            }
+            return
+        }
+        let match = contributionDaySummaries.first {
+            $0.value.hitRect.insetBy(dx: -3, dy: -3).contains(point)
+        }
+        let newDay = match?.key
+        if hoveredContributionDay != newDay {
+            hoveredContributionDay = newDay
+            needsDisplay = true
+        }
+    }
+
+    private func updateContributionWeekHover(at point: CGPoint) {
+        guard selectedSection == .calendar else {
+            if hoveredContributionWeekKey != nil {
+                hoveredContributionWeekKey = nil
+                needsDisplay = true
+            }
+            return
+        }
+        let match = contributionWeekSummaries.values.first {
+            $0.hitRect.insetBy(dx: -3, dy: -3).contains(point)
+        }
+        let newKey = match?.key
+        if hoveredContributionWeekKey != newKey {
+            hoveredContributionWeekKey = newKey
+            needsDisplay = true
+        }
     }
 
     private func updateCostHistoryHover(at point: CGPoint) {
@@ -5795,6 +5876,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawText(t(.usageDetails), rect: NSRect(x: content.minX, y: content.minY, width: content.width, height: 34), font: .systemFont(ofSize: 26, weight: .bold), color: .white)
         drawText(selectedSection.subtitle, rect: NSRect(x: content.minX, y: content.minY + 36, width: content.width, height: 20), font: .systemFont(ofSize: 13, weight: .medium), color: NSColor.white.withAlphaComponent(0.56))
         contributionDayRects.removeAll()
+        contributionDaySummaries.removeAll()
+        contributionWeekSummaries.removeAll()
         costHistoryBarRects.removeAll()
         costHistoryRows.removeAll()
         costOverviewInfoRects.removeAll()
@@ -6112,8 +6195,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private func drawCalendarPage(snapshot: DetailsSnapshot, content: NSRect) {
         let report = calendarReport(for: snapshot)
         let title = usesProfileAPIReport(for: snapshot)
-            ? "\(t(.pastYear)) · \(t(.profileAPISource))"
-            : t(.pastYear)
+            ? "\(t(.tokenActivity)) · \(t(.profileAPISource))"
+            : t(.tokenActivity)
         let preferredGridHeight = contributionGridPreferredHeight(report: report, width: content.width, compact: false)
         let gridHeight = min(preferredGridHeight, max(214, content.height * 0.36))
         let gridRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: gridHeight)
@@ -7183,6 +7266,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
         let maxTotal = max(days.map { $0.usage.total }.max() ?? 1, 1)
         let useCalendarGrid = !compact || days.count > 90
+        let enableDayHover = selectedSection == .overview && compact
+        let enableWeekHover = selectedSection == .calendar && !compact && useCalendarGrid
         let columns = useCalendarGrid ? Int(ceil(Double(days.count) / 7.0)) : min(days.count, 15)
         let rows = useCalendarGrid ? 7 : Int(ceil(Double(days.count) / Double(max(columns, 1))))
         let gap: CGFloat = useCalendarGrid ? (compact ? 2 : 3) : 6
@@ -7196,19 +7281,75 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let gridH = CGFloat(rows) * square + CGFloat(max(rows - 1, 0)) * gap
         let startX = rect.minX + left
         let startY = rect.minY + top
+        var cells: [(day: DayUsage, rect: NSRect, column: Int)] = []
+        var weekCells: [Int: [NSRect]] = [:]
+        var weekStartDays: [Int: String] = [:]
+        var weekEndDays: [Int: String] = [:]
+        var weekTotals: [Int: Int64] = [:]
+        var weekActiveDays: [Int: Int] = [:]
 
         for (index, day) in days.enumerated() {
             let col = useCalendarGrid ? index / 7 : index % columns
             let row = useCalendarGrid ? index % 7 : index / columns
+            let cell = NSRect(x: startX + CGFloat(col) * (square + gap), y: startY + CGFloat(row) * (square + gap), width: square, height: square)
+            cells.append((day: day, rect: cell, column: col))
+            contributionDayRects[day.day] = cell
+            if enableDayHover {
+                contributionDaySummaries[day.day] = ContributionDaySummary(day: day, hitRect: cell)
+            }
+            if enableWeekHover {
+                weekCells[col, default: []].append(cell)
+                if weekStartDays[col] == nil {
+                    weekStartDays[col] = day.day
+                }
+                weekEndDays[col] = day.day
+                weekTotals[col, default: 0] += day.usage.total
+                if day.usage.total > 0 {
+                    weekActiveDays[col, default: 0] += 1
+                }
+            }
+        }
+
+        if enableWeekHover {
+            var summaries: [String: ContributionWeekSummary] = [:]
+            for column in 0..<columns {
+                guard let rects = weekCells[column], !rects.isEmpty else { continue }
+                let key = "week-\(column)-\(weekStartDays[column] ?? "")"
+                let unionRect = rects.dropFirst().reduce(rects[0]) { partial, cell in
+                    partial.union(cell)
+                }.insetBy(dx: -gap / 2, dy: -gap / 2)
+                summaries[key] = ContributionWeekSummary(
+                    key: key,
+                    startDay: weekStartDays[column] ?? "",
+                    endDay: weekEndDays[column] ?? "",
+                    total: weekTotals[column] ?? 0,
+                    activeDays: weekActiveDays[column] ?? 0,
+                    hitRect: unionRect,
+                    cellRects: rects
+                )
+            }
+            contributionWeekSummaries = summaries
+            if let hoveredContributionWeekKey,
+               let summary = contributionWeekSummaries[hoveredContributionWeekKey] {
+                drawContributionWeekHighlight(summary)
+            }
+        }
+
+        for cellData in cells {
+            let day = cellData.day
+            let cell = cellData.rect
             let intensity = Double(day.usage.total) / Double(maxTotal)
             contributionColor(intensity).setFill()
-            let cell = NSRect(x: startX + CGFloat(col) * (square + gap), y: startY + CGFloat(row) * (square + gap), width: square, height: square)
-            contributionDayRects[day.day] = cell
             NSBezierPath(roundedRect: cell, xRadius: 3, yRadius: 3).fill()
             if day.day == selectedDay {
                 NSColor.white.withAlphaComponent(0.92).setStroke()
                 let path = NSBezierPath(roundedRect: cell.insetBy(dx: -2, dy: -2), xRadius: 5, yRadius: 5)
                 path.lineWidth = 2
+                path.stroke()
+            } else if enableDayHover && day.day == hoveredContributionDay {
+                NSColor.white.withAlphaComponent(0.72).setStroke()
+                let path = NSBezierPath(roundedRect: cell.insetBy(dx: -2, dy: -2), xRadius: 5, yRadius: 5)
+                path.lineWidth = 1.5
                 path.stroke()
             }
         }
@@ -7217,6 +7358,164 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let hintY = min(labelY + 18, rect.maxY - 20)
         drawContributionMonthLabels(days: days, useCalendarGrid: useCalendarGrid, columns: columns, square: square, gap: gap, startX: startX, y: labelY, compact: compact)
         drawText(t(.usageIntensityHint), rect: NSRect(x: startX, y: hintY, width: min(320, rect.maxX - startX - right), height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+        if enableDayHover,
+           let hoveredContributionDay,
+           let summary = contributionDaySummaries[hoveredContributionDay] {
+            drawContributionDayTooltip(summary, container: rect)
+        }
+        if enableWeekHover,
+           let hoveredContributionWeekKey,
+           let summary = contributionWeekSummaries[hoveredContributionWeekKey] {
+            drawContributionWeekTooltip(summary, container: rect)
+        }
+    }
+
+    private func drawContributionDayTooltip(_ summary: ContributionDaySummary, container: NSRect) {
+        let width: CGFloat = 214
+        let height: CGFloat = 92
+        let gap: CGFloat = 12
+        var origin = CGPoint(x: summary.hitRect.maxX + gap, y: summary.hitRect.midY - height / 2)
+        if origin.x + width > container.maxX - 12 {
+            origin.x = summary.hitRect.minX - gap - width
+        }
+        if origin.x < container.minX + 12 {
+            origin.x = summary.hitRect.midX - width / 2
+            origin.y = summary.hitRect.minY - height - gap
+        }
+        if origin.y < container.minY + 10 {
+            origin.y = summary.hitRect.maxY + gap
+        }
+        origin.x = max(container.minX + 12, min(origin.x, container.maxX - width - 12))
+        origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
+        let tooltipRect = NSRect(origin: origin, size: NSSize(width: width, height: height))
+
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: tooltipRect, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        let border = NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        border.lineWidth = 1
+        border.stroke()
+
+        let day = summary.day
+        let planValue = contributionDayPlanValue(day)
+        let apiEstimate = contributionDayAPIEstimate(day)
+        let rows: [(String, String)] = [
+            ("Token", compactDashboardTotal(day.usage.total)),
+            (contributionPlanAmountLabel(), planValue.map { displayMoney($0) } ?? "--"),
+            (contributionAPIAmountLabel(), apiEstimate.hasPricedUsage ? displayAPIMoney(apiEstimate.usdValue) : "--")
+        ]
+        drawText(localizedContributionDate(day.day), rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.minY + 8, width: tooltipRect.width - 20, height: 14), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.82))
+        for (index, row) in rows.enumerated() {
+            let y = tooltipRect.minY + 27 + CGFloat(index) * 16
+            drawText(row.0, rect: NSRect(x: tooltipRect.minX + 10, y: y, width: 84, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+            drawRight(row.1, rect: NSRect(x: tooltipRect.minX + 92, y: y - 1, width: tooltipRect.width - 102, height: 15), color: NSColor.white.withAlphaComponent(0.86), font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
+        }
+        drawText(t(.clickForDetails), rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.maxY - 18, width: tooltipRect.width - 20, height: 13), font: .systemFont(ofSize: 9, weight: .medium), color: accentTeal.withAlphaComponent(0.74))
+    }
+
+    private func contributionDayPlanValue(_ day: DayUsage) -> Double? {
+        guard let snapshot else { return nil }
+        let report = calendarReport(for: snapshot)
+        let reportDay = report.byDay.first { $0.day == day.day } ?? day
+        return planCostEstimate(
+            report: report,
+            selectedDay: reportDay,
+            limit: costEstimateLimit(from: snapshot.liveLimits),
+            quotaReferenceReport: snapshot.costReferenceReport
+        )?.selectedDayValue
+    }
+
+    private func contributionDayAPIEstimate(_ day: DayUsage) -> APICostEstimate {
+        guard let snapshot, usesProfileAPIReport(for: snapshot) else {
+            return APICostEstimator.estimate(day: day)
+        }
+        let localDay = snapshot.all.byDay.first { $0.day == day.day }
+        return profileAPIDayEstimate(profileDay: day, localDay: localDay)
+    }
+
+    private func contributionPlanAmountLabel() -> String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese:
+            return "对应金额"
+        case .japanese:
+            return "対応金額"
+        default:
+            return "Plan value"
+        }
+    }
+
+    private func contributionAPIAmountLabel() -> String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese:
+            return "API 金额"
+        case .japanese:
+            return "API 金額"
+        default:
+            return "API cost"
+        }
+    }
+
+    private func drawContributionWeekHighlight(_ summary: ContributionWeekSummary) {
+        let rect = summary.hitRect.insetBy(dx: -4, dy: -4)
+        accentTeal.withAlphaComponent(0.08).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
+        accentTeal.withAlphaComponent(0.40).setStroke()
+        let border = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7)
+        border.lineWidth = 1
+        border.stroke()
+    }
+
+    private func drawContributionWeekTooltip(_ summary: ContributionWeekSummary, container: NSRect) {
+        let line = contributionWeekTooltipLine(summary)
+        let font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        let textWidth = measuredTextWidth(line, font: font)
+        let width = min(max(textWidth + 32, 260), container.width - 32)
+        let height: CGFloat = 42
+        var origin = CGPoint(x: summary.hitRect.midX - width / 2, y: summary.hitRect.minY - height - 12)
+        if origin.y < container.minY + 40 {
+            origin.y = summary.hitRect.maxY + 12
+        }
+        origin.x = max(container.minX + 12, min(origin.x, container.maxX - width - 12))
+        origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
+        let tooltipRect = NSRect(origin: origin, size: NSSize(width: width, height: height))
+
+        NSColor(calibratedWhite: 0.18, alpha: 0.96).setFill()
+        NSBezierPath(roundedRect: tooltipRect, xRadius: 9, yRadius: 9).fill()
+        NSColor.white.withAlphaComponent(0.16).setStroke()
+        let border = NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
+        border.lineWidth = 1
+        border.stroke()
+        drawCentered(line, rect: tooltipRect.insetBy(dx: 14, dy: 0), font: font, color: .white)
+    }
+
+    private func contributionWeekTooltipLine(_ summary: ContributionWeekSummary) -> String {
+        let total = compactDashboardTotal(summary.total)
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese:
+            return "\(localizedContributionDate(summary.startDay)) 当周使用了 \(total) 个 Token"
+        case .japanese:
+            return "\(localizedContributionDate(summary.startDay)) の週に \(total) Token 使用"
+        default:
+            return "Week of \(localizedContributionDate(summary.startDay)) used \(total) tokens"
+        }
+    }
+
+    private func localizedContributionDate(_ day: String) -> String {
+        guard let date = dayFormatter().date(from: day) else { return day }
+        let formatter = DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese:
+            formatter.locale = Locale(identifier: "zh_Hans_CN")
+            formatter.dateFormat = "yyyy年M月d日"
+        case .japanese:
+            formatter.locale = Locale(identifier: "ja_JP")
+            formatter.dateFormat = "yyyy年M月d日"
+        default:
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "MMM d, yyyy"
+        }
+        return formatter.string(from: date)
     }
 
     private func contributionGridPreferredHeight(report: TokenReport, width: CGFloat, compact: Bool) -> CGFloat {
