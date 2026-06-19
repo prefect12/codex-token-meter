@@ -5,6 +5,11 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$ROOT/build"
 APP="$BUILD_DIR/Codex Token Meter.app"
 BIN="$APP/Contents/MacOS/CodexTokenMeter"
+SWIFT_SOURCES=()
+
+while IFS= read -r source; do
+  SWIFT_SOURCES+=("$source")
+done < <(find "$ROOT/Sources/CodexTokenMeter" -name '*.swift' -print | sort)
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -17,7 +22,7 @@ swiftc \
   -O \
   -framework Cocoa \
   -framework UserNotifications \
-  "$ROOT/Sources/CodexTokenMeter/main.swift" \
+  "${SWIFT_SOURCES[@]}" \
   -o "$BIN"
 
 cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"

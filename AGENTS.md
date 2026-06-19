@@ -1,0 +1,53 @@
+# Codex Token Meter Development Guide
+
+## Project Shape
+
+- This is a native macOS menu bar app built directly with `swiftc`.
+- The app entrypoint lives in `Sources/CodexTokenMeter/main.swift`; supporting code is split into focused files under the same directory.
+- `build.sh` compiles every Swift file under `Sources/CodexTokenMeter`, so future file splits do not need build-script changes.
+- Prefer small, behavior-preserving changes unless you are explicitly doing a planned refactor.
+- Read `docs/ARCHITECTURE.md` before changing parser, quota, cost, or UI behavior.
+
+## Build And Verification
+
+- Compile check: `./build.sh`
+- CLI parser check: `"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --window=week --quota=all`
+- Live quota check: `"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-live`
+- Service-status check: `"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-service-status`
+- Dashboard render check for UI changes: `"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-dashboard=/tmp/codex-token-meter-dashboard.png`
+
+`--print-live`, `--print-profile`, `--print-service-status`, and dashboard rendering can depend on Codex login state or network availability. Do not treat their unavailability as a compile regression unless the failure is caused by local code.
+
+## Data Safety
+
+- The app reads local Codex logs from `~/.codex` and optional `CODEX_HOME` roots. Do not commit, paste, or store user rollout logs.
+- Keep diagnostics read-only. Do not add background uploads of session logs or token details.
+- Build outputs, screenshots, app bundles, and DMGs are ignored and should stay out of commits.
+
+## Implementation Rules
+
+- Preserve the token accounting model: `token_count` rows contain cumulative counters within a rollout; reported usage is the non-negative delta from the previous counter.
+- Keep rolling `24h` scans event-accurate. Day/week/month scans may use day-level aggregate cache when the active filters allow it.
+- Cache format changes must bump `DiskFileCache.version` and keep or intentionally remove migration code.
+- Live quota UI shows remaining quota: `100 - usedPercent`.
+- Subscription-value estimates and API-equivalent costs are separate concepts. Do not mix their labels or calculations.
+- API-equivalent cost should not add `reasoning_output_tokens` a second time because Codex `total_tokens` already includes output.
+- If Profile API daily totals are zero for a local day with Codex logs, preserve the local fallback behavior.
+
+## Refactor Guidance
+
+- Keep files focused by responsibility:
+  1. Pure domain models stay in `DomainModels.swift`.
+  2. Settings, localization, and currency helpers stay in `LocalizationSettings.swift`.
+  3. Scanner and runtime readers stay in `ScannerReaders.swift`.
+  4. Cost history and cost estimation stay in `CostEstimation.swift`.
+  5. AppKit views stay in `DashboardViews.swift` and `DetailsWindow.swift`.
+  6. App orchestration stays in `AppDelegate.swift`; CLI startup stays in `main.swift`.
+- Keep top-level command-line entrypoints and `NSApplication` startup in `main.swift` while moving supporting code into new files.
+- When a symbol must be used across files, keep it module-internal by default and avoid widening to `public`.
+
+## Asset Workflow
+
+- Icons and menu assets live under `Resources/`.
+- Icon generation scripts live under `Tools/`.
+- Only regenerate assets when needed: `REGENERATE_ASSETS=1 ./build.sh`.
