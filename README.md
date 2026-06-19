@@ -88,6 +88,9 @@ If you run work through Codex CLI or the Codex app with API-based authentication
 
 ## Recent Updates
 
+- Split the former single 9k-line Swift entrypoint into focused source files for domain models, settings, scanning, cost estimation, dashboard UI, details UI, app orchestration, and CLI helpers.
+- Added `AGENTS.md` and `docs/ARCHITECTURE.md` so AI-assisted development can target the right file and preserve token, quota, and cost-accounting invariants.
+- Updated the build script to automatically compile every Swift source file under `Sources/CodexTokenMeter`.
 - Added day-level per-rollout aggregate caching so `7d`, `30d`, and yearly detail scans reuse derived summaries instead of re-walking every cached event.
 - Kept the rolling `24h` window event-accurate while speeding up natural-day windows and details-page warm scans.
 - Added migration from the older parsed-rollout cache format to the new aggregate cache without rereading unchanged JSONL logs.
@@ -180,9 +183,12 @@ The JSON output includes `model_limit_id`, `model_limit_name`, API-equivalent co
 ## Project Layout
 
 ```text
-Sources/CodexTokenMeter/main.swift   App, parser, menu bar UI, and details window
+Sources/CodexTokenMeter/main.swift   Command-line entrypoints and app startup
+Sources/CodexTokenMeter/*.swift      Domain, settings, scanner, cost, and AppKit UI modules
 Resources/                          App icons and menu bar assets
 Tools/                              Icon generation scripts
+docs/ARCHITECTURE.md                Code map, data flow, invariants, and refactor path
+AGENTS.md                           Development guide for AI-assisted changes
 Info.plist                          macOS app metadata
 build.sh                            Builds the .app bundle
 install.sh                          Installs to /Applications

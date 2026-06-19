@@ -92,6 +92,9 @@ Codex Token Meter 使用本机数据源：
 
 ## 最近更新
 
+- 将原先 9k 行的 Swift 单入口文件拆分为领域模型、设置、扫描器、成本估算、状态栏 UI、详情页 UI、App 编排和 CLI helper 等独立源码文件。
+- 新增 `AGENTS.md` 和 `docs/ARCHITECTURE.md`，方便 AI 协作开发时快速定位文件，并保留 token、额度和成本估算的关键口径。
+- 更新构建脚本，自动编译 `Sources/CodexTokenMeter` 下的全部 Swift 源文件。
 - 新增按 rollout 文件的日级聚合缓存，`7d`、`30d` 和年度详情扫描可以复用聚合摘要，不再每次遍历缓存里的全部事件。
 - 保留滚动 `24h` 窗口的事件级精确计算，同时加速自然日窗口和详情页预热扫描。
 - 支持从旧版解析缓存迁移到新版聚合缓存，未变化的 JSONL 日志不需要重新读取。
@@ -184,9 +187,12 @@ JSON 输出会包含 `model_limit_id`、`model_limit_name`、API 等价成本字
 ## 项目结构
 
 ```text
-Sources/CodexTokenMeter/main.swift   主程序、解析器、状态栏 UI、详情窗口
+Sources/CodexTokenMeter/main.swift   命令行入口和 App 启动
+Sources/CodexTokenMeter/*.swift      领域模型、设置、解析器、成本估算和 AppKit UI 模块
 Resources/                          应用图标和状态栏资源
 Tools/                              图标生成脚本
+docs/ARCHITECTURE.md                代码地图、数据流、关键口径和重构路径
+AGENTS.md                           面向 AI 协作开发的接手说明
 Info.plist                          macOS App 元信息
 build.sh                            构建 .app
 install.sh                          安装到 /Applications
