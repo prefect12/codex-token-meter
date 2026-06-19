@@ -5008,10 +5008,19 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let key: String
         let startDay: String
         let endDay: String
+        let usage: Usage
         let total: Int64
         let activeDays: Int
+        let turns: Int
+        let days: [DayUsage]
         let hitRect: NSRect
         let cellRects: [NSRect]
+    }
+
+    private struct ContributionWeekDetail {
+        let usage: Usage
+        let turns: Int
+        let hasTokenDetail: Bool
     }
 
     private struct ContributionDaySummary {
@@ -7293,8 +7302,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         var weekCells: [Int: [NSRect]] = [:]
         var weekStartDays: [Int: String] = [:]
         var weekEndDays: [Int: String] = [:]
+        var weekUsages: [Int: Usage] = [:]
         var weekTotals: [Int: Int64] = [:]
         var weekActiveDays: [Int: Int] = [:]
+        var weekTurns: [Int: Int] = [:]
+        var weekDays: [Int: [DayUsage]] = [:]
 
         for (index, day) in days.enumerated() {
             let col = useCalendarGrid ? index / 7 : index % columns
@@ -7311,7 +7323,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                     weekStartDays[col] = day.day
                 }
                 weekEndDays[col] = day.day
+                if weekUsages[col] == nil {
+                    weekUsages[col] = Usage()
+                }
+                weekUsages[col]?.add(day.usage)
                 weekTotals[col, default: 0] += day.usage.total
+                weekTurns[col, default: 0] += day.turns
+                weekDays[col, default: []].append(day)
                 if day.usage.total > 0 {
                     weekActiveDays[col, default: 0] += 1
                 }
@@ -7330,8 +7348,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                     key: key,
                     startDay: weekStartDays[column] ?? "",
                     endDay: weekEndDays[column] ?? "",
+                    usage: weekUsages[column] ?? Usage(total: weekTotals[column] ?? 0),
                     total: weekTotals[column] ?? 0,
                     activeDays: weekActiveDays[column] ?? 0,
+                    turns: weekTurns[column] ?? 0,
+                    days: weekDays[column] ?? [],
                     hitRect: unionRect,
                     cellRects: rects
                 )
@@ -7474,14 +7495,26 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func drawContributionWeekTooltip(_ summary: ContributionWeekSummary, container: NSRect) {
-        let line = contributionWeekTooltipLine(summary)
-        let font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        let textWidth = measuredTextWidth(line, font: font)
-        let width = min(max(textWidth + 32, 260), container.width - 32)
-        let height: CGFloat = 42
-        var origin = CGPoint(x: summary.hitRect.midX - width / 2, y: summary.hitRect.minY - height - 12)
-        if origin.y < container.minY + 40 {
-            origin.y = summary.hitRect.maxY + 12
+        let rows = contributionWeekTooltipRows(summary)
+        let labelFont = NSFont.systemFont(ofSize: 10, weight: .medium)
+        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
+        let titleFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        let labelWidth = min(86, max(58, (rows.map { measuredTextWidth($0.0, font: labelFont) }.max() ?? 0) + 4))
+        let valueWidth = min(170, max(96, (rows.map { measuredTextWidth($0.1, font: valueFont) }.max() ?? 0) + 4))
+        let titleWidth = measuredTextWidth(contributionWeekRangeLabel(summary), font: titleFont) + 24
+        let width = min(max(max(titleWidth, labelWidth + valueWidth + 42), 244), min(360, container.width - 32))
+        let height = CGFloat(40 + rows.count * 16)
+        let gap: CGFloat = 14
+        var origin: CGPoint
+        if summary.hitRect.minX - width - gap >= container.minX + 12 {
+            origin = CGPoint(x: summary.hitRect.minX - width - gap, y: summary.hitRect.midY - height / 2)
+        } else if summary.hitRect.maxX + width + gap <= container.maxX - 12 {
+            origin = CGPoint(x: summary.hitRect.maxX + gap, y: summary.hitRect.midY - height / 2)
+        } else {
+            origin = CGPoint(x: summary.hitRect.midX - width / 2, y: summary.hitRect.minY - height - gap)
+            if origin.y < container.minY + 40 {
+                origin.y = summary.hitRect.maxY + gap
+            }
         }
         origin.x = max(container.minX + 12, min(origin.x, container.maxX - width - 12))
         origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
@@ -7493,19 +7526,125 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let border = NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
         border.lineWidth = 1
         border.stroke()
-        drawCentered(line, rect: tooltipRect.insetBy(dx: 14, dy: 0), font: font, color: .white)
+
+        drawText(contributionWeekRangeLabel(summary), rect: NSRect(x: tooltipRect.minX + 12, y: tooltipRect.minY + 9, width: tooltipRect.width - 24, height: 16), font: titleFont, color: NSColor.white.withAlphaComponent(0.82))
+        for (index, row) in rows.enumerated() {
+            let y = tooltipRect.minY + 31 + CGFloat(index) * 16
+            drawText(row.0, rect: NSRect(x: tooltipRect.minX + 12, y: y, width: labelWidth, height: 14), font: labelFont, color: NSColor.white.withAlphaComponent(0.52))
+            let valueX = tooltipRect.minX + 12 + labelWidth + 18
+            drawRight(row.1, rect: NSRect(x: valueX, y: y - 1, width: tooltipRect.maxX - valueX - 12, height: 15), color: NSColor.white.withAlphaComponent(0.88), font: valueFont)
+        }
     }
 
-    private func contributionWeekTooltipLine(_ summary: ContributionWeekSummary) -> String {
-        let total = compactDashboardTotal(summary.total)
-        switch AppLanguage.current {
-        case .chinese, .traditionalChinese:
-            return "\(localizedContributionDate(summary.startDay)) 当周使用了 \(total) 个 Token"
-        case .japanese:
-            return "\(localizedContributionDate(summary.startDay)) の週に \(total) Token 使用"
-        default:
-            return "Week of \(localizedContributionDate(summary.startDay)) used \(total) tokens"
+    private func contributionWeekTooltipRows(_ summary: ContributionWeekSummary) -> [(String, String)] {
+        let detail = contributionWeekDetail(summary)
+        let activeDays = max(summary.activeDays, 1)
+        let averagePerActiveDay = summary.total / Int64(activeDays)
+        let planValue = contributionWeekPlanValue(summary)
+        let apiEstimate = contributionWeekAPIEstimate(summary)
+        var rows: [(String, String)] = [
+            (contributionWeekLabel(.tokens), compactDashboardTotal(summary.total)),
+            (contributionWeekLabel(.activeDays), "\(summary.activeDays)/7"),
+            (contributionWeekLabel(.average), compactDashboardTotal(averagePerActiveDay))
+        ]
+        if detail.hasTokenDetail {
+            let inputOutput = "\(compactDashboardTotal(detail.usage.input)) / \(compactDashboardTotal(detail.usage.output))"
+            rows.append((contributionWeekLabel(.inputOutput), inputOutput))
+            if detail.usage.input > 0 {
+                rows.append((contributionWeekLabel(.cache), String(format: "%.0f%%", detail.usage.cachePercent)))
+            }
         }
+        if detail.turns > 0 {
+            rows.append((contributionWeekLabel(.turns), format(Int64(detail.turns))))
+        }
+        rows.append((contributionPlanAmountLabel(), planValue.map { displayMoney($0) } ?? "--"))
+        rows.append((contributionAPIAmountLabel(), apiEstimate.hasPricedUsage ? displayAPIMoney(apiEstimate.usdValue) : "--"))
+        return rows
+    }
+
+    private func contributionWeekRangeLabel(_ summary: ContributionWeekSummary) -> String {
+        "\(localizedContributionDate(summary.startDay)) - \(localizedContributionDate(summary.endDay))"
+    }
+
+    private enum ContributionWeekMetric {
+        case tokens
+        case activeDays
+        case average
+        case inputOutput
+        case cache
+        case turns
+    }
+
+    private func contributionWeekLabel(_ metric: ContributionWeekMetric) -> String {
+        switch (metric, AppLanguage.current) {
+        case (.tokens, .chinese), (.tokens, .traditionalChinese): return "Token"
+        case (.tokens, .japanese): return "Token"
+        case (.tokens, _): return "Tokens"
+        case (.activeDays, .chinese), (.activeDays, .traditionalChinese): return "活跃天数"
+        case (.activeDays, .japanese): return "利用日数"
+        case (.activeDays, _): return "Active days"
+        case (.average, .chinese), (.average, .traditionalChinese): return "日均"
+        case (.average, .japanese): return "日平均"
+        case (.average, _): return "Daily avg"
+        case (.inputOutput, .chinese), (.inputOutput, .traditionalChinese): return "输入/输出"
+        case (.inputOutput, .japanese): return "入力/出力"
+        case (.inputOutput, _): return "Input/output"
+        case (.cache, .chinese), (.cache, .traditionalChinese): return "缓存命中"
+        case (.cache, .japanese): return "キャッシュ"
+        case (.cache, _): return "Cache hit"
+        case (.turns, .chinese), (.turns, .traditionalChinese): return "轮次"
+        case (.turns, .japanese): return "ターン"
+        case (.turns, _): return "Turns"
+        }
+    }
+
+    private func contributionWeekPlanValue(_ summary: ContributionWeekSummary) -> Double? {
+        guard let snapshot,
+              let date = dayFormatter().date(from: summary.startDay),
+              let weekStart = appCalendar().dateInterval(of: .weekOfYear, for: date)?.start else {
+            return nil
+        }
+        let report = calendarReport(for: snapshot)
+        guard let estimator = CostEstimator(
+            report: report,
+            limit: costEstimateLimit(from: snapshot.liveLimits),
+            quotaReferenceReport: snapshot.costReferenceReport
+        ) else {
+            return nil
+        }
+        return estimator.weeklyUsedValue(forWeekStart: weekStart, total: summary.total)
+    }
+
+    private func contributionWeekAPIEstimate(_ summary: ContributionWeekSummary) -> APICostEstimate {
+        var estimate = APICostEstimate()
+        if summary.days.isEmpty {
+            estimate.add(APICostEstimator.estimate(day: DayUsage(day: summary.startDay, usage: summary.usage, turns: summary.turns)))
+            return estimate
+        }
+        for day in summary.days {
+            estimate.add(contributionDayAPIEstimate(day))
+        }
+        return estimate
+    }
+
+    private func contributionWeekDetail(_ summary: ContributionWeekSummary) -> ContributionWeekDetail {
+        if summary.usage.input > 0 || summary.usage.output > 0 || summary.usage.cachedInput > 0 || summary.turns > 0 {
+            return ContributionWeekDetail(usage: summary.usage, turns: summary.turns, hasTokenDetail: summary.usage.input > 0 || summary.usage.output > 0 || summary.usage.cachedInput > 0)
+        }
+        guard let snapshot else {
+            return ContributionWeekDetail(usage: summary.usage, turns: summary.turns, hasTokenDetail: false)
+        }
+        var usage = Usage()
+        var turns = 0
+        var hasTokenDetail = false
+        for day in snapshot.all.byDay where day.day >= summary.startDay && day.day <= summary.endDay {
+            usage.add(day.usage)
+            turns += day.turns
+            if day.usage.input > 0 || day.usage.output > 0 || day.usage.cachedInput > 0 {
+                hasTokenDetail = true
+            }
+        }
+        return ContributionWeekDetail(usage: usage, turns: turns, hasTokenDetail: hasTokenDetail)
     }
 
     private func localizedContributionDate(_ day: String) -> String {
