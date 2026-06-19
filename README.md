@@ -152,7 +152,7 @@ Package a DMG:
 DMG output:
 
 ```text
-dist/Codex-Token-Meter-0.1.8.dmg
+dist/Codex-Token-Meter-<version>.dmg
 ```
 
 ## CLI Inspection
