@@ -5,7 +5,8 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 APP="$ROOT/build/Codex Token Meter.app"
 DIST="$ROOT/dist"
 STAGE="$ROOT/build/dmg-stage"
-DMG="$DIST/Codex-Token-Meter-0.1.8.dmg"
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/Info.plist")"
+DMG="$DIST/Codex-Token-Meter-$VERSION.dmg"
 
 "$ROOT/build.sh" >/dev/null
 

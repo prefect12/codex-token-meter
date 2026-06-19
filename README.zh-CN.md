@@ -156,7 +156,7 @@ build/Codex Token Meter.app
 DMG 输出路径：
 
 ```text
-dist/Codex-Token-Meter-0.1.8.dmg
+dist/Codex-Token-Meter-<version>.dmg
 ```
 
 ## 命令行检查
