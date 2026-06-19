@@ -6459,15 +6459,23 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let estimate = costData.estimate
 
         let settingsRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 244)
-        let leftColumnWidth = max(240, settingsRect.width - (min(300, max(252, settingsRect.width * 0.34)) + 56))
+        let controlWidth = min(300, max(252, settingsRect.width * 0.34))
+        let controlX = settingsRect.maxX - controlWidth - 16
+        let labelX = settingsRect.minX + 16
+        let leftColumnWidth = max(180, controlX - labelX - 24)
+        let labelFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        let centeredLabelY: (NSRect) -> CGFloat = { frame in
+            frame.midY - 10
+        }
         drawPanel(settingsRect)
         drawText(t(.planCost), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 14, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
-        drawText(t(.paymentMonthly), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 52, width: leftColumnWidth, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawMultilineText(t(.planCostHint), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 74, width: leftColumnWidth, height: 32), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        let monthlyLabelY = max(settingsRect.minY + 38, costAmountField.frame.midY - 12)
+        drawText(t(.paymentMonthly), rect: NSRect(x: labelX, y: monthlyLabelY, width: leftColumnWidth, height: 20), font: labelFont, color: .white)
+        drawMultilineText(t(.planCostHint), rect: NSRect(x: labelX, y: monthlyLabelY + 22, width: leftColumnWidth, height: 32), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.paymentStartDate), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 122, width: leftColumnWidth, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.paymentCurrency), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 168, width: leftColumnWidth, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.displayCurrency), rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 220, width: leftColumnWidth, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.paymentStartDate), rect: NSRect(x: labelX, y: centeredLabelY(paymentStartDayField.frame), width: leftColumnWidth, height: 20), font: labelFont, color: .white)
+        drawText(t(.paymentCurrency), rect: NSRect(x: labelX, y: centeredLabelY(paymentCurrencyPopup.frame), width: leftColumnWidth, height: 20), font: labelFont, color: .white)
+        drawText(t(.displayCurrency), rect: NSRect(x: labelX, y: centeredLabelY(displayCurrencyPopup.frame), width: leftColumnWidth, height: 20), font: labelFont, color: .white)
         drawInputFieldBackground(costAmountField.frame)
         drawInputFieldBackground(paymentStartDayField.frame)
 
@@ -6946,7 +6954,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let columns = min(13, max(rows.count, 1))
         let rowCount = Int(ceil(Double(rows.count) / Double(columns)))
         let ringGapX: CGFloat = 12
-        let ringGapY: CGFloat = 18
+        let ringGapY: CGFloat = rowCount > 4 ? 10 : 18
         let availableWidth = rect.width
         let availableHeight = rect.height - 36
         let ringSize = floor(min(
@@ -7036,13 +7044,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func drawCostRing(row: CostPeriodRow, rect: NSRect, showLabel: Bool, highlighted: Bool) {
         let labelHeight: CGFloat = showLabel ? 14 : 0
-        let inset: CGFloat = 4
         let ringRect = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - labelHeight)
-        let circleRect = rect.insetBy(dx: inset, dy: inset)
-            .offsetBy(dx: 0, dy: -labelHeight / 2)
-        let center = CGPoint(x: circleRect.midX, y: circleRect.midY)
-        let radius = min(circleRect.width, circleRect.height) / 2 - 3
-        let lineWidth: CGFloat = max(5, min(8, rect.width * 0.14))
+        let availableSide = max(0, min(ringRect.width, ringRect.height))
+        let outerPadding = min(4, max(2, availableSide * 0.12))
+        let center = CGPoint(x: ringRect.midX, y: ringRect.midY)
+        let radius = max(2, availableSide / 2 - outerPadding)
+        let preferredLineWidth = max(2.2, availableSide * 0.14)
+        let lineWidth: CGFloat = min(8, min(preferredLineWidth, max(2, radius * 0.45)))
         let start = -CGFloat.pi / 2
         let end = start + CGFloat.pi * 2
         let fullCircleRect = NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
