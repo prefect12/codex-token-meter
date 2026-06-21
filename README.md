@@ -20,7 +20,7 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ### 状态栏面板
 
 <p align="center">
-  <img src="docs/images/zh-menu-popover-current.png" alt="Codex Token Meter 中文状态栏面板" width="1400">
+  <img src="docs/images/zh-menu-popover-current.png" alt="Codex Token Meter 中文状态栏面板" width="520">
 </p>
 
 ### 仓库洞察
@@ -59,7 +59,7 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ### Menu Bar Dashboard
 
 <p align="center">
-  <img src="docs/images/en-menu-popover-current.png" alt="Codex Token Meter English menu bar dashboard" width="1400">
+  <img src="docs/images/en-menu-popover-current.png" alt="Codex Token Meter English menu bar dashboard" width="520">
 </p>
 
 ### Repository Insights
