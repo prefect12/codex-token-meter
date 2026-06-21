@@ -25,6 +25,10 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 
 ![Codex Token Meter 中文详情概览](docs/images/zh-details-overview.png)
 
+### 洞察页面
+
+![Codex Token Meter 中文洞察页面](docs/images/zh-details-insights.png)
+
 ### 金额页面
 
 ![Codex Token Meter 中文金额页面](docs/images/zh-details-costs.png)
@@ -39,6 +43,8 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ![Codex Token Meter English menu bar dashboard](docs/images/en-menu-popover.png)
 
 ![Codex Token Meter English details overview](docs/images/en-details-overview.png)
+
+![Codex Token Meter English repo insights page](docs/images/en-details-insights.png)
 
 ![Codex Token Meter English cost and budget page](docs/images/en-details-costs.png)
 
