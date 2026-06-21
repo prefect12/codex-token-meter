@@ -17,24 +17,80 @@ When available, it also reads live quota data from the local Codex runtime, incl
 
 ## Screenshots
 
-| Menu Bar Dashboard | Repository Insights |
-| --- | --- |
-| <img src="docs/images/en-menu-popover-current.png" alt="Codex Token Meter menu bar dashboard" width="280"> | <img src="docs/images/en-details-insights.png" alt="Codex Token Meter repository insights page" width="420"> |
-| Details Overview | Activity Calendar |
-| <img src="docs/images/en-details-overview.png" alt="Codex Token Meter details overview" width="420"> | <img src="docs/images/en-details-calendar.png" alt="Codex Token Meter activity calendar page" width="420"> |
-| Cost And Budget Tracking | Diagnostics |
-| <img src="docs/images/en-details-costs.png" alt="Codex Token Meter cost and budget page" width="420"> | <img src="docs/images/en-details-diagnostics.png" alt="Codex Token Meter diagnostics page" width="420"> |
+### Menu Bar Dashboard
+
+<p align="center">
+  <img src="docs/images/en-menu-popover-current.png" alt="Codex Token Meter menu bar dashboard" width="420">
+</p>
+
+### Repository Insights
+
+<p align="center">
+  <img src="docs/images/en-details-insights.png" alt="Codex Token Meter repository insights page" width="760">
+</p>
+
+### Details Overview
+
+<p align="center">
+  <img src="docs/images/en-details-overview.png" alt="Codex Token Meter details overview" width="760">
+</p>
+
+### Activity Calendar
+
+<p align="center">
+  <img src="docs/images/en-details-calendar.png" alt="Codex Token Meter activity calendar page" width="760">
+</p>
+
+### Cost And Budget Tracking
+
+<p align="center">
+  <img src="docs/images/en-details-costs.png" alt="Codex Token Meter cost and budget page" width="760">
+</p>
+
+### Diagnostics
+
+<p align="center">
+  <img src="docs/images/en-details-diagnostics.png" alt="Codex Token Meter diagnostics page" width="760">
+</p>
 
 <details>
 <summary>Chinese UI preview</summary>
 
-| 状态栏面板 | 仓库洞察 |
-| --- | --- |
-| <img src="docs/images/zh-menu-popover-current.png" alt="Codex Token Meter Chinese menu bar dashboard" width="280"> | <img src="docs/images/zh-details-insights.png" alt="Codex Token Meter Chinese repository insights page" width="420"> |
-| 详情概览 | 活动日历 |
-| <img src="docs/images/zh-details-overview.png" alt="Codex Token Meter Chinese details overview" width="420"> | <img src="docs/images/zh-details-calendar.png" alt="Codex Token Meter Chinese activity calendar page" width="420"> |
-| 金额与预算 | 诊断 |
-| <img src="docs/images/zh-details-costs.png" alt="Codex Token Meter Chinese cost and budget page" width="420"> | <img src="docs/images/zh-details-diagnostics.png" alt="Codex Token Meter Chinese diagnostics page" width="420"> |
+### 状态栏面板
+
+<p align="center">
+  <img src="docs/images/zh-menu-popover-current.png" alt="Codex Token Meter Chinese menu bar dashboard" width="420">
+</p>
+
+### 仓库洞察
+
+<p align="center">
+  <img src="docs/images/zh-details-insights.png" alt="Codex Token Meter Chinese repository insights page" width="760">
+</p>
+
+### 详情概览
+
+<p align="center">
+  <img src="docs/images/zh-details-overview.png" alt="Codex Token Meter Chinese details overview" width="760">
+</p>
+
+### 活动日历
+
+<p align="center">
+  <img src="docs/images/zh-details-calendar.png" alt="Codex Token Meter Chinese activity calendar page" width="760">
+</p>
+
+### 金额与预算
+
+<p align="center">
+  <img src="docs/images/zh-details-costs.png" alt="Codex Token Meter Chinese cost and budget page" width="760">
+</p>
+
+### 诊断
+
+<p align="center">
+  <img src="docs/images/zh-details-diagnostics.png" alt="Codex Token Meter Chinese diagnostics page" width="760">
+</p>
 
 </details>
 
