@@ -1,6 +1,6 @@
 # Codex Token Meter
 
-[English README](README.md)
+[English README](README.en.md)
 
 Codex Token Meter 是一个原生 macOS 状态栏工具，用来查看本机 Codex 的 token 消耗、缓存命中率、实时剩余额度、模型级用量和订阅金额估算。
 
@@ -20,37 +20,37 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ### 状态栏面板
 
 <p align="center">
-  <img src="docs/images/zh-menu-popover-current.png" alt="Codex Token Meter 中文状态栏面板" width="420">
+  <img src="docs/images/zh-menu-popover-current.png" alt="Codex Token Meter 中文状态栏面板" width="1400">
 </p>
 
 ### 仓库洞察
 
 <p align="center">
-  <img src="docs/images/zh-details-insights.png" alt="Codex Token Meter 中文仓库洞察页面" width="760">
+  <img src="docs/images/zh-details-insights.png" alt="Codex Token Meter 中文仓库洞察页面" width="1400">
 </p>
 
 ### 详情概览
 
 <p align="center">
-  <img src="docs/images/zh-details-overview.png" alt="Codex Token Meter 中文详情概览" width="760">
+  <img src="docs/images/zh-details-overview.png" alt="Codex Token Meter 中文详情概览" width="1400">
 </p>
 
 ### 活动日历
 
 <p align="center">
-  <img src="docs/images/zh-details-calendar.png" alt="Codex Token Meter 中文活动日历页面" width="760">
+  <img src="docs/images/zh-details-calendar.png" alt="Codex Token Meter 中文活动日历页面" width="1400">
 </p>
 
 ### 金额与预算
 
 <p align="center">
-  <img src="docs/images/zh-details-costs.png" alt="Codex Token Meter 中文金额页面" width="760">
+  <img src="docs/images/zh-details-costs.png" alt="Codex Token Meter 中文金额页面" width="1400">
 </p>
 
 ### 诊断
 
 <p align="center">
-  <img src="docs/images/zh-details-diagnostics.png" alt="Codex Token Meter 中文诊断页面" width="760">
+  <img src="docs/images/zh-details-diagnostics.png" alt="Codex Token Meter 中文诊断页面" width="1400">
 </p>
 
 <details>
@@ -59,37 +59,37 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ### Menu Bar Dashboard
 
 <p align="center">
-  <img src="docs/images/en-menu-popover-current.png" alt="Codex Token Meter English menu bar dashboard" width="420">
+  <img src="docs/images/en-menu-popover-current.png" alt="Codex Token Meter English menu bar dashboard" width="1400">
 </p>
 
 ### Repository Insights
 
 <p align="center">
-  <img src="docs/images/en-details-insights.png" alt="Codex Token Meter English repository insights page" width="760">
+  <img src="docs/images/en-details-insights.png" alt="Codex Token Meter English repository insights page" width="1400">
 </p>
 
 ### Details Overview
 
 <p align="center">
-  <img src="docs/images/en-details-overview.png" alt="Codex Token Meter English details overview" width="760">
+  <img src="docs/images/en-details-overview.png" alt="Codex Token Meter English details overview" width="1400">
 </p>
 
 ### Activity Calendar
 
 <p align="center">
-  <img src="docs/images/en-details-calendar.png" alt="Codex Token Meter English activity calendar page" width="760">
+  <img src="docs/images/en-details-calendar.png" alt="Codex Token Meter English activity calendar page" width="1400">
 </p>
 
 ### Cost And Budget Tracking
 
 <p align="center">
-  <img src="docs/images/en-details-costs.png" alt="Codex Token Meter English cost and budget page" width="760">
+  <img src="docs/images/en-details-costs.png" alt="Codex Token Meter English cost and budget page" width="1400">
 </p>
 
 ### Diagnostics
 
 <p align="center">
-  <img src="docs/images/en-details-diagnostics.png" alt="Codex Token Meter English diagnostics page" width="760">
+  <img src="docs/images/en-details-diagnostics.png" alt="Codex Token Meter English diagnostics page" width="1400">
 </p>
 
 </details>

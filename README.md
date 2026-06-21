@@ -1,10 +1,10 @@
 # Codex Token Meter
 
-[中文说明](README.zh-CN.md)
+[English README](README.en.md)
 
-Codex Token Meter is a native macOS menu bar app for tracking local Codex token usage, cache hit rate, live quota remaining, model-level usage, and estimated subscription value.
+Codex Token Meter 是一个原生 macOS 状态栏工具，用来查看本机 Codex 的 token 消耗、缓存命中率、实时剩余额度、模型级用量和订阅金额估算。
 
-It reads your local Codex session logs directly:
+它直接读取本地 Codex 会话日志：
 
 ```text
 ~/.codex/sessions/**/rollout-*.jsonl
@@ -13,122 +13,122 @@ $CODEX_HOME/sessions/**/rollout-*.jsonl
 $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ```
 
-When available, it also reads live quota data from the local Codex runtime, including the 5-hour window, weekly window, reset time, and remaining percentage.
+在可用时，它还会通过本机 Codex 运行时读取实时限额信息，例如 5 小时窗口、周窗口、重置时间和剩余比例。
 
-## Screenshots
-
-### Menu Bar Dashboard
-
-<p align="center">
-  <img src="docs/images/en-menu-popover-current.png" alt="Codex Token Meter menu bar dashboard" width="420">
-</p>
-
-### Repository Insights
-
-<p align="center">
-  <img src="docs/images/en-details-insights.png" alt="Codex Token Meter repository insights page" width="760">
-</p>
-
-### Details Overview
-
-<p align="center">
-  <img src="docs/images/en-details-overview.png" alt="Codex Token Meter details overview" width="760">
-</p>
-
-### Activity Calendar
-
-<p align="center">
-  <img src="docs/images/en-details-calendar.png" alt="Codex Token Meter activity calendar page" width="760">
-</p>
-
-### Cost And Budget Tracking
-
-<p align="center">
-  <img src="docs/images/en-details-costs.png" alt="Codex Token Meter cost and budget page" width="760">
-</p>
-
-### Diagnostics
-
-<p align="center">
-  <img src="docs/images/en-details-diagnostics.png" alt="Codex Token Meter diagnostics page" width="760">
-</p>
-
-<details>
-<summary>Chinese UI preview</summary>
+## 截图
 
 ### 状态栏面板
 
 <p align="center">
-  <img src="docs/images/zh-menu-popover-current.png" alt="Codex Token Meter Chinese menu bar dashboard" width="420">
+  <img src="docs/images/zh-menu-popover-current.png" alt="Codex Token Meter 中文状态栏面板" width="1400">
 </p>
 
 ### 仓库洞察
 
 <p align="center">
-  <img src="docs/images/zh-details-insights.png" alt="Codex Token Meter Chinese repository insights page" width="760">
+  <img src="docs/images/zh-details-insights.png" alt="Codex Token Meter 中文仓库洞察页面" width="1400">
 </p>
 
 ### 详情概览
 
 <p align="center">
-  <img src="docs/images/zh-details-overview.png" alt="Codex Token Meter Chinese details overview" width="760">
+  <img src="docs/images/zh-details-overview.png" alt="Codex Token Meter 中文详情概览" width="1400">
 </p>
 
 ### 活动日历
 
 <p align="center">
-  <img src="docs/images/zh-details-calendar.png" alt="Codex Token Meter Chinese activity calendar page" width="760">
+  <img src="docs/images/zh-details-calendar.png" alt="Codex Token Meter 中文活动日历页面" width="1400">
 </p>
 
 ### 金额与预算
 
 <p align="center">
-  <img src="docs/images/zh-details-costs.png" alt="Codex Token Meter Chinese cost and budget page" width="760">
+  <img src="docs/images/zh-details-costs.png" alt="Codex Token Meter 中文金额页面" width="1400">
 </p>
 
 ### 诊断
 
 <p align="center">
-  <img src="docs/images/zh-details-diagnostics.png" alt="Codex Token Meter Chinese diagnostics page" width="760">
+  <img src="docs/images/zh-details-diagnostics.png" alt="Codex Token Meter 中文诊断页面" width="1400">
+</p>
+
+<details>
+<summary>英文界面预览</summary>
+
+### Menu Bar Dashboard
+
+<p align="center">
+  <img src="docs/images/en-menu-popover-current.png" alt="Codex Token Meter English menu bar dashboard" width="1400">
+</p>
+
+### Repository Insights
+
+<p align="center">
+  <img src="docs/images/en-details-insights.png" alt="Codex Token Meter English repository insights page" width="1400">
+</p>
+
+### Details Overview
+
+<p align="center">
+  <img src="docs/images/en-details-overview.png" alt="Codex Token Meter English details overview" width="1400">
+</p>
+
+### Activity Calendar
+
+<p align="center">
+  <img src="docs/images/en-details-calendar.png" alt="Codex Token Meter English activity calendar page" width="1400">
+</p>
+
+### Cost And Budget Tracking
+
+<p align="center">
+  <img src="docs/images/en-details-costs.png" alt="Codex Token Meter English cost and budget page" width="1400">
+</p>
+
+### Diagnostics
+
+<p align="center">
+  <img src="docs/images/en-details-diagnostics.png" alt="Codex Token Meter English diagnostics page" width="1400">
 </p>
 
 </details>
 
-## Features
+## 功能
 
-- Menu bar status item showing remaining quota, weekly quota, daily tokens, or weekly tokens.
-- Compact popover with `24h / 7d / 30d` windows.
-- `All / model limit / Other` quota views for total Codex usage, the current learned model-level limit, and non-model-limit usage.
-- Live 5-hour and weekly quota pacing, with either ring or bullet-style display.
-- Cache hit-rate ring.
-- Compact Codex service-status chip sourced from `status.openai.com`, with a settings toggle to show or hide it.
-- Token breakdown for input, output, cached input, fresh input, and total tokens.
-- Details window with overview, insights, calendar, cost, model, settings, diagnostics, and about pages.
-- Insights page that groups local Codex conversations by repository or folder, highlights long-running threads, context-compaction pressure, active worktrees, and split-thread recommendations.
-- 365-day activity calendar with daily detail cards.
-- Model-level aggregation for long-term usage analysis.
-- Cost page for monthly plan cost, remaining budget, historical spend, estimated daily value, API-equivalent token cost, and optional external API cost.
-- Diagnostics page for Codex CLI/auth health, live quota availability, log coverage, optional API cost input, and other tool detection.
-- Default scan coverage for current sessions, archived sessions, and `CODEX_HOME` when that environment variable is set.
-- Localized UI for English, Simplified Chinese, Traditional Chinese, Japanese, French, German, Spanish, and Korean.
-- Language-aware number units: English uses `K / M / B`; Chinese uses `万 / 亿`.
-- Configurable Codex log folder, menu bar display mode, quota display style, Codex status chip, launch at login, low-quota notifications, payment currency, display currency, and payment start date.
-- Manual refresh, local log folder shortcut, and CLI inspection mode.
+- 状态栏显示 5 小时剩余额度、周额度、当日 token 或 7 日 token。
+- 弹窗支持 `24h / 7d / 30d` 时间窗口切换。
+- 支持 `All / 模型限额 / Other` 视图，区分 Codex 总用量、当前识别到的模型级限额用量和非模型级限额用量。
+- 显示 5 小时和周额度节奏，可在圆环和子弹图样式之间切换。
+- 显示缓存命中率圆环。
+- 通过 `status.openai.com` 监控官方 Codex 服务状态，用一个极简的 Codex 状态 chip 展示，并可在设置里开关。
+- 展示 input、output、cached input、fresh input 和 total token。
+- 详情窗口包含概览、洞察、日历、金额、模型、设置、诊断和关于页面。
+- 洞察页面会按仓库或文件夹聚合本地 Codex 对话，标出长线程、上下文压缩压力、活跃 worktree 和拆分新线程的建议。
+- 过去 365 天日历热力图，点击某一天可查看当天用量详情。
+- 模型页面按模型聚合长期 token 用量。
+- 金额页面支持月付金额、本周剩余预算、历史消耗、当日价值、API 等价成本、可选外部 API 成本和币种折算。
+- 诊断页面展示 Codex CLI/auth 状态、实时额度可用性、日志覆盖、可选 API 成本输入和其他工具探测结果。
+- 默认覆盖当前会话、归档会话，以及已设置 `$CODEX_HOME` 时对应的会话目录。
+- 支持 English、简体中文、繁体中文、日本語、Français、Deutsch、Español、한국어。
+- 数字单位会跟随界面语言：英文使用 `K / M / B`，中文使用 `万 / 亿`。
+- 可配置 Codex 日志目录、状态栏显示内容、额度展示样式、Codex 状态 chip 开关、开机启动、低额度提醒、付款币种、展示币种和付费开始日期。
+- 支持手动刷新、打开本地日志目录和命令行统计检查。
 
-## Data And Calculation Model
+## 数据与计算口径
 
-Codex Token Meter uses local data sources:
+Codex Token Meter 使用本机数据源：
 
-- **Token usage** comes from local Codex session logs. By default the app scans `~/.codex/sessions`, `~/.codex/archived_sessions`, and matching `sessions` / `archived_sessions` folders under `$CODEX_HOME` when that environment variable is set. If you choose a custom log folder in Settings, that folder overrides the default roots. The app scans `token_count` events, reads `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`, and `total_tokens`, calculates the delta between adjacent cumulative counters, and aggregates those deltas by hour, day, session, and model.
-- **Live quota percentages** come from the local Codex runtime. The app starts `codex app-server`, calls `account/rateLimits/read`, and reads fields such as `usedPercent` and `resetsAt` for the 5-hour and weekly windows. Remaining quota in the menu bar and quota rings is displayed as `100 - usedPercent`. The app learns the current non-Codex model-level quota window from the live response instead of relying only on the historical Spark ID.
-- **Cache percentage** comes from local token detail and is calculated as `cached_input_tokens / input_tokens * 100`.
-- **Cost estimates** are not official billing. The monthly plan cost comes from settings and defaults to `$200`; weekly budget is `monthly plan cost * 12 / 52`. Current-week used value prefers the live weekly `usedPercent`. Historical days and weeks are estimated from local token usage, historical peaks, and recorded weekly quota percentages.
-- **API-equivalent cost** is a separate estimate. It answers: "if this same local Codex token usage had been billed directly through API-style token pricing, roughly how much would it cost?" The app prices recognized models by token type: fresh input, cached input, and output. Current built-in rates use the official API prices for GPT-5.5, GPT-5.4, and GPT-5.4 mini, plus the token-based Codex rate-card equivalent for GPT-5.3-Codex / GPT-5.2-style Codex models. `reasoning_output_tokens` is not added again because local `total_tokens` already equals input plus output in Codex token-count events. Total-only Profile API rows without a model label use a GPT-5.5 fresh-input fallback so single-day API totals still show a realistic amount. Unknown model labels are left unpriced and reduce the displayed priced-token coverage.
-- **Repo insights** are derived locally from rollout metadata and events. The insights scanner reads `cwd`, `turn` activity, `context_compacted` signals, and `token_count` deltas, then groups normal `Documents/github/<repo>` work and Codex-created worktrees back to the same repository display name. It reports conversations, turns, compactions, longest-thread pressure, active days, and recommendations for when to split work into a fresh thread.
-- **Codex speed tier / fast mode** is not reconstructed from historical local logs. Current `rollout-*.jsonl` metadata does not expose whether a past request used standard or fast speed, so the app does not infer fast mode from reasoning effort or other indirect fields. If a future Codex data source exposes the speed tier per request, it can be priced explicitly.
-- **External API cost** is an optional local JSON input for direct OpenAI API usage that bypasses Codex logs. By default the app reads `~/Library/Application Support/Codex Token Meter/api-usage.json` when present. Supported keys include `usd_value`, `total_usd`, `usd`, or `cost_usd` for cost, plus `total_tokens`, `tokens`, or `usage_tokens` for token count.
+- **token 用量**：来自本地 Codex 会话日志。默认扫描 `~/.codex/sessions`、`~/.codex/archived_sessions`，以及设置了 `$CODEX_HOME` 时其中的 `sessions` / `archived_sessions` 目录。如果在设置里手动选择日志目录，该目录会覆盖默认扫描范围。应用扫描 `token_count` 事件，读取 `input_tokens`、`cached_input_tokens`、`output_tokens`、`reasoning_output_tokens` 和 `total_tokens`，再用相邻累计值的差值计算本次新增 token，并按小时、日期、会话和模型聚合。
+- **实时额度比例**：来自本机 Codex 运行时。应用启动 `codex app-server`，调用 `account/rateLimits/read`，读取 5 小时窗口和周窗口的 `usedPercent`、`resetsAt` 等信息。状态栏和圆环里的剩余额度按 `100 - usedPercent` 显示。应用会从实时返回里学习当前非 Codex 的模型级限额窗口，不再只依赖历史 Spark ID。
+- **缓存比例**：来自本地 token 明细，计算方式是 `cached_input_tokens / input_tokens * 100`。
+- **金额估算**：不是官方账单。月付金额来自设置项，默认 `$200`；周预算按 `月付金额 * 12 / 52` 计算。本周已用金额优先使用实时周 `usedPercent` 换算，历史日期和历史周则按本地 token 用量、历史峰值和已记录的周额度比例估算。
+- **API 等价成本**：这是另一套独立估算，用来回答“如果这些本地 Codex token 直接按 API token 计费，大约会花多少钱”。应用会按可识别模型分别计价 fresh input、cached input 和 output。当前内置价格使用 GPT-5.5、GPT-5.4、GPT-5.4 mini 的官方 API 单价，以及 GPT-5.3-Codex / GPT-5.2 风格 Codex 模型的 token-based Codex rate card 等价口径。`reasoning_output_tokens` 不会再次叠加，因为本地 `token_count` 事件里的 `total_tokens` 已经等于 input 加 output。没有模型标签但有总 token 的 Profile API 单日数据，会按 GPT-5.5 fresh input fallback 估算，避免有覆盖率时金额仍为 0。无法识别模型标签的记录不会被强行估价，并会降低界面中的 priced-token 覆盖率。
+- **仓库洞察**：完全来自本机 rollout 元数据和事件。洞察扫描器读取 `cwd`、`turn` 活动、`context_compacted` 信号和 `token_count` 增量，并把常规 `Documents/github/<repo>` 工作目录和 Codex 创建的 worktree 归并到同一个仓库显示名。它会展示对话数、turn 数、压缩次数、最长线程压力、活跃天数，以及何时拆到新线程的建议。
+- **Codex speed tier / fast 模式**：历史本地日志不会被反推 fast/standard。当前 `rollout-*.jsonl` 元数据不暴露过去请求使用的是标准速度还是 fast 速度，所以应用不会根据 reasoning effort 或其他间接字段乱推 fast 模式。如果未来 Codex 的数据源提供每次请求的 speed tier，才能按请求明确计价。
+- **外部 API 成本**：这是可选的本地 JSON 输入，用来补充不经过 Codex 日志的直接 OpenAI API 用量。默认读取 `~/Library/Application Support/Codex Token Meter/api-usage.json`。成本字段支持 `usd_value`、`total_usd`、`usd`、`cost_usd`，token 字段支持 `total_tokens`、`tokens`、`usage_tokens`。
 
-Example external API cost file:
+外部 API 成本文件示例：
 
 ```json
 {
@@ -138,49 +138,49 @@ Example external API cost file:
 }
 ```
 
-If OpenAI resets or refreshes your quota during a week, the live weekly percentage follows the new `usedPercent`, so the menu bar and weekly quota ring may suddenly show more remaining quota. Local token logs are not cleared. The cost page records observed weekly-percentage drops and keeps the highest weekly percentage seen for historical weeks so past estimated value is not overwritten by a later low live percentage. This is still a local observation-based estimate, not an official billing export.
+如果一周内 OpenAI 重置或刷新了额度，实时周比例会按新的 `usedPercent` 更新，所以状态栏和周额度圆环可能会突然显示更多剩余额度。本地 token 日志不会被清零；金额页会记录观察到的周使用比例下降，并保留历史周见过的最大周使用比例，避免历史金额在重置后被当前低比例冲掉。这个处理仍然是本地观测估算，不等同于官方账单导出。
 
-If you run work through Codex CLI or the Codex app with API-based authentication, local token usage can still be counted as long as Codex continues writing local `rollout-*.jsonl` logs. Live quota percentages depend on whether `codex app-server` can return `account/rateLimits/read` for that authentication mode. Direct OpenAI API calls that bypass the local Codex client can be represented through the optional local `api-usage.json` file; the app does not call billing APIs itself.
+如果通过 Codex CLI 或 Codex app 使用 API 登录状态启动任务，只要 Codex 仍然写入本地 `rollout-*.jsonl` 日志，本地 token 用量就可以继续统计；实时额度比例取决于 `codex app-server` 是否能在当前认证方式下返回 `account/rateLimits/read`。如果直接调用 OpenAI API 而不经过本机 Codex 客户端，可以通过可选的本地 `api-usage.json` 表示；应用本身不会主动调用账单 API。
 
-## Recent Updates
+## 最近更新
 
-- Added a repository insights page for identifying long-running Codex threads, context compaction pressure, active worktrees, and project-specific split-thread recommendations.
-- Updated the insights project list to show the final repository folder name, so paths such as `github/CampaignStrategy` and `github/CodexTokenMeter` render as `CampaignStrategy` and `CodexTokenMeter`.
-- Split the former single 9k-line Swift entrypoint into focused source files for domain models, settings, scanning, cost estimation, dashboard UI, details UI, app orchestration, and CLI helpers.
-- Added `AGENTS.md` and `docs/ARCHITECTURE.md` so AI-assisted development can target the right file and preserve token, quota, and cost-accounting invariants.
-- Updated the build script to automatically compile every Swift source file under `Sources/CodexTokenMeter`.
-- Added day-level per-rollout aggregate caching so `7d`, `30d`, and yearly detail scans reuse derived summaries instead of re-walking every cached event.
-- Kept the rolling `24h` window event-accurate while speeding up natural-day windows and details-page warm scans.
-- Added migration from the older parsed-rollout cache format to the new aggregate cache without rereading unchanged JSONL logs.
-- Improved menu popover readability with stronger secondary text contrast and SF Symbol icons on the main actions.
-- Added basic accessibility labels for quota rings, segmented controls, settings inputs, popups, and switches.
-- Added a compact Codex service-status chip backed by `status.openai.com`, plus `--print-service-status` for diagnostics.
-- Added quota display settings for ring or bullet-style 5-hour and weekly pacing.
-- Fixed quota wording and visuals to emphasize remaining quota instead of mixing used and remaining semantics.
-- Added a GPT-5.5 fallback for total-only Profile API usage so single-day amount estimates do not show zero when token coverage is available.
-- Centralized historical cost and quota-value estimation into one shared `CostEstimator` path used by calendar details, model rows, amount totals, tooltips, and cost history.
-- Fixed language-aware number units and tightened localized layout spacing in the details window.
+- 新增仓库洞察页面，用来识别 Codex 长线程、上下文压缩压力、活跃 worktree 和按项目拆分新线程的建议。
+- 更新洞察页项目列表，只显示最后一级仓库名，例如 `github/CampaignStrategy` 和 `github/CodexTokenMeter` 会显示为 `CampaignStrategy` 和 `CodexTokenMeter`。
+- 将原先 9k 行的 Swift 单入口文件拆分为领域模型、设置、扫描器、成本估算、状态栏 UI、详情页 UI、App 编排和 CLI helper 等独立源码文件。
+- 新增 `AGENTS.md` 和 `docs/ARCHITECTURE.md`，方便 AI 协作开发时快速定位文件，并保留 token、额度和成本估算的关键口径。
+- 更新构建脚本，自动编译 `Sources/CodexTokenMeter` 下的全部 Swift 源文件。
+- 新增按 rollout 文件的日级聚合缓存，`7d`、`30d` 和年度详情扫描可以复用聚合摘要，不再每次遍历缓存里的全部事件。
+- 保留滚动 `24h` 窗口的事件级精确计算，同时加速自然日窗口和详情页预热扫描。
+- 支持从旧版解析缓存迁移到新版聚合缓存，未变化的 JSONL 日志不需要重新读取。
+- 提升状态栏弹窗的次级文字对比度，并为主要操作按钮加入 SF Symbol 图标。
+- 为额度圆环、分段控件、设置输入框、下拉框和开关补充基础辅助功能标签。
+- 新增基于 `status.openai.com` 的 Codex 服务状态 chip，并提供 `--print-service-status` 诊断命令。
+- 新增额度展示样式设置，可在圆环和子弹图之间切换 5 小时/周额度节奏展示。
+- 修正额度文案和视觉口径，统一强调“剩余额度”，避免已用比例和剩余比例混用。
+- 为只有总 token、没有模型标签的 Profile API 单日用量增加 GPT-5.5 fallback，避免有 token 覆盖时金额仍显示为 0。
+- 将历史金额和额度价值估算收敛到统一的 `CostEstimator`，复用于日历详情、模型行、金额总览、悬浮提示和历史金额页面。
+- 修复多语言数字单位和详情窗口局部布局间距问题。
 
-## Codex Official Best Practices
+## Codex 官方最佳实践
 
-This repository applies several practices from the official [Codex best practices](https://developers.openai.com/codex/learn/best-practices), [prompting](https://developers.openai.com/codex/prompting), and [AGENTS.md](https://developers.openai.com/codex/guides/agents-md) guidance:
+本仓库落地了 OpenAI 官方 [Codex best practices](https://developers.openai.com/codex/learn/best-practices)、[prompting](https://developers.openai.com/codex/prompting) 和 [AGENTS.md](https://developers.openai.com/codex/guides/agents-md) 指南中的多条实践：
 
-- Give Codex clear task context: include the goal, relevant files or errors, constraints, and "done when" criteria before asking for code changes.
-- Plan first for difficult work: use Plan mode or ask Codex to interview you before implementation when the request is ambiguous, risky, or likely to span multiple files.
-- Keep reusable guidance in `AGENTS.md`: repository layout, build commands, verification checks, accounting invariants, privacy rules, and PR expectations should live in durable instructions instead of being repeated in each prompt.
-- Keep instructions practical and scoped: a short, accurate `AGENTS.md` is preferred; split larger guidance into focused docs such as `docs/ARCHITECTURE.md`.
-- Configure Codex deliberately: use `config.toml` for durable defaults such as model, reasoning effort, sandbox mode, approval policy, and MCP setup; use one-off overrides only for one-off tasks.
-- Keep sandboxing and approvals tight by default: use broader access only for trusted workflows, and prefer explicit writable roots or allow rules over removing boundaries entirely.
-- Validate and review changes: ask Codex to run the relevant build, CLI, render, lint, or test checks; inspect the diff before accepting or merging.
-- Turn repeated workflows into skills: focused skills should package instructions, references, and optional scripts for repeatable work such as release prep, review, or diagnostics.
-- Use MCP for live external context: connect Codex to tools such as official docs, GitHub, browser automation, or design systems when a task depends on data outside the repository.
-- Use hooks and automations carefully: hooks can enforce checks at lifecycle points, and automations can run recurring work, but unattended workflows should keep conservative permissions and reviewable outputs.
+- 给 Codex 明确任务上下文：在要求改代码前说明目标、相关文件或错误、约束，以及完成标准。
+- 复杂任务先规划：当需求模糊、风险较高或会跨多个文件时，先使用 Plan mode，或让 Codex 先反问并收敛方案，再进入实现。
+- 把可复用规则放进 `AGENTS.md`：仓库结构、构建命令、验证方式、计量口径、隐私边界和 PR 要求应写成持久指令，而不是每次 prompt 重复。
+- 保持指令实用且有边界：优先维护短而准确的 `AGENTS.md`；更大的说明拆到 `docs/ARCHITECTURE.md` 这类聚焦文档。
+- 有意识地配置 Codex：用 `config.toml` 保存模型、reasoning effort、sandbox、approval policy 和 MCP 等持久默认值；一次性需求再使用临时覆盖。
+- 默认收紧 sandbox 和 approvals：只有可信 workflow 才扩大权限，优先用明确 writable roots 或 allow rules，而不是直接取消边界。
+- 验证并审查改动：让 Codex 运行相关 build、CLI、render、lint 或测试检查；接受或合并前先看 diff。
+- 把重复流程沉淀为 skills：聚焦的 skill 可以封装指令、参考资料和可选脚本，用于发布准备、代码审查或诊断等重复任务。
+- 用 MCP 接入实时外部上下文：当任务依赖仓库外数据时，把 Codex 连接到官方文档、GitHub、浏览器自动化或设计系统等工具。
+- 谨慎使用 hooks 和 automations：hooks 可在生命周期节点强制检查，automations 可执行周期性工作；无人值守流程应保持保守权限，并产出可审查结果。
 
-## Privacy
+## 隐私说明
 
-This repository contains only app source code and static assets. It does not include your Codex logs, token usage data, screenshots, build artifacts, or DMG files.
+这个项目只包含应用源码和静态资源，不包含你的 Codex 日志、token 消耗数据、截图、构建产物或 DMG。
 
-At runtime, the app reads:
+应用运行时会读取：
 
 ```text
 ~/.codex/sessions
@@ -191,87 +191,87 @@ $CODEX_HOME/archived_sessions
 ~/Library/Application Support/Codex Token Meter/api-usage.json
 ```
 
-Those files are used locally on your Mac. The app does not upload session logs. It does make read-only status checks to `https://status.openai.com/api/v2/summary.json` for the Codex status chip, and it invokes the local Codex runtime for live quota reads. `codex app-server` may use your existing Codex login state to access normal Codex usage endpoints.
+这些数据只在本机使用。应用不会上传会话日志。为了展示 Codex 状态 chip，应用会只读请求 `https://status.openai.com/api/v2/summary.json`；另外还会调用本机 Codex 运行时读取实时额度。实时限额读取依赖本机 Codex 运行时，`codex app-server` 本身可能会通过你现有的 Codex 登录状态访问 Codex 的正常用量接口。
 
-## Build
+## 构建
 
-Requirements:
+要求：
 
-- macOS 13 or later
+- macOS 13 或更新版本
 - Xcode Command Line Tools
-- `swiftc`
+- 已安装 `swiftc`
 
-Build the app:
+构建应用：
 
 ```bash
 ./build.sh
 ```
 
-Build output:
+构建结果：
 
 ```text
 build/Codex Token Meter.app
 ```
 
-Install to `/Applications` and launch:
+安装到 `/Applications` 并启动：
 
 ```bash
 ./install.sh
 ```
 
-Package a DMG:
+打包 DMG：
 
 ```bash
 ./package_dmg.sh
 ```
 
-DMG output:
+DMG 输出路径：
 
 ```text
 dist/Codex-Token-Meter-<version>.dmg
 ```
 
-## CLI Inspection
+## 命令行检查
 
-The built app can print parsed statistics from the command line, which is useful when checking parser behavior:
+应用也支持从命令行打印统计结果，便于排查解析结果：
 
 ```bash
 "./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --hours=168
 ```
 
-Example with a specific window and quota view:
+指定窗口和视图：
 
 ```bash
 "./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --window=month --quota=all
 ```
 
-To inspect the OpenAI/Codex status feed directly:
+如果要直接检查 OpenAI / Codex 服务状态：
 
 ```bash
 "./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-service-status
 ```
 
-To render the details window for visual checks, including the insights page:
+如果要渲染详情窗口做视觉检查，包括洞察页：
 
 ```bash
 "./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-details=/tmp/codex-token-meter-insights.png --section=insights --insight-window=90
 ```
 
-The JSON output includes `model_limit_id`, `model_limit_name`, API-equivalent cost fields, `external_api_cost` status, and service-status fields when using `--print-service-status`.
+JSON 输出会包含 `model_limit_id`、`model_limit_name`、API 等价成本字段、`external_api_cost` 状态；使用 `--print-service-status` 时还会输出服务状态字段。
 
-## Project Layout
+## 项目结构
 
 ```text
-Sources/CodexTokenMeter/main.swift   Command-line entrypoints and app startup
-Sources/CodexTokenMeter/*.swift      Domain, settings, scanner, cost, and AppKit UI modules
-Resources/                          App icons and menu bar assets
-Tools/                              Icon generation scripts
-docs/ARCHITECTURE.md                Code map, data flow, invariants, and refactor path
-AGENTS.md                           Development guide for AI-assisted changes
-Info.plist                          macOS app metadata
-build.sh                            Builds the .app bundle
-install.sh                          Installs to /Applications
-package_dmg.sh                      Packages the DMG
+Sources/CodexTokenMeter/main.swift   命令行入口和 App 启动
+Sources/CodexTokenMeter/*.swift      领域模型、设置、解析器、成本估算和 AppKit UI 模块
+Resources/                          应用图标和状态栏资源
+Tools/                              图标生成脚本
+docs/ARCHITECTURE.md                代码地图、数据流、关键口径和重构路径
+AGENTS.md                           面向 AI 协作开发的接手说明
+Info.plist                          macOS App 元信息
+build.sh                            构建 .app
+install.sh                          安装到 /Applications
+package_dmg.sh                      打包 DMG
 ```
 
 ## License
