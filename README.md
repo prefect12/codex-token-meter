@@ -19,7 +19,7 @@ When available, it also reads live quota data from the local Codex runtime, incl
 
 | Menu Bar Dashboard | Repository Insights |
 | --- | --- |
-| <img src="docs/images/en-menu-popover.png" alt="Codex Token Meter menu bar dashboard" width="280"> | <img src="docs/images/en-details-insights.png" alt="Codex Token Meter repository insights page" width="420"> |
+| <img src="docs/images/en-menu-popover-current.png" alt="Codex Token Meter menu bar dashboard" width="280"> | <img src="docs/images/en-details-insights.png" alt="Codex Token Meter repository insights page" width="420"> |
 | Details Overview | Activity Calendar |
 | <img src="docs/images/en-details-overview.png" alt="Codex Token Meter details overview" width="420"> | <img src="docs/images/en-details-calendar.png" alt="Codex Token Meter activity calendar page" width="420"> |
 | Cost And Budget Tracking | Diagnostics |
@@ -30,7 +30,7 @@ When available, it also reads live quota data from the local Codex runtime, incl
 
 | 状态栏面板 | 仓库洞察 |
 | --- | --- |
-| <img src="docs/images/zh-menu-popover.png" alt="Codex Token Meter Chinese menu bar dashboard" width="280"> | <img src="docs/images/zh-details-insights.png" alt="Codex Token Meter Chinese repository insights page" width="420"> |
+| <img src="docs/images/zh-menu-popover-current.png" alt="Codex Token Meter Chinese menu bar dashboard" width="280"> | <img src="docs/images/zh-details-insights.png" alt="Codex Token Meter Chinese repository insights page" width="420"> |
 | 详情概览 | 活动日历 |
 | <img src="docs/images/zh-details-overview.png" alt="Codex Token Meter Chinese details overview" width="420"> | <img src="docs/images/zh-details-calendar.png" alt="Codex Token Meter Chinese activity calendar page" width="420"> |
 | 金额与预算 | 诊断 |
