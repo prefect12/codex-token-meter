@@ -20,7 +20,7 @@ When available, it also reads live quota data from the local Codex runtime, incl
 ### Menu Bar Dashboard
 
 <p align="center">
-  <img src="docs/images/en-menu-popover-current.png" alt="Codex Token Meter menu bar dashboard" width="1400">
+  <img src="docs/images/en-menu-popover-current.png" alt="Codex Token Meter menu bar dashboard" width="520">
 </p>
 
 ### Repository Insights
@@ -59,7 +59,7 @@ When available, it also reads live quota data from the local Codex runtime, incl
 ### 状态栏面板
 
 <p align="center">
-  <img src="docs/images/zh-menu-popover-current.png" alt="Codex Token Meter Chinese menu bar dashboard" width="1400">
+  <img src="docs/images/zh-menu-popover-current.png" alt="Codex Token Meter Chinese menu bar dashboard" width="520">
 </p>
 
 ### 仓库洞察
