@@ -209,6 +209,92 @@ struct TokenReport {
     var scannedAt = Date()
 }
 
+struct RepoInsightDay {
+    let day: String
+    var conversations: Int
+    var turns: Int
+    var compressions: Int
+}
+
+struct RepoInsightTurnBuckets {
+    var short: Int = 0
+    var medium: Int = 0
+    var long: Int = 0
+    var extraLong: Int = 0
+}
+
+struct RepoInsightCompressionBuckets {
+    var zero: Int = 0
+    var one: Int = 0
+    var two: Int = 0
+    var threePlus: Int = 0
+}
+
+struct RepoInsight {
+    let key: String
+    let displayName: String
+    let primaryFolder: String
+    var folders: Set<String>
+    var conversations: Int
+    var turns: Int
+    var compressions: Int
+    var tokens: Int64
+    var conversationsWithCompression: Int
+    var longestTurns: Int
+    var longestTokens: Int64
+    var maxCompressions: Int
+    var abortedTurns: Int
+    var completedTurns: Int
+    var activeDays: Set<String>
+    var turnBuckets: RepoInsightTurnBuckets
+    var compressionBuckets: RepoInsightCompressionBuckets
+    var days: [RepoInsightDay]
+
+    var averageTurnsPerConversation: Double {
+        conversations == 0 ? 0 : Double(turns) / Double(conversations)
+    }
+
+    var averageCompressionsPerConversation: Double {
+        conversations == 0 ? 0 : Double(compressions) / Double(conversations)
+    }
+
+    var compressionConversationRate: Double {
+        conversations == 0 ? 0 : Double(conversationsWithCompression) / Double(conversations)
+    }
+
+    var risk: RepoInsightRisk {
+        if averageCompressionsPerConversation >= 1.0
+            || maxCompressions >= 8
+            || compressionConversationRate >= 0.45 {
+            return .frequentCompression
+        }
+        if averageCompressionsPerConversation >= 0.35
+            || longestTurns >= 40
+            || averageTurnsPerConversation >= 12 {
+            return .longRunning
+        }
+        if conversations >= 10
+            && averageTurnsPerConversation <= 5
+            && averageCompressionsPerConversation < 0.2 {
+            return .wellSplit
+        }
+        return .healthy
+    }
+}
+
+enum RepoInsightRisk {
+    case frequentCompression
+    case longRunning
+    case wellSplit
+    case healthy
+}
+
+struct RepoInsightsReport {
+    var rows: [RepoInsight]
+    var scannedAt: Date
+    var windowDays: Int
+}
+
 struct AccountUsageSummary {
     let lifetimeTokens: Int64?
     let peakDailyTokens: Int64?
@@ -279,4 +365,3 @@ struct AccountUsageSnapshot {
         return report
     }
 }
-

@@ -103,6 +103,10 @@ enum AppLanguage: String, CaseIterable {
         }
     }
 
+    var usesChineseInsightCopy: Bool {
+        self == .chinese || self == .traditionalChinese
+    }
+
     func text(_ key: L10nKey) -> String {
         switch self {
         case .english:
@@ -280,6 +284,8 @@ enum L10nKey {
     case inShort
     case input
     case interfaceLanguage
+    case insights
+    case insightsSubtitle
     case japanese
     case language
     case languageHint
@@ -456,6 +462,8 @@ enum L10nKey {
         case .inShort: return "in"
         case .input: return "Input"
         case .interfaceLanguage: return "Interface Language"
+        case .insights: return "Insights"
+        case .insightsSubtitle: return "Find long-running repo threads and context compaction"
         case .japanese: return "Japanese"
         case .language: return "Language"
         case .languageHint: return "Changes apply immediately to the popover and details window."
@@ -634,6 +642,8 @@ enum L10nKey {
         case .inShort: return "输入"
         case .input: return "输入"
         case .interfaceLanguage: return "界面语言"
+        case .insights: return "洞察"
+        case .insightsSubtitle: return "按项目和文件夹定位长线程"
         case .japanese: return "日语"
         case .language: return "语言"
         case .languageHint: return "切换后会立即应用到弹窗和详情窗口。"
@@ -812,6 +822,8 @@ enum L10nKey {
         case .inShort: return "入力"
         case .input: return "入力"
         case .interfaceLanguage: return "表示言語"
+        case .insights: return "洞察"
+        case .insightsSubtitle: return "プロジェクトとフォルダ別に長いスレッドを特定"
         case .japanese: return "日本語"
         case .language: return "言語"
         case .languageHint: return "変更はポップオーバーと詳細ウィンドウにすぐ反映されます。"
@@ -1399,4 +1411,3 @@ final class QuotaWarningManager {
         UNUserNotificationCenter.current().add(request)
     }
 }
-

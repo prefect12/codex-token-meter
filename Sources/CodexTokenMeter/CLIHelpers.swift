@@ -31,6 +31,27 @@ func requestedHours(from arguments: [String], defaultValue: Int = WindowOption.w
     }.first ?? defaultValue
 }
 
+func requestedDetailsSection(from arguments: [String]) -> DetailsSection {
+    let rawSection = arguments
+        .compactMap { argument -> String? in
+            guard argument.hasPrefix("--section=") else { return nil }
+            return String(argument.dropFirst("--section=".count))
+        }
+        .first ?? "overview"
+
+    switch rawSection {
+    case "overview": return .overview
+    case "calendar": return .calendar
+    case "insights": return .insights
+    case "costs": return .costs
+    case "models": return .models
+    case "settings": return .settings
+    case "diagnostics": return .diagnostics
+    case "about": return .about
+    default: return .overview
+    }
+}
+
 func writePNG(of view: NSView, to url: URL) throws {
     guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
         throw NSError(domain: "CodexTokenMeter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create bitmap"])
@@ -85,3 +106,50 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
     return outputURL
 }
 
+func renderDetailsSnapshot(arguments: [String]) throws -> URL {
+    let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
+    let section = requestedDetailsSection(from: arguments)
+    let isInsightsSection = section == .insights
+    let accountUsage = !isInsightsSection && AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
+    let allLocal = isInsightsSection ? TokenReport(scannedAt: Date()) : scanner.scan(window: .week)
+    let all: TokenReport
+    if let accountUsage, accountUsage.hasData {
+        all = profileReportWithLocalFallback(accountUsage.report(window: .week), localReport: allLocal)
+    } else {
+        all = allLocal
+    }
+    let repoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90])
+    let repoInsights = repoInsightReports[90] ?? scanner.scanRepoInsights(days: 90)
+    let snapshot = DetailsSnapshot(
+        all: all,
+        spark: isInsightsSection ? TokenReport(scannedAt: Date()) : scanner.scan(window: .week, includedModelName: "codex-spark"),
+        other: isInsightsSection ? TokenReport(scannedAt: Date()) : scanner.scan(window: .week, excludedModelName: "codex-spark"),
+        repoInsights: repoInsights,
+        repoInsightReports: repoInsightReports,
+        liveLimits: isInsightsSection ? [] : LiveRateLimitReader().read(),
+        serviceStatus: isInsightsSection ? nil : CodexServiceStatusReader().read(),
+        costReferenceReport: allLocal,
+        accountUsage: accountUsage
+    )
+
+    let outputURL = arguments
+        .compactMap { argument -> URL? in
+            guard argument.hasPrefix("--render-details=") else { return nil }
+            return URL(fileURLWithPath: String(argument.dropFirst("--render-details=".count)))
+        }
+        .first ?? URL(fileURLWithPath: "/tmp/codex-token-meter-details.png")
+
+    let view = UsageDetailsView(frame: NSRect(x: 0, y: 0, width: 1280, height: 760))
+    let windowDays = arguments
+        .compactMap { argument -> Int? in
+            guard argument.hasPrefix("--insight-window=") else { return nil }
+            return Int(argument.dropFirst("--insight-window=".count))
+        }
+        .first ?? 90
+    view.showSection(section, insightWindowDays: windowDays)
+    view.snapshot = snapshot
+    view.isLoading = false
+    view.layoutSubtreeIfNeeded()
+    try writePNG(of: view, to: outputURL)
+    return outputURL
+}
