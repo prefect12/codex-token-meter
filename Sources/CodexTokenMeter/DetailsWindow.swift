@@ -17,6 +17,17 @@ struct DetailsSnapshot {
     var accountUsage: AccountUsageSnapshot? = nil
 }
 
+struct DetailsLoadingProgress {
+    var fraction: Double
+    var messageKey: L10nKey
+
+    static let starting = DetailsLoadingProgress(fraction: 0.08, messageKey: .loadingUsageDetails)
+
+    var clampedFraction: Double {
+        min(max(fraction, 0), 1)
+    }
+}
+
 private struct InsightRecommendationText {
     let title: String
     let body: String
@@ -1196,10 +1207,16 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
 
     func showLoading() {
         detailsView.isLoading = true
+        detailsView.loadingProgress = .starting
         showWindow(nil)
         window?.center()
         NSApp.activate(ignoringOtherApps: true)
         updateDocumentLayout()
+    }
+
+    func updateLoadingProgress(_ progress: DetailsLoadingProgress) {
+        guard detailsView.isLoading else { return }
+        detailsView.loadingProgress = progress
     }
 
     func update(snapshot: DetailsSnapshot) {
@@ -1429,6 +1446,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
     }
     var isLoading = false { didSet { onPreferredHeightChanged?(); needsDisplay = true; needsLayout = true } }
+    var loadingProgress = DetailsLoadingProgress.starting { didSet { needsDisplay = true } }
     var onLanguageChanged: ((AppLanguage) -> Void)?
     var onNumberUnitStyleChanged: ((NumberUnitStyle) -> Void)?
     var onStatusDisplayChanged: ((StatusDisplayOption) -> Void)?
@@ -2355,7 +2373,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         openLogFolderRect = nil
 
         guard let snapshot else {
-            drawText(isLoading ? t(.loadingUsageDetails) : t(.noDataLoaded), rect: NSRect(x: content.minX, y: content.minY + 92, width: content.width, height: 24), font: .systemFont(ofSize: 15, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
+            if isLoading {
+                drawLoadingState(content: content)
+            } else {
+                drawText(t(.noDataLoaded), rect: NSRect(x: content.minX, y: content.minY + 92, width: content.width, height: 24), font: .systemFont(ofSize: 15, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
+            }
             return
         }
 
@@ -2385,6 +2407,29 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             drawDayValueInfoTooltip()
             drawProfileAPIInfoTooltip()
         }
+    }
+
+    private func drawLoadingState(content: NSRect) {
+        let progress = loadingProgress.clampedFraction
+        let message = t(loadingProgress.messageKey)
+        let percentText = "\(Int((progress * 100).rounded()))%"
+        let y = content.minY + 92
+        let progressWidth = min(content.width, 420)
+        let labelRect = NSRect(x: content.minX, y: y, width: progressWidth - 56, height: 24)
+        let percentRect = NSRect(x: content.minX + progressWidth - 50, y: y, width: 50, height: 24)
+        drawText(message, rect: labelRect, font: .systemFont(ofSize: 15, weight: .semibold), color: NSColor.white.withAlphaComponent(0.68))
+        drawText(percentText, rect: percentRect, font: .monospacedDigitSystemFont(ofSize: 13, weight: .bold), color: accentTeal.withAlphaComponent(0.86))
+
+        let track = NSRect(x: content.minX, y: y + 34, width: progressWidth, height: 10)
+        NSColor.white.withAlphaComponent(0.10).setFill()
+        NSBezierPath(roundedRect: track, xRadius: 5, yRadius: 5).fill()
+
+        let fillWidth = max(progress > 0 ? 8 : 0, track.width * CGFloat(progress))
+        let fillRect = NSRect(x: track.minX, y: track.minY, width: min(track.width, fillWidth), height: track.height)
+        accentBlue.withAlphaComponent(0.86).setFill()
+        NSBezierPath(roundedRect: fillRect, xRadius: 5, yRadius: 5).fill()
+
+        drawText(t(.loadingUsageDetailsHint), rect: NSRect(x: content.minX, y: y + 58, width: content.width, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
     }
 
     private func drawSidebar(width: CGFloat) {
