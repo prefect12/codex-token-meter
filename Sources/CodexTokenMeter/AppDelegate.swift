@@ -668,9 +668,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let all = self.scanner.scan(days: 365)
             let spark = self.scanner.scan(days: 365, includedModelName: QuotaViewOption.spark.includedModelName)
             let other = self.scanner.scan(days: 365, excludedModelName: QuotaViewOption.other.excludedModelName)
+            let repoInsightReports = self.scanner.scanRepoInsights(windows: [7, 30, 90])
+            let repoInsights = repoInsightReports[90] ?? self.scanner.scanRepoInsights(days: 90)
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             let accountUsage = self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
-            let snapshot = DetailsSnapshot(all: all, spark: spark, other: other, liveLimits: limits, serviceStatus: currentServiceStatus, costReferenceReport: costReferenceReport, accountUsage: accountUsage)
+            let snapshot = DetailsSnapshot(all: all, spark: spark, other: other, repoInsights: repoInsights, repoInsightReports: repoInsightReports, liveLimits: limits, serviceStatus: currentServiceStatus, costReferenceReport: costReferenceReport, accountUsage: accountUsage)
             DispatchQueue.main.async {
                 if let accountUsage {
                     self.accountUsage = accountUsage
@@ -723,4 +725,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return lines.joined(separator: "\n")
     }
 }
-
