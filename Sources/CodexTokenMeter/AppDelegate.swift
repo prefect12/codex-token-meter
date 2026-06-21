@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusSpinnerTimer: Timer?
     private var statusSpinnerFrame = 0
     private var statusIsLoading = false
+    private var detailsLoadGeneration = 0
     private let refreshInterval: TimeInterval = 300
     private let liveRefreshInterval: TimeInterval = 60
     private let statusIconSize = NSSize(width: 14, height: 14)
@@ -657,6 +658,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openDetailsWindow() {
+        detailsLoadGeneration += 1
+        let loadGeneration = detailsLoadGeneration
         detailsController.showLoading()
         if liveLimits.isEmpty {
             refreshLiveLimits()
@@ -664,16 +667,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let limits = liveLimits
         let currentServiceStatus = serviceStatus
         let currentAccountUsage = accountUsage
+        let updateProgress: (Double, L10nKey) -> Void = { [weak self] fraction, messageKey in
+            DispatchQueue.main.async {
+                guard let self, self.detailsLoadGeneration == loadGeneration else { return }
+                self.detailsController.updateLoadingProgress(DetailsLoadingProgress(fraction: fraction, messageKey: messageKey))
+            }
+        }
         scanQueue.async {
+            updateProgress(0.12, .loadingAllUsage)
             let all = self.scanner.scan(days: 365)
+            updateProgress(0.28, .loadingSparkUsage)
             let spark = self.scanner.scan(days: 365, includedModelName: QuotaViewOption.spark.includedModelName)
+            updateProgress(0.44, .loadingOtherUsage)
             let other = self.scanner.scan(days: 365, excludedModelName: QuotaViewOption.other.excludedModelName)
+            updateProgress(0.62, .loadingRepoInsights)
             let repoInsightReports = self.scanner.scanRepoInsights(windows: [7, 30, 90])
             let repoInsights = repoInsightReports[90] ?? self.scanner.scanRepoInsights(days: 90)
+            updateProgress(0.82, .loadingProfileTotals)
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             let accountUsage = self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
+            updateProgress(0.94, .loadingFinalizing)
             let snapshot = DetailsSnapshot(all: all, spark: spark, other: other, repoInsights: repoInsights, repoInsightReports: repoInsightReports, liveLimits: limits, serviceStatus: currentServiceStatus, costReferenceReport: costReferenceReport, accountUsage: accountUsage)
             DispatchQueue.main.async {
+                guard self.detailsLoadGeneration == loadGeneration else { return }
                 if let accountUsage {
                     self.accountUsage = accountUsage
                     self.latestState.accountUsage = accountUsage

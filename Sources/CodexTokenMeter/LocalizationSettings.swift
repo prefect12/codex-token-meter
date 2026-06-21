@@ -298,7 +298,14 @@ enum L10nKey {
     case logFolderChoose
     case logFolderDefault
     case logFolderOpen
+    case loadingAllUsage
+    case loadingFinalizing
+    case loadingOtherUsage
+    case loadingProfileTotals
+    case loadingRepoInsights
+    case loadingSparkUsage
     case loadingUsageDetails
+    case loadingUsageDetailsHint
     case logs
     case manualRefreshCycle
     case modelLimit
@@ -476,7 +483,14 @@ enum L10nKey {
         case .logFolderChoose: return "Choose..."
         case .logFolderDefault: return "Default"
         case .logFolderOpen: return "Finder"
+        case .loadingAllUsage: return "Scanning all usage..."
+        case .loadingFinalizing: return "Preparing details..."
+        case .loadingOtherUsage: return "Scanning other models..."
+        case .loadingProfileTotals: return "Reading Profile API totals..."
+        case .loadingRepoInsights: return "Building repo insights..."
+        case .loadingSparkUsage: return "Scanning Spark usage..."
         case .loadingUsageDetails: return "Loading usage details..."
+        case .loadingUsageDetailsHint: return "This can take a moment when the local Codex log cache is cold."
         case .logs: return "Logs"
         case .manualRefreshCycle: return "OpenAI refresh"
         case .modelLimit: return "Model"
@@ -656,7 +670,14 @@ enum L10nKey {
         case .logFolderChoose: return "选择..."
         case .logFolderDefault: return "默认"
         case .logFolderOpen: return "Finder"
+        case .loadingAllUsage: return "正在扫描全部用量..."
+        case .loadingFinalizing: return "正在整理详情..."
+        case .loadingOtherUsage: return "正在扫描其他模型..."
+        case .loadingProfileTotals: return "正在读取 Profile API 总量..."
+        case .loadingRepoInsights: return "正在生成 Repo 洞察..."
+        case .loadingSparkUsage: return "正在扫描 Spark 用量..."
         case .loadingUsageDetails: return "正在加载用量详情..."
+        case .loadingUsageDetailsHint: return "本地 Codex 日志缓存冷启动时可能需要一点时间。"
         case .logs: return "日志"
         case .manualRefreshCycle: return "OpenAI 手动刷新"
         case .modelLimit: return "模型"
@@ -836,7 +857,14 @@ enum L10nKey {
         case .logFolderChoose: return "選択..."
         case .logFolderDefault: return "既定"
         case .logFolderOpen: return "Finder"
+        case .loadingAllUsage: return "全体の使用量をスキャン中..."
+        case .loadingFinalizing: return "詳細を準備中..."
+        case .loadingOtherUsage: return "その他モデルをスキャン中..."
+        case .loadingProfileTotals: return "Profile API 合計を読み込み中..."
+        case .loadingRepoInsights: return "Repo 洞察を生成中..."
+        case .loadingSparkUsage: return "Spark 使用量をスキャン中..."
         case .loadingUsageDetails: return "使用量の詳細を読み込み中..."
+        case .loadingUsageDetailsHint: return "ローカル Codex ログのキャッシュが冷えている場合は少し時間がかかります。"
         case .logs: return "ログ"
         case .manualRefreshCycle: return "OpenAI 手動更新"
         case .modelLimit: return "モデル"
