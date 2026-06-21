@@ -349,6 +349,7 @@ final class UsageChartView: NSView {
     var selectedWindow: WindowOption = .week { didSet { needsDisplay = true } }
     var days: [DayUsage] = [] { didSet { hoveredIndex = nil; needsDisplay = true } }
     var hours: [HourUsage] = [] { didSet { hoveredIndex = nil; needsDisplay = true } }
+    var scannedAt: Date? { didSet { hoveredIndex = nil; needsDisplay = true } }
     var weeklyQuotaUsedPercent: Double? { didSet { needsDisplay = true } }
     var weeklyQuotaReferenceTotal: Int64? { didSet { needsDisplay = true } }
     var costEstimator: CostEstimator? { didSet { needsDisplay = true } }
@@ -397,11 +398,11 @@ final class UsageChartView: NSView {
     }
 
     private func drawHourlyBars() {
-        guard !hours.isEmpty else { return }
+        let series = continuousHours()
+        guard !series.isEmpty else { return }
         let plot = bounds.insetBy(dx: 12, dy: 10)
         let labelHeight: CGFloat = 16
         let chart = NSRect(x: plot.minX, y: plot.minY, width: plot.width, height: plot.height - labelHeight)
-        let series = continuousHours()
         let maxTotal = max(series.map { $0.usage.total }.max() ?? 1, 1)
         let gap: CGFloat = 4
         let width = max(4, (chart.width - gap * CGFloat(series.count - 1)) / CGFloat(max(series.count, 1)))
@@ -535,7 +536,9 @@ final class UsageChartView: NSView {
         guard selectedWindow == .day else { return hours }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
-        guard let last = hours.last?.hour else { return hours }
+        let reference = scannedAt ?? hours.last?.hour
+        guard let reference,
+              let last = calendar.dateInterval(of: .hour, for: reference)?.start else { return hours }
         let start = calendar.date(byAdding: .hour, value: -23, to: last) ?? last
         let byHour = Dictionary(uniqueKeysWithValues: hours.map { ($0.hour, $0) })
         return (0..<24).map { offset in
@@ -870,6 +873,7 @@ final class DashboardView: NSView {
         dayChart.selectedWindow = state.selectedWindow
         dayChart.days = report.byDay
         dayChart.hours = report.byHour
+        dayChart.scannedAt = report.scannedAt
         dayChart.weeklyQuotaUsedPercent = state.selectedWindow == .day ? nil : weekly?.usedPercent
         dayChart.weeklyQuotaReferenceTotal = state.selectedWindow == .day ? nil : report.byDay.suffix(7).reduce(Int64(0)) { $0 + $1.usage.total }
         dayChart.costEstimator = state.selectedWindow == .day ? nil : CostEstimator(report: report, limit: displayLimit)
