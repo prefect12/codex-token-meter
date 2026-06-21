@@ -19,7 +19,7 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 
 | 状态栏面板 | 仓库洞察 |
 | --- | --- |
-| <img src="docs/images/zh-menu-popover.png" alt="Codex Token Meter 中文状态栏面板" width="280"> | <img src="docs/images/zh-details-insights.png" alt="Codex Token Meter 中文仓库洞察页面" width="420"> |
+| <img src="docs/images/zh-menu-popover-current.png" alt="Codex Token Meter 中文状态栏面板" width="280"> | <img src="docs/images/zh-details-insights.png" alt="Codex Token Meter 中文仓库洞察页面" width="420"> |
 | 详情概览 | 活动日历 |
 | <img src="docs/images/zh-details-overview.png" alt="Codex Token Meter 中文详情概览" width="420"> | <img src="docs/images/zh-details-calendar.png" alt="Codex Token Meter 中文活动日历页面" width="420"> |
 | 金额与预算 | 诊断 |
@@ -30,7 +30,7 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 
 | Menu Bar Dashboard | Repository Insights |
 | --- | --- |
-| <img src="docs/images/en-menu-popover.png" alt="Codex Token Meter English menu bar dashboard" width="280"> | <img src="docs/images/en-details-insights.png" alt="Codex Token Meter English repository insights page" width="420"> |
+| <img src="docs/images/en-menu-popover-current.png" alt="Codex Token Meter English menu bar dashboard" width="280"> | <img src="docs/images/en-details-insights.png" alt="Codex Token Meter English repository insights page" width="420"> |
 | Details Overview | Activity Calendar |
 | <img src="docs/images/en-details-overview.png" alt="Codex Token Meter English details overview" width="420"> | <img src="docs/images/en-details-calendar.png" alt="Codex Token Meter English activity calendar page" width="420"> |
 | Cost And Budget Tracking | Diagnostics |
