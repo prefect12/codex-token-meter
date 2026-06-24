@@ -17,8 +17,8 @@ The split is intentionally conservative: code moved by section, with behavior pr
 - `Sources/CodexTokenMeter/DetailsWindow.swift`: overview, model, calendar, cost, diagnostics, settings, and about pages.
 - `Sources/CodexTokenMeter/AppDelegate.swift`: timers, background scan queues, live refresh orchestration, settings callbacks.
 - `Sources/CodexTokenMeter/FormattingCostHelpers.swift`: number formatting, date helpers, weekly/monthly cost rows.
-- `Sources/CodexTokenMeter/CLIHelpers.swift`: CLI argument parsing and dashboard snapshot rendering.
-- `Sources/CodexTokenMeter/main.swift`: `--print`, `--print-live`, `--print-profile`, `--print-service-status`, `--render-dashboard`, and app startup.
+- `Sources/CodexTokenMeter/CLIHelpers.swift`: CLI argument parsing, dashboard snapshot rendering, and details-page snapshot rendering.
+- `Sources/CodexTokenMeter/main.swift`: `--print`, `--print-live`, `--print-profile`, `--print-service-status`, `--render-dashboard`, `--render-details`, and app startup.
 - `Resources/`: app icon, header logo, status bar template icon.
 - `Tools/`: local Swift scripts that generate icon/logo assets.
 - `build.sh`: creates the `.app` bundle and compiles all Swift sources under `Sources/CodexTokenMeter`.
@@ -102,6 +102,12 @@ For popover UI changes:
 
 ```bash
 "./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-dashboard=/tmp/codex-token-meter-dashboard.png
+```
+
+For details-page UI changes:
+
+```bash
+"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-details=/tmp/codex-token-meter-details.png --details-section=overview --language=en
 ```
 
 ## Refactor Guidance

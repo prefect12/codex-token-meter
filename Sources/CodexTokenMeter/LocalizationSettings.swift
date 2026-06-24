@@ -45,9 +45,13 @@ enum AppLanguage: String, CaseIterable {
     case italian = "it"
 
     static let storageKey = "appLanguage"
+    static var runtimeOverride: AppLanguage?
 
     static var current: AppLanguage {
         get {
+            if let runtimeOverride {
+                return runtimeOverride
+            }
             if let raw = UserDefaults.standard.string(forKey: storageKey),
                let language = AppLanguage(rawValue: raw) {
                 return language
@@ -1399,4 +1403,3 @@ final class QuotaWarningManager {
         UNUserNotificationCenter.current().add(request)
     }
 }
-

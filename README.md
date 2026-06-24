@@ -2,7 +2,14 @@
 
 [中文说明](README.zh-CN.md)
 
-Codex Token Meter is a native macOS menu bar app for tracking local Codex token usage, cache hit rate, live quota remaining, model-level usage, and estimated subscription value.
+Codex Token Meter is a native macOS menu bar app for tracking Codex token usage, live quota remaining, model-level usage, cache hit rate, and rough subscription value.
+
+It is designed to answer a few practical questions from the menu bar:
+
+- How many Codex tokens did I use in the last `24h`, `7d`, or `30d`?
+- How much 5-hour and weekly quota is still available?
+- Which models and token types are driving usage?
+- What is the estimated subscription value and API-equivalent token cost?
 
 It reads your local Codex session logs directly:
 
@@ -13,7 +20,7 @@ $CODEX_HOME/sessions/**/rollout-*.jsonl
 $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ```
 
-When available, it also reads live quota data from the local Codex runtime, including the 5-hour window, weekly window, reset time, and remaining percentage.
+When available, it also reads live quota and account-usage data from the local Codex runtime, including the 5-hour window, weekly window, reset time, remaining percentage, lifetime totals, and daily Profile API buckets.
 
 ## Screenshots
 
@@ -46,12 +53,14 @@ When available, it also reads live quota data from the local Codex runtime, incl
 - Compact popover with `24h / 7d / 30d` windows.
 - `All / model limit / Other` quota views for total Codex usage, the current learned model-level limit, and non-model-limit usage.
 - Live 5-hour and weekly quota pacing, with either ring or bullet-style display.
+- Expected-vs-actual pacing markers for the 5-hour and weekly quota windows.
 - Cache hit-rate ring.
 - Compact Codex service-status chip sourced from `status.openai.com`, with a settings toggle to show or hide it.
 - Token breakdown for input, output, cached input, fresh input, and total tokens.
 - Details window with overview, calendar, cost, model, settings, diagnostics, and about pages.
-- 365-day activity calendar with daily detail cards.
+- 365-day activity calendar with daily detail cards, day hover summaries, and weekly hover summaries.
 - Model-level aggregation for long-term usage analysis.
+- Optional Profile API totals for lifetime tokens, peak day, streaks, and daily buckets.
 - Cost page for monthly plan cost, remaining budget, historical spend, estimated daily value, API-equivalent token cost, and optional external API cost.
 - Diagnostics page for Codex CLI/auth health, live quota availability, log coverage, optional API cost input, and other tool detection.
 - Default scan coverage for current sessions, archived sessions, and `CODEX_HOME` when that environment variable is set.
@@ -66,6 +75,7 @@ Codex Token Meter uses local data sources:
 
 - **Token usage** comes from local Codex session logs. By default the app scans `~/.codex/sessions`, `~/.codex/archived_sessions`, and matching `sessions` / `archived_sessions` folders under `$CODEX_HOME` when that environment variable is set. If you choose a custom log folder in Settings, that folder overrides the default roots. The app scans `token_count` events, reads `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`, and `total_tokens`, calculates the delta between adjacent cumulative counters, and aggregates those deltas by hour, day, session, and model.
 - **Live quota percentages** come from the local Codex runtime. The app starts `codex app-server`, calls `account/rateLimits/read`, and reads fields such as `usedPercent` and `resetsAt` for the 5-hour and weekly windows. Remaining quota in the menu bar and quota rings is displayed as `100 - usedPercent`. The app learns the current non-Codex model-level quota window from the live response instead of relying only on the historical Spark ID.
+- **Profile API totals** come from `account/usage/read` when Profile API totals are enabled and available. These totals can include lifetime usage, daily buckets, peak daily tokens, and streak metrics, but daily Profile API buckets may not include per-model labels or token-type breakdowns. Local rollout logs remain the source of truth for model breakdown, input/output split, cache rate, and per-event detail. If a Profile API day is zero while same-day local logs have usage, the app falls back to the local day.
 - **Cache percentage** comes from local token detail and is calculated as `cached_input_tokens / input_tokens * 100`.
 - **Cost estimates** are not official billing. The monthly plan cost comes from settings and defaults to `$200`; weekly budget is `monthly plan cost * 12 / 52`. Current-week used value prefers the live weekly `usedPercent`. Historical days and weeks are estimated from local token usage, historical peaks, and recorded weekly quota percentages.
 - **API-equivalent cost** is a separate estimate. It answers: "if this same local Codex token usage had been billed directly through API-style token pricing, roughly how much would it cost?" The app prices recognized models by token type: fresh input, cached input, and output. Current built-in rates use the official API prices for GPT-5.5, GPT-5.4, and GPT-5.4 mini, plus the token-based Codex rate-card equivalent for GPT-5.3-Codex / GPT-5.2-style Codex models. `reasoning_output_tokens` is not added again because local `total_tokens` already equals input plus output in Codex token-count events. Total-only Profile API rows without a model label use a GPT-5.5 fresh-input fallback so single-day API totals still show a realistic amount. Unknown model labels are left unpriced and reduce the displayed priced-token coverage.
@@ -88,20 +98,18 @@ If you run work through Codex CLI or the Codex app with API-based authentication
 
 ## Recent Updates
 
-- Split the former single 9k-line Swift entrypoint into focused source files for domain models, settings, scanning, cost estimation, dashboard UI, details UI, app orchestration, and CLI helpers.
-- Added `AGENTS.md` and `docs/ARCHITECTURE.md` so AI-assisted development can target the right file and preserve token, quota, and cost-accounting invariants.
-- Updated the build script to automatically compile every Swift source file under `Sources/CodexTokenMeter`.
-- Added day-level per-rollout aggregate caching so `7d`, `30d`, and yearly detail scans reuse derived summaries instead of re-walking every cached event.
-- Kept the rolling `24h` window event-accurate while speeding up natural-day windows and details-page warm scans.
-- Added migration from the older parsed-rollout cache format to the new aggregate cache without rereading unchanged JSONL logs.
-- Improved menu popover readability with stronger secondary text contrast and SF Symbol icons on the main actions.
-- Added basic accessibility labels for quota rings, segmented controls, settings inputs, popups, and switches.
-- Added a compact Codex service-status chip backed by `status.openai.com`, plus `--print-service-status` for diagnostics.
-- Added quota display settings for ring or bullet-style 5-hour and weekly pacing.
-- Fixed quota wording and visuals to emphasize remaining quota instead of mixing used and remaining semantics.
-- Added a GPT-5.5 fallback for total-only Profile API usage so single-day amount estimates do not show zero when token coverage is available.
-- Centralized historical cost and quota-value estimation into one shared `CostEstimator` path used by calendar details, model rows, amount totals, tooltips, and cost history.
-- Fixed language-aware number units and tightened localized layout spacing in the details window.
+- `0.1.10`: split the former single 9k-line Swift entrypoint into focused source files for domain models, settings, scanning, cost estimation, dashboard UI, details UI, app orchestration, and CLI helpers.
+- `0.1.10`: added `AGENTS.md` and `docs/ARCHITECTURE.md`, and updated `build.sh` to compile every Swift file under `Sources/CodexTokenMeter`.
+- `0.1.10`: added day-level per-rollout aggregate caching, preserving event-accurate rolling `24h` scans while speeding up `7d`, `30d`, and yearly detail scans.
+- `0.1.10`: added migration from the older parsed-rollout cache format to the aggregate cache without rereading unchanged JSONL logs.
+- `0.1.10`: added a compact Codex service-status chip backed by `status.openai.com`, plus `--print-service-status`.
+- `0.1.10`: added ring or bullet-style quota pacing, stronger quota wording around remaining quota, and expected-vs-actual pacing markers.
+- `0.1.10`: improved menu popover readability with stronger secondary text contrast and SF Symbol icons on the main actions.
+- `0.1.10`: added basic accessibility labels for quota rings, segmented controls, settings inputs, popups, and switches.
+- `0.1.9`: added Profile API daily-cost fallback for total-only usage so single-day API-equivalent estimates do not show zero when token coverage is available.
+- `0.1.9`: added day and week hover summaries to the 365-day activity calendar, including tokens, active days, cache, turns, subscription-value estimate, and API-equivalent estimate.
+- `0.1.9`: centralized historical cost and quota-value estimation into one shared `CostEstimator` path used by calendar details, model rows, amount totals, tooltips, and cost history.
+- `0.1.9`: fixed language-aware number units and tightened localized layout spacing in the details window.
 
 ## Privacy
 
@@ -116,6 +124,7 @@ $CODEX_HOME/sessions
 $CODEX_HOME/archived_sessions
 ~/Library/Application Support/Codex Token Meter/ParsedRollouts
 ~/Library/Application Support/Codex Token Meter/api-usage.json
+~/Library/Application Support/Codex Token Meter/cost-history.json
 ```
 
 Those files are used locally on your Mac. The app does not upload session logs. It does make read-only status checks to `https://status.openai.com/api/v2/summary.json` for the Codex status chip, and it invokes the local Codex runtime for live quota reads. `codex app-server` may use your existing Codex login state to access normal Codex usage endpoints.
@@ -169,7 +178,21 @@ The built app can print parsed statistics from the command line, which is useful
 Example with a specific window and quota view:
 
 ```bash
-"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --window=month --quota=all
+"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --window=month --quota=codex
+```
+
+Supported `--window` values are `24h` / `day`, `7d` / `week`, and `30d` / `month`. Supported `--quota` values are `codex` for the All/Codex total view, `spark` for the learned model-limit view, and `other` for non-model-limit usage.
+
+To inspect live quota directly:
+
+```bash
+"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-live
+```
+
+To inspect Profile API account usage directly:
+
+```bash
+"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-profile
 ```
 
 To inspect the OpenAI/Codex status feed directly:
@@ -178,7 +201,19 @@ To inspect the OpenAI/Codex status feed directly:
 "./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-service-status
 ```
 
-The JSON output includes `model_limit_id`, `model_limit_name`, API-equivalent cost fields, `external_api_cost` status, and service-status fields when using `--print-service-status`.
+To render the menu dashboard for UI checks:
+
+```bash
+"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-dashboard=/tmp/codex-token-meter-dashboard.png
+```
+
+To render a details-page screenshot for documentation:
+
+```bash
+"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-details=/tmp/codex-token-meter-details.png --details-section=costs --language=en
+```
+
+The `--print` JSON output includes `model_limit_id`, `model_limit_name`, API-equivalent cost fields, `external_api_cost` status, `model_breakdown`, and per-day rows. Use `--print-profile` together with `--print` when investigating a day whose total comes from Profile API but whose model list comes from local logs.
 
 ## Project Layout
 

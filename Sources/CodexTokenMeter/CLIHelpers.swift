@@ -24,6 +24,34 @@ func requestedQuota(from arguments: [String]) -> QuotaViewOption? {
     }.first
 }
 
+func requestedLanguage(from arguments: [String]) -> AppLanguage? {
+    arguments.compactMap { argument -> AppLanguage? in
+        guard argument.hasPrefix("--language=") else { return nil }
+        let raw = String(argument.dropFirst("--language=".count))
+        switch raw {
+        case "en", "english": return .english
+        case "zh", "zh-CN", "zh-Hans", "chinese": return .chinese
+        default: return AppLanguage(rawValue: raw)
+        }
+    }.first
+}
+
+func requestedDetailsSection(from arguments: [String]) -> DetailsSection {
+    arguments.compactMap { argument -> DetailsSection? in
+        guard argument.hasPrefix("--details-section=") else { return nil }
+        switch argument.dropFirst("--details-section=".count) {
+        case "overview": return .overview
+        case "calendar": return .calendar
+        case "costs", "cost": return .costs
+        case "models", "model": return .models
+        case "settings": return .settings
+        case "diagnostics", "diagnostic": return .diagnostics
+        case "about": return .about
+        default: return nil
+        }
+    }.first ?? .overview
+}
+
 func requestedHours(from arguments: [String], defaultValue: Int = WindowOption.week.rawValue) -> Int {
     arguments.compactMap { argument -> Int? in
         guard argument.hasPrefix("--hours=") else { return nil }
@@ -31,11 +59,47 @@ func requestedHours(from arguments: [String], defaultValue: Int = WindowOption.w
     }.first ?? defaultValue
 }
 
-func writePNG(of view: NSView, to url: URL) throws {
-    guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+func requestedRenderScale(from arguments: [String], defaultValue: CGFloat = 2) -> CGFloat {
+    let value = arguments.compactMap { argument -> Double? in
+        guard argument.hasPrefix("--render-scale=") else { return nil }
+        return Double(argument.dropFirst("--render-scale=".count))
+    }.first ?? Double(defaultValue)
+    return CGFloat(min(4, max(1, value)))
+}
+
+func withTemporaryRenderLanguage<T>(arguments: [String], _ work: () throws -> T) rethrows -> T {
+    let previous = AppLanguage.runtimeOverride
+    if let language = requestedLanguage(from: arguments) {
+        AppLanguage.runtimeOverride = language
+    }
+    defer {
+        AppLanguage.runtimeOverride = previous
+    }
+    return try work()
+}
+
+func writePNG(of view: NSView, to url: URL, scale: CGFloat = 2) throws {
+    let pixelWidth = max(1, Int(ceil(view.bounds.width * scale)))
+    let pixelHeight = max(1, Int(ceil(view.bounds.height * scale)))
+    guard let bitmap = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: pixelWidth,
+        pixelsHigh: pixelHeight,
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ) else {
         throw NSError(domain: "CodexTokenMeter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create bitmap"])
     }
-    view.cacheDisplay(in: view.bounds, to: bitmap)
+    bitmap.size = view.bounds.size
+    guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+        throw NSError(domain: "CodexTokenMeter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create graphics context"])
+    }
+    view.displayIgnoringOpacity(view.bounds, in: context)
     guard let data = bitmap.representation(using: .png, properties: [:]) else {
         throw NSError(domain: "CodexTokenMeter", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to encode PNG"])
     }
@@ -43,6 +107,12 @@ func writePNG(of view: NSView, to url: URL) throws {
 }
 
 func renderDashboardSnapshot(arguments: [String]) throws -> URL {
+    try withTemporaryRenderLanguage(arguments: arguments) {
+        try renderDashboardSnapshotWithCurrentLanguage(arguments: arguments)
+    }
+}
+
+private func renderDashboardSnapshotWithCurrentLanguage(arguments: [String]) throws -> URL {
     let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
     let window = requestedWindow(from: arguments) ?? .week
     let quota = requestedQuota(from: arguments) ?? .other
@@ -81,7 +151,55 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
     let view = DashboardView(frame: NSRect(origin: .zero, size: DashboardView.idealSize))
     view.update(state)
     view.layoutSubtreeIfNeeded()
-    try writePNG(of: view, to: outputURL)
+    try writePNG(of: view, to: outputURL, scale: requestedRenderScale(from: arguments))
     return outputURL
 }
 
+func renderDetailsSnapshot(arguments: [String]) throws -> URL {
+    try withTemporaryRenderLanguage(arguments: arguments) {
+        try renderDetailsSnapshotWithCurrentLanguage(arguments: arguments)
+    }
+}
+
+private func renderDetailsSnapshotWithCurrentLanguage(arguments: [String]) throws -> URL {
+    let outputURL = arguments
+        .compactMap { argument -> URL? in
+            guard argument.hasPrefix("--render-details=") else { return nil }
+            return URL(fileURLWithPath: String(argument.dropFirst("--render-details=".count)))
+        }
+        .first ?? URL(fileURLWithPath: "/tmp/codex-token-meter-details.png")
+    let section = requestedDetailsSection(from: arguments)
+    let width: CGFloat = 1012
+    let height: CGFloat = 800
+
+    let liveLimits = LiveRateLimitReader().read()
+    AppSettings.learnModelLimit(from: liveLimits)
+    let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
+    let all = scanner.scan(days: 365)
+    let spark = scanner.scan(days: 365, includedModelName: QuotaViewOption.spark.includedModelName)
+    let other = scanner.scan(days: 365, excludedModelName: QuotaViewOption.other.excludedModelName)
+    let accountUsage = AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
+    let costReferenceReport: TokenReport?
+    if AppSettings.profileAPITotalsEnabled, let accountUsage, accountUsage.hasData {
+        costReferenceReport = profileReportWithLocalFallback(accountUsage.report(days: 365), localReport: all)
+    } else {
+        costReferenceReport = all
+    }
+    let snapshot = DetailsSnapshot(
+        all: all,
+        spark: spark,
+        other: other,
+        liveLimits: liveLimits,
+        serviceStatus: CodexServiceStatusReader().read(),
+        costReferenceReport: costReferenceReport,
+        accountUsage: accountUsage
+    )
+
+    let view = UsageDetailsView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+    view.showSection(section)
+    view.snapshot = snapshot
+    view.isLoading = false
+    view.layoutSubtreeIfNeeded()
+    try writePNG(of: view, to: outputURL, scale: requestedRenderScale(from: arguments))
+    return outputURL
+}

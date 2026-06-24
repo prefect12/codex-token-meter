@@ -339,6 +339,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         selectedSection = .settings
     }
 
+    func showSection(_ section: DetailsSection) {
+        selectedSection = section
+    }
+
     private var visibleCostControlFrames: [NSRect] {
         guard selectedSection == .costs else { return [] }
         return [costYearPopup.frame].filter { !$0.isEmpty }
