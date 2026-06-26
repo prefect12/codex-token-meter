@@ -3990,6 +3990,7 @@ final class UsageChartView: NSView {
     var selectedWindow: WindowOption = .week { didSet { needsDisplay = true } }
     var days: [DayUsage] = [] { didSet { hoveredIndex = nil; needsDisplay = true } }
     var hours: [HourUsage] = [] { didSet { hoveredIndex = nil; needsDisplay = true } }
+    var scannedAt: Date? { didSet { hoveredIndex = nil; needsDisplay = true } }
     var weeklyQuotaUsedPercent: Double? { didSet { needsDisplay = true } }
     var weeklyQuotaReferenceTotal: Int64? { didSet { needsDisplay = true } }
     var costEstimator: CostEstimator? { didSet { needsDisplay = true } }
@@ -4038,11 +4039,11 @@ final class UsageChartView: NSView {
     }
 
     private func drawHourlyBars() {
-        guard !hours.isEmpty else { return }
+        let series = continuousHours()
+        guard !series.isEmpty else { return }
         let plot = bounds.insetBy(dx: 12, dy: 10)
         let labelHeight: CGFloat = 16
         let chart = NSRect(x: plot.minX, y: plot.minY, width: plot.width, height: plot.height - labelHeight)
-        let series = continuousHours()
         let maxTotal = max(series.map { $0.usage.total }.max() ?? 1, 1)
         let gap: CGFloat = 4
         let width = max(4, (chart.width - gap * CGFloat(series.count - 1)) / CGFloat(max(series.count, 1)))
@@ -4176,7 +4177,9 @@ final class UsageChartView: NSView {
         guard selectedWindow == .day else { return hours }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
-        guard let last = hours.last?.hour else { return hours }
+        let reference = scannedAt ?? hours.last?.hour
+        guard let reference,
+              let last = calendar.dateInterval(of: .hour, for: reference)?.start else { return hours }
         let start = calendar.date(byAdding: .hour, value: -23, to: last) ?? last
         let byHour = Dictionary(uniqueKeysWithValues: hours.map { ($0.hour, $0) })
         return (0..<24).map { offset in
@@ -4413,11 +4416,13 @@ final class DashboardView: NSView {
     private let sessionsLabel = NSTextField(labelWithString: "")
     private let buttonsStack = NSStackView()
     private var buttonsByKey: [L10nKey: NSButton] = [:]
+    private let taskInsightsButton = NSButton(title: "Task Insights", target: nil, action: nil)
 
     var onWindowChanged: ((WindowOption) -> Void)?
     var onQuotaChanged: ((QuotaViewOption) -> Void)?
     var onRefresh: (() -> Void)?
     var onOpenDetails: (() -> Void)?
+    var onOpenTaskInsights: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onOpenCodexStatus: (() -> Void)?
     var onQuit: (() -> Void)?
@@ -4511,6 +4516,7 @@ final class DashboardView: NSView {
         dayChart.selectedWindow = state.selectedWindow
         dayChart.days = report.byDay
         dayChart.hours = report.byHour
+        dayChart.scannedAt = report.scannedAt
         dayChart.weeklyQuotaUsedPercent = state.selectedWindow == .day ? nil : weekly?.usedPercent
         dayChart.weeklyQuotaReferenceTotal = state.selectedWindow == .day ? nil : report.byDay.suffix(7).reduce(Int64(0)) { $0 + $1.usage.total }
         dayChart.costEstimator = state.selectedWindow == .day ? nil : CostEstimator(report: report, limit: displayLimit)
@@ -4703,6 +4709,7 @@ final class DashboardView: NSView {
         addSubview(buttonsStack)
         addButton(.refresh, action: #selector(refreshTapped))
         addButton(.details, action: #selector(detailsTapped))
+        addTaskInsightsButton()
         addButton(.settings, action: #selector(settingsTapped))
         addButton(.quit, action: #selector(quitTapped))
         applyLanguage()
@@ -4717,6 +4724,18 @@ final class DashboardView: NSView {
         button.toolTip = t(titleKey)
         buttonsByKey[titleKey] = button
         buttonsStack.addArrangedSubview(button)
+    }
+
+    private func addTaskInsightsButton() {
+        taskInsightsButton.target = self
+        taskInsightsButton.action = #selector(taskInsightsTapped)
+        taskInsightsButton.bezelStyle = .rounded
+        taskInsightsButton.font = .systemFont(ofSize: 12, weight: .semibold)
+        taskInsightsButton.image = NSImage(systemSymbolName: "chart.xyaxis.line", accessibilityDescription: "Task Insights")
+        taskInsightsButton.image?.isTemplate = true
+        taskInsightsButton.imagePosition = .imageLeading
+        taskInsightsButton.toolTip = "Task Insights"
+        buttonsStack.addArrangedSubview(taskInsightsButton)
     }
 
     private func symbolImage(for key: L10nKey) -> NSImage? {
@@ -4792,6 +4811,7 @@ final class DashboardView: NSView {
 
     @objc private func refreshTapped() { onRefresh?() }
     @objc private func detailsTapped() { onOpenDetails?() }
+    @objc private func taskInsightsTapped() { onOpenTaskInsights?() }
     @objc private func settingsTapped() { onOpenSettings?() }
     @objc private func quitTapped() { onQuit?() }
 
@@ -4857,8 +4877,8 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.scrollerStyle = .overlay
+        scrollView.autohidesScrollers = false
+        scrollView.scrollerStyle = .legacy
         detailsView.canDrawConcurrently = false
         scrollView.documentView = detailsView
         window.contentView = scrollView
@@ -7850,6 +7870,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private let dashboardController = DashboardViewController()
     private let detailsController = UsageDetailsWindowController()
+    private let taskInsightsController = TaskInsightsWindowController()
     private var scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
     private let rateLimitReader = LiveRateLimitReader()
     private let accountUsageReader = AccountUsageReader()
@@ -7900,6 +7921,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.refreshLiveLimits()
         }
         dashboardController.dashboardView.onOpenDetails = { [weak self] in self?.openUsageDetailsWindow() }
+        dashboardController.dashboardView.onOpenTaskInsights = { [weak self] in self?.openTaskInsightsWindow() }
         dashboardController.dashboardView.onOpenSettings = { [weak self] in self?.openSettingsWindow() }
         dashboardController.dashboardView.onOpenCodexStatus = { [weak self] in self?.openCodexStatusPage() }
         dashboardController.dashboardView.onQuit = { NSApp.terminate(nil) }
@@ -8494,6 +8516,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func openSettingsWindow() {
         detailsController.detailsView.showSettingsPage()
         openDetailsWindow()
+    }
+
+    private func openTaskInsightsWindow() {
+        taskInsightsController.showLoading()
+        let roots = AppSettings.logFolderURLs
+        scanQueue.async {
+            let report = TaskInsightsScanner(rootURLs: roots).scan(days: 30)
+            DispatchQueue.main.async {
+                self.taskInsightsController.update(report: report)
+            }
+        }
     }
 
     private func openDetailsWindow() {
@@ -9322,6 +9355,17 @@ if CommandLine.arguments.contains("--render-dashboard") || CommandLine.arguments
         print(url.path)
     } catch {
         fputs("Failed to render dashboard: \(error)\n", stderr)
+        exit(1)
+    }
+    exit(0)
+}
+
+if CommandLine.arguments.contains("--render-task-insights") || CommandLine.arguments.contains(where: { $0.hasPrefix("--render-task-insights=") }) {
+    do {
+        let url = try renderTaskInsightsSnapshot(arguments: CommandLine.arguments, rootURLs: AppSettings.logFolderURLs)
+        print(url.path)
+    } catch {
+        fputs("Failed to render task insights: \(error)\n", stderr)
         exit(1)
     }
     exit(0)
