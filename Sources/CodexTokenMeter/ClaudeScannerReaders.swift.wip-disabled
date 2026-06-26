@@ -1,0 +1,174 @@
+import Foundation
+
+// MARK: - 数据源开关 & 日志目录
+
+enum MeterDataSource: String, CaseIterable {
+    case combined   // 总和:Codex + Claude
+    case codex
+    case claude
+
+    var displayName: String {
+        switch self {
+        case .combined: return "总和"
+        case .codex: return "Codex"
+        case .claude: return "Claude"
+        }
+    }
+}
+
+extension AppSettings {
+    private static let meterDataSourceKey = "meterDataSource"
+
+    var meterDataSource: MeterDataSource {
+        get {
+            let raw = UserDefaults.standard.string(forKey: Self.meterDataSourceKey) ?? ""
+            return MeterDataSource(rawValue: raw) ?? .codex
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: Self.meterDataSourceKey)
+        }
+    }
+
+    var claudeLogFolderURLs: [URL] {
+        var urls: [URL] = []
+        var seen = Set<String>()
+        let fm = FileManager.default
+        func appendIfExists(_ url: URL) {
+            let standardized = url.standardizedFileURL
+            if seen.contains(standardized.path) { return }
+            seen.insert(standardized.path)
+            guard fm.fileExists(atPath: standardized.path) else { return }
+            urls.append(standardized)
+        }
+        if let override = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !override.isEmpty {
+            appendIfExists(URL(fileURLWithPath: override, isDirectory: true).appendingPathComponent("projects", isDirectory: true))
+        }
+        appendIfExists(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects", isDirectory: true))
+        return urls
+    }
+}
+
+// MARK: - Claude Token Scanner
+
+final class ClaudeTokenScanner {
+    let fileManager = FileManager.default
+    let logRoots: [URL]
+
+    init() {
+        logRoots = AppSettings.shared.claudeLogFolderURLs
+    }
+
+    func scan(window: AppSettings.WindowOption, filter: AppSettings.QuotaFilter) -> TokenReport {
+        _ = filter
+        let aggregator = UsageReportAggregator(calendar: appCalendar())
+        return aggregator.buildReport(window: window, files: enumerateSessionFiles(), parseLine: Self.parseLine)
+    }
+
+    func scanRepoInsights(windowDays: Int) -> RepoInsightsReport {
+        return RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: windowDays)
+    }
+
+    private func enumerateSessionFiles() -> [URL] {
+        var files: [URL] = []
+        for root in logRoots {
+            guard let enumerator = fileManager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else { continue }
+            for case let fileURL as URL in enumerator where fileURL.pathExtension == "jsonl" {
+                files.append(fileURL)
+            }
+        }
+        return files
+    }
+
+    private static func parseLine(_ data: Data) -> UsageReportAggregator.Event? {
+        guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        guard (obj["type"] as? String) == "assistant" else { return nil }
+        guard let message = obj["message"] as? [String: Any] else { return nil }
+        guard let usageObj = message["usage"] as? [String: Any] else { return nil }
+        guard let raw = obj["timestamp"] as? String, let ts = parseTimestamp(raw) else { return nil }
+        func intVal(_ key: String) -> Int64 {
+            if let n = usageObj[key] as? Int64 { return n }
+            if let n = usageObj[key] as? Int { return Int64(n) }
+            if let n = usageObj[key] as? Double { return Int64(n) }
+            return 0
+        }
+        let inputTokens = intVal("input_tokens")
+        let cacheCreation = intVal("cache_creation_input_tokens")
+        let cacheRead = intVal("cache_read_input_tokens")
+        let outputTokens = intVal("output_tokens")
+        var usage = Usage()
+        usage.cachedInput = cacheRead
+        usage.input = inputTokens + cacheRead + cacheCreation
+        usage.output = outputTokens
+        usage.reasoningOutput = 0
+        usage.total = usage.input + usage.output
+        let model = message["model"] as? String
+        let msgID = (message["id"] as? String) ?? ""
+        let reqID = (obj["requestId"] as? String) ?? ""
+        return UsageReportAggregator.Event(timestamp: ts, usage: usage, model: model, dedupKey: msgID + "|" + reqID)
+    }
+}
+
+// MARK: - 合并两个数据源的报告(用于「总和」)
+
+func mergeReports(_ a: TokenReport, _ b: TokenReport) -> TokenReport {
+    var r = TokenReport()
+    r.usage = a.usage
+    r.usage.add(b.usage)
+    r.events = a.events + b.events
+    r.sessions = a.sessions + b.sessions
+    r.turns = a.turns + b.turns
+    r.scannedAt = Date()
+    r.limitNames = a.limitNames.union(b.limitNames)
+    var dayMap: [String: DayUsage] = [:]
+    for d in a.byDay + b.byDay {
+        if var ex = dayMap[d.day] { ex.usage.add(d.usage); ex.turns += d.turns; dayMap[d.day] = ex } else { dayMap[d.day] = d }
+    }
+    r.byDay = dayMap.values.sorted { $0.day < $1.day }
+    var hourMap: [Date: HourUsage] = [:]
+    for h in a.byHour + b.byHour {
+        if var ex = hourMap[h.hour] { ex.usage.add(h.usage); ex.turns += h.turns; hourMap[h.hour] = ex } else { hourMap[h.hour] = h }
+    }
+    r.byHour = hourMap.values.sorted { $0.hour < $1.hour }
+    var modelMap: [String: ModelUsage] = [:]
+    for m in a.modelBreakdown + b.modelBreakdown {
+        if var ex = modelMap[m.name] { ex.usage.add(m.usage); ex.events += m.events; modelMap[m.name] = ex } else { modelMap[m.name] = m }
+    }
+    r.modelBreakdown = modelMap.values.sorted { $0.usage.total > $1.usage.total }
+    r.topSessions = (a.topSessions + b.topSessions).sorted { $0.usage.total > $1.usage.total }
+    return r
+}
+
+// MARK: - 数据源可互换抽象
+
+protocol TokenReportScanning {
+    func scan(window: AppSettings.WindowOption, filter: AppSettings.QuotaFilter) -> TokenReport
+    func scanRepoInsights(windowDays: Int) -> RepoInsightsReport
+}
+
+extension CodexTokenScanner: TokenReportScanning {}
+extension ClaudeTokenScanner: TokenReportScanning {}
+
+struct CombinedScanner: TokenReportScanning {
+    func scan(window: AppSettings.WindowOption, filter: AppSettings.QuotaFilter) -> TokenReport {
+        let codex = CodexTokenScanner().scan(window: window, filter: filter)
+        let claude = ClaudeTokenScanner().scan(window: window, filter: filter)
+        return mergeReports(codex, claude)
+    }
+    func scanRepoInsights(windowDays: Int) -> RepoInsightsReport {
+        return CodexTokenScanner().scanRepoInsights(windowDays: windowDays)
+    }
+}
+
+func makeActiveScanner() -> TokenReportScanning {
+    let source: MeterDataSource
+    if let env = ProcessInfo.processInfo.environment["METER_SOURCE"], let overridden = MeterDataSource(rawValue: env) {
+        source = overridden
+    } else {
+        source = AppSettings.shared.meterDataSource
+    }
+    switch source {
+    case .combined: return CombinedScanner()
+    case .codex: return CodexTokenScanner()
+    case .claude: return ClaudeTokenScanner()
+    }
+}
