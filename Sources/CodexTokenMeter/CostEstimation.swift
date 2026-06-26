@@ -178,7 +178,125 @@ extension JSONEncoder {
 }
 
 func costEstimateLimit(from limits: [LiveRateLimit]) -> LiveRateLimit? {
-    limits.first { $0.id == QuotaViewOption.all.liveLimitID }
+    limits.first { $0.id == QuotaViewOption.codex.liveLimitID }
+}
+
+func mergedTokenReport(_ reports: [TokenReport], scannedAt: Date = Date()) -> TokenReport {
+    var merged = TokenReport(scannedAt: scannedAt)
+    var dayBuckets: [String: DayUsage] = [:]
+    var hourBuckets: [Date: HourUsage] = [:]
+    var modelBuckets: [String: ModelUsage] = [:]
+    var sessions: [SessionUsage] = []
+
+    for report in reports {
+        merged.usage.add(report.usage)
+        merged.sessions += report.sessions
+        merged.events += report.events
+        merged.turns += report.turns
+        merged.limitNames.formUnion(report.limitNames)
+        sessions.append(contentsOf: report.topSessions)
+
+        for day in report.byDay {
+            var existing = dayBuckets[day.day] ?? DayUsage(day: day.day, usage: Usage(), turns: 0, modelBreakdown: [])
+            existing.usage.add(day.usage)
+            existing.turns += day.turns
+            existing.modelBreakdown = mergedModelBreakdown(existing.modelBreakdown + day.modelBreakdown)
+            dayBuckets[day.day] = existing
+        }
+
+        for hour in report.byHour {
+            var existing = hourBuckets[hour.hour] ?? HourUsage(hour: hour.hour, usage: Usage(), turns: 0)
+            existing.usage.add(hour.usage)
+            existing.turns += hour.turns
+            hourBuckets[hour.hour] = existing
+        }
+
+        for model in report.modelBreakdown {
+            var existing = modelBuckets[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
+            existing.usage.add(model.usage)
+            existing.events += model.events
+            existing.sessions += model.sessions
+            modelBuckets[model.name] = existing
+        }
+    }
+
+    merged.byDay = dayBuckets.values.sorted { $0.day < $1.day }
+    merged.byHour = hourBuckets.values.sorted { $0.hour < $1.hour }
+    merged.modelBreakdown = modelBuckets.values.sorted { $0.usage.total > $1.usage.total }
+    merged.topSessions = sessions.sorted { $0.usage.total > $1.usage.total }.prefix(8).map { $0 }
+    return merged
+}
+
+private func mergedModelBreakdown(_ models: [ModelUsage]) -> [ModelUsage] {
+    var buckets: [String: ModelUsage] = [:]
+    for model in models {
+        var existing = buckets[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
+        existing.usage.add(model.usage)
+        existing.events += model.events
+        existing.sessions += model.sessions
+        buckets[model.name] = existing
+    }
+    return buckets.values.sorted { $0.usage.total > $1.usage.total }
+}
+
+func mergedRepoInsightsReport(_ reports: [RepoInsightsReport], scannedAt: Date = Date(), windowDays: Int) -> RepoInsightsReport {
+    var buckets: [String: RepoInsight] = [:]
+    for report in reports {
+        for row in report.rows {
+            if var existing = buckets[row.key] {
+                existing.folders.formUnion(row.folders)
+                existing.conversations += row.conversations
+                existing.turns += row.turns
+                existing.compressions += row.compressions
+                existing.tokens += row.tokens
+                existing.conversationsWithCompression += row.conversationsWithCompression
+                existing.longestTurns = max(existing.longestTurns, row.longestTurns)
+                existing.longestTokens = max(existing.longestTokens, row.longestTokens)
+                existing.maxCompressions = max(existing.maxCompressions, row.maxCompressions)
+                existing.abortedTurns += row.abortedTurns
+                existing.completedTurns += row.completedTurns
+                existing.activeDays.formUnion(row.activeDays)
+                existing.turnBuckets.short += row.turnBuckets.short
+                existing.turnBuckets.medium += row.turnBuckets.medium
+                existing.turnBuckets.long += row.turnBuckets.long
+                existing.turnBuckets.extraLong += row.turnBuckets.extraLong
+                existing.compressionBuckets.zero += row.compressionBuckets.zero
+                existing.compressionBuckets.one += row.compressionBuckets.one
+                existing.compressionBuckets.two += row.compressionBuckets.two
+                existing.compressionBuckets.threePlus += row.compressionBuckets.threePlus
+                existing.days = mergedRepoInsightDays(existing.days + row.days)
+                buckets[row.key] = existing
+            } else {
+                buckets[row.key] = row
+            }
+        }
+    }
+
+    let rows = buckets.values.sorted {
+        if $0.compressions != $1.compressions {
+            return $0.compressions > $1.compressions
+        }
+        if $0.conversations != $1.conversations {
+            return $0.conversations > $1.conversations
+        }
+        if $0.tokens != $1.tokens {
+            return $0.tokens > $1.tokens
+        }
+        return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+    }
+    return RepoInsightsReport(rows: rows, scannedAt: scannedAt, windowDays: windowDays)
+}
+
+private func mergedRepoInsightDays(_ days: [RepoInsightDay]) -> [RepoInsightDay] {
+    var buckets: [String: RepoInsightDay] = [:]
+    for day in days {
+        var existing = buckets[day.day] ?? RepoInsightDay(day: day.day, conversations: 0, turns: 0, compressions: 0)
+        existing.conversations += day.conversations
+        existing.turns += day.turns
+        existing.compressions += day.compressions
+        buckets[day.day] = existing
+    }
+    return buckets.values.sorted { $0.day < $1.day }
 }
 
 func profileReportWithLocalFallback(_ profileReport: TokenReport, localReport: TokenReport?) -> TokenReport {
@@ -519,4 +637,3 @@ struct CostEstimator {
     }
 
 }
-

@@ -7,10 +7,14 @@ import UserNotifications
 
 struct DetailsSnapshot {
     var all: TokenReport
-    var spark: TokenReport
-    var other: TokenReport
+    var codex: TokenReport
+    var claude: TokenReport
     var repoInsights: RepoInsightsReport
     var repoInsightReports: [Int: RepoInsightsReport] = [:]
+    var codexRepoInsights: RepoInsightsReport = RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+    var codexRepoInsightReports: [Int: RepoInsightsReport] = [:]
+    var claudeRepoInsights: RepoInsightsReport = RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+    var claudeRepoInsightReports: [Int: RepoInsightsReport] = [:]
     var liveLimits: [LiveRateLimit]
     var serviceStatus: CodexServiceStatusSnapshot?
     var costReferenceReport: TokenReport?
@@ -1489,9 +1493,26 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private var insightRowRects: [String: NSRect] = [:]
     private var insightWindowRects: [Int: NSRect] = [:]
     private var insightSortRects: [InsightSortColumn: NSRect] = [:]
+    private var sourceOptionRects: [QuotaViewOption: NSRect] = [:]
     private var insightListViewportRect: NSRect?
     private let insightWindowOptions = [7, 30, 90]
     private var selectedInsightWindowDays = 90
+    private var selectedDetailsSource: QuotaViewOption = .all {
+        didSet {
+            guard selectedDetailsSource != oldValue else { return }
+            costPageDataCache = nil
+            costRingCache = nil
+            costYearOptionsCacheKey = nil
+            if let snapshot {
+                let report = calendarReport(for: snapshot)
+                selectedDay = preferredSelectedDay(in: report, fallback: selectedDay)
+                normalizeSelectedInsight(for: insightReport(for: snapshot))
+            }
+            onPreferredHeightChanged?()
+            needsDisplay = true
+            needsLayout = true
+        }
+    }
     private var selectedInsightKey: String?
     private var selectedInsightSort: InsightSortColumn = .compressions
     private var isInsightSortAscending = false
@@ -1556,7 +1577,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         selectedSection = .insights
     }
 
-    func showSection(_ section: DetailsSection, insightWindowDays: Int = 90) {
+    func showSection(_ section: DetailsSection, insightWindowDays: Int = 90, source: QuotaViewOption? = nil) {
+        if let source {
+            selectedDetailsSource = source
+        }
         if section == .insights {
             showInsightsPage(windowDays: insightWindowDays)
         } else {
@@ -1826,8 +1850,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         if costAmountField.currentEditor() == nil {
             costAmountField.stringValue = paymentAmount(AppSettings.monthlyPlanCost)
         }
+        let costReport = snapshot.map { sourceReport(for: $0) }
         if paymentStartDayField.currentEditor() == nil {
-            paymentStartDayField.stringValue = effectivePaymentStartDay(in: snapshot?.all)
+            paymentStartDayField.stringValue = effectivePaymentStartDay(in: costReport)
         }
         showHistoricalEmptyWeeksSwitch.state = AppSettings.showHistoricalEmptyWeeks ? .on : .off
         if let paymentIndex = CurrencyCode.allCases.firstIndex(of: AppSettings.paymentCurrency) {
@@ -1836,7 +1861,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         if let displayIndex = CurrencyCode.allCases.firstIndex(of: AppSettings.displayCurrency) {
             displayCurrencyPopup.selectItem(at: displayIndex)
         }
-        let years = cachedAvailableCostYears(from: snapshot?.all)
+        let years = cachedAvailableCostYears(from: costReport)
         if !years.contains(selectedCostYear), let last = years.last {
             selectedCostYear = last
         }
@@ -1881,7 +1906,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         case .costs:
             let monthlyRows: Int
             if let snapshot {
-                let limit = costEstimateLimit(from: snapshot.liveLimits)
+                let limit = sourceCostLimit(for: snapshot)
                 monthlyRows = min(costPageData(for: snapshot, limit: limit, year: selectedCostYear).monthlyRows.count, 6)
             } else {
                 monthlyRows = 0
@@ -1913,7 +1938,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
                 ?? report.byDay.last(where: { $0.usage.total > 0 })
                 ?? report.byDay.last
-            let localDay = day.flatMap { profileDay in snapshot.all.byDay.first { $0.day == profileDay.day } }
+            let localDay = day.flatMap { profileDay in snapshot.codex.byDay.first { $0.day == profileDay.day } }
             let apiEstimate = day.map { profileAPIDayEstimate(profileDay: $0, localDay: localDay) }
             let metricsCount = 3 + (apiEstimate?.hasPricedUsage == true ? 1 : 0)
             let startX = min(CGFloat(420), max(CGFloat(292), contentWidth * 0.50))
@@ -1928,14 +1953,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             let modelY = max(CGFloat(134), metricsBottom + 18)
             return max(284, modelY + minimumModelHeight + 18)
         }
-        let report = snapshot.all
+        let report = calendarReport(for: snapshot)
         let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
             ?? report.byDay.last(where: { $0.usage.total > 0 })
             ?? report.byDay.last
         guard let day else { return 160 }
 
-        let limit = costEstimateLimit(from: snapshot.liveLimits)
-        let cost = planCostEstimate(report: report, selectedDay: day, limit: limit, quotaReferenceReport: snapshot.costReferenceReport)
+        let limit = sourceCostLimit(for: snapshot)
+        let cost = planCostEstimate(report: report, selectedDay: day, limit: limit, quotaReferenceReport: sourceCostReferenceReport(for: snapshot))
         let apiEstimate = APICostEstimator.estimate(day: day)
         let metricsCount = 4 + (cost == nil ? 0 : 1) + (apiEstimate.hasPricedUsage ? 1 : 0)
         let startX: CGFloat = 310
@@ -1965,15 +1990,38 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         return max(248, contentHeight)
     }
 
+    private func sourceReport(for snapshot: DetailsSnapshot, source: QuotaViewOption? = nil) -> TokenReport {
+        switch source ?? selectedDetailsSource {
+        case .all:
+            return snapshot.all
+        case .codex:
+            return snapshot.codex
+        case .claude:
+            return snapshot.claude
+        }
+    }
+
+    private func sourceCostLimit(for snapshot: DetailsSnapshot) -> LiveRateLimit? {
+        guard selectedDetailsSource != .claude else { return nil }
+        return costEstimateLimit(from: snapshot.liveLimits)
+    }
+
+    private func sourceCostReferenceReport(for snapshot: DetailsSnapshot) -> TokenReport? {
+        guard selectedDetailsSource != .claude else { return nil }
+        return snapshot.costReferenceReport
+    }
+
     private func usesProfileAPIReport(for snapshot: DetailsSnapshot) -> Bool {
-        AppSettings.profileAPITotalsEnabled && snapshot.accountUsage?.hasData == true
+        selectedDetailsSource == .codex
+            && AppSettings.profileAPITotalsEnabled
+            && snapshot.accountUsage?.hasData == true
     }
 
     private func calendarReport(for snapshot: DetailsSnapshot) -> TokenReport {
         guard let report = rawProfileCalendarReport(for: snapshot) else {
-            return snapshot.all
+            return sourceReport(for: snapshot)
         }
-        return profileReportWithLocalFallback(report, localReport: snapshot.all)
+        return profileReportWithLocalFallback(report, localReport: snapshot.codex)
     }
 
     private func rawProfileCalendarReport(for snapshot: DetailsSnapshot) -> TokenReport? {
@@ -2152,12 +2200,17 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let point = convert(event.locationInWindow, from: nil)
         for (section, rect) in sidebarItemRects where rect.contains(point) {
             selectedSection = section
-            if section == .calendar, let report = snapshot?.all {
+            if section == .calendar, let snapshot {
+                let report = calendarReport(for: snapshot)
                 selectedDay = preferredSelectedDay(in: report, fallback: selectedDay)
             }
             if section == .insights, let snapshot {
                 normalizeSelectedInsight(for: insightReport(for: snapshot))
             }
+            return
+        }
+        for (source, rect) in sourceOptionRects where rect.contains(point) {
+            selectedDetailsSource = source
             return
         }
         if selectedSection == .insights {
@@ -2351,8 +2404,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawSidebar(width: sidebarWidth)
 
         let content = NSRect(x: sidebarWidth + 28, y: 28, width: bounds.width - sidebarWidth - 56, height: bounds.height - 56)
-        drawText(selectedSection.headerTitle, rect: NSRect(x: content.minX, y: content.minY, width: content.width, height: 34), font: .systemFont(ofSize: 26, weight: .bold), color: .white)
-        drawText(selectedSection.subtitle, rect: NSRect(x: content.minX, y: content.minY + 36, width: content.width, height: 20), font: .systemFont(ofSize: 13, weight: .medium), color: NSColor.white.withAlphaComponent(0.56))
         contributionDayRects.removeAll()
         contributionDaySummaries.removeAll()
         contributionWeekSummaries.removeAll()
@@ -2368,9 +2419,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         numberUnitOptionRects.removeAll()
         statusOptionRects.removeAll()
         quotaDisplayStyleRects.removeAll()
+        sourceOptionRects.removeAll()
         chooseLogFolderRect = nil
         resetLogFolderRect = nil
         openLogFolderRect = nil
+
+        let sourceSelectorWidth: CGFloat = min(286, max(246, content.width * 0.31))
+        let headerTextWidth = max(260, content.width - sourceSelectorWidth - 18)
+        drawText(selectedSection.headerTitle, rect: NSRect(x: content.minX, y: content.minY, width: headerTextWidth, height: 34), font: .systemFont(ofSize: 26, weight: .bold), color: .white)
+        drawText(selectedSection.subtitle, rect: NSRect(x: content.minX, y: content.minY + 36, width: headerTextWidth, height: 20), font: .systemFont(ofSize: 13, weight: .medium), color: NSColor.white.withAlphaComponent(0.56))
+        drawDetailsSourceSelector(content: content, width: sourceSelectorWidth)
 
         guard let snapshot else {
             if isLoading {
@@ -2406,6 +2464,44 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         } else if selectedSection == .calendar {
             drawDayValueInfoTooltip()
             drawProfileAPIInfoTooltip()
+        }
+    }
+
+    private func drawDetailsSourceSelector(content: NSRect, width: CGFloat) {
+        let options: [QuotaViewOption] = [.all, .codex, .claude]
+        let height: CGFloat = 30
+        let gap: CGFloat = 8
+        let rect = NSRect(x: content.maxX - width, y: content.minY + 6, width: width, height: height)
+        let optionWidth = (rect.width - gap * CGFloat(options.count - 1)) / CGFloat(options.count)
+        for (index, option) in options.enumerated() {
+            let optionRect = NSRect(
+                x: rect.minX + CGFloat(index) * (optionWidth + gap),
+                y: rect.minY,
+                width: optionWidth,
+                height: height
+            )
+            sourceOptionRects[option] = optionRect
+            drawSelectablePill(detailsSourceTitle(option), rect: optionRect, selected: option == selectedDetailsSource)
+        }
+    }
+
+    private func detailsSourceTitle(_ option: QuotaViewOption) -> String {
+        switch option {
+        case .all:
+            switch AppLanguage.current {
+            case .chinese:
+                return "总和"
+            case .traditionalChinese:
+                return "總和"
+            case .japanese:
+                return "合計"
+            default:
+                return "Total"
+            }
+        case .codex:
+            return "Codex"
+        case .claude:
+            return "Claude"
         }
     }
 
@@ -2468,14 +2564,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func drawMetricCards(snapshot: DetailsSnapshot, content: NSRect) {
         let gap: CGFloat = 12
-        let apiEstimate = APICostEstimator.estimate(report: snapshot.all)
-        let allTotal = profileLifetimeTotal(for: snapshot) ?? snapshot.all.usage.total
-        let allTitle = profileLifetimeTotal(for: snapshot) == nil ? t(.all) : "\(t(.all)) API"
+        let report = sourceReport(for: snapshot)
+        let apiEstimate = APICostEstimator.estimate(report: report)
         let cards: [(String, String, NSColor)] = [
-            (allTitle, compactDashboardTotal(allTotal), profileLifetimeTotal(for: snapshot) == nil ? .systemGreen : accentTeal),
-            (AppSettings.modelLimitSegmentTitle, compactDashboardTotal(snapshot.spark.usage.total), .systemCyan),
-            (t(.other), compactDashboardTotal(snapshot.other.usage.total), .systemOrange),
-            (t(.cache), String(format: "%.0f%%", snapshot.all.usage.cachePercent), .systemTeal),
+            (detailsSourceTitle(.all), compactDashboardTotal(snapshot.all.usage.total), .systemGreen),
+            (t(.codex), compactDashboardTotal(snapshot.codex.usage.total), .systemCyan),
+            (t(.claude), compactDashboardTotal(snapshot.claude.usage.total), .systemOrange),
+            (t(.cache), String(format: "%.0f%%", report.usage.cachePercent), .systemTeal),
             (t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), accentTeal)
         ]
         let cardW = (content.width - gap * CGFloat(cards.count - 1)) / CGFloat(cards.count)
@@ -2495,8 +2590,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawText(t(.quotaViews), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
         let rows = [
             (t(.all), t(.allDescription), snapshot.all),
-            (AppSettings.modelLimitSegmentTitle, AppSettings.modelLimitName, snapshot.spark),
-            (t(.other), t(.otherDescription), snapshot.other)
+            (t(.codex), t(.codexDescription), snapshot.codex),
+            (t(.claude), t(.claudeDescription), snapshot.claude)
         ]
         let outputW: CGFloat = 92
         let inputW: CGFloat = 104
@@ -2525,7 +2620,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
         drawPanel(rect)
         drawText(t(.models), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
-        let models = Array(snapshot.all.modelBreakdown.prefix(maxRows))
+        let models = Array(sourceReport(for: snapshot).modelBreakdown.prefix(maxRows))
         if models.isEmpty {
             drawText(t(.noModelLabelsFound), rect: NSRect(x: rect.minX + 16, y: rect.minY + 48, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
             return
@@ -2543,7 +2638,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
         drawPanel(rect)
         drawText(t(.monthlySpendHistory), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 220, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
-        let rows = monthlySpendRows(report: snapshot.all, limit: costEstimateLimit(from: snapshot.liveLimits))
+        let rows = monthlySpendRows(report: sourceReport(for: snapshot), limit: sourceCostLimit(for: snapshot), quotaReferenceReport: sourceCostReferenceReport(for: snapshot))
         guard !rows.isEmpty else {
             drawText(t(.planCostUnavailable), rect: NSRect(x: rect.minX + 16, y: rect.minY + 48, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
             return
@@ -2604,7 +2699,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func insightReport(for snapshot: DetailsSnapshot) -> RepoInsightsReport {
-        snapshot.repoInsightReports[selectedInsightWindowDays] ?? snapshot.repoInsights
+        switch selectedDetailsSource {
+        case .all:
+            return snapshot.repoInsightReports[selectedInsightWindowDays] ?? snapshot.repoInsights
+        case .codex:
+            return snapshot.codexRepoInsightReports[selectedInsightWindowDays] ?? snapshot.codexRepoInsights
+        case .claude:
+            return snapshot.claudeRepoInsightReports[selectedInsightWindowDays] ?? snapshot.claudeRepoInsights
+        }
     }
 
     private func normalizeSelectedInsight(for report: RepoInsightsReport) {
@@ -2696,7 +2798,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let pillH: CGFloat = 26
         let gap: CGFloat = 8
         let totalW = CGFloat(labels.count) * pillW + CGFloat(labels.count - 1) * gap
-        let y = content.minY + 6
+        let y = content.minY + 44
         var x = content.maxX - totalW
         guard x > content.minX + 240 else { return }
         for (index, label) in labels.enumerated() {
@@ -3164,9 +3266,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             profileColor = accentRose
         }
         let rollouts = AppSettings.logFolderURLs.reduce(0) { $0 + rolloutCount(in: $1, modifiedWithinDays: 14) }
+        let claudeLogs = AppSettings.claudeLogFolderURLs.reduce(0) { $0 + jsonlCount(in: $1, modifiedWithinDays: 14) }
+        let claudeRootExists = AppSettings.claudeLogFolderURLs.contains { FileManager.default.fileExists(atPath: $0.path) }
         return [
             ("Codex CLI", cliPath ?? t(.fileMissing), cliPath == nil ? accentRose : accentTeal),
             ("auth.json", FileManager.default.fileExists(atPath: authURL.path) ? t(.filePresent) : t(.fileMissing), FileManager.default.fileExists(atPath: authURL.path) ? accentTeal : accentAmber),
+            (t(.claudeLogs), AppSettings.claudeLogFolderDisplayPath, claudeRootExists ? accentTeal : accentAmber),
             (t(.liveQuota), liveText, snapshot.liveLimits.isEmpty ? accentRose : accentTeal),
             (t(.codexStatus), serviceText, serviceColor),
             (t(.codexIncident), incidentText, incidentColor),
@@ -3174,6 +3279,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             (t(.modelLimit), "\(AppSettings.modelLimitName) / \(AppSettings.modelLimitID)", accentTeal),
             (t(.logFolder), "\(AppSettings.logFolderURLs.count) roots", AppSettings.logFolderURLs.isEmpty ? accentRose : accentTeal),
             (t(.recentRollouts), "\(rollouts) files / 14d", rollouts > 0 ? accentTeal : accentAmber),
+            (t(.claude), "\(claudeLogs) files / 14d", claudeLogs > 0 ? accentTeal : accentAmber),
             (t(.quotaWarnings), AppSettings.quotaWarningsEnabled ? t(.enabled) : t(.disabled), AppSettings.quotaWarningsEnabled ? accentTeal : accentAmber)
         ]
     }
@@ -3197,7 +3303,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let home = NSHomeDirectory()
         let probes: [(String, String, Bool)] = [
             ("Codex", AppSettings.logFolderDisplayPath, true),
-            ("Claude Code", "\(home)/.claude/projects", false),
+            ("Claude Code", "\(home)/.claude/projects", true),
             ("Cursor", "\(home)/Library/Application Support/Cursor", false),
             ("OpenCode", "\(home)/.local/share/opencode", false),
             ("Gemini CLI", "\(home)/.gemini", false)
@@ -3229,6 +3335,25 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         var count = 0
         for case let url as URL in enumerator {
             guard url.lastPathComponent.hasPrefix("rollout-"), url.pathExtension == "jsonl" else { continue }
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+            if (values?.contentModificationDate ?? .distantPast) >= start {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    private func jsonlCount(in root: URL, modifiedWithinDays days: Int) -> Int {
+        let start = Date().addingTimeInterval(-TimeInterval(days) * 24 * 3600)
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+        var count = 0
+        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
             let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
             if (values?.contentModificationDate ?? .distantPast) >= start {
                 count += 1
@@ -3303,8 +3428,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func costPageDataKey(snapshot: DetailsSnapshot, limit: LiveRateLimit?, year: Int) -> String {
         let weekly = limit?.secondary
+        let report = sourceReport(for: snapshot)
+        let referenceReport = sourceCostReferenceReport(for: snapshot)
         return [
-            reportCostSignature(snapshot.all),
+            selectedDetailsSource.rawValue,
+            reportCostSignature(report),
             "\(year)",
             AppLanguage.current.rawValue,
             String(format: "%.4f", AppSettings.monthlyPlanCost),
@@ -3314,8 +3442,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             String(format: "%.4f", weekly?.usedPercent ?? -1),
             String(format: "%.4f", weekly?.remainingPercent ?? -1),
             "\(weekly?.windowMinutes ?? 0)",
-            "\(snapshot.costReferenceReport?.usage.total ?? -1)",
-            String(format: "%.3f", snapshot.costReferenceReport?.scannedAt.timeIntervalSince1970 ?? -1),
+            "\(referenceReport?.usage.total ?? -1)",
+            String(format: "%.3f", referenceReport?.scannedAt.timeIntervalSince1970 ?? -1),
             todayKey()
         ].joined(separator: "|")
     }
@@ -3325,12 +3453,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         if let cached = costPageDataCache, cached.key == key {
             return cached
         }
+        let report = sourceReport(for: snapshot)
+        let referenceReport = sourceCostReferenceReport(for: snapshot)
         let data = CostPageData(
             key: key,
-            estimate: planCostEstimate(report: snapshot.all, selectedDay: nil, limit: limit, quotaReferenceReport: snapshot.costReferenceReport),
-            apiEstimate: APICostEstimator.estimate(report: snapshot.all),
-            weeklyRows: weeklySpendRows(report: snapshot.all, limit: limit, year: year, quotaReferenceReport: snapshot.costReferenceReport),
-            monthlyRows: monthlySpendRows(report: snapshot.all, limit: limit, year: year, quotaReferenceReport: snapshot.costReferenceReport)
+            estimate: planCostEstimate(report: report, selectedDay: nil, limit: limit, quotaReferenceReport: referenceReport),
+            apiEstimate: APICostEstimator.estimate(report: report),
+            weeklyRows: weeklySpendRows(report: report, limit: limit, year: year, quotaReferenceReport: referenceReport),
+            monthlyRows: monthlySpendRows(report: report, limit: limit, year: year, quotaReferenceReport: referenceReport)
         )
         costPageDataCache = data
         return data
@@ -3507,7 +3637,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func drawCostPage(snapshot: DetailsSnapshot, content: NSRect) {
-        let limit = costEstimateLimit(from: snapshot.liveLimits)
+        let limit = sourceCostLimit(for: snapshot)
         let costData = costPageData(for: snapshot, limit: limit, year: selectedCostYear)
         let estimate = costData.estimate
 
@@ -3599,7 +3729,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             return
         }
 
-        let localDay = snapshot.all.byDay.first { $0.day == day.day }
+        let localDay = snapshot.codex.byDay.first { $0.day == day.day }
         let rawProfileDay = rawProfileCalendarReport(for: snapshot)?.byDay.first { $0.day == day.day }
         let rawProfileTotal = rawProfileDay?.usage.total ?? 0
         let localTotal = localDay?.usage.total ?? 0
@@ -3686,7 +3816,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func drawSelectedDayPanel(snapshot: DetailsSnapshot, rect: NSRect) {
         drawPanel(rect)
-        let report = snapshot.all
+        let report = calendarReport(for: snapshot)
         let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
             ?? report.byDay.last(where: { $0.usage.total > 0 })
             ?? report.byDay.last
@@ -3699,8 +3829,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let intensity = Double(day.usage.total) / Double(maxTotal)
         drawText(day.day, rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: 180, height: 24), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold), color: .white)
         drawText(compact(day.usage.total), rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: 260, height: 34), font: .monospacedDigitSystemFont(ofSize: 28, weight: .bold), color: .systemGreen)
-        let limit = costEstimateLimit(from: snapshot.liveLimits)
-        let cost = planCostEstimate(report: report, selectedDay: day, limit: limit, quotaReferenceReport: snapshot.costReferenceReport)
+        let limit = sourceCostLimit(for: snapshot)
+        let cost = planCostEstimate(report: report, selectedDay: day, limit: limit, quotaReferenceReport: sourceCostReferenceReport(for: snapshot))
         var dayMeta = "\(day.turns) \(t(.turns).lowercased())  |  \(Int(round(intensity * 100)))% \(t(.peakDay))"
         if let cost {
             dayMeta += "  |  \(String(format: "%.1f%%", cost.selectedDayQuotaPercent)) \(t(.weeklyQuotaShare))"
@@ -4307,8 +4437,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawText(t(.definitions), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         let rows = [
             (t(.all), t(.allDescription)),
-            (AppSettings.modelLimitSegmentTitle, AppSettings.modelLimitName),
-            (t(.other), t(.otherDefinition)),
+            (t(.codex), t(.codexDescription)),
+            (t(.claude), t(.claudeDescription)),
             (t(.cacheHit), t(.cacheHitDescription))
         ]
         for (index, row) in rows.enumerated() {
@@ -4501,8 +4631,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         return planCostEstimate(
             report: report,
             selectedDay: reportDay,
-            limit: costEstimateLimit(from: snapshot.liveLimits),
-            quotaReferenceReport: snapshot.costReferenceReport
+            limit: sourceCostLimit(for: snapshot),
+            quotaReferenceReport: sourceCostReferenceReport(for: snapshot)
         )?.selectedDayValue
     }
 
@@ -4510,7 +4640,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         guard let snapshot, usesProfileAPIReport(for: snapshot) else {
             return APICostEstimator.estimate(day: day)
         }
-        let localDay = snapshot.all.byDay.first { $0.day == day.day }
+        let localDay = snapshot.codex.byDay.first { $0.day == day.day }
         return profileAPIDayEstimate(profileDay: day, localDay: localDay)
     }
 
@@ -4659,8 +4789,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let report = calendarReport(for: snapshot)
         guard let estimator = CostEstimator(
             report: report,
-            limit: costEstimateLimit(from: snapshot.liveLimits),
-            quotaReferenceReport: snapshot.costReferenceReport
+            limit: sourceCostLimit(for: snapshot),
+            quotaReferenceReport: sourceCostReferenceReport(for: snapshot)
         ) else {
             return nil
         }
@@ -4689,7 +4819,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         var usage = Usage()
         var turns = 0
         var hasTokenDetail = false
-        for day in snapshot.all.byDay where day.day >= summary.startDay && day.day <= summary.endDay {
+        for day in calendarReport(for: snapshot).byDay where day.day >= summary.startDay && day.day <= summary.endDay {
             usage.add(day.usage)
             turns += day.turns
             if day.usage.input > 0 || day.usage.output > 0 || day.usage.cachedInput > 0 {

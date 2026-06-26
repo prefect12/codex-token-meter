@@ -242,7 +242,14 @@ enum L10nKey {
     case calendar
     case calendarSubtitle
     case clickForDetails
+    case claude
+    case claudeCode
+    case claudeDescription
+    case claudeLogs
+    case codex
     case codexAppTotal
+    case codexDescription
+    case combinedUsage
     case copy
     case costs
     case costsSubtitle
@@ -299,6 +306,8 @@ enum L10nKey {
     case logFolderDefault
     case logFolderOpen
     case loadingAllUsage
+    case loadingClaudeUsage
+    case loadingCodexUsage
     case loadingFinalizing
     case loadingOtherUsage
     case loadingProfileTotals
@@ -427,7 +436,14 @@ enum L10nKey {
         case .calendar: return "Calendar"
         case .calendarSubtitle: return "Daily usage intensity over the last year"
         case .clickForDetails: return "Click for details"
+        case .claude: return "Claude"
+        case .claudeCode: return "Claude Code"
+        case .claudeDescription: return "Claude Code local logs"
+        case .claudeLogs: return "Claude logs"
+        case .codex: return "Codex"
         case .codexAppTotal: return "Codex app total"
+        case .codexDescription: return "Codex local logs"
+        case .combinedUsage: return "Codex + Claude"
         case .copy: return "Copy"
         case .costs: return "Costs"
         case .costsSubtitle: return "Plan settings and estimated money usage"
@@ -446,7 +462,7 @@ enum L10nKey {
         case .codexStatusUnavailable: return "Status unavailable"
         case .dayValue: return "Day value"
         case .dataSource: return "Data Source"
-        case .dataSourceLine1: return "The app reads local Codex session logs under ~/.codex/sessions, ~/.codex/archived_sessions, and CODEX_HOME when set."
+        case .dataSourceLine1: return "The app reads local Codex logs under ~/.codex and Claude Code logs under ~/.claude/projects."
         case .dataSourceLine2: return "Totals are local-observed token usage, not an official billing export."
         case .definitions: return "Definitions"
         case .detectedNotTracked: return "Detected, not counted"
@@ -484,6 +500,8 @@ enum L10nKey {
         case .logFolderDefault: return "Default"
         case .logFolderOpen: return "Finder"
         case .loadingAllUsage: return "Scanning all usage..."
+        case .loadingClaudeUsage: return "Scanning Claude usage..."
+        case .loadingCodexUsage: return "Scanning Codex usage..."
         case .loadingFinalizing: return "Preparing details..."
         case .loadingOtherUsage: return "Scanning other models..."
         case .loadingProfileTotals: return "Reading Profile API totals..."
@@ -494,7 +512,7 @@ enum L10nKey {
         case .logs: return "Logs"
         case .manualRefreshCycle: return "OpenAI refresh"
         case .modelLimit: return "Model"
-        case .modelGroupingNote: return "Model grouping comes from turn_context.model in local Codex rollout logs."
+        case .modelGroupingNote: return "Model grouping comes from local Codex rollout logs and Claude Code assistant usage entries."
         case .modelMissingNote: return "Rows without a model label are counted in totals but cannot be assigned to a model."
         case .monthlySpendHistory: return "Monthly spend history"
         case .models: return "Models"
@@ -518,7 +536,7 @@ enum L10nKey {
         case .outShort: return "out"
         case .output: return "Output"
         case .overview: return "Overview"
-        case .overviewSubtitle: return "365-day token usage by quota and model"
+        case .overviewSubtitle: return "365-day token usage by source and model"
         case .past24Hours: return "Past 24 Hours"
         case .past30Days: return "Past 30 Days"
         case .past7Days: return "Past 7 Days"
@@ -539,7 +557,7 @@ enum L10nKey {
         case .quotaDisplayHint: return "Choose how the 5h and weekly quota pace are shown."
         case .quotaDisplayRings: return "Rings"
         case .quotaDisplayStyle: return "Quota Display"
-        case .quotaViews: return "Quota Views"
+        case .quotaViews: return "Usage Sources"
         case .quotaWarnings: return "Quota warnings"
         case .quotaWarningsHint: return "Notify once when a live quota window drops below 15% remaining."
         case .recentRollouts: return "Recent rollouts"
@@ -614,7 +632,14 @@ enum L10nKey {
         case .calendar: return "日历"
         case .calendarSubtitle: return "过去一年的每日使用强度"
         case .clickForDetails: return "点击查看详情"
+        case .claude: return "Claude"
+        case .claudeCode: return "Claude Code"
+        case .claudeDescription: return "Claude Code 本地日志"
+        case .claudeLogs: return "Claude 日志"
+        case .codex: return "Codex"
         case .codexAppTotal: return "Codex 总用量"
+        case .codexDescription: return "Codex 本地日志"
+        case .combinedUsage: return "Codex + Claude"
         case .copy: return "复制"
         case .costs: return "金额"
         case .costsSubtitle: return "套餐设置和金额估算"
@@ -633,7 +658,7 @@ enum L10nKey {
         case .codexStatusUnavailable: return "状态暂不可用"
         case .dayValue: return "当日价值"
         case .dataSource: return "数据来源"
-        case .dataSourceLine1: return "应用读取 ~/.codex/sessions、~/.codex/archived_sessions，以及已设置的 CODEX_HOME。"
+        case .dataSourceLine1: return "应用读取 ~/.codex 下的 Codex 日志，以及 ~/.claude/projects 下的 Claude Code 日志。"
         case .dataSourceLine2: return "这里是本地观测到的 token 用量，不是官方账单导出。"
         case .definitions: return "定义"
         case .detectedNotTracked: return "已检测，未计入"
@@ -671,6 +696,8 @@ enum L10nKey {
         case .logFolderDefault: return "默认"
         case .logFolderOpen: return "Finder"
         case .loadingAllUsage: return "正在扫描全部用量..."
+        case .loadingClaudeUsage: return "正在扫描 Claude 用量..."
+        case .loadingCodexUsage: return "正在扫描 Codex 用量..."
         case .loadingFinalizing: return "正在整理详情..."
         case .loadingOtherUsage: return "正在扫描其他模型..."
         case .loadingProfileTotals: return "正在读取 Profile API 总量..."
@@ -681,7 +708,7 @@ enum L10nKey {
         case .logs: return "日志"
         case .manualRefreshCycle: return "OpenAI 手动刷新"
         case .modelLimit: return "模型"
-        case .modelGroupingNote: return "模型分组来自本地 Codex rollout 日志里的 turn_context.model。"
+        case .modelGroupingNote: return "模型分组来自本地 Codex rollout 日志和 Claude Code assistant usage 记录。"
         case .modelMissingNote: return "没有模型标签的记录会计入总量，但无法归入单个模型。"
         case .monthlySpendHistory: return "月度金额历史"
         case .models: return "模型"
@@ -705,7 +732,7 @@ enum L10nKey {
         case .outShort: return "输出"
         case .output: return "输出"
         case .overview: return "概览"
-        case .overviewSubtitle: return "过去 365 天按限额和模型统计"
+        case .overviewSubtitle: return "过去 365 天按来源和模型统计"
         case .past24Hours: return "过去 24 小时"
         case .past30Days: return "过去 30 天"
         case .past7Days: return "过去 7 天"
@@ -726,7 +753,7 @@ enum L10nKey {
         case .quotaDisplayHint: return "选择 5小时和周额度的节奏展示方式。"
         case .quotaDisplayRings: return "圆环"
         case .quotaDisplayStyle: return "额度样式"
-        case .quotaViews: return "限额视图"
+        case .quotaViews: return "用量来源"
         case .quotaWarnings: return "额度提醒"
         case .quotaWarningsHint: return "实时额度低于 15% 时，每个窗口只提醒一次。"
         case .recentRollouts: return "近期日志"
@@ -801,7 +828,14 @@ enum L10nKey {
         case .calendar: return "カレンダー"
         case .calendarSubtitle: return "過去 1 年の日別使用量"
         case .clickForDetails: return "クリックで詳細"
+        case .claude: return "Claude"
+        case .claudeCode: return "Claude Code"
+        case .claudeDescription: return "Claude Code ローカルログ"
+        case .claudeLogs: return "Claude ログ"
+        case .codex: return "Codex"
         case .codexAppTotal: return "Codex 全体使用量"
+        case .codexDescription: return "Codex ローカルログ"
+        case .combinedUsage: return "Codex + Claude"
         case .copy: return "コピー"
         case .costs: return "金額"
         case .costsSubtitle: return "プラン設定と金額推定"
@@ -820,7 +854,7 @@ enum L10nKey {
         case .codexStatusUnavailable: return "状態を取得できません"
         case .dayValue: return "当日の価値"
         case .dataSource: return "データソース"
-        case .dataSourceLine1: return "このアプリは ~/.codex/sessions、~/.codex/archived_sessions、設定済みの CODEX_HOME を読み取ります。"
+        case .dataSourceLine1: return "このアプリは ~/.codex の Codex ログと ~/.claude/projects の Claude Code ログを読み取ります。"
         case .dataSourceLine2: return "表示値はローカルで観測した token 使用量であり、公式の請求書エクスポートではありません。"
         case .definitions: return "定義"
         case .detectedNotTracked: return "検出済み・未集計"
@@ -858,6 +892,8 @@ enum L10nKey {
         case .logFolderDefault: return "既定"
         case .logFolderOpen: return "Finder"
         case .loadingAllUsage: return "全体の使用量をスキャン中..."
+        case .loadingClaudeUsage: return "Claude 使用量をスキャン中..."
+        case .loadingCodexUsage: return "Codex 使用量をスキャン中..."
         case .loadingFinalizing: return "詳細を準備中..."
         case .loadingOtherUsage: return "その他モデルをスキャン中..."
         case .loadingProfileTotals: return "Profile API 合計を読み込み中..."
@@ -868,7 +904,7 @@ enum L10nKey {
         case .logs: return "ログ"
         case .manualRefreshCycle: return "OpenAI 手動更新"
         case .modelLimit: return "モデル"
-        case .modelGroupingNote: return "モデル別集計はローカル Codex rollout ログの turn_context.model から取得します。"
+        case .modelGroupingNote: return "モデル別集計はローカル Codex rollout ログと Claude Code assistant usage から取得します。"
         case .modelMissingNote: return "モデル名がない行は合計に含まれますが、個別モデルには割り当てられません。"
         case .monthlySpendHistory: return "月次金額履歴"
         case .models: return "モデル"
@@ -892,7 +928,7 @@ enum L10nKey {
         case .outShort: return "出力"
         case .output: return "出力"
         case .overview: return "概要"
-        case .overviewSubtitle: return "過去 365 日の制限枠とモデル別使用量"
+        case .overviewSubtitle: return "過去 365 日のソースとモデル別使用量"
         case .past24Hours: return "過去 24 時間"
         case .past30Days: return "過去 30 日"
         case .past7Days: return "過去 7 日"
@@ -913,7 +949,7 @@ enum L10nKey {
         case .quotaDisplayHint: return "5h と週制限のペース表示を選びます。"
         case .quotaDisplayRings: return "リング"
         case .quotaDisplayStyle: return "制限表示"
-        case .quotaViews: return "制限枠ビュー"
+        case .quotaViews: return "使用量ソース"
         case .quotaWarnings: return "制限通知"
         case .quotaWarningsHint: return "残り 15% 未満になった制限枠ごとに一度だけ通知します。"
         case .recentRollouts: return "最近の rollout"
@@ -1077,6 +1113,22 @@ enum AppSettings {
 
     static var defaultCodexHomeURL: URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex", isDirectory: true)
+    }
+
+    static var defaultClaudeHomeURL: URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude", isDirectory: true)
+    }
+
+    static var defaultClaudeProjectsURL: URL {
+        defaultClaudeHomeURL.appendingPathComponent("projects", isDirectory: true)
+    }
+
+    static var claudeLogFolderURLs: [URL] {
+        uniqueDirectoryURLs([defaultClaudeProjectsURL])
+    }
+
+    static var claudeLogFolderDisplayPath: String {
+        claudeLogFolderURLs.map { displayPath(for: $0) }.joined(separator: " + ")
     }
 
     static var environmentCodexHomeURL: URL? {

@@ -53,7 +53,7 @@ final class RingView: NSView {
                 end: end
             )
         } else {
-            let pText = "\(Int(round(percent)))%"
+            let pText = percent < 0 ? "--" : "\(Int(round(percent)))%"
             drawCenteredAt(pText, center: center, font: meterNumberFont(ofSize: 23), color: .white)
         }
         drawCentered(title, rect: NSRect(x: bounds.minX, y: rect.maxY + 2, width: bounds.width, height: 18), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.86))
@@ -247,7 +247,7 @@ final class QuotaBulletView: NSView {
         super.draw(dirtyRect)
         let bounds = self.bounds.insetBy(dx: 2, dy: 2)
         let valueFont = meterNumberFont(ofSize: 16)
-        let value = "\(Int(round(actualRemainingPercent)))%"
+        let value = actualRemainingPercent < 0 ? "--" : "\(Int(round(actualRemainingPercent)))%"
         let valueWidth = max(48, measuredTextWidth(value, font: valueFont) + 4)
         let titleFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
         let titleWidth = min(bounds.width - valueWidth - 16, measuredTextWidth(title, font: titleFont) + 2)
@@ -800,13 +800,13 @@ final class DashboardView: NSView {
     func update(_ state: DashboardState) {
         self.state = state
         let report = state.report
-        let totalReport = state.selectedQuota == .all ? (state.profileReport ?? report) : report
+        let totalReport = state.selectedQuota.usesCodexProfileAPI ? (state.profileReport ?? report) : report
         applyLanguage()
         titleLabel.stringValue = "Codex Token Meter"
         let displayLimit = selectedLimit(from: state.liveLimits, quota: state.selectedQuota)
         subtitleLabel.stringValue = state.selectedQuota.fallbackTitle
         totalLabel.stringValue = compactDashboardTotal(totalReport.usage.total)
-        detailLabel.stringValue = state.profileReport != nil && state.selectedQuota == .all
+        detailLabel.stringValue = state.profileReport != nil && state.selectedQuota.usesCodexProfileAPI
             ? "\(state.selectedWindow.title) · \(t(.profileAPISource))"
             : state.selectedWindow.title
         usageLabel.stringValue = "\(compactDashboardMetric(report.usage.input)) \(t(.inShort))  |  \(compactDashboardMetric(report.usage.output)) \(t(.outShort))"
@@ -822,7 +822,7 @@ final class DashboardView: NSView {
         let primaryComparison = remainingComparison(for: primary)
         let weeklyComparison = remainingComparison(for: weekly)
         let quotaStyle = QuotaDisplayStyle.current
-        primaryRing.percent = primary?.remainingPercent ?? 0
+        primaryRing.percent = primary?.remainingPercent ?? -1
         primaryRing.title = t(.fiveHourLeft)
         primaryRing.subtitle = primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? t(.liveLimitUnavailable)
         primaryRing.color = colorForRemaining(percent: primaryRing.percent)
@@ -830,7 +830,7 @@ final class DashboardView: NSView {
         primaryRing.remainingComparison = primaryComparison
         primaryRing.isHidden = quotaStyle != .rings
 
-        primaryBullet.actualRemainingPercent = primary?.remainingPercent ?? 0
+        primaryBullet.actualRemainingPercent = primary?.remainingPercent ?? -1
         primaryBullet.title = t(.fiveHourLeft)
         primaryBullet.subtitle = primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? t(.liveLimitUnavailable)
         primaryBullet.color = colorForRemaining(percent: primaryBullet.actualRemainingPercent)
@@ -838,7 +838,7 @@ final class DashboardView: NSView {
         primaryBullet.remainingComparison = primaryComparison
         primaryBullet.isHidden = quotaStyle != .bullet
 
-        weeklyRing.percent = weekly?.remainingPercent ?? 0
+        weeklyRing.percent = weekly?.remainingPercent ?? -1
         weeklyRing.title = t(.weeklyLeft)
         weeklyRing.subtitle = weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? t(.usageWindow)
         weeklyRing.color = colorForRemaining(percent: weeklyRing.percent)
@@ -846,7 +846,7 @@ final class DashboardView: NSView {
         weeklyRing.remainingComparison = weeklyComparison
         weeklyRing.isHidden = quotaStyle != .rings
 
-        weeklyBullet.actualRemainingPercent = weekly?.remainingPercent ?? 0
+        weeklyBullet.actualRemainingPercent = weekly?.remainingPercent ?? -1
         weeklyBullet.title = t(.weeklyLeft)
         weeklyBullet.subtitle = weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? t(.usageWindow)
         weeklyBullet.color = colorForRemaining(percent: weeklyBullet.actualRemainingPercent)
@@ -879,7 +879,7 @@ final class DashboardView: NSView {
         dayChart.costEstimator = state.selectedWindow == .day ? nil : CostEstimator(report: report, limit: displayLimit)
         dayChart.apiEstimate = apiEstimate
         serviceStatusView.snapshot = state.serviceStatus
-        serviceStatusView.isHidden = !AppSettings.showCodexStatusEnabled
+        serviceStatusView.isHidden = !AppSettings.showCodexStatusEnabled || state.selectedQuota == .claude
         sessionsLabel.stringValue = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
         var costParts: [String] = []
         if apiEstimate.hasPricedUsage {
@@ -1131,8 +1131,8 @@ final class DashboardView: NSView {
         if let exact = limits.first(where: { $0.id == quota.liveLimitID }) {
             return exact
         }
-        if quota == .spark {
-            return limits.first { $0.id != QuotaViewOption.all.liveLimitID }
+        if quota == .all || quota == .codex {
+            return limits.first { $0.id == QuotaViewOption.codex.liveLimitID } ?? limits.first
         }
         return nil
     }
@@ -1165,6 +1165,7 @@ final class DashboardView: NSView {
     }
 
     private func colorForRemaining(percent: Double) -> NSColor {
+        if percent < 0 { return NSColor.white.withAlphaComponent(0.28) }
         if percent <= 15 { return .systemRed }
         if percent <= 35 { return .systemOrange }
         return .systemGreen
@@ -1192,4 +1193,3 @@ final class DashboardViewController: NSViewController {
         preferredContentSize = DashboardView.idealSize
     }
 }
-

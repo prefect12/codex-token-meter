@@ -6,59 +6,64 @@ import UserNotifications
 // MARK: - Live Quota And Service Status
 
 enum QuotaViewOption: String, CaseIterable {
-    case all = "codex"
-    case other
-    case spark
+    case all
+    case codex
+    case claude
+
+    static func option(from rawValue: String) -> QuotaViewOption? {
+        switch rawValue {
+        case "all":
+            return .all
+        case "codex", "other":
+            return .codex
+        case "claude", "spark":
+            return .claude
+        default:
+            return nil
+        }
+    }
 
     var scanLimitID: String? {
-        switch self {
-        case .all, .other: return nil
-        case .spark: return AppSettings.modelLimitID
-        }
+        nil
     }
 
     var excludedScanLimitID: String? {
-        switch self {
-        case .all, .spark: return nil
-        case .other: return AppSettings.modelLimitID
-        }
+        nil
     }
 
     var includedModelName: String? {
-        switch self {
-        case .spark: return AppSettings.modelLimitName.lowercased()
-        case .all, .other: return nil
-        }
+        nil
     }
 
     var excludedModelName: String? {
-        switch self {
-        case .other: return AppSettings.modelLimitName.lowercased()
-        case .all, .spark: return nil
-        }
+        nil
     }
 
     var liveLimitID: String {
         switch self {
-        case .all, .other: return "codex"
-        case .spark: return AppSettings.modelLimitID
+        case .all, .codex: return "codex"
+        case .claude: return "claude"
         }
     }
 
     var shortTitle: String {
         switch self {
         case .all: return t(.all)
-        case .spark: return AppSettings.modelLimitSegmentTitle
-        case .other: return t(.other)
+        case .codex: return t(.codex)
+        case .claude: return t(.claude)
         }
     }
 
     var fallbackTitle: String {
         switch self {
-        case .all: return t(.codexAppTotal)
-        case .spark: return AppSettings.modelLimitName
-        case .other: return t(.nonSparkUsage)
+        case .all: return t(.combinedUsage)
+        case .codex: return t(.codexAppTotal)
+        case .claude: return t(.claudeCode)
         }
+    }
+
+    var usesCodexProfileAPI: Bool {
+        self == .codex
     }
 }
 
@@ -367,4 +372,3 @@ func codexStatusColor(_ status: String) -> NSColor {
         return NSColor.white.withAlphaComponent(0.58)
     }
 }
-

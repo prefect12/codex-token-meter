@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let dashboardController = DashboardViewController()
     private let detailsController = UsageDetailsWindowController()
     private var scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
+    private var claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     private let rateLimitReader = LiveRateLimitReader()
     private let accountUsageReader = AccountUsageReader()
     private let serviceStatusReader = CodexServiceStatusReader()
@@ -44,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         selectedWindow = .day
         if let rawQuota = UserDefaults.standard.string(forKey: "selectedQuotaView"),
-           let quota = QuotaViewOption(rawValue: rawQuota) {
+           let quota = QuotaViewOption.option(from: rawQuota) {
             selectedQuota = quota
         }
 
@@ -268,8 +269,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentAccountUsage = accountUsage
 
         scanQueue.async {
-            let report = self.scanner.scan(window: window, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
-            let accountUsage = self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
+            let report = self.scanReport(window: window, source: quota)
+            let accountUsage = quota.usesCodexProfileAPI ? self.readAccountUsageIfNeeded(fallback: currentAccountUsage) : currentAccountUsage
             let limits = forceLive ? self.rateLimitReader.read() : currentLimits
             if forceLive, !limits.isEmpty {
                 AppSettings.learnModelLimit(from: limits)
@@ -363,7 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard reportCache[key] == nil, !activeScans.contains(key) else { return }
         activeScans.insert(key)
         scanQueue.async {
-            let report = self.scanner.scan(window: window, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
+            let report = self.scanReport(window: window, source: quota)
             DispatchQueue.main.async {
                 self.activeScans.remove(key)
                 self.reportCache[key] = report
@@ -392,6 +393,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func scanReport(window: WindowOption, source: QuotaViewOption) -> TokenReport {
+        switch source {
+        case .all:
+            return mergedTokenReport([
+                scanner.scan(window: window),
+                claudeScanner.scan(window: window)
+            ])
+        case .codex:
+            return scanner.scan(window: window)
+        case .claude:
+            return claudeScanner.scan(window: window)
+        }
+    }
+
+    private func scanReport(days: Int, source: QuotaViewOption) -> TokenReport {
+        switch source {
+        case .all:
+            return mergedTokenReport([
+                scanner.scan(days: days),
+                claudeScanner.scan(days: days)
+            ])
+        case .codex:
+            return scanner.scan(days: days)
+        case .claude:
+            return claudeScanner.scan(days: days)
+        }
+    }
+
     private func readAccountUsageIfNeeded(fallback: AccountUsageSnapshot?) -> AccountUsageSnapshot? {
         guard AppSettings.profileAPITotalsEnabled else { return nil }
         return accountUsageReader.read() ?? fallback
@@ -399,7 +428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func profileReport(window: WindowOption, quota: QuotaViewOption, accountUsage: AccountUsageSnapshot?, localReport: TokenReport?) -> TokenReport? {
         guard AppSettings.profileAPITotalsEnabled,
-              quota == .all,
+              quota.usesCodexProfileAPI,
               let accountUsage,
               accountUsage.hasData else {
             return nil
@@ -508,8 +537,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let exact = limits.first(where: { $0.id == quota.liveLimitID }) {
             return exact
         }
-        if quota == .spark {
-            return limits.first { $0.id != QuotaViewOption.all.liveLimitID }
+        if quota == .all || quota == .codex {
+            return limits.first { $0.id == QuotaViewOption.codex.liveLimitID } ?? limits.first
         }
         return nil
     }
@@ -674,20 +703,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         scanQueue.async {
-            updateProgress(0.12, .loadingAllUsage)
-            let all = self.scanner.scan(days: 365)
-            updateProgress(0.28, .loadingSparkUsage)
-            let spark = self.scanner.scan(days: 365, includedModelName: QuotaViewOption.spark.includedModelName)
-            updateProgress(0.44, .loadingOtherUsage)
-            let other = self.scanner.scan(days: 365, excludedModelName: QuotaViewOption.other.excludedModelName)
+            updateProgress(0.12, .loadingCodexUsage)
+            let codex = self.scanner.scan(days: 365)
+            updateProgress(0.28, .loadingClaudeUsage)
+            let claude = self.claudeScanner.scan(days: 365)
+            updateProgress(0.44, .loadingAllUsage)
+            let all = mergedTokenReport([codex, claude])
             updateProgress(0.62, .loadingRepoInsights)
-            let repoInsightReports = self.scanner.scanRepoInsights(windows: [7, 30, 90])
-            let repoInsights = repoInsightReports[90] ?? self.scanner.scanRepoInsights(days: 90)
+            let codexRepoInsightReports = self.scanner.scanRepoInsights(windows: [7, 30, 90])
+            let claudeRepoInsightReports = self.claudeScanner.scanRepoInsights(windows: [7, 30, 90])
+            let repoInsightReports = Dictionary(uniqueKeysWithValues: [7, 30, 90].map { days in
+                let report = mergedRepoInsightsReport(
+                    [
+                        codexRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days),
+                        claudeRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days)
+                    ],
+                    windowDays: days
+                )
+                return (days, report)
+            })
+            let repoInsights = repoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+            let codexRepoInsights = codexRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+            let claudeRepoInsights = claudeRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
             updateProgress(0.82, .loadingProfileTotals)
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             let accountUsage = self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
             updateProgress(0.94, .loadingFinalizing)
-            let snapshot = DetailsSnapshot(all: all, spark: spark, other: other, repoInsights: repoInsights, repoInsightReports: repoInsightReports, liveLimits: limits, serviceStatus: currentServiceStatus, costReferenceReport: costReferenceReport, accountUsage: accountUsage)
+            let snapshot = DetailsSnapshot(
+                all: all,
+                codex: codex,
+                claude: claude,
+                repoInsights: repoInsights,
+                repoInsightReports: repoInsightReports,
+                codexRepoInsights: codexRepoInsights,
+                codexRepoInsightReports: codexRepoInsightReports,
+                claudeRepoInsights: claudeRepoInsights,
+                claudeRepoInsightReports: claudeRepoInsightReports,
+                liveLimits: limits,
+                serviceStatus: currentServiceStatus,
+                costReferenceReport: costReferenceReport,
+                accountUsage: accountUsage
+            )
             DispatchQueue.main.async {
                 guard self.detailsLoadGeneration == loadGeneration else { return }
                 if let accountUsage {

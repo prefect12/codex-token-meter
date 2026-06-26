@@ -81,11 +81,12 @@ if CommandLine.arguments.contains("--print-service-status") {
 
 if CommandLine.arguments.contains("--print") {
     let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
+    let claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     let requestedWindow = requestedWindow(from: CommandLine.arguments)
     let hours = requestedHours(from: CommandLine.arguments)
-    let quota = requestedQuota(from: CommandLine.arguments)
-    let report = requestedWindow.map { scanner.scan(window: $0, includedModelName: quota?.includedModelName, excludedModelName: quota?.excludedModelName) }
-        ?? scanner.scan(hours: hours, includedModelName: quota?.includedModelName, excludedModelName: quota?.excludedModelName)
+    let quota = requestedQuota(from: CommandLine.arguments) ?? .all
+    let report = requestedWindow.map { scanReport(window: $0, source: quota, codexScanner: scanner, claudeScanner: claudeScanner) }
+        ?? scanReport(hours: hours, source: quota, codexScanner: scanner, claudeScanner: claudeScanner)
     let apiEstimate = APICostEstimator.estimate(report: report)
     let externalAPI = ExternalAPICostStore.read()
     let externalAPIPayload: [String: Any] = [
@@ -99,10 +100,10 @@ if CommandLine.arguments.contains("--print") {
     let payload: [String: Any] = [
         "hours": requestedWindow?.rawValue ?? hours,
         "window": requestedWindow?.shortTitle ?? "rolling",
-        "quota": quota?.rawValue ?? "all",
+        "quota": quota.rawValue,
         "model_limit_id": AppSettings.modelLimitID,
         "model_limit_name": AppSettings.modelLimitName,
-        "log_roots": scanner.rootPaths,
+        "log_roots": scanner.rootPaths + claudeScanner.rootPaths,
         "sessions": report.sessions,
         "events": report.events,
         "turns": report.turns,
