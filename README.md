@@ -21,37 +21,37 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ### 状态栏面板
 
 <p align="center">
-  <img src="docs/images/zh-menu-popover-current.png" alt="AI Token Meter 中文状态栏面板" width="520">
+  <img src="docs/images/zh-menu-popover-current.png" alt="AI Token Meter 中文状态栏面板" width="420">
 </p>
 
 ### 仓库洞察
 
 <p align="center">
-  <img src="docs/images/zh-details-insights.png" alt="AI Token Meter 中文仓库洞察页面" width="1400">
+  <img src="docs/images/zh-details-insights.png" alt="AI Token Meter 中文仓库洞察页面" width="760">
 </p>
 
 ### 详情概览
 
 <p align="center">
-  <img src="docs/images/zh-details-overview.png" alt="AI Token Meter 中文详情概览" width="1400">
+  <img src="docs/images/zh-details-overview.png" alt="AI Token Meter 中文详情概览" width="760">
 </p>
 
 ### 活动日历
 
 <p align="center">
-  <img src="docs/images/zh-details-calendar.png" alt="AI Token Meter 中文活动日历页面" width="1400">
+  <img src="docs/images/zh-details-calendar.png" alt="AI Token Meter 中文活动日历页面" width="760">
 </p>
 
 ### 金额与预算
 
 <p align="center">
-  <img src="docs/images/zh-details-costs.png" alt="AI Token Meter 中文金额页面" width="1400">
+  <img src="docs/images/zh-details-costs.png" alt="AI Token Meter 中文金额页面" width="760">
 </p>
 
 ### 诊断
 
 <p align="center">
-  <img src="docs/images/zh-details-diagnostics.png" alt="AI Token Meter 中文诊断页面" width="1400">
+  <img src="docs/images/zh-details-diagnostics.png" alt="AI Token Meter 中文诊断页面" width="760">
 </p>
 
 <details>
@@ -60,37 +60,37 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ### Menu Bar Dashboard
 
 <p align="center">
-  <img src="docs/images/en-menu-popover-current.png" alt="AI Token Meter English menu bar dashboard" width="520">
+  <img src="docs/images/en-menu-popover-current.png" alt="AI Token Meter English menu bar dashboard" width="420">
 </p>
 
 ### Repository Insights
 
 <p align="center">
-  <img src="docs/images/en-details-insights.png" alt="AI Token Meter English repository insights page" width="1400">
+  <img src="docs/images/en-details-insights.png" alt="AI Token Meter English repository insights page" width="760">
 </p>
 
 ### Details Overview
 
 <p align="center">
-  <img src="docs/images/en-details-overview.png" alt="AI Token Meter English details overview" width="1400">
+  <img src="docs/images/en-details-overview.png" alt="AI Token Meter English details overview" width="760">
 </p>
 
 ### Activity Calendar
 
 <p align="center">
-  <img src="docs/images/en-details-calendar.png" alt="AI Token Meter English activity calendar page" width="1400">
+  <img src="docs/images/en-details-calendar.png" alt="AI Token Meter English activity calendar page" width="760">
 </p>
 
 ### Cost And Budget Tracking
 
 <p align="center">
-  <img src="docs/images/en-details-costs.png" alt="AI Token Meter English cost and budget page" width="1400">
+  <img src="docs/images/en-details-costs.png" alt="AI Token Meter English cost and budget page" width="760">
 </p>
 
 ### Diagnostics
 
 <p align="center">
-  <img src="docs/images/en-details-diagnostics.png" alt="AI Token Meter English diagnostics page" width="1400">
+  <img src="docs/images/en-details-diagnostics.png" alt="AI Token Meter English diagnostics page" width="760">
 </p>
 
 </details>
@@ -100,12 +100,14 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 - 状态栏显示 5 小时剩余额度、周额度、当日 token 或 7 日 token。
 - 弹窗支持 `24h / 7d / 30d` 时间窗口切换。
 - 支持 `All / Codex / Claude` 数据源切换，以及 Codex 内部的模型限额/非模型限额视图。
+- `All` 首页展示 Codex / Claude 双平台周额度圆环、5 小时压力、输入/输出、状态入口和按时间窗口聚合的柱状图。
 - Claude 视图可通过 Claude Code statusline 读取官方 5 小时/7 天使用百分比；未配置时仍显示本地日志统计。
 - 显示 5 小时和周额度节奏，可在圆环和子弹图样式之间切换。
 - 显示缓存命中率圆环。
 - 通过 `status.openai.com` 监控官方 Codex 服务状态，用一个极简的 Codex 状态 chip 展示，并可在设置里开关。
 - 展示 input、output、cached input、fresh input 和 total token。
 - 详情窗口包含概览、洞察、日历、金额、模型、设置、诊断和关于页面。
+- 状态栏首页和详情窗口都会缓存聚合快照，打开或切换时先显示上次结果，再在后台刷新。
 - 洞察页面会按仓库或文件夹聚合本地 Codex 与 Claude Code 对话，标出长线程、上下文压缩压力、活跃 worktree 和拆分新线程的建议。
 - 过去 365 天日历热力图，点击某一天可查看当天用量详情。
 - 模型页面按模型聚合长期 token 用量。

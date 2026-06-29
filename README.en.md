@@ -21,37 +21,37 @@ When available, it also reads live quota data from the local Codex runtime, incl
 ### Menu Bar Dashboard
 
 <p align="center">
-  <img src="docs/images/en-menu-popover-current.png" alt="AI Token Meter menu bar dashboard" width="520">
+  <img src="docs/images/en-menu-popover-current.png" alt="AI Token Meter menu bar dashboard" width="420">
 </p>
 
 ### Repository Insights
 
 <p align="center">
-  <img src="docs/images/en-details-insights.png" alt="AI Token Meter repository insights page" width="1400">
+  <img src="docs/images/en-details-insights.png" alt="AI Token Meter repository insights page" width="760">
 </p>
 
 ### Details Overview
 
 <p align="center">
-  <img src="docs/images/en-details-overview.png" alt="AI Token Meter details overview" width="1400">
+  <img src="docs/images/en-details-overview.png" alt="AI Token Meter details overview" width="760">
 </p>
 
 ### Activity Calendar
 
 <p align="center">
-  <img src="docs/images/en-details-calendar.png" alt="AI Token Meter activity calendar page" width="1400">
+  <img src="docs/images/en-details-calendar.png" alt="AI Token Meter activity calendar page" width="760">
 </p>
 
 ### Cost And Budget Tracking
 
 <p align="center">
-  <img src="docs/images/en-details-costs.png" alt="AI Token Meter cost and budget page" width="1400">
+  <img src="docs/images/en-details-costs.png" alt="AI Token Meter cost and budget page" width="760">
 </p>
 
 ### Diagnostics
 
 <p align="center">
-  <img src="docs/images/en-details-diagnostics.png" alt="AI Token Meter diagnostics page" width="1400">
+  <img src="docs/images/en-details-diagnostics.png" alt="AI Token Meter diagnostics page" width="760">
 </p>
 
 <details>
@@ -60,37 +60,37 @@ When available, it also reads live quota data from the local Codex runtime, incl
 ### 状态栏面板
 
 <p align="center">
-  <img src="docs/images/zh-menu-popover-current.png" alt="AI Token Meter Chinese menu bar dashboard" width="520">
+  <img src="docs/images/zh-menu-popover-current.png" alt="AI Token Meter Chinese menu bar dashboard" width="420">
 </p>
 
 ### 仓库洞察
 
 <p align="center">
-  <img src="docs/images/zh-details-insights.png" alt="AI Token Meter Chinese repository insights page" width="1400">
+  <img src="docs/images/zh-details-insights.png" alt="AI Token Meter Chinese repository insights page" width="760">
 </p>
 
 ### 详情概览
 
 <p align="center">
-  <img src="docs/images/zh-details-overview.png" alt="AI Token Meter Chinese details overview" width="1400">
+  <img src="docs/images/zh-details-overview.png" alt="AI Token Meter Chinese details overview" width="760">
 </p>
 
 ### 活动日历
 
 <p align="center">
-  <img src="docs/images/zh-details-calendar.png" alt="AI Token Meter Chinese activity calendar page" width="1400">
+  <img src="docs/images/zh-details-calendar.png" alt="AI Token Meter Chinese activity calendar page" width="760">
 </p>
 
 ### 金额与预算
 
 <p align="center">
-  <img src="docs/images/zh-details-costs.png" alt="AI Token Meter Chinese cost and budget page" width="1400">
+  <img src="docs/images/zh-details-costs.png" alt="AI Token Meter Chinese cost and budget page" width="760">
 </p>
 
 ### 诊断
 
 <p align="center">
-  <img src="docs/images/zh-details-diagnostics.png" alt="AI Token Meter Chinese diagnostics page" width="1400">
+  <img src="docs/images/zh-details-diagnostics.png" alt="AI Token Meter Chinese diagnostics page" width="760">
 </p>
 
 </details>
@@ -100,12 +100,14 @@ When available, it also reads live quota data from the local Codex runtime, incl
 - Menu bar status item showing remaining quota, weekly quota, daily tokens, or weekly tokens.
 - Compact popover with `24h / 7d / 30d` windows.
 - `All / Codex / Claude` source switching, plus model-limit and non-model-limit views inside Codex usage.
+- The `All` dashboard shows Codex / Claude weekly quota rings, 5-hour pressure, input/output, status links, and time-window usage bars.
 - The Claude view can use Claude Code statusline `rate_limits` for official 5-hour and 7-day usage percentages; without that hook it still shows local-log usage.
 - Live 5-hour and weekly quota pacing, with either ring or bullet-style display.
 - Cache hit-rate ring.
 - Compact Codex service-status chip sourced from `status.openai.com`, with a settings toggle to show or hide it.
 - Token breakdown for input, output, cached input, fresh input, and total tokens.
 - Details window with overview, insights, calendar, cost, model, settings, diagnostics, and about pages.
+- The menu dashboard and details window cache aggregate snapshots, showing the last complete result first and refreshing in the background.
 - Insights page that groups local Codex and Claude Code conversations by repository or folder, highlights long-running threads, context-compaction pressure, active worktrees, and split-thread recommendations.
 - 365-day activity calendar with daily detail cards.
 - Model-level aggregation for long-term usage analysis.
