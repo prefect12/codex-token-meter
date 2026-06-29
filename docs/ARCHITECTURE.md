@@ -71,9 +71,10 @@ $CODEX_HOME/archived_sessions
 ~/Library/Application Support/Codex Token Meter/api-usage.json
 ~/Library/Application Support/Codex Token Meter/cost-history.json
 ~/Library/Application Support/Codex Token Meter/dashboard-report-cache.json
+~/Library/Application Support/Codex Token Meter/details-snapshot-cache.json
 ```
 
-The application support directory intentionally keeps the old `Codex Token Meter` folder name so existing settings, caches, and optional cost files survive the `AI Token Meter` rename. `ParsedRollouts` is a derived cache. `dashboard-report-cache.json` stores aggregate `24h / 7d / 30d` dashboard reports for `All / Codex / Claude`; it must not store raw log content or local session paths. If the parsed-rollout cache schema changes, bump `DiskFileCache.version` and decide whether to support migration from the previous format.
+The application support directory intentionally keeps the old `Codex Token Meter` folder name so existing settings, caches, and optional cost files survive the `AI Token Meter` rename. `ParsedRollouts` is a derived cache. `dashboard-report-cache.json` stores aggregate `24h / 7d / 30d` dashboard reports for `All / Codex / Claude`; it must not store raw log content or local session paths. `details-snapshot-cache.json` stores the aggregate details-window snapshot used by overview, calendar, cost, model, and repository-insight pages; it must strip top-session paths and real repository paths before writing. If the parsed-rollout cache schema changes, bump `DiskFileCache.version` and decide whether to support migration from the previous format.
 
 ## Development Checks
 

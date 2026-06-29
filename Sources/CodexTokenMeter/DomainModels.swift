@@ -286,31 +286,31 @@ struct TokenReport: Codable {
     var scannedAt = Date()
 }
 
-struct RepoInsightDay {
+struct RepoInsightDay: Codable {
     let day: String
     var conversations: Int
     var turns: Int
     var compressions: Int
 }
 
-struct RepoInsightTurnBuckets {
+struct RepoInsightTurnBuckets: Codable {
     var short: Int = 0
     var medium: Int = 0
     var long: Int = 0
     var extraLong: Int = 0
 }
 
-struct RepoInsightCompressionBuckets {
+struct RepoInsightCompressionBuckets: Codable {
     var zero: Int = 0
     var one: Int = 0
     var two: Int = 0
     var threePlus: Int = 0
 }
 
-struct RepoInsight {
-    let key: String
-    let displayName: String
-    let primaryFolder: String
+struct RepoInsight: Codable {
+    var key: String
+    var displayName: String
+    var primaryFolder: String
     var folders: Set<String>
     var conversations: Int
     var turns: Int
@@ -366,13 +366,13 @@ enum RepoInsightRisk {
     case healthy
 }
 
-struct RepoInsightsReport {
+struct RepoInsightsReport: Codable {
     var rows: [RepoInsight]
     var scannedAt: Date
     var windowDays: Int
 }
 
-struct AccountUsageSummary {
+struct AccountUsageSummary: Codable {
     let lifetimeTokens: Int64?
     let peakDailyTokens: Int64?
     let longestRunningTurnSec: Int64?
@@ -380,12 +380,12 @@ struct AccountUsageSummary {
     let longestStreakDays: Int64?
 }
 
-struct AccountUsageDailyBucket {
+struct AccountUsageDailyBucket: Codable {
     let startDate: String
     let tokens: Int64
 }
 
-struct AccountUsageSnapshot {
+struct AccountUsageSnapshot: Codable {
     let summary: AccountUsageSummary
     let dailyUsageBuckets: [AccountUsageDailyBucket]
     let readAt: Date

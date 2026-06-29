@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var liveRefreshTimer: Timer?
     private var activeScans: Set<ReportCacheKey> = []
     private var liveRefreshInFlight = false
+    private var detailsSnapshotPrewarmInFlight = false
     private var statusSpinnerTimer: Timer?
     private var statusSpinnerFrame = 0
     private var statusIsLoading = false
@@ -382,6 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.dashboardController.dashboardView.update(self.latestState)
                 }
                 self.prewarmAllWindows()
+                self.prewarmDetailsSnapshot()
             }
         }
     }
@@ -792,6 +794,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
         reportCache.removeAll()
         activeScans.removeAll()
+        DashboardReportCacheStore.write(reportCache)
+        DetailsSnapshotCacheStore.remove()
         detailsController.detailsView.needsDisplay = true
         refresh(forceLive: false)
     }
@@ -809,7 +813,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func openDetailsWindow() {
         detailsLoadGeneration += 1
         let loadGeneration = detailsLoadGeneration
-        detailsController.showLoading()
+        let cachedSnapshot = DetailsSnapshotCacheStore.read().map(hydratedDetailsSnapshot)
+        if let cachedSnapshot {
+            detailsController.showCached(snapshot: cachedSnapshot)
+        } else {
+            detailsController.showLoading()
+        }
         if liveLimits.isEmpty {
             refreshLiveLimits()
         }
@@ -823,50 +832,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         scanQueue.async {
-            updateProgress(0.12, .loadingCodexUsage)
-            let codex = self.scanner.scan(days: 365)
-            updateProgress(0.28, .loadingClaudeUsage)
-            let claude = self.claudeScanner.scan(days: 365)
-            updateProgress(0.44, .loadingAllUsage)
-            let all = mergedTokenReport([codex, claude])
-            updateProgress(0.62, .loadingRepoInsights)
-            let codexRepoInsightReports = self.scanner.scanRepoInsights(windows: [7, 30, 90])
-            let claudeRepoInsightReports = self.claudeScanner.scanRepoInsights(windows: [7, 30, 90])
-            let repoInsightReports = Dictionary(uniqueKeysWithValues: [7, 30, 90].map { days in
-                let report = mergedRepoInsightsReport(
-                    [
-                        codexRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days),
-                        claudeRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days)
-                    ],
-                    windowDays: days
-                )
-                return (days, report)
-            })
-            let repoInsights = repoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
-            let codexRepoInsights = codexRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
-            let claudeRepoInsights = claudeRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
-            updateProgress(0.82, .loadingProfileTotals)
-            let costReferenceReport = self.liveCostReferenceReport(limits: limits)
-            let accountUsage = self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
-            updateProgress(0.94, .loadingFinalizing)
-            let snapshot = DetailsSnapshot(
-                all: all,
-                codex: codex,
-                claude: claude,
-                repoInsights: repoInsights,
-                repoInsightReports: repoInsightReports,
-                codexRepoInsights: codexRepoInsights,
-                codexRepoInsightReports: codexRepoInsightReports,
-                claudeRepoInsights: claudeRepoInsights,
-                claudeRepoInsightReports: claudeRepoInsightReports,
-                liveLimits: limits,
+            let snapshot = self.buildDetailsSnapshot(
+                limits: limits,
                 serviceStatus: currentServiceStatus,
-                costReferenceReport: costReferenceReport,
-                accountUsage: accountUsage
+                currentAccountUsage: currentAccountUsage,
+                updateProgress: updateProgress
             )
+            DetailsSnapshotCacheStore.write(snapshot)
             DispatchQueue.main.async {
                 guard self.detailsLoadGeneration == loadGeneration else { return }
-                if let accountUsage {
+                if let accountUsage = snapshot.accountUsage {
                     self.accountUsage = accountUsage
                     self.latestState.accountUsage = accountUsage
                     self.latestState.profileReport = self.profileReport(window: self.latestState.selectedWindow, quota: self.latestState.selectedQuota, accountUsage: accountUsage, localReport: self.latestState.report)
@@ -880,6 +855,101 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.detailsController.update(snapshot: snapshot)
             }
         }
+    }
+
+    private func prewarmDetailsSnapshot() {
+        guard !detailsSnapshotPrewarmInFlight,
+              detailsController.window?.isVisible != true,
+              !DetailsSnapshotCacheStore.isFresh(maxAge: 10 * 60) else { return }
+        detailsSnapshotPrewarmInFlight = true
+        let limits = liveLimits
+        let currentServiceStatus = serviceStatus
+        let currentAccountUsage = accountUsage
+        scanQueue.async {
+            let snapshot = self.buildDetailsSnapshot(
+                limits: limits,
+                serviceStatus: currentServiceStatus,
+                currentAccountUsage: currentAccountUsage,
+                updateProgress: nil
+            )
+            DetailsSnapshotCacheStore.write(snapshot)
+            DispatchQueue.main.async {
+                self.detailsSnapshotPrewarmInFlight = false
+                if let accountUsage = snapshot.accountUsage {
+                    self.accountUsage = accountUsage
+                } else if !AppSettings.profileAPITotalsEnabled {
+                    self.accountUsage = nil
+                }
+            }
+        }
+    }
+
+    private func hydratedDetailsSnapshot(_ snapshot: DetailsSnapshot) -> DetailsSnapshot {
+        var hydrated = snapshot
+        if !liveLimits.isEmpty {
+            hydrated.liveLimits = liveLimits
+            hydrated.costReferenceReport = liveCostReferenceReport(limits: liveLimits) ?? hydrated.costReferenceReport
+        }
+        if let serviceStatus {
+            hydrated.serviceStatus = serviceStatus
+        }
+        if AppSettings.profileAPITotalsEnabled {
+            if let accountUsage {
+                hydrated.accountUsage = accountUsage
+            }
+        } else {
+            hydrated.accountUsage = nil
+        }
+        return hydrated
+    }
+
+    private func buildDetailsSnapshot(
+        limits: [LiveRateLimit],
+        serviceStatus: CodexServiceStatusSnapshot?,
+        currentAccountUsage: AccountUsageSnapshot?,
+        updateProgress: ((Double, L10nKey) -> Void)?
+    ) -> DetailsSnapshot {
+        updateProgress?(0.12, .loadingCodexUsage)
+        let codex = scanner.scan(days: 365)
+        updateProgress?(0.28, .loadingClaudeUsage)
+        let claude = claudeScanner.scan(days: 365)
+        updateProgress?(0.44, .loadingAllUsage)
+        let all = mergedTokenReport([codex, claude])
+        updateProgress?(0.62, .loadingRepoInsights)
+        let codexRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90])
+        let claudeRepoInsightReports = claudeScanner.scanRepoInsights(windows: [7, 30, 90])
+        let repoInsightReports = Dictionary(uniqueKeysWithValues: [7, 30, 90].map { days in
+            let report = mergedRepoInsightsReport(
+                [
+                    codexRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days),
+                    claudeRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days)
+                ],
+                windowDays: days
+            )
+            return (days, report)
+        })
+        let repoInsights = repoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+        let codexRepoInsights = codexRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+        let claudeRepoInsights = claudeRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+        updateProgress?(0.82, .loadingProfileTotals)
+        let costReferenceReport = liveCostReferenceReport(limits: limits)
+        let accountUsage = readAccountUsageIfNeeded(fallback: currentAccountUsage)
+        updateProgress?(0.94, .loadingFinalizing)
+        return DetailsSnapshot(
+            all: all,
+            codex: codex,
+            claude: claude,
+            repoInsights: repoInsights,
+            repoInsightReports: repoInsightReports,
+            codexRepoInsights: codexRepoInsights,
+            codexRepoInsightReports: codexRepoInsightReports,
+            claudeRepoInsights: claudeRepoInsights,
+            claudeRepoInsightReports: claudeRepoInsightReports,
+            liveLimits: limits,
+            serviceStatus: serviceStatus,
+            costReferenceReport: costReferenceReport,
+            accountUsage: accountUsage
+        )
     }
 
     private func summaryText(state: DashboardState) -> String {

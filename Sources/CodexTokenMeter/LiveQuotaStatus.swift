@@ -67,7 +67,7 @@ enum QuotaViewOption: String, CaseIterable {
     }
 }
 
-struct RateWindow {
+struct RateWindow: Codable {
     let usedPercent: Double
     let windowMinutes: Int
     let resetsAt: Date?
@@ -119,7 +119,7 @@ func paceComparison(for window: RateWindow, now: Date = Date()) -> PaceCompariso
     )
 }
 
-struct LiveRateLimit {
+struct LiveRateLimit: Codable {
     let id: String
     let name: String
     let primary: RateWindow
@@ -277,12 +277,12 @@ func combinedLiveLimits(codexReader: LiveRateLimitReader = LiveRateLimitReader()
     return limits
 }
 
-struct CodexServiceComponentStatus {
+struct CodexServiceComponentStatus: Codable {
     let name: String
     let status: String
 }
 
-struct CodexServiceIncidentStatus {
+struct CodexServiceIncidentStatus: Codable {
     let name: String
     let status: String
     let message: String
@@ -290,7 +290,7 @@ struct CodexServiceIncidentStatus {
     let updatedAt: Date?
 }
 
-struct CodexServiceStatusSnapshot {
+struct CodexServiceStatusSnapshot: Codable {
     let statusPageUpdatedAt: Date?
     let readAt: Date
     let components: [CodexServiceComponentStatus]

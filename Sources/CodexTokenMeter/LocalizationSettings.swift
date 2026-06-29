@@ -1250,6 +1250,10 @@ enum AppSettings {
         appSupportDirectoryURL.appendingPathComponent("dashboard-report-cache.json")
     }
 
+    static var detailsSnapshotCacheURL: URL {
+        appSupportDirectoryURL.appendingPathComponent("details-snapshot-cache.json")
+    }
+
     static var claudeStatuslineCaptureURL: URL {
         appSupportDirectoryURL.appendingPathComponent("claude-statusline.json")
     }

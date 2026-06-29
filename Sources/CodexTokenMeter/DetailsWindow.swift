@@ -5,7 +5,7 @@ import UserNotifications
 
 // MARK: - Details Window
 
-struct DetailsSnapshot {
+struct DetailsSnapshot: Codable {
     var all: TokenReport
     var codex: TokenReport
     var claude: TokenReport
@@ -1212,6 +1212,15 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
     func showLoading() {
         detailsView.isLoading = true
         detailsView.loadingProgress = .starting
+        showWindow(nil)
+        window?.center()
+        NSApp.activate(ignoringOtherApps: true)
+        updateDocumentLayout()
+    }
+
+    func showCached(snapshot: DetailsSnapshot) {
+        detailsView.snapshot = snapshot
+        detailsView.isLoading = false
         showWindow(nil)
         window?.center()
         NSApp.activate(ignoringOtherApps: true)

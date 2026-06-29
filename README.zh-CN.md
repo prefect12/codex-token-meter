@@ -123,6 +123,7 @@ AI Token Meter 使用本机数据源：
 
 - **token 用量**：来自本地 Codex 会话日志和 Claude Code 项目日志。Codex 默认扫描 `~/.codex/sessions`、`~/.codex/archived_sessions`，以及设置了 `$CODEX_HOME` 时其中的 `sessions` / `archived_sessions` 目录。如果在设置里手动选择日志目录，该目录会覆盖默认 Codex 扫描范围。Codex 扫描 `token_count` 事件，读取 `input_tokens`、`cached_input_tokens`、`output_tokens`、`reasoning_output_tokens` 和 `total_tokens`，再用相邻累计值的差值计算本次新增 token。Claude Code 扫描 `CLAUDE_CONFIG_DIR`、`$XDG_CONFIG_HOME/claude/projects` 和 `~/.claude/projects` 下的 `*.jsonl` assistant usage 记录，读取 `input_tokens`、`cache_creation_input_tokens`、`cache_creation.ephemeral_5m_input_tokens`、`cache_creation.ephemeral_1h_input_tokens`、`cache_read_input_tokens` 和 `output_tokens`，保留同一 message 的最终/最大 token 快照，并按小时、日期、会话、模型和仓库聚合。
 - **仪表盘缓存**：状态栏首页会把 `24h / 7d / 30d` 的 `全部 / Codex / Claude` 聚合结果缓存到本地 `dashboard-report-cache.json`。下次启动或切换窗口时会先展示上次聚合结果，再在后台刷新，不缓存原始日志内容。
+- **详情页缓存**：详情窗口会把 365 天总览、日历、金额、模型和仓库洞察所需的聚合快照缓存到本地 `details-snapshot-cache.json`。打开详情页时先显示上次快照，再后台重算并替换；缓存会移除 top session 路径和仓库真实路径，只保留展示名与统计值。
 - **实时额度比例**：Codex 来自本机 Codex 运行时。应用启动 `codex app-server`，调用 `account/rateLimits/read`，读取 5 小时窗口和周窗口的 `usedPercent`、`resetsAt` 等信息。Claude 可通过 `--claude-statusline` 捕获 Claude Code statusline JSON 中的官方 `rate_limits`。状态栏和圆环里的剩余额度按 `100 - usedPercent` 显示。应用会从 Codex 实时返回里学习当前非 Codex 的模型级限额窗口，不再只依赖历史 Spark ID。
 - **缓存比例**：来自本地 token 明细，计算方式是 `cached_input_tokens / input_tokens * 100`。
 - **金额估算**：不是官方账单。Codex 和 Claude 各自保存月付金额、付款币种、展示币种和付费开始日期，默认沿用旧的 `$200` 设置；周预算按对应平台的 `月付金额 * 12 / 52` 计算。本周已用金额优先使用该平台实时周 `usedPercent` 换算，历史日期和历史周则按本地 token 用量、历史峰值和已记录的周额度比例估算。`全部` 金额页会把 Codex / Claude 的月费按各自付款币种折算到展示币种后合计。
@@ -154,6 +155,7 @@ AI Token Meter 使用本机数据源：
 - 单独的 Codex / Claude 页面保持原来的三圆环和柱状图视图，只有 `全部` 首页使用新的平台总览表。
 - 金额页支持 Codex / Claude 独立套餐成本和币种配置，避免两个平台共用同一套月费估算。
 - 状态栏首页新增聚合结果磁盘缓存，刷新中继续保留平台输入/输出数据，避免表格短暂显示 `-- / --`。
+- 详情页新增聚合快照磁盘缓存和后台预热，打开详情窗口时可先显示上次完整页面，再自动刷新为最新数据。
 - 新增仓库洞察页面，用来识别 Codex 长线程、上下文压缩压力、活跃 worktree 和按项目拆分新线程的建议。
 - 更新洞察页项目列表，只显示最后一级仓库名，例如 `github/CampaignStrategy` 和 `github/CodexTokenMeter` 会显示为 `CampaignStrategy` 和 `CodexTokenMeter`。
 - 将原先 9k 行的 Swift 单入口文件拆分为领域模型、设置、扫描器、成本估算、状态栏 UI、详情页 UI、App 编排和 CLI helper 等独立源码文件。
