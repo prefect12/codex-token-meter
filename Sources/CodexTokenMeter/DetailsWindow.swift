@@ -2554,8 +2554,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func drawSidebar(width: CGFloat) {
         sidebarItemRects.removeAll()
-        drawText("Codex", rect: NSRect(x: 28, y: 28, width: width - 56, height: 28), font: .systemFont(ofSize: 24, weight: .bold), color: .white)
-        drawText(t(.tokenMeter), rect: NSRect(x: 28, y: 58, width: width - 56, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
+        drawText("AI Token Meter", rect: NSRect(x: 28, y: 28, width: width - 56, height: 28), font: .systemFont(ofSize: 20, weight: .bold), color: .white)
+        drawText(t(.combinedUsage), rect: NSRect(x: 28, y: 58, width: width - 56, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
         for (index, section) in DetailsSection.allCases.enumerated() {
             let y = CGFloat(118 + index * 58)
             let rect = NSRect(x: 18, y: y, width: width - 36, height: 42)
