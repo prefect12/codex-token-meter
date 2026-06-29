@@ -108,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyLanguage()
         QuotaWarningManager.shared.requestAuthorization()
 
+        reportCache = DashboardReportCacheStore.read()
         refresh(forceLive: false)
         refreshLiveLimits()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
@@ -233,9 +234,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showCachedOrLoadingState() {
         let key = ReportCacheKey(window: selectedWindow, quota: selectedQuota)
+        let platformReports = cachedPlatformReports(window: selectedWindow, quota: selectedQuota)
         if let cached = reportCache[key] {
             latestState = DashboardState(
                 report: cached,
+                codexReport: platformReports.codex,
+                claudeReport: platformReports.claude,
                 profileReport: profileReport(window: selectedWindow, quota: selectedQuota, accountUsage: accountUsage, localReport: cached),
                 accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: cached),
@@ -252,6 +256,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             latestState = DashboardState(
                 report: TokenReport(scannedAt: Date()),
+                codexReport: platformReports.codex,
+                claudeReport: platformReports.claude,
                 profileReport: profileReport(window: selectedWindow, quota: selectedQuota, accountUsage: accountUsage, localReport: nil),
                 accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: nil),
@@ -268,15 +274,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func cachedPlatformReports(window: WindowOption, quota: QuotaViewOption) -> (codex: TokenReport?, claude: TokenReport?) {
+        guard quota == .all else { return (nil, nil) }
+        return (
+            reportCache[ReportCacheKey(window: window, quota: .codex)],
+            reportCache[ReportCacheKey(window: window, quota: .claude)]
+        )
+    }
+
     private func refresh(forceLive: Bool) {
         let window = selectedWindow
         let quota = selectedQuota
         let key = ReportCacheKey(window: window, quota: quota)
         guard !activeScans.contains(key) else { return }
         activeScans.insert(key)
+        let platformReports = cachedPlatformReports(window: window, quota: quota)
 
         latestState = DashboardState(
             report: reportCache[key] ?? TokenReport(scannedAt: Date()),
+            codexReport: platformReports.codex,
+            claudeReport: platformReports.claude,
             profileReport: profileReport(window: window, quota: quota, accountUsage: accountUsage, localReport: reportCache[key]),
             accountUsage: accountUsage,
             costReferenceReport: costReferenceReport(quota: quota, fallback: reportCache[key]),
@@ -327,6 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let claudeReport {
                     self.reportCache[ReportCacheKey(window: window, quota: .claude)] = claudeReport
                 }
+                DashboardReportCacheStore.write(self.reportCache)
                 if let accountUsage {
                     self.accountUsage = accountUsage
                 } else if !AppSettings.profileAPITotalsEnabled {
@@ -336,11 +354,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.liveLimits = limits
                 }
                 if self.selectedWindow == window && self.selectedQuota == quota {
+                    let cachedPlatforms = self.cachedPlatformReports(window: window, quota: quota)
                     let effectiveLimits = forceLive && !limits.isEmpty ? limits : self.liveLimits
                     self.latestState = DashboardState(
                         report: report,
-                        codexReport: codexReport ?? self.reportCache[ReportCacheKey(window: window, quota: .codex)],
-                        claudeReport: claudeReport ?? self.reportCache[ReportCacheKey(window: window, quota: .claude)],
+                        codexReport: codexReport ?? cachedPlatforms.codex,
+                        claudeReport: claudeReport ?? cachedPlatforms.claude,
                         profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage, localReport: report),
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
@@ -432,10 +451,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self.activeScans.remove(key)
                 self.reportCache[key] = report
+                DashboardReportCacheStore.write(self.reportCache)
                 self.updateStatusTitle(report: self.latestState.report, limits: self.liveLimits, quota: self.latestState.selectedQuota)
                 if self.selectedWindow == window && self.selectedQuota == quota {
+                    let platformReports = self.cachedPlatformReports(window: window, quota: quota)
                     self.latestState = DashboardState(
                         report: report,
+                        codexReport: platformReports.codex,
+                        claudeReport: platformReports.claude,
                         profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage, localReport: report),
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
@@ -451,6 +474,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.dashboardController.dashboardView.update(self.latestState)
                 } else if window == .week && self.selectedQuota == quota {
                     self.latestState.costReferenceReport = report
+                    self.dashboardController.dashboardView.update(self.latestState)
+                } else if self.selectedWindow == window && self.selectedQuota == .all && quota != .all {
+                    if quota == .codex {
+                        self.latestState.codexReport = report
+                    } else if quota == .claude {
+                        self.latestState.claudeReport = report
+                    }
                     self.dashboardController.dashboardView.update(self.latestState)
                 }
             }

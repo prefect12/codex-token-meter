@@ -1246,6 +1246,10 @@ enum AppSettings {
         appSupportDirectoryURL.appendingPathComponent("cost-history.json")
     }
 
+    static var dashboardReportCacheURL: URL {
+        appSupportDirectoryURL.appendingPathComponent("dashboard-report-cache.json")
+    }
+
     static var claudeStatuslineCaptureURL: URL {
         appSupportDirectoryURL.appendingPathComponent("claude-statusline.json")
     }

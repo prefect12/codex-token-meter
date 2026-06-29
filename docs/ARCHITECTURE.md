@@ -36,7 +36,7 @@ The split is intentionally conservative: code moved by section, with behavior pr
 6. `ClaudeStatuslineStore` captures optional Claude Code statusline `rate_limits` via `--claude-statusline` and exposes them as a local `LiveRateLimit` with `id=claude`.
 7. `AccountUsageReader` reads `account/usage/read` when Profile API totals are enabled.
 8. `CodexServiceStatusReader` reads `https://status.openai.com/api/v2/summary.json` for Codex component status.
-9. `AppDelegate` merges Codex scans, Claude scans, optional Profile API totals, live quota limits, service status, and cost reference reports into `DashboardState`.
+9. `AppDelegate` merges Codex scans, Claude scans, optional Profile API totals, live quota limits, service status, and cost reference reports into `DashboardState`. The menu dashboard can seed this state from the last aggregate dashboard cache while fresh scans run.
 10. `DashboardView` renders the menu popover; `UsageDetailsView` renders details pages directly with AppKit drawing.
 
 ## Accounting Invariants
@@ -70,9 +70,10 @@ $CODEX_HOME/archived_sessions
 ~/Library/Application Support/Codex Token Meter/claude-statusline.json
 ~/Library/Application Support/Codex Token Meter/api-usage.json
 ~/Library/Application Support/Codex Token Meter/cost-history.json
+~/Library/Application Support/Codex Token Meter/dashboard-report-cache.json
 ```
 
-The application support directory intentionally keeps the old `Codex Token Meter` folder name so existing settings, caches, and optional cost files survive the `AI Token Meter` rename. `ParsedRollouts` is a derived cache. If the cache schema changes, bump `DiskFileCache.version` and decide whether to support migration from the previous format.
+The application support directory intentionally keeps the old `Codex Token Meter` folder name so existing settings, caches, and optional cost files survive the `AI Token Meter` rename. `ParsedRollouts` is a derived cache. `dashboard-report-cache.json` stores aggregate `24h / 7d / 30d` dashboard reports for `All / Codex / Claude`; it must not store raw log content or local session paths. If the parsed-rollout cache schema changes, bump `DiskFileCache.version` and decide whether to support migration from the previous format.
 
 ## Development Checks
 

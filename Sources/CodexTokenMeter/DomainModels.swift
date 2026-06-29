@@ -88,27 +88,27 @@ struct TokenEvent: Codable {
     let model: String?
 }
 
-struct DayUsage {
+struct DayUsage: Codable {
     let day: String
     var usage: Usage
     var turns: Int
     var modelBreakdown: [ModelUsage] = []
 }
 
-struct HourUsage {
+struct HourUsage: Codable {
     let hour: Date
     var usage: Usage
     var turns: Int
 }
 
-struct SessionUsage {
+struct SessionUsage: Codable {
     let path: String
     let lastEvent: Date
     var turns: Int
     var usage: Usage
 }
 
-struct ModelUsage {
+struct ModelUsage: Codable {
     let name: String
     var usage: Usage
     var events: Int
@@ -273,7 +273,7 @@ enum APICostEstimator {
     }
 }
 
-struct TokenReport {
+struct TokenReport: Codable {
     var usage = Usage()
     var sessions = 0
     var events = 0
