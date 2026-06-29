@@ -1,16 +1,17 @@
-# Codex Token Meter
+# AI Token Meter
 
 [English README](README.en.md)
 
-Codex Token Meter 是一个原生 macOS 状态栏工具，用来查看本机 Codex 的 token 消耗、缓存命中率、实时剩余额度、模型级用量和订阅金额估算。
+AI Token Meter 是一个原生 macOS 状态栏工具，用来查看本机 Codex 与 Claude Code 的 token 消耗、缓存命中率、实时剩余额度、模型级用量和订阅金额估算。
 
-它直接读取本地 Codex 会话日志：
+它直接读取本地 Codex 会话日志和 Claude Code 项目日志：
 
 ```text
 ~/.codex/sessions/**/rollout-*.jsonl
 ~/.codex/archived_sessions/rollout-*.jsonl
 $CODEX_HOME/sessions/**/rollout-*.jsonl
 $CODEX_HOME/archived_sessions/rollout-*.jsonl
+~/.claude/projects/**/*.jsonl
 ```
 
 在可用时，它还会通过本机 Codex 运行时读取实时限额信息，例如 5 小时窗口、周窗口、重置时间和剩余比例。
@@ -20,37 +21,37 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ### 状态栏面板
 
 <p align="center">
-  <img src="docs/images/zh-menu-popover-current.png" alt="Codex Token Meter 中文状态栏面板" width="520">
+  <img src="docs/images/zh-menu-popover-current.png" alt="AI Token Meter 中文状态栏面板" width="520">
 </p>
 
 ### 仓库洞察
 
 <p align="center">
-  <img src="docs/images/zh-details-insights.png" alt="Codex Token Meter 中文仓库洞察页面" width="1400">
+  <img src="docs/images/zh-details-insights.png" alt="AI Token Meter 中文仓库洞察页面" width="1400">
 </p>
 
 ### 详情概览
 
 <p align="center">
-  <img src="docs/images/zh-details-overview.png" alt="Codex Token Meter 中文详情概览" width="1400">
+  <img src="docs/images/zh-details-overview.png" alt="AI Token Meter 中文详情概览" width="1400">
 </p>
 
 ### 活动日历
 
 <p align="center">
-  <img src="docs/images/zh-details-calendar.png" alt="Codex Token Meter 中文活动日历页面" width="1400">
+  <img src="docs/images/zh-details-calendar.png" alt="AI Token Meter 中文活动日历页面" width="1400">
 </p>
 
 ### 金额与预算
 
 <p align="center">
-  <img src="docs/images/zh-details-costs.png" alt="Codex Token Meter 中文金额页面" width="1400">
+  <img src="docs/images/zh-details-costs.png" alt="AI Token Meter 中文金额页面" width="1400">
 </p>
 
 ### 诊断
 
 <p align="center">
-  <img src="docs/images/zh-details-diagnostics.png" alt="Codex Token Meter 中文诊断页面" width="1400">
+  <img src="docs/images/zh-details-diagnostics.png" alt="AI Token Meter 中文诊断页面" width="1400">
 </p>
 
 <details>
@@ -59,37 +60,37 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ### Menu Bar Dashboard
 
 <p align="center">
-  <img src="docs/images/en-menu-popover-current.png" alt="Codex Token Meter English menu bar dashboard" width="520">
+  <img src="docs/images/en-menu-popover-current.png" alt="AI Token Meter English menu bar dashboard" width="520">
 </p>
 
 ### Repository Insights
 
 <p align="center">
-  <img src="docs/images/en-details-insights.png" alt="Codex Token Meter English repository insights page" width="1400">
+  <img src="docs/images/en-details-insights.png" alt="AI Token Meter English repository insights page" width="1400">
 </p>
 
 ### Details Overview
 
 <p align="center">
-  <img src="docs/images/en-details-overview.png" alt="Codex Token Meter English details overview" width="1400">
+  <img src="docs/images/en-details-overview.png" alt="AI Token Meter English details overview" width="1400">
 </p>
 
 ### Activity Calendar
 
 <p align="center">
-  <img src="docs/images/en-details-calendar.png" alt="Codex Token Meter English activity calendar page" width="1400">
+  <img src="docs/images/en-details-calendar.png" alt="AI Token Meter English activity calendar page" width="1400">
 </p>
 
 ### Cost And Budget Tracking
 
 <p align="center">
-  <img src="docs/images/en-details-costs.png" alt="Codex Token Meter English cost and budget page" width="1400">
+  <img src="docs/images/en-details-costs.png" alt="AI Token Meter English cost and budget page" width="1400">
 </p>
 
 ### Diagnostics
 
 <p align="center">
-  <img src="docs/images/en-details-diagnostics.png" alt="Codex Token Meter English diagnostics page" width="1400">
+  <img src="docs/images/en-details-diagnostics.png" alt="AI Token Meter English diagnostics page" width="1400">
 </p>
 
 </details>
@@ -98,13 +99,14 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 
 - 状态栏显示 5 小时剩余额度、周额度、当日 token 或 7 日 token。
 - 弹窗支持 `24h / 7d / 30d` 时间窗口切换。
-- 支持 `All / 模型限额 / Other` 视图，区分 Codex 总用量、当前识别到的模型级限额用量和非模型级限额用量。
+- 支持 `All / Codex / Claude` 数据源切换，以及 Codex 内部的模型限额/非模型限额视图。
+- Claude 视图可通过 Claude Code statusline 读取官方 5 小时/7 天使用百分比；未配置时仍显示本地日志统计。
 - 显示 5 小时和周额度节奏，可在圆环和子弹图样式之间切换。
 - 显示缓存命中率圆环。
 - 通过 `status.openai.com` 监控官方 Codex 服务状态，用一个极简的 Codex 状态 chip 展示，并可在设置里开关。
 - 展示 input、output、cached input、fresh input 和 total token。
 - 详情窗口包含概览、洞察、日历、金额、模型、设置、诊断和关于页面。
-- 洞察页面会按仓库或文件夹聚合本地 Codex 对话，标出长线程、上下文压缩压力、活跃 worktree 和拆分新线程的建议。
+- 洞察页面会按仓库或文件夹聚合本地 Codex 与 Claude Code 对话，标出长线程、上下文压缩压力、活跃 worktree 和拆分新线程的建议。
 - 过去 365 天日历热力图，点击某一天可查看当天用量详情。
 - 模型页面按模型聚合长期 token 用量。
 - 金额页面支持月付金额、本周剩余预算、历史消耗、当日价值、API 等价成本、可选外部 API 成本和币种折算。
@@ -117,16 +119,16 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 
 ## 数据与计算口径
 
-Codex Token Meter 使用本机数据源：
+AI Token Meter 使用本机数据源：
 
-- **token 用量**：来自本地 Codex 会话日志。默认扫描 `~/.codex/sessions`、`~/.codex/archived_sessions`，以及设置了 `$CODEX_HOME` 时其中的 `sessions` / `archived_sessions` 目录。如果在设置里手动选择日志目录，该目录会覆盖默认扫描范围。应用扫描 `token_count` 事件，读取 `input_tokens`、`cached_input_tokens`、`output_tokens`、`reasoning_output_tokens` 和 `total_tokens`，再用相邻累计值的差值计算本次新增 token，并按小时、日期、会话和模型聚合。
-- **实时额度比例**：来自本机 Codex 运行时。应用启动 `codex app-server`，调用 `account/rateLimits/read`，读取 5 小时窗口和周窗口的 `usedPercent`、`resetsAt` 等信息。状态栏和圆环里的剩余额度按 `100 - usedPercent` 显示。应用会从实时返回里学习当前非 Codex 的模型级限额窗口，不再只依赖历史 Spark ID。
+- **token 用量**：来自本地 Codex 会话日志和 Claude Code 项目日志。Codex 默认扫描 `~/.codex/sessions`、`~/.codex/archived_sessions`，以及设置了 `$CODEX_HOME` 时其中的 `sessions` / `archived_sessions` 目录。如果在设置里手动选择日志目录，该目录会覆盖默认 Codex 扫描范围。Codex 扫描 `token_count` 事件，读取 `input_tokens`、`cached_input_tokens`、`output_tokens`、`reasoning_output_tokens` 和 `total_tokens`，再用相邻累计值的差值计算本次新增 token。Claude Code 扫描 `CLAUDE_CONFIG_DIR`、`$XDG_CONFIG_HOME/claude/projects` 和 `~/.claude/projects` 下的 `*.jsonl` assistant usage 记录，读取 `input_tokens`、`cache_creation_input_tokens`、`cache_creation.ephemeral_5m_input_tokens`、`cache_creation.ephemeral_1h_input_tokens`、`cache_read_input_tokens` 和 `output_tokens`，保留同一 message 的最终/最大 token 快照，并按小时、日期、会话、模型和仓库聚合。
+- **实时额度比例**：Codex 来自本机 Codex 运行时。应用启动 `codex app-server`，调用 `account/rateLimits/read`，读取 5 小时窗口和周窗口的 `usedPercent`、`resetsAt` 等信息。Claude 可通过 `--claude-statusline` 捕获 Claude Code statusline JSON 中的官方 `rate_limits`。状态栏和圆环里的剩余额度按 `100 - usedPercent` 显示。应用会从 Codex 实时返回里学习当前非 Codex 的模型级限额窗口，不再只依赖历史 Spark ID。
 - **缓存比例**：来自本地 token 明细，计算方式是 `cached_input_tokens / input_tokens * 100`。
 - **金额估算**：不是官方账单。月付金额来自设置项，默认 `$200`；周预算按 `月付金额 * 12 / 52` 计算。本周已用金额优先使用实时周 `usedPercent` 换算，历史日期和历史周则按本地 token 用量、历史峰值和已记录的周额度比例估算。
-- **API 等价成本**：这是另一套独立估算，用来回答“如果这些本地 Codex token 直接按 API token 计费，大约会花多少钱”。应用会按可识别模型分别计价 fresh input、cached input 和 output。当前内置价格使用 GPT-5.5、GPT-5.4、GPT-5.4 mini 的官方 API 单价，以及 GPT-5.3-Codex / GPT-5.2 风格 Codex 模型的 token-based Codex rate card 等价口径。`reasoning_output_tokens` 不会再次叠加，因为本地 `token_count` 事件里的 `total_tokens` 已经等于 input 加 output。没有模型标签但有总 token 的 Profile API 单日数据，会按 GPT-5.5 fresh input fallback 估算，避免有覆盖率时金额仍为 0。无法识别模型标签的记录不会被强行估价，并会降低界面中的 priced-token 覆盖率。
+- **API 等价成本**：这是另一套独立估算，用来回答“如果这些本地 token 直接按 API token 计费，大约会花多少钱”。应用会按可识别模型分别计价 fresh input、cached input 和 output。当前内置价格使用 GPT-5.5、GPT-5.4、GPT-5.4 mini 的官方 API 单价，GPT-5.3-Codex / GPT-5.2 风格 Codex 模型的 token-based Codex rate card 等价口径，以及 Claude Opus / Sonnet / Haiku 的官方 API 单价。`reasoning_output_tokens` 不会再次叠加，因为本地 Codex `token_count` 事件里的 `total_tokens` 已经等于 input 加 output。没有模型标签但有总 token 的 Profile API 单日数据，会按 GPT-5.5 fresh input fallback 估算，避免有覆盖率时金额仍为 0。无法识别模型标签的记录不会被强行估价，并会降低界面中的 priced-token 覆盖率。
 - **仓库洞察**：完全来自本机 rollout 元数据和事件。洞察扫描器读取 `cwd`、`turn` 活动、`context_compacted` 信号和 `token_count` 增量，并把常规 `Documents/github/<repo>` 工作目录和 Codex 创建的 worktree 归并到同一个仓库显示名。它会展示对话数、turn 数、压缩次数、最长线程压力、活跃天数，以及何时拆到新线程的建议。
 - **Codex speed tier / fast 模式**：历史本地日志不会被反推 fast/standard。当前 `rollout-*.jsonl` 元数据不暴露过去请求使用的是标准速度还是 fast 速度，所以应用不会根据 reasoning effort 或其他间接字段乱推 fast 模式。如果未来 Codex 的数据源提供每次请求的 speed tier，才能按请求明确计价。
-- **外部 API 成本**：这是可选的本地 JSON 输入，用来补充不经过 Codex 日志的直接 OpenAI API 用量。默认读取 `~/Library/Application Support/Codex Token Meter/api-usage.json`。成本字段支持 `usd_value`、`total_usd`、`usd`、`cost_usd`，token 字段支持 `total_tokens`、`tokens`、`usage_tokens`。
+- **外部 API 成本**：这是可选的本地 JSON 输入，用来补充不经过 Codex 日志的直接 OpenAI API 用量。默认读取 `~/Library/Application Support/Codex Token Meter/api-usage.json`。成本字段支持 `usd_value`、`total_usd`、`usd`、`cost_usd`，token 字段支持 `total_tokens`、`tokens`、`usage_tokens`。应用改名为 AI Token Meter 后仍沿用旧目录，避免升级时丢失设置、缓存和本地成本文件。
 
 外部 API 成本文件示例：
 
@@ -144,6 +146,11 @@ Codex Token Meter 使用本机数据源：
 
 ## 最近更新
 
+- `0.2.0` 将应用名更新为 AI Token Meter，安装包改为 `/Applications/AI Token Meter.app`，安装脚本会移除旧的 `/Applications/Codex Token Meter.app`，但继续使用旧 App Support 目录保存本地数据。
+- 新增 Codex + Claude 总览首页：顶部双平台剩余额度圆环、平台对比表格、24h/7d/30d 用量柱状图和 Codex/Claude hover 区分。
+- 新增 Claude Code 本地日志扫描，支持 `~/.claude/projects`、`CLAUDE_CONFIG_DIR` 和 `$XDG_CONFIG_HOME/claude/projects` 下的 assistant usage JSONL。
+- 新增 Claude Code statusline 集成，可读取官方 5 小时和 7 天 quota 百分比；没有 statusline 时仍保留本地日志用量统计。
+- 单独的 Codex / Claude 页面保持原来的三圆环和柱状图视图，只有 `全部` 首页使用新的平台总览表。
 - 新增仓库洞察页面，用来识别 Codex 长线程、上下文压缩压力、活跃 worktree 和按项目拆分新线程的建议。
 - 更新洞察页项目列表，只显示最后一级仓库名，例如 `github/CampaignStrategy` 和 `github/CodexTokenMeter` 会显示为 `CampaignStrategy` 和 `CodexTokenMeter`。
 - 将原先 9k 行的 Swift 单入口文件拆分为领域模型、设置、扫描器、成本估算、状态栏 UI、详情页 UI、App 编排和 CLI helper 等独立源码文件。
@@ -191,7 +198,7 @@ $CODEX_HOME/archived_sessions
 ~/Library/Application Support/Codex Token Meter/api-usage.json
 ```
 
-这些数据只在本机使用。应用不会上传会话日志。为了展示 Codex 状态 chip，应用会只读请求 `https://status.openai.com/api/v2/summary.json`；另外还会调用本机 Codex 运行时读取实时额度。实时限额读取依赖本机 Codex 运行时，`codex app-server` 本身可能会通过你现有的 Codex 登录状态访问 Codex 的正常用量接口。
+这些数据只在本机使用。应用不会上传会话日志。为了兼容旧版本，App Support 目录名仍保留为 `Codex Token Meter`。为了展示 Codex 状态 chip，应用会只读请求 `https://status.openai.com/api/v2/summary.json`；另外还会调用本机 Codex 运行时读取实时额度。实时限额读取依赖本机 Codex 运行时，`codex app-server` 本身可能会通过你现有的 Codex 登录状态访问 Codex 的正常用量接口。
 
 ## 构建
 
@@ -210,7 +217,7 @@ $CODEX_HOME/archived_sessions
 构建结果：
 
 ```text
-build/Codex Token Meter.app
+build/AI Token Meter.app
 ```
 
 安装到 `/Applications` 并启动：
@@ -228,7 +235,7 @@ build/Codex Token Meter.app
 DMG 输出路径：
 
 ```text
-dist/Codex-Token-Meter-<version>.dmg
+dist/AI-Token-Meter-<version>.dmg
 ```
 
 ## 命令行检查
@@ -236,25 +243,32 @@ dist/Codex-Token-Meter-<version>.dmg
 应用也支持从命令行打印统计结果，便于排查解析结果：
 
 ```bash
-"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --hours=168
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --hours=168
 ```
 
 指定窗口和视图：
 
 ```bash
-"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --window=month --quota=all
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --window=month --quota=all
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --window=week --quota=claude
+```
+
+要让 app 显示 Claude Code 官方 5 小时/7 天额度，在 Claude Code statusline 配置里使用：
+
+```bash
+"/Applications/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --claude-statusline
 ```
 
 如果要直接检查 OpenAI / Codex 服务状态：
 
 ```bash
-"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-service-status
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-service-status
 ```
 
 如果要渲染详情窗口做视觉检查，包括洞察页：
 
 ```bash
-"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-details=/tmp/codex-token-meter-insights.png --section=insights --insight-window=90
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-details=/tmp/ai-token-meter-insights.png --section=insights --insight-window=90
 ```
 
 JSON 输出会包含 `model_limit_id`、`model_limit_name`、API 等价成本字段、`external_api_cost` 状态；使用 `--print-service-status` 时还会输出服务状态字段。

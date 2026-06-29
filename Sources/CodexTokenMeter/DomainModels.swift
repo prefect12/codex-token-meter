@@ -8,16 +8,60 @@ import UserNotifications
 struct Usage: Codable {
     var input: Int64 = 0
     var cachedInput: Int64 = 0
+    var cacheCreationInput: Int64 = 0
+    var cacheCreationInput1h: Int64 = 0
     var output: Int64 = 0
     var reasoningOutput: Int64 = 0
     var total: Int64 = 0
 
-    var freshInput: Int64 { max(0, input - cachedInput) }
+    var freshInput: Int64 { max(0, input - cachedInput - cacheCreationInput - cacheCreationInput1h) }
     var cachePercent: Double { input == 0 ? 0 : Double(cachedInput) / Double(input) * 100 }
+    var totalCacheCreationInput: Int64 { cacheCreationInput + cacheCreationInput1h }
+
+    init(
+        input: Int64 = 0,
+        cachedInput: Int64 = 0,
+        cacheCreationInput: Int64 = 0,
+        cacheCreationInput1h: Int64 = 0,
+        output: Int64 = 0,
+        reasoningOutput: Int64 = 0,
+        total: Int64 = 0
+    ) {
+        self.input = input
+        self.cachedInput = cachedInput
+        self.cacheCreationInput = cacheCreationInput
+        self.cacheCreationInput1h = cacheCreationInput1h
+        self.output = output
+        self.reasoningOutput = reasoningOutput
+        self.total = total
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case input
+        case cachedInput
+        case cacheCreationInput
+        case cacheCreationInput1h
+        case output
+        case reasoningOutput
+        case total
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        input = try container.decodeIfPresent(Int64.self, forKey: .input) ?? 0
+        cachedInput = try container.decodeIfPresent(Int64.self, forKey: .cachedInput) ?? 0
+        cacheCreationInput = try container.decodeIfPresent(Int64.self, forKey: .cacheCreationInput) ?? 0
+        cacheCreationInput1h = try container.decodeIfPresent(Int64.self, forKey: .cacheCreationInput1h) ?? 0
+        output = try container.decodeIfPresent(Int64.self, forKey: .output) ?? 0
+        reasoningOutput = try container.decodeIfPresent(Int64.self, forKey: .reasoningOutput) ?? 0
+        total = try container.decodeIfPresent(Int64.self, forKey: .total) ?? 0
+    }
 
     mutating func add(_ other: Usage) {
         input += other.input
         cachedInput += other.cachedInput
+        cacheCreationInput += other.cacheCreationInput
+        cacheCreationInput1h += other.cacheCreationInput1h
         output += other.output
         reasoningOutput += other.reasoningOutput
         total += other.total
@@ -27,6 +71,8 @@ struct Usage: Codable {
         Usage(
             input: max(0, current.input - previous.input),
             cachedInput: max(0, current.cachedInput - previous.cachedInput),
+            cacheCreationInput: max(0, current.cacheCreationInput - previous.cacheCreationInput),
+            cacheCreationInput1h: max(0, current.cacheCreationInput1h - previous.cacheCreationInput1h),
             output: max(0, current.output - previous.output),
             reasoningOutput: max(0, current.reasoningOutput - previous.reasoningOutput),
             total: max(0, current.total - previous.total)
@@ -103,6 +149,8 @@ struct APIModelRate {
     let inputPerMillionUSD: Double
     let cachedInputPerMillionUSD: Double
     let outputPerMillionUSD: Double
+    var cacheCreationInputPerMillionUSD: Double? = nil
+    var cacheCreationInput1hPerMillionUSD: Double? = nil
 }
 
 enum APICostEstimator {
@@ -148,10 +196,16 @@ enum APICostEstimator {
         }
         let totalOnlyInput = usage.input == 0 && usage.output == 0 && usage.total > 0 ? usage.total : usage.input
         let cachedInput = max(Int64(0), min(usage.cachedInput, totalOnlyInput))
-        let freshInput = max(Int64(0), totalOnlyInput - cachedInput)
+        let cacheCreationInput = max(Int64(0), min(usage.cacheCreationInput, max(0, totalOnlyInput - cachedInput)))
+        let cacheCreationInput1h = max(Int64(0), min(usage.cacheCreationInput1h, max(0, totalOnlyInput - cachedInput - cacheCreationInput)))
+        let freshInput = max(Int64(0), totalOnlyInput - cachedInput - cacheCreationInput - cacheCreationInput1h)
+        let cacheCreationRate = rate.cacheCreationInputPerMillionUSD ?? rate.inputPerMillionUSD
+        let cacheCreation1hRate = rate.cacheCreationInput1hPerMillionUSD ?? cacheCreationRate
         let value = (
             Double(freshInput) * rate.inputPerMillionUSD
                 + Double(cachedInput) * rate.cachedInputPerMillionUSD
+                + Double(cacheCreationInput) * cacheCreationRate
+                + Double(cacheCreationInput1h) * cacheCreation1hRate
                 + Double(usage.output) * rate.outputPerMillionUSD
         ) / 1_000_000
         return APICostEstimate(usdValue: value, pricedTokens: usage.total, totalTokens: usage.total)
@@ -191,6 +245,29 @@ enum APICostEstimator {
         }
         if name.contains("gpt-5.3-codex") || name.contains("gpt-5.2-codex") || name.contains("gpt-5.2") || name.contains("gpt-5-codex") {
             return APIModelRate(inputPerMillionUSD: 1.75, cachedInputPerMillionUSD: 0.175, outputPerMillionUSD: 14)
+        }
+        if name.contains("claude-fable-5") || name.contains("claude-mythos-5") {
+            return APIModelRate(inputPerMillionUSD: 10, cachedInputPerMillionUSD: 1, outputPerMillionUSD: 50, cacheCreationInputPerMillionUSD: 12.5, cacheCreationInput1hPerMillionUSD: 20)
+        }
+        if name.contains("claude-opus-4-8")
+            || name.contains("claude-opus-4-7")
+            || name.contains("claude-opus-4-6")
+            || name.contains("claude-opus-4-5") {
+            return APIModelRate(inputPerMillionUSD: 5, cachedInputPerMillionUSD: 0.5, outputPerMillionUSD: 25, cacheCreationInputPerMillionUSD: 6.25, cacheCreationInput1hPerMillionUSD: 10)
+        }
+        if name.contains("claude-opus-4-1")
+            || name.contains("claude-opus-4") {
+            return APIModelRate(inputPerMillionUSD: 15, cachedInputPerMillionUSD: 1.5, outputPerMillionUSD: 75, cacheCreationInputPerMillionUSD: 18.75, cacheCreationInput1hPerMillionUSD: 30)
+        }
+        if name.contains("claude-sonnet-4-6")
+            || name.contains("claude-sonnet-4-5") {
+            return APIModelRate(inputPerMillionUSD: 3, cachedInputPerMillionUSD: 0.3, outputPerMillionUSD: 15, cacheCreationInputPerMillionUSD: 3.75, cacheCreationInput1hPerMillionUSD: 6)
+        }
+        if name.contains("claude-haiku-4-5") {
+            return APIModelRate(inputPerMillionUSD: 1, cachedInputPerMillionUSD: 0.1, outputPerMillionUSD: 5, cacheCreationInputPerMillionUSD: 1.25, cacheCreationInput1hPerMillionUSD: 2)
+        }
+        if name.contains("claude-haiku-3") {
+            return APIModelRate(inputPerMillionUSD: 0.25, cachedInputPerMillionUSD: 0.025, outputPerMillionUSD: 1.25, cacheCreationInputPerMillionUSD: 0.3, cacheCreationInput1hPerMillionUSD: 0.5)
         }
         return nil
     }

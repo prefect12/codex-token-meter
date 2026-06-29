@@ -17,8 +17,11 @@ final class ClaudeTokenScanner {
         let model: String
         let sessionID: String
         let messageID: String
+        let requestID: String?
+        let isSidechain: Bool
 
         var key: String { "\(sessionID)|\(messageID)" }
+        var exactKey: String { "\(sessionID)|\(messageID)|\(requestID ?? "")" }
     }
 
     private struct ParsedClaudeFile {
@@ -361,7 +364,7 @@ final class ClaudeTokenScanner {
             return ParsedClaudeFile(sessionID: fileURL.deletingPathExtension().lastPathComponent, cwd: nil, events: [], turns: [])
         }
 
-        var events: [ClaudeEvent] = []
+        var eventBuckets: [String: ClaudeEvent] = [:]
         var turns: [ClaudeTurn] = []
         var sessionID = fileURL.deletingPathExtension().lastPathComponent
         var cwdCounts: [String: Int] = [:]
@@ -396,12 +399,23 @@ final class ClaudeTokenScanner {
                 ?? object["requestId"] as? String
                 ?? object["uuid"] as? String
                 ?? "\(sessionID)-\(timestampString)"
+            let requestID = object["requestId"] as? String
+            let isSidechain = object["isSidechain"] as? Bool ?? false
             let model = (message["model"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Claude"
             let usage = usage(from: usageDict)
             guard usage.total > 0 || usage.input > 0 || usage.output > 0 else { continue }
-            events.append(ClaudeEvent(timestamp: timestamp, usage: usage, model: model, sessionID: sessionID, messageID: messageID))
+            let event = ClaudeEvent(timestamp: timestamp, usage: usage, model: model, sessionID: sessionID, messageID: messageID, requestID: requestID, isSidechain: isSidechain)
+            let exactKey = event.exactKey
+            if let existing = eventBuckets[exactKey] {
+                if shouldReplace(existing: existing, with: event) {
+                    eventBuckets[exactKey] = event
+                }
+            } else {
+                eventBuckets[exactKey] = event
+            }
         }
 
+        let events = dedupedEvents(Array(eventBuckets.values))
         let cwd = cwdCounts.max {
             if $0.value != $1.value { return $0.value < $1.value }
             return $0.key > $1.key
@@ -409,15 +423,45 @@ final class ClaudeTokenScanner {
         return ParsedClaudeFile(sessionID: sessionID, cwd: cwd, events: events, turns: turns)
     }
 
+    private func dedupedEvents(_ events: [ClaudeEvent]) -> [ClaudeEvent] {
+        var buckets: [String: ClaudeEvent] = [:]
+        for event in events {
+            if let existing = buckets[event.key] {
+                if shouldReplace(existing: existing, with: event) {
+                    buckets[event.key] = event
+                }
+            } else {
+                buckets[event.key] = event
+            }
+        }
+        return buckets.values.sorted { $0.timestamp < $1.timestamp }
+    }
+
+    private func shouldReplace(existing: ClaudeEvent, with candidate: ClaudeEvent) -> Bool {
+        if existing.isSidechain != candidate.isSidechain {
+            return existing.isSidechain
+        }
+        if existing.usage.total != candidate.usage.total {
+            return candidate.usage.total > existing.usage.total
+        }
+        if candidate.usage.input != existing.usage.input {
+            return candidate.usage.input > existing.usage.input
+        }
+        return candidate.timestamp > existing.timestamp
+    }
+
     private func usage(from dict: [String: Any]) -> Usage {
         let freshInput = int64(dict["input_tokens"])
-        let cacheCreation = int64(dict["cache_creation_input_tokens"])
+        let cacheCreation = int64(dict["cache_creation_input_tokens"]) + int64((dict["cache_creation"] as? [String: Any])?["ephemeral_5m_input_tokens"])
+        let cacheCreation1h = int64((dict["cache_creation"] as? [String: Any])?["ephemeral_1h_input_tokens"])
         let cacheRead = int64(dict["cache_read_input_tokens"])
         let output = int64(dict["output_tokens"])
-        let inputTotal = freshInput + cacheCreation + cacheRead
+        let inputTotal = freshInput + cacheCreation + cacheCreation1h + cacheRead
         return Usage(
             input: inputTotal,
             cachedInput: cacheRead,
+            cacheCreationInput: cacheCreation,
+            cacheCreationInput1h: cacheCreation1h,
             output: output,
             reasoningOutput: 0,
             total: inputTotal + output

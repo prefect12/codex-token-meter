@@ -109,7 +109,7 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
     let window = requestedWindow(from: arguments) ?? .week
     let quota = requestedQuota(from: arguments) ?? .all
     let report = scanReport(window: window, source: quota, codexScanner: scanner, claudeScanner: claudeScanner)
-    let liveLimits = LiveRateLimitReader().read()
+    let liveLimits = combinedLiveLimits()
     let serviceStatus = CodexServiceStatusReader().read()
     let accountUsage = AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
     let profileReport: TokenReport?
@@ -142,6 +142,8 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
 
     let view = DashboardView(frame: NSRect(origin: .zero, size: DashboardView.idealSize))
     view.update(state)
+    let preferredSize = view.preferredPopoverSize
+    view.frame = NSRect(origin: .zero, size: preferredSize)
     view.layoutSubtreeIfNeeded()
     try writePNG(of: view, to: outputURL)
     return outputURL
@@ -182,7 +184,7 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         codexRepoInsightReports: codexRepoInsightReports,
         claudeRepoInsights: claudeRepoInsights,
         claudeRepoInsightReports: claudeRepoInsightReports,
-        liveLimits: isInsightsSection ? [] : LiveRateLimitReader().read(),
+        liveLimits: isInsightsSection ? [] : combinedLiveLimits(),
         serviceStatus: isInsightsSection ? nil : CodexServiceStatusReader().read(),
         costReferenceReport: source == .codex ? codex : all,
         accountUsage: accountUsage

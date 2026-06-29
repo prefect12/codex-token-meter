@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$ROOT/build"
-APP="$BUILD_DIR/Codex Token Meter.app"
+APP="$BUILD_DIR/AI Token Meter.app"
 BIN="$APP/Contents/MacOS/CodexTokenMeter"
 SWIFT_SOURCES=()
 

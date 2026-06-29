@@ -5,6 +5,19 @@ import UserNotifications
 
 // MARK: - Command Line Entrypoints
 
+if CommandLine.arguments.contains("--claude-statusline") {
+    let data = FileHandle.standardInput.readDataToEndOfFile()
+    do {
+        let store = ClaudeStatuslineStore()
+        let snapshot = try store.capture(stdinData: data)
+        print(store.statuslineText(from: data, snapshot: snapshot))
+    } catch {
+        fputs("Failed to capture Claude statusline: \(error)\n", stderr)
+        print("AI Token Meter")
+    }
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--print-profile") {
     let snapshot = AccountUsageReader().read()
     let payload: [String: Any] = [
@@ -30,13 +43,15 @@ if CommandLine.arguments.contains("--print-profile") {
 }
 
 if CommandLine.arguments.contains("--print-live") {
-    let limits = LiveRateLimitReader().read()
-    AppSettings.learnModelLimit(from: limits)
-    CostHistoryStore.shared.record(limits: limits)
+    let limits = combinedLiveLimits()
+    let codexLimits = limits.filter { $0.id != QuotaViewOption.claude.liveLimitID }
+    AppSettings.learnModelLimit(from: codexLimits)
+    CostHistoryStore.shared.record(limits: codexLimits)
     let payload = limits.map { limit in
         [
             "id": limit.id,
             "name": limit.name,
+            "plan_type": limit.planType ?? "",
             "primary_percent": limit.primary.usedPercent,
             "primary_remaining_percent": limit.primary.remainingPercent,
             "weekly_percent": limit.secondary.usedPercent,
@@ -109,6 +124,8 @@ if CommandLine.arguments.contains("--print") {
         "turns": report.turns,
         "input": report.usage.input,
         "cached_input": report.usage.cachedInput,
+        "cache_creation_input": report.usage.cacheCreationInput,
+        "cache_creation_input_1h": report.usage.cacheCreationInput1h,
         "fresh_input": report.usage.freshInput,
         "output": report.usage.output,
         "reasoning_output": report.usage.reasoningOutput,
@@ -128,6 +145,9 @@ if CommandLine.arguments.contains("--print") {
                 "events": model.events,
                 "total": model.usage.total,
                 "input": model.usage.input,
+                "cached_input": model.usage.cachedInput,
+                "cache_creation_input": model.usage.cacheCreationInput,
+                "cache_creation_input_1h": model.usage.cacheCreationInput1h,
                 "output": model.usage.output,
                 "api_equivalent_usd": modelAPIEstimate.usdValue,
                 "api_equivalent_priced_tokens": modelAPIEstimate.pricedTokens
@@ -140,6 +160,8 @@ if CommandLine.arguments.contains("--print") {
                 "turns": day.turns,
                 "input": day.usage.input,
                 "cached_input": day.usage.cachedInput,
+                "cache_creation_input": day.usage.cacheCreationInput,
+                "cache_creation_input_1h": day.usage.cacheCreationInput1h,
                 "fresh_input": day.usage.freshInput,
                 "output": day.usage.output,
                 "reasoning_output": day.usage.reasoningOutput,
@@ -154,6 +176,9 @@ if CommandLine.arguments.contains("--print") {
                         "events": model.events,
                         "total": model.usage.total,
                         "input": model.usage.input,
+                        "cached_input": model.usage.cachedInput,
+                        "cache_creation_input": model.usage.cacheCreationInput,
+                        "cache_creation_input_1h": model.usage.cacheCreationInput1h,
                         "output": model.usage.output,
                         "api_equivalent_usd": modelAPIEstimate.usdValue
                     ] as [String: Any]

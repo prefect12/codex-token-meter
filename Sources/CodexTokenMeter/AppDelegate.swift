@@ -51,12 +51,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.applicationIconImage = NSImage(named: "LogoHeader")
         popover.contentViewController = dashboardController
-        popover.contentSize = DashboardView.idealSize
+        resizeDashboardPopover(to: DashboardView.idealSize)
         popover.behavior = .transient
         configureStatusButton()
 
         dashboardController.dashboardView.onWindowChanged = { [weak self] option in self?.selectWindow(option) }
         dashboardController.dashboardView.onQuotaChanged = { [weak self] option in self?.selectQuota(option) }
+        dashboardController.dashboardView.onPreferredSizeChanged = { [weak self] size in
+            self?.resizeDashboardPopover(to: size)
+        }
         dashboardController.dashboardView.onRefresh = { [weak self] in
             self?.refresh(forceLive: false)
             self?.refreshLiveLimits()
@@ -64,6 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dashboardController.dashboardView.onOpenDetails = { [weak self] in self?.openUsageDetailsWindow() }
         dashboardController.dashboardView.onOpenSettings = { [weak self] in self?.openSettingsWindow() }
         dashboardController.dashboardView.onOpenCodexStatus = { [weak self] in self?.openCodexStatusPage() }
+        dashboardController.dashboardView.onOpenPlatformStatus = { [weak self] option in
+            self?.openPlatformStatusPage(option)
+        }
         dashboardController.dashboardView.onQuit = { NSApp.terminate(nil) }
         detailsController.detailsView.onLanguageChanged = { [weak self] language in
             AppLanguage.current = language
@@ -80,6 +86,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         detailsController.detailsView.onQuotaDisplayStyleChanged = { [weak self] style in
             self?.changeQuotaDisplayStyle(style)
+        }
+        detailsController.detailsView.onCodexHomeRingMetricChanged = { [weak self] metric in
+            self?.changeCodexHomeRingMetric(metric)
+        }
+        detailsController.detailsView.onClaudeHomeRingMetricChanged = { [weak self] metric in
+            self?.changeClaudeHomeRingMetric(metric)
         }
         detailsController.detailsView.onPlanCostChanged = { [weak self] value in self?.changePlanCost(value) }
         detailsController.detailsView.onPaymentStartDayChanged = { [weak self] value in self?.changePaymentStartDay(value) }
@@ -106,6 +118,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func resizeDashboardPopover(to size: NSSize) {
+        guard popover.contentSize != size else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            dashboardController.preferredContentSize = size
+            dashboardController.view.frame = NSRect(origin: .zero, size: size)
+            dashboardController.dashboardView.frame = NSRect(origin: .zero, size: size)
+            dashboardController.dashboardView.layoutSubtreeIfNeeded()
+            popover.contentSize = size
+        }
+    }
+
     private func configureStatusButton() {
         statusItem.length = NSStatusItem.variableLength
         guard let button = statusItem.button else { return }
@@ -113,7 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.imagePosition = .imageLeading
         button.imageHugsTitle = true
         button.title = "--%"
-        button.toolTip = "Codex Token Meter"
+        button.toolTip = "AI Token Meter"
         button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
         button.action = #selector(togglePopover)
         button.target = self
@@ -269,18 +294,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentAccountUsage = accountUsage
 
         scanQueue.async {
-            let report = self.scanReport(window: window, source: quota)
+            let codexReport: TokenReport?
+            let claudeReport: TokenReport?
+            let report: TokenReport
+            if quota == .all {
+                let codex = self.scanner.scan(window: window)
+                let claude = self.claudeScanner.scan(window: window)
+                codexReport = codex
+                claudeReport = claude
+                report = mergedTokenReport([codex, claude])
+            } else {
+                codexReport = nil
+                claudeReport = nil
+                report = self.scanReport(window: window, source: quota)
+            }
             let accountUsage = quota.usesCodexProfileAPI ? self.readAccountUsageIfNeeded(fallback: currentAccountUsage) : currentAccountUsage
-            let limits = forceLive ? self.rateLimitReader.read() : currentLimits
-            if forceLive, !limits.isEmpty {
-                AppSettings.learnModelLimit(from: limits)
-                CostHistoryStore.shared.record(limits: limits)
-                QuotaWarningManager.shared.evaluate(limits: limits)
+            let freshLimits = forceLive ? combinedLiveLimits(codexReader: self.rateLimitReader) : currentLimits
+            let limits = forceLive ? self.mergedLiveLimits(fresh: freshLimits, fallback: currentLimits) : currentLimits
+            let codexLimits = limits.filter { $0.id != QuotaViewOption.claude.liveLimitID }
+            if forceLive, !codexLimits.isEmpty {
+                AppSettings.learnModelLimit(from: codexLimits)
+                CostHistoryStore.shared.record(limits: codexLimits)
+                QuotaWarningManager.shared.evaluate(limits: codexLimits)
             }
             let nextRefresh = Date().addingTimeInterval(self.refreshInterval)
             DispatchQueue.main.async {
                 self.activeScans.remove(key)
                 self.reportCache[key] = report
+                if let codexReport {
+                    self.reportCache[ReportCacheKey(window: window, quota: .codex)] = codexReport
+                }
+                if let claudeReport {
+                    self.reportCache[ReportCacheKey(window: window, quota: .claude)] = claudeReport
+                }
                 if let accountUsage {
                     self.accountUsage = accountUsage
                 } else if !AppSettings.profileAPITotalsEnabled {
@@ -293,6 +339,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let effectiveLimits = forceLive && !limits.isEmpty ? limits : self.liveLimits
                     self.latestState = DashboardState(
                         report: report,
+                        codexReport: codexReport ?? self.reportCache[ReportCacheKey(window: window, quota: .codex)],
+                        claudeReport: claudeReport ?? self.reportCache[ReportCacheKey(window: window, quota: .claude)],
                         profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage, localReport: report),
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
@@ -322,12 +370,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshLiveLimits() {
         guard !liveRefreshInFlight else { return }
         liveRefreshInFlight = true
+        let currentLimits = liveLimits
         liveQueue.async {
-            let limits = self.rateLimitReader.read()
+            let freshLimits = combinedLiveLimits(codexReader: self.rateLimitReader)
+            let limits = self.mergedLiveLimits(fresh: freshLimits, fallback: currentLimits)
+            let codexLimits = limits.filter { $0.id != QuotaViewOption.claude.liveLimitID }
             let serviceStatus = self.serviceStatusReader.read()
-            AppSettings.learnModelLimit(from: limits)
-            CostHistoryStore.shared.record(limits: limits)
-            QuotaWarningManager.shared.evaluate(limits: limits)
+            AppSettings.learnModelLimit(from: codexLimits)
+            CostHistoryStore.shared.record(limits: codexLimits)
+            QuotaWarningManager.shared.evaluate(limits: codexLimits)
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             DispatchQueue.main.async {
                 self.liveRefreshInFlight = false
@@ -349,6 +400,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.detailsController.updateLiveLimits(limits, costReferenceReport: costReferenceReport, serviceStatus: self.serviceStatus)
             }
         }
+    }
+
+    private func mergedLiveLimits(fresh: [LiveRateLimit], fallback: [LiveRateLimit]) -> [LiveRateLimit] {
+        guard !fresh.isEmpty else { return fallback }
+        var merged = fallback
+        for limit in fresh {
+            if let index = merged.firstIndex(where: { $0.id == limit.id }) {
+                merged[index] = limit
+            } else {
+                merged.append(limit)
+            }
+        }
+        return merged
     }
 
     private func prewarmAllWindows() {
@@ -552,6 +616,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(url)
     }
 
+    private func openPlatformStatusPage(_ option: QuotaViewOption) {
+        let rawURL: String
+        switch option {
+        case .all, .codex:
+            rawURL = "https://status.openai.com"
+        case .claude:
+            rawURL = "https://status.claude.com"
+        }
+        guard let url = URL(string: rawURL) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     private func chooseLogFolder() {
         let panel = NSOpenPanel()
         panel.title = t(.logFolder)
@@ -614,6 +690,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         QuotaDisplayStyle.current = style
         detailsController.detailsView.needsDisplay = true
         dashboardController.dashboardView.needsLayout = true
+        dashboardController.dashboardView.update(latestState)
+    }
+
+    private func changeCodexHomeRingMetric(_ metric: HomeQuotaRingMetric) {
+        AppSettings.codexHomeRingMetric = metric
+        detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
+        dashboardController.dashboardView.update(latestState)
+    }
+
+    private func changeClaudeHomeRingMetric(_ metric: HomeQuotaRingMetric) {
+        AppSettings.claudeHomeRingMetric = metric
+        detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
     }
 
@@ -765,7 +855,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func summaryText(state: DashboardState) -> String {
         let report = state.report
         var lines = [
-            "Codex Token Meter - \(state.selectedWindow.title)",
+            "AI Token Meter - \(state.selectedWindow.title)",
             "Scanned: \(localFormatter.string(from: report.scannedAt)) Asia/Shanghai",
             "Next refresh: \(localFormatter.string(from: state.nextRefreshAt)) Asia/Shanghai",
             "Sessions: \(report.sessions)",

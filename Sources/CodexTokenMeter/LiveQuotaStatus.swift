@@ -127,6 +127,156 @@ struct LiveRateLimit {
     let planType: String?
 }
 
+struct ClaudeStatuslineWindow {
+    let usedPercent: Double
+    let resetsAt: Date?
+}
+
+struct ClaudeStatuslineSnapshot {
+    let capturedAt: Date?
+    let readAt: Date
+    let isStale: Bool
+    let fiveHour: ClaudeStatuslineWindow?
+    let sevenDay: ClaudeStatuslineWindow?
+
+    var liveRateLimit: LiveRateLimit? {
+        guard let fiveHour,
+              let sevenDay else {
+            return nil
+        }
+        return LiveRateLimit(
+            id: QuotaViewOption.claude.liveLimitID,
+            name: "Claude Code",
+            primary: RateWindow(usedPercent: fiveHour.usedPercent, windowMinutes: 5 * 60, resetsAt: fiveHour.resetsAt),
+            secondary: RateWindow(usedPercent: sevenDay.usedPercent, windowMinutes: 7 * 24 * 60, resetsAt: sevenDay.resetsAt),
+            planType: "official-statusline"
+        )
+    }
+}
+
+final class ClaudeStatuslineStore {
+    private static let ttlSeconds: TimeInterval = 6 * 60 * 60
+    private let url: URL
+
+    init(url: URL = AppSettings.claudeStatuslineCaptureURL) {
+        self.url = url
+    }
+
+    var path: String { url.path }
+
+    func read(now: Date = Date()) -> ClaudeStatuslineSnapshot? {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return readLegacyMonitorCapture(now: now)
+        }
+        return parseCapture(object, now: now) ?? readLegacyMonitorCapture(now: now)
+    }
+
+    func capture(stdinData: Data, now: Date = Date()) throws -> ClaudeStatuslineSnapshot? {
+        let object = try JSONSerialization.jsonObject(with: stdinData) as? [String: Any] ?? [:]
+        let rateLimits = object["rate_limits"] as? [String: Any]
+        let capture: [String: Any] = [
+            "captured_at_epoch": Int(now.timeIntervalSince1970),
+            "rate_limits": rateLimits as Any
+        ]
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let data = try JSONSerialization.data(withJSONObject: capture, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: url, options: [.atomic])
+        return parseCapture(capture, now: now)
+    }
+
+    func statuslineText(from stdinData: Data, snapshot: ClaudeStatuslineSnapshot?) -> String {
+        var parts: [String] = []
+        if let object = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any],
+           let model = object["model"] as? [String: Any] {
+            if let displayName = model["display_name"] as? String, !displayName.isEmpty {
+                parts.append(displayName)
+            } else if let name = model["name"] as? String, !name.isEmpty {
+                parts.append(name)
+            }
+        }
+        if let percent = snapshot?.fiveHour?.usedPercent {
+            parts.append("5h \(Int(round(percent)))%")
+        }
+        if let percent = snapshot?.sevenDay?.usedPercent {
+            parts.append("7d \(Int(round(percent)))%")
+        }
+        return parts.isEmpty ? "AI Token Meter" : parts.joined(separator: " · ")
+    }
+
+    private func readLegacyMonitorCapture(now: Date) -> ClaudeStatuslineSnapshot? {
+        let legacy = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".claude-monitor/statusline/latest.json")
+        guard legacy.path != url.path,
+              let data = try? Data(contentsOf: legacy),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return parseCapture(object, now: now)
+    }
+
+    private func parseCapture(_ object: [String: Any], now: Date) -> ClaudeStatuslineSnapshot? {
+        guard let rateLimits = object["rate_limits"] as? [String: Any] else { return nil }
+        let capturedAt = finiteDouble(object["captured_at_epoch"]).map { Date(timeIntervalSince1970: $0) }
+        let isStale = capturedAt.map { now.timeIntervalSince($0) > Self.ttlSeconds } ?? false
+        let fiveHour = parseWindow(rateLimits["five_hour"], now: now, windowMinutes: 5 * 60)
+        let sevenDay = parseWindow(rateLimits["seven_day"], now: now, windowMinutes: 7 * 24 * 60)
+        guard fiveHour != nil || sevenDay != nil else { return nil }
+        return ClaudeStatuslineSnapshot(capturedAt: capturedAt, readAt: now, isStale: isStale, fiveHour: fiveHour, sevenDay: sevenDay)
+    }
+
+    private func parseWindow(_ raw: Any?, now: Date, windowMinutes: Int) -> ClaudeStatuslineWindow? {
+        guard let dict = raw as? [String: Any],
+              let percent = cleanPercent(dict["used_percentage"]) else {
+            return nil
+        }
+        var usedPercent = percent
+        var resetsAt = finiteDouble(dict["resets_at"]).map { Date(timeIntervalSince1970: $0) }
+        if let resetDate = resetsAt, now >= resetDate, windowMinutes > 0 {
+            let windowSeconds = TimeInterval(windowMinutes) * 60
+            let elapsedWindows = floor(now.timeIntervalSince(resetDate) / windowSeconds) + 1
+            resetsAt = resetDate.addingTimeInterval(elapsedWindows * windowSeconds)
+            usedPercent = 0
+        }
+        return ClaudeStatuslineWindow(usedPercent: usedPercent, resetsAt: resetsAt)
+    }
+
+    private func cleanPercent(_ raw: Any?) -> Double? {
+        guard let value = finiteDouble(raw), value >= 0 else { return nil }
+        if value > 100 {
+            return value <= 101 ? 100 : nil
+        }
+        return value
+    }
+
+    private func finiteDouble(_ raw: Any?) -> Double? {
+        if let raw, CFGetTypeID(raw as CFTypeRef) == CFBooleanGetTypeID() {
+            return nil
+        }
+        let value: Double?
+        if let raw = raw as? Double {
+            value = raw
+        } else if let raw = raw as? Int {
+            value = Double(raw)
+        } else if let raw = raw as? String {
+            value = Double(raw)
+        } else {
+            value = nil
+        }
+        guard let value, value.isFinite else { return nil }
+        return value
+    }
+}
+
+func combinedLiveLimits(codexReader: LiveRateLimitReader = LiveRateLimitReader(), claudeStore: ClaudeStatuslineStore = ClaudeStatuslineStore()) -> [LiveRateLimit] {
+    var limits = codexReader.read()
+    if let claude = claudeStore.read()?.liveRateLimit,
+       !limits.contains(where: { $0.id == claude.id }) {
+        limits.append(claude)
+    }
+    return limits
+}
+
 struct CodexServiceComponentStatus {
     let name: String
     let status: String

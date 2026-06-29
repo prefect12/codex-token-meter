@@ -1455,6 +1455,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     var onNumberUnitStyleChanged: ((NumberUnitStyle) -> Void)?
     var onStatusDisplayChanged: ((StatusDisplayOption) -> Void)?
     var onQuotaDisplayStyleChanged: ((QuotaDisplayStyle) -> Void)?
+    var onCodexHomeRingMetricChanged: ((HomeQuotaRingMetric) -> Void)?
+    var onClaudeHomeRingMetricChanged: ((HomeQuotaRingMetric) -> Void)?
     var onPlanCostChanged: ((Double) -> Void)?
     var onPaymentStartDayChanged: ((String) -> Void)?
     var onPaymentCurrencyChanged: ((CurrencyCode) -> Void)?
@@ -1520,6 +1522,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private var numberUnitOptionRects: [NumberUnitStyle: NSRect] = [:]
     private var statusOptionRects: [StatusDisplayOption: NSRect] = [:]
     private var quotaDisplayStyleRects: [QuotaDisplayStyle: NSRect] = [:]
+    private var codexHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
+    private var claudeHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
     private var chooseLogFolderRect: NSRect?
     private var resetLogFolderRect: NSRect?
     private var openLogFolderRect: NSRect?
@@ -1590,6 +1594,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     func showSettingsPage() {
         selectedSection = .settings
+    }
+
+    private var showsDetailsSourceSelector: Bool {
+        switch selectedSection {
+        case .overview, .insights, .models, .calendar, .costs, .diagnostics:
+            return true
+        case .settings, .about:
+            return false
+        }
     }
 
     private var visibleCostControlFrames: [NSRect] {
@@ -1812,15 +1825,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         guard visible else { return }
 
         let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(612, content.height - 78))
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(640, content.height - 78))
         let popupWidth = min(300, max(252, rect.width * 0.34))
         languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
         let leftSwitchX = rect.midX - 64
         let rightSwitchX = rect.maxX - 64
-        showCodexStatusSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 474, width: 48, height: 24)
-        launchAtLoginSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 474, width: 48, height: 24)
-        quotaWarningsSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 502, width: 48, height: 24)
-        profileAPITotalsSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 502, width: 48, height: 24)
+        showCodexStatusSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 572, width: 48, height: 24)
+        launchAtLoginSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 572, width: 48, height: 24)
+        quotaWarningsSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 600, width: 48, height: 24)
+        profileAPITotalsSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 600, width: 48, height: 24)
         updateLanguagePopupFromSettings()
         updateSettingsControlsFromSystem()
     }
@@ -2255,6 +2268,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 onQuotaDisplayStyleChanged?(style)
                 return
             }
+            for (metric, rect) in codexHomeRingMetricRects where rect.contains(point) {
+                onCodexHomeRingMetricChanged?(metric)
+                return
+            }
+            for (metric, rect) in claudeHomeRingMetricRects where rect.contains(point) {
+                onClaudeHomeRingMetricChanged?(metric)
+                return
+            }
             if chooseLogFolderRect?.contains(point) == true {
                 onChooseLogFolder?()
                 return
@@ -2424,11 +2445,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         resetLogFolderRect = nil
         openLogFolderRect = nil
 
-        let sourceSelectorWidth: CGFloat = min(286, max(246, content.width * 0.31))
-        let headerTextWidth = max(260, content.width - sourceSelectorWidth - 18)
+        let sourceSelectorWidth: CGFloat = showsDetailsSourceSelector ? min(286, max(246, content.width * 0.31)) : 0
+        let headerTextWidth = showsDetailsSourceSelector ? max(260, content.width - sourceSelectorWidth - 18) : content.width
         drawText(selectedSection.headerTitle, rect: NSRect(x: content.minX, y: content.minY, width: headerTextWidth, height: 34), font: .systemFont(ofSize: 26, weight: .bold), color: .white)
         drawText(selectedSection.subtitle, rect: NSRect(x: content.minX, y: content.minY + 36, width: headerTextWidth, height: 20), font: .systemFont(ofSize: 13, weight: .medium), color: NSColor.white.withAlphaComponent(0.56))
-        drawDetailsSourceSelector(content: content, width: sourceSelectorWidth)
+        if showsDetailsSourceSelector {
+            drawDetailsSourceSelector(content: content, width: sourceSelectorWidth)
+        }
 
         guard let snapshot else {
             if isLoading {
@@ -2468,11 +2491,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func drawDetailsSourceSelector(content: NSRect, width: CGFloat) {
-        let options: [QuotaViewOption] = [.all, .codex, .claude]
+        let options: [QuotaViewOption] = selectedSection == .diagnostics ? [.codex, .claude] : [.all, .codex, .claude]
         let height: CGFloat = 30
         let gap: CGFloat = 8
         let rect = NSRect(x: content.maxX - width, y: content.minY + 6, width: width, height: height)
         let optionWidth = (rect.width - gap * CGFloat(options.count - 1)) / CGFloat(options.count)
+        let selectedOption = selectedSection == .diagnostics && selectedDetailsSource == .all ? QuotaViewOption.codex : selectedDetailsSource
         for (index, option) in options.enumerated() {
             let optionRect = NSRect(
                 x: rect.minX + CGFloat(index) * (optionWidth + gap),
@@ -2481,7 +2505,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 height: height
             )
             sourceOptionRects[option] = optionRect
-            drawSelectablePill(detailsSourceTitle(option), rect: optionRect, selected: option == selectedDetailsSource)
+            drawSelectablePill(detailsSourceTitle(option), rect: optionRect, selected: option == selectedOption)
         }
     }
 
@@ -3244,6 +3268,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func sourceDiagnostics(snapshot: DetailsSnapshot) -> [(String, String, NSColor)] {
+        selectedDetailsSource == .claude ? claudeSourceDiagnostics(snapshot: snapshot) : codexSourceDiagnostics(snapshot: snapshot)
+    }
+
+    private func codexSourceDiagnostics(snapshot: DetailsSnapshot) -> [(String, String, NSColor)] {
         let cliPath = LiveRateLimitReader.codexExecutablePath()
         let authURL = AppSettings.defaultCodexHomeURL.appendingPathComponent("auth.json")
         let liveText = snapshot.liveLimits.isEmpty
@@ -3266,12 +3294,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             profileColor = accentRose
         }
         let rollouts = AppSettings.logFolderURLs.reduce(0) { $0 + rolloutCount(in: $1, modifiedWithinDays: 14) }
-        let claudeLogs = AppSettings.claudeLogFolderURLs.reduce(0) { $0 + jsonlCount(in: $1, modifiedWithinDays: 14) }
-        let claudeRootExists = AppSettings.claudeLogFolderURLs.contains { FileManager.default.fileExists(atPath: $0.path) }
         return [
             ("Codex CLI", cliPath ?? t(.fileMissing), cliPath == nil ? accentRose : accentTeal),
             ("auth.json", FileManager.default.fileExists(atPath: authURL.path) ? t(.filePresent) : t(.fileMissing), FileManager.default.fileExists(atPath: authURL.path) ? accentTeal : accentAmber),
-            (t(.claudeLogs), AppSettings.claudeLogFolderDisplayPath, claudeRootExists ? accentTeal : accentAmber),
             (t(.liveQuota), liveText, snapshot.liveLimits.isEmpty ? accentRose : accentTeal),
             (t(.codexStatus), serviceText, serviceColor),
             (t(.codexIncident), incidentText, incidentColor),
@@ -3279,8 +3304,37 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             (t(.modelLimit), "\(AppSettings.modelLimitName) / \(AppSettings.modelLimitID)", accentTeal),
             (t(.logFolder), "\(AppSettings.logFolderURLs.count) roots", AppSettings.logFolderURLs.isEmpty ? accentRose : accentTeal),
             (t(.recentRollouts), "\(rollouts) files / 14d", rollouts > 0 ? accentTeal : accentAmber),
-            (t(.claude), "\(claudeLogs) files / 14d", claudeLogs > 0 ? accentTeal : accentAmber),
             (t(.quotaWarnings), AppSettings.quotaWarningsEnabled ? t(.enabled) : t(.disabled), AppSettings.quotaWarningsEnabled ? accentTeal : accentAmber)
+        ]
+    }
+
+    private func claudeSourceDiagnostics(snapshot: DetailsSnapshot) -> [(String, String, NSColor)] {
+        let claudeLogs = AppSettings.claudeLogFolderURLs.reduce(0) { $0 + jsonlCount(in: $1, modifiedWithinDays: 14) }
+        let claudeRootExists = AppSettings.claudeLogFolderURLs.contains { FileManager.default.fileExists(atPath: $0.path) }
+        let claudeStatuslineStore = ClaudeStatuslineStore()
+        let claudeStatusline = claudeStatuslineStore.read()
+        let claudeStatuslineText: String
+        let claudeStatuslineColor: NSColor
+        if let claudeStatusline, claudeStatusline.liveRateLimit != nil {
+            let fiveHour = claudeStatusline.fiveHour.map { "\(Int(round($0.usedPercent)))% 5h" } ?? "5h --"
+            let sevenDay = claudeStatusline.sevenDay.map { "\(Int(round($0.usedPercent)))% 7d" } ?? "7d --"
+            claudeStatuslineText = "\(fiveHour) / \(sevenDay)"
+            claudeStatuslineColor = accentTeal
+        } else if claudeStatusline?.isStale == true {
+            claudeStatuslineText = "stale: \(shortenedPath(claudeStatuslineStore.path))"
+            claudeStatuslineColor = accentAmber
+        } else {
+            claudeStatuslineText = "not captured: \(shortenedPath(claudeStatuslineStore.path))"
+            claudeStatuslineColor = accentAmber
+        }
+        return [
+            (t(.claudeLogs), AppSettings.claudeLogFolderDisplayPath, claudeRootExists ? accentTeal : accentAmber),
+            (t(.recentRollouts), "\(claudeLogs) files / 14d", claudeLogs > 0 ? accentTeal : accentAmber),
+            ("Claude statusline", claudeStatuslineText, claudeStatuslineColor),
+            (t(.cacheHit), String(format: "%.0f%%", snapshot.all.usage.cachePercent), accentTeal),
+            (t(.models), "\(snapshot.all.modelBreakdown.count)", accentTeal),
+            (t(.sessions), "\(snapshot.all.sessions)", accentTeal),
+            (t(.turns), "\(snapshot.all.turns)", accentTeal)
         ]
     }
 
@@ -3951,7 +4005,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func drawSettingsPage(content: NSRect) {
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(612, content.height - 78))
+        codexHomeRingMetricRects.removeAll()
+        claudeHomeRingMetricRects.removeAll()
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(640, content.height - 78))
         drawPanel(rect)
         drawText(t(.language), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.interfaceLanguage), rect: NSRect(x: rect.minX + 16, y: rect.minY + 56, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
@@ -4012,13 +4068,29 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
         drawText(t(.quotaDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 452, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
+        drawText(t(.codexHomeRing), rect: NSRect(x: rect.minX + 16, y: rect.minY + 476, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.claudeHomeRing), rect: NSRect(x: rect.minX + 16, y: rect.minY + 514, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        let homeMetricW: CGFloat = 116
+        let homeMetricGap: CGFloat = 10
+        let homeMetricStartX = rect.maxX - 16 - homeMetricW * CGFloat(HomeQuotaRingMetric.allCases.count) - homeMetricGap * CGFloat(HomeQuotaRingMetric.allCases.count - 1)
+        for (index, metric) in HomeQuotaRingMetric.allCases.enumerated() {
+            let codexRect = NSRect(x: homeMetricStartX + CGFloat(index) * (homeMetricW + homeMetricGap), y: rect.minY + 472, width: homeMetricW, height: 36)
+            codexHomeRingMetricRects[metric] = codexRect
+            drawSelectablePill(metric.title, rect: codexRect, selected: metric == AppSettings.codexHomeRingMetric)
+
+            let claudeRect = NSRect(x: homeMetricStartX + CGFloat(index) * (homeMetricW + homeMetricGap), y: rect.minY + 510, width: homeMetricW, height: 36)
+            claudeHomeRingMetricRects[metric] = claudeRect
+            drawSelectablePill(metric.title, rect: claudeRect, selected: metric == AppSettings.claudeHomeRingMetric)
+        }
+        drawText(t(.quotaHomeRingHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 546, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
+
         let leftSwitchLabelW = max(120, showCodexStatusSwitch.frame.minX - rect.minX - 24)
         let rightSwitchLabelX = rect.midX + 18
         let rightSwitchLabelW = max(120, launchAtLoginSwitch.frame.minX - rightSwitchLabelX - 8)
-        drawText(t(.showCodexStatus), rect: NSRect(x: rect.minX + 16, y: rect.minY + 476, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.launchAtLogin), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 476, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 504, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.profileAPITotals), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 504, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.showCodexStatus), rect: NSRect(x: rect.minX + 16, y: rect.minY + 574, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.launchAtLogin), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 574, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 602, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.profileAPITotals), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 602, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
     }
 
     private var costUsedColor: NSColor {
