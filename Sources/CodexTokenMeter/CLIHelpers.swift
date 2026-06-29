@@ -108,7 +108,14 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
     let claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     let window = requestedWindow(from: arguments) ?? .week
     let quota = requestedQuota(from: arguments) ?? .all
-    let report = scanReport(window: window, source: quota, codexScanner: scanner, claudeScanner: claudeScanner)
+    let codexReport = quota == .all ? scanner.scan(window: window) : nil
+    let claudeReport = quota == .all ? claudeScanner.scan(window: window) : nil
+    let report: TokenReport
+    if let codexReport, let claudeReport {
+        report = mergedTokenReport([codexReport, claudeReport])
+    } else {
+        report = scanReport(window: window, source: quota, codexScanner: scanner, claudeScanner: claudeScanner)
+    }
     let liveLimits = combinedLiveLimits()
     let serviceStatus = CodexServiceStatusReader().read()
     let accountUsage = AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
@@ -128,6 +135,8 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
 
     let state = DashboardState(
         report: report,
+        codexReport: codexReport,
+        claudeReport: claudeReport,
         profileReport: profileReport,
         accountUsage: accountUsage,
         costReferenceReport: nil,

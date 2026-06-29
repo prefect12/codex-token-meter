@@ -989,6 +989,8 @@ final class PlatformQuotaOverviewView: NSView {
 final class PlatformQuotaRingsOverviewView: NSView {
     var limits: [LiveRateLimit] = [] { didSet { needsDisplay = true } }
     var report = TokenReport(scannedAt: Date()) { didSet { needsDisplay = true } }
+    var codexReport: TokenReport? { didSet { needsDisplay = true } }
+    var claudeReport: TokenReport? { didSet { needsDisplay = true } }
     var costText = "" { didSet { needsDisplay = true } }
     private var statusHitRects: [QuotaViewOption: NSRect] = [:]
     private var hoverRegions: [(rect: NSRect, tooltip: String)] = []
@@ -1135,28 +1137,27 @@ final class PlatformQuotaRingsOverviewView: NSView {
         border.stroke()
 
         let columns: [(String, CGFloat, CGFloat)] = [
-            (platformHeader, 12, 84), ("5h", 102, 64), (weekHeader, 196, 64), (statusHeader, 292, 80)
+            (platformHeader, 12, 84), ("5h", 102, 58), (inputOutputHeader, 178, 104), (statusHeader, 292, 80)
         ]
         for (title, x, width) in columns {
             drawText(title, rect: NSRect(x: table.minX + x, y: table.minY + 9, width: width, height: 15), font: .systemFont(ofSize: 9.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.55), alignment: .left)
         }
         drawSeparator(y: table.minY + 32, in: table, alpha: 0.10)
-        drawTableRow(table: table, y: table.minY + 40, title: "Codex", target: .codex, limit: codex)
+        drawTableRow(table: table, y: table.minY + 40, title: "Codex", target: .codex, limit: codex, report: codexReport)
         drawSeparator(y: table.minY + 78, in: table, alpha: 0.07)
-        drawTableRow(table: table, y: table.minY + 86, title: "Claude", target: .claude, limit: claude)
+        drawTableRow(table: table, y: table.minY + 86, title: "Claude", target: .claude, limit: claude, report: claudeReport)
     }
 
-    private func drawTableRow(table: NSRect, y: CGFloat, title: String, target: QuotaViewOption, limit: LiveRateLimit?) {
+    private func drawTableRow(table: NSRect, y: CGFloat, title: String, target: QuotaViewOption, limit: LiveRateLimit?, report: TokenReport?) {
         let primaryColor = colorForRemaining(percent: limit?.primary.remainingPercent ?? -1)
-        let secondaryColor = colorForRemaining(percent: limit?.secondary.remainingPercent ?? -1)
         let statusColor = colorForRemaining(percent: min(limit?.primary.remainingPercent ?? -1, limit?.secondary.remainingPercent ?? -1))
         hoverRegions.append((
             rect: NSRect(x: table.minX, y: y - 4, width: table.width, height: 42),
-            tooltip: rowTooltip(title: title, limit: limit)
+            tooltip: rowTooltip(title: title, limit: limit, report: report)
         ))
         drawText(title, rect: NSRect(x: table.minX + 14, y: y + 7, width: 74, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: platformBrandColor(target), alignment: .left)
-        drawText(percentText(limit?.primary.remainingPercent), rect: NSRect(x: table.minX + 102, y: y + 7, width: 64, height: 18), font: .monospacedDigitSystemFont(ofSize: 13, weight: .bold), color: primaryColor, alignment: .left)
-        drawText(percentText(limit?.secondary.remainingPercent), rect: NSRect(x: table.minX + 196, y: y + 7, width: 64, height: 18), font: .monospacedDigitSystemFont(ofSize: 13, weight: .bold), color: secondaryColor, alignment: .left)
+        drawText(percentText(limit?.primary.remainingPercent), rect: NSRect(x: table.minX + 102, y: y + 7, width: 58, height: 18), font: .monospacedDigitSystemFont(ofSize: 13, weight: .bold), color: primaryColor, alignment: .left)
+        drawText(inputOutputText(report), rect: NSRect(x: table.minX + 178, y: y + 7, width: 104, height: 18), font: .monospacedDigitSystemFont(ofSize: 11.5, weight: .bold), color: NSColor.white.withAlphaComponent(0.90), alignment: .left)
         let statusRect = NSRect(x: table.minX + 292, y: y + 1, width: 80, height: 32)
         statusHitRects[target] = statusRect
         statusColor.setFill()
@@ -1168,8 +1169,8 @@ final class PlatformQuotaRingsOverviewView: NSView {
         AppLanguage.current == .english ? "Platform" : "平台"
     }
 
-    private var weekHeader: String {
-        AppLanguage.current == .english ? "Week" : "周"
+    private var inputOutputHeader: String {
+        AppLanguage.current == .english ? "In / Out" : "输入/输出"
     }
 
     private var statusHeader: String {
@@ -1250,15 +1251,28 @@ final class PlatformQuotaRingsOverviewView: NSView {
         return lines.joined(separator: "\n")
     }
 
-    private func rowTooltip(title: String, limit: LiveRateLimit?) -> String {
-        guard let limit else {
-            return "\(title)\n\(t(.liveLimitUnavailable))"
+    private func rowTooltip(title: String, limit: LiveRateLimit?, report: TokenReport?) -> String {
+        var lines = [title]
+        if let limit {
+            lines.append("5h \(t(.remaining)) \(Int(round(limit.primary.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(limit.primary.resetsAt))")
+            lines.append("\(t(.weeklyLeft)) \(Int(round(limit.secondary.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(limit.secondary.resetsAt))")
+        } else {
+            lines.append(t(.liveLimitUnavailable))
         }
-        return [
-            title,
-            "5h \(t(.remaining)) \(Int(round(limit.primary.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(limit.primary.resetsAt))",
-            "周 \(t(.remaining)) \(Int(round(limit.secondary.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(limit.secondary.resetsAt))"
-        ].joined(separator: "\n")
+        guard let report else {
+            lines.append("\(t(.input)) --")
+            lines.append("\(t(.output)) --")
+            return lines.joined(separator: "\n")
+        }
+        let estimate = APICostEstimator.estimate(report: report)
+        lines.append("\(t(.input)) \(formatFull(report.usage.input))")
+        lines.append("\(t(.output)) \(formatFull(report.usage.output))")
+        lines.append("\(t(.cached)) \(formatFull(report.usage.cachedInput))")
+        lines.append("\(t(.fresh)) \(formatFull(report.usage.freshInput))")
+        if estimate.hasPricedUsage {
+            lines.append("\(t(.apiEquivalent)) \(displayAPIMoney(estimate.usdValue))")
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func resetSummary(_ limit: LiveRateLimit?) -> String {
@@ -1269,6 +1283,17 @@ final class PlatformQuotaRingsOverviewView: NSView {
     private func percentText(_ value: Double?) -> String {
         guard let value else { return "--" }
         return "\(Int(round(value)))%"
+    }
+
+    private func inputOutputText(_ report: TokenReport?) -> String {
+        guard let report else { return "-- / --" }
+        return "\(compactDashboardMetric(report.usage.input)) / \(compactDashboardMetric(report.usage.output))"
+    }
+
+    private func formatFull(_ value: Int64) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 
     private func compactResetRelative(_ date: Date?) -> String {
@@ -1374,6 +1399,8 @@ final class DashboardView: NSView {
         segment.selectedSegment = WindowOption.allCases.firstIndex(of: state.selectedWindow) ?? 1
         platformQuotaView.limits = state.liveLimits
         platformQuotaView.report = report
+        platformQuotaView.codexReport = state.codexReport
+        platformQuotaView.claudeReport = state.claudeReport
         platformQuotaView.isHidden = !showsComparisonTable
 
         let primary = displayLimit?.primary
