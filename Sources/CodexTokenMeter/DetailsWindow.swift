@@ -102,6 +102,41 @@ private struct InsightCopy {
     }
 }
 
+private func insightTokenColumnTitle() -> String {
+    switch AppLanguage.current {
+    case .chinese, .traditionalChinese, .japanese, .korean:
+        return "Token"
+    default:
+        return "Tokens"
+    }
+}
+
+private func insightAverageTokensMetricTitle() -> String {
+    switch AppLanguage.current {
+    case .chinese, .traditionalChinese:
+        return "均 Token/话"
+    case .japanese:
+        return "平均 Token"
+    case .korean:
+        return "평균 Token"
+    default:
+        return "Avg/chat"
+    }
+}
+
+private func insightMaxTokensMetricTitle() -> String {
+    switch AppLanguage.current {
+    case .chinese, .traditionalChinese:
+        return "最高 Token"
+    case .japanese:
+        return "最大 Token"
+    case .korean:
+        return "최대 Token"
+    default:
+        return "Max tok."
+    }
+}
+
 private extension AppLanguage {
     var insightCopy: InsightCopy {
         switch self {
@@ -1407,18 +1442,18 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private enum InsightSortColumn: CaseIterable {
         case project
+        case tokens
         case conversations
         case compressions
-        case average
         case status
 
         var title: String {
             let copy = AppLanguage.current.insightCopy
             switch self {
             case .project: return copy.project
+            case .tokens: return insightTokenColumnTitle()
             case .conversations: return copy.conversations
             case .compressions: return copy.compressions
-            case .average: return copy.average
             case .status: return copy.status
             }
         }
@@ -1427,7 +1462,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             switch self {
             case .project, .status:
                 return true
-            case .conversations, .compressions, .average:
+            case .tokens, .conversations, .compressions:
                 return false
             }
         }
@@ -1493,7 +1528,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private let insightWindowOptions = [7, 30, 90]
     private var selectedInsightWindowDays = 90
     private var selectedInsightKey: String?
-    private var selectedInsightSort: InsightSortColumn = .compressions
+    private var selectedInsightSort: InsightSortColumn = .tokens
     private var isInsightSortAscending = false
     private var insightListScrollOffset: CGFloat = 0
     private var numberUnitOptionRects: [NumberUnitStyle: NSRect] = [:]
@@ -2634,12 +2669,28 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 if order != .orderedSame {
                     return ascending ? order == .orderedAscending : order == .orderedDescending
                 }
+                if lhs.tokens != rhs.tokens {
+                    return lhs.tokens > rhs.tokens
+                }
+            case .tokens:
+                if lhs.tokens != rhs.tokens {
+                    return ascending ? lhs.tokens < rhs.tokens : lhs.tokens > rhs.tokens
+                }
                 if lhs.conversations != rhs.conversations {
                     return lhs.conversations > rhs.conversations
+                }
+                if lhs.compressions != rhs.compressions {
+                    return lhs.compressions > rhs.compressions
+                }
+                if lhs.longestTokens != rhs.longestTokens {
+                    return lhs.longestTokens > rhs.longestTokens
                 }
             case .conversations:
                 if lhs.conversations != rhs.conversations {
                     return ascending ? lhs.conversations < rhs.conversations : lhs.conversations > rhs.conversations
+                }
+                if lhs.tokens != rhs.tokens {
+                    return lhs.tokens > rhs.tokens
                 }
                 if lhs.compressions != rhs.compressions {
                     return lhs.compressions > rhs.compressions
@@ -2648,15 +2699,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 if lhs.compressions != rhs.compressions {
                     return ascending ? lhs.compressions < rhs.compressions : lhs.compressions > rhs.compressions
                 }
+                if lhs.tokens != rhs.tokens {
+                    return lhs.tokens > rhs.tokens
+                }
                 if lhs.conversations != rhs.conversations {
                     return lhs.conversations > rhs.conversations
-                }
-            case .average:
-                if lhs.averageCompressionsPerConversation != rhs.averageCompressionsPerConversation {
-                    return ascending ? lhs.averageCompressionsPerConversation < rhs.averageCompressionsPerConversation : lhs.averageCompressionsPerConversation > rhs.averageCompressionsPerConversation
-                }
-                if lhs.compressions != rhs.compressions {
-                    return lhs.compressions > rhs.compressions
                 }
             case .status:
                 let lhsRank = insightRiskSortRank(lhs.risk)
@@ -2666,6 +2713,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 }
                 if lhs.compressions != rhs.compressions {
                     return lhs.compressions > rhs.compressions
+                }
+                if lhs.tokens != rhs.tokens {
+                    return lhs.tokens > rhs.tokens
                 }
             }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
@@ -2715,29 +2765,29 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
         let headerY = rect.minY + 54
         let statusW: CGFloat = 68
-        let avgW: CGFloat = 50
         let compressW: CGFloat = 52
         let conversationsW: CGFloat = 52
+        let tokensW: CGFloat = 68
         let statusX = rect.maxX - 16 - statusW
-        let avgX = statusX - 10 - avgW
-        let compressX = avgX - 10 - compressW
+        let compressX = statusX - 10 - compressW
         let conversationsX = compressX - 10 - conversationsW
-        let nameW = max(120, conversationsX - rect.minX - 32)
+        let tokensX = conversationsX - 10 - tokensW
+        let nameW = max(120, tokensX - rect.minX - 32)
         let headerColor = NSColor.white.withAlphaComponent(0.42)
         let projectHeader = NSRect(x: rect.minX + 16, y: headerY, width: nameW, height: 16)
+        let tokensHeader = NSRect(x: tokensX, y: headerY, width: tokensW, height: 16)
         let conversationsHeader = NSRect(x: conversationsX, y: headerY, width: conversationsW, height: 16)
         let compressHeader = NSRect(x: compressX, y: headerY, width: compressW, height: 16)
-        let avgHeader = NSRect(x: avgX, y: headerY, width: avgW, height: 16)
         let statusHeader = NSRect(x: statusX, y: headerY, width: statusW, height: 16)
         insightSortRects[.project] = projectHeader
+        insightSortRects[.tokens] = tokensHeader
         insightSortRects[.conversations] = conversationsHeader
         insightSortRects[.compressions] = compressHeader
-        insightSortRects[.average] = avgHeader
         insightSortRects[.status] = statusHeader
         drawInsightHeader(.project, rect: projectHeader, alignment: .left, color: headerColor)
+        drawInsightHeader(.tokens, rect: tokensHeader, alignment: .right, color: headerColor)
         drawInsightHeader(.conversations, rect: conversationsHeader, alignment: .right, color: headerColor)
         drawInsightHeader(.compressions, rect: compressHeader, alignment: .right, color: headerColor)
-        drawInsightHeader(.average, rect: avgHeader, alignment: .right, color: headerColor)
         drawInsightHeader(.status, rect: statusHeader, alignment: .center, color: headerColor)
 
         let rowHeight: CGFloat = 42
@@ -2765,9 +2815,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             }
             let textColor = row.key == selectedInsightKey ? NSColor.white : NSColor.white.withAlphaComponent(0.76)
             drawTruncatedText("▱ \(insightListDisplayName(for: row))", rect: NSRect(x: rect.minX + 16, y: y + 12, width: nameW, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: textColor)
+            drawRight(compactDashboardTotal(row.tokens), rect: NSRect(x: tokensX, y: y + 12, width: tokensW, height: 18), color: textColor)
             drawRight("\(row.conversations)", rect: NSRect(x: conversationsX, y: y + 12, width: conversationsW, height: 18), color: textColor)
             drawRight("\(row.compressions)", rect: NSRect(x: compressX, y: y + 12, width: compressW, height: 18), color: textColor)
-            drawRight(String(format: "%.2f", row.averageCompressionsPerConversation), rect: NSRect(x: avgX, y: y + 12, width: avgW, height: 18), color: textColor)
             drawInsightRiskPill(row.risk, rect: NSRect(x: statusX, y: y + 9, width: statusW, height: 24))
         }
         NSGraphicsContext.restoreGraphicsState()
@@ -2881,12 +2931,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let metricGap: CGFloat = 8
         let metricY = rect.minY + 64
         let metricW = (rect.width - 32 - metricGap * 4) / 5
+        let averageTokensPerConversation = row.conversations == 0 ? Int64(0) : row.tokens / Int64(row.conversations)
         let metrics: [(String, String)] = [
+            (insightTokenColumnTitle(), compactDashboardTotal(row.tokens)),
             (copy.chatsMetric, "\(row.conversations)"),
             (copy.turnsMetric, "\(row.turns)"),
-            (copy.compactionsMetric, "\(row.compressions)"),
-            (copy.avgCompactionsMetric, String(format: "%.2f", row.averageCompressionsPerConversation)),
-            (copy.maxTurnsMetric, "\(row.longestTurns)")
+            (insightAverageTokensMetricTitle(), compactDashboardTotal(averageTokensPerConversation)),
+            (insightMaxTokensMetricTitle(), compactDashboardTotal(row.longestTokens))
         ]
         for (index, metric) in metrics.enumerated() {
             let card = NSRect(x: rect.minX + 16 + CGFloat(index) * (metricW + metricGap), y: metricY, width: metricW, height: 64)
