@@ -101,8 +101,11 @@ func paymentMoney(_ value: Double) -> String {
     money(value, currency: AppSettings.paymentCurrency)
 }
 
-func paymentAmount(_ value: Double) -> String {
-    let currency = AppSettings.paymentCurrency
+func paymentMoney(_ value: Double, source: QuotaViewOption) -> String {
+    money(value, currency: AppSettings.paymentCurrency(for: source))
+}
+
+func paymentAmount(_ value: Double, currency: CurrencyCode = AppSettings.paymentCurrency) -> String {
     let formatter = NumberFormatter()
     formatter.numberStyle = .decimal
     formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -113,14 +116,28 @@ func paymentAmount(_ value: Double) -> String {
     return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
 }
 
+func paymentAmount(_ value: Double, source: QuotaViewOption) -> String {
+    paymentAmount(value, currency: AppSettings.paymentCurrency(for: source))
+}
+
 func displayMoney(_ paymentValue: Double) -> String {
     let converted = convertCurrency(paymentValue, from: AppSettings.paymentCurrency, to: AppSettings.displayCurrency)
     return money(converted, currency: AppSettings.displayCurrency)
 }
 
+func displayMoney(_ paymentValue: Double, source: QuotaViewOption) -> String {
+    let converted = convertCurrency(paymentValue, from: AppSettings.paymentCurrency(for: source), to: AppSettings.displayCurrency(for: source))
+    return money(converted, currency: AppSettings.displayCurrency(for: source))
+}
+
 func displayAPIMoney(_ usdValue: Double) -> String {
     let converted = convertCurrency(usdValue, from: .usd, to: AppSettings.displayCurrency)
     return money(converted, currency: AppSettings.displayCurrency)
+}
+
+func displayAPIMoney(_ usdValue: Double, source: QuotaViewOption) -> String {
+    let converted = convertCurrency(usdValue, from: .usd, to: AppSettings.displayCurrency(for: source))
+    return money(converted, currency: AppSettings.displayCurrency(for: source))
 }
 
 func compactDisplayAPIMoney(_ usdValue: Double) -> String {
@@ -187,18 +204,18 @@ func isShortCostCycle(start: Date, end: Date) -> Bool {
     return duration > 0 && duration < fullWeek - 60
 }
 
-func effectivePaymentStartDay(in report: TokenReport?) -> String {
+func effectivePaymentStartDay(in report: TokenReport?, paymentStartDay: String? = AppSettings.paymentStartDay) -> String {
     let parser = dayFormatter()
-    if let stored = AppSettings.paymentStartDay,
+    if let stored = paymentStartDay,
        parser.date(from: stored) != nil {
         return stored
     }
     return report?.byDay.map(\.day).sorted().first ?? todayKey()
 }
 
-func availableCostYears(from report: TokenReport?) -> [Int] {
+func availableCostYears(from report: TokenReport?, paymentStartDay: String? = AppSettings.paymentStartDay) -> [Int] {
     let currentYear = Calendar.current.component(.year, from: Date())
-    let startDay = effectivePaymentStartDay(in: report)
+    let startDay = effectivePaymentStartDay(in: report, paymentStartDay: paymentStartDay)
     let startYear = Int(startDay.prefix(4)) ?? currentYear
     let yearsWithUsage = report?.byDay.compactMap { day -> Int? in
         guard day.day >= startDay,
@@ -251,8 +268,8 @@ func proportionalAPICostUSD(estimate: APICostEstimate, usedValue: Double, totalU
     return estimate.usdValue * max(0, usedValue) / totalUsedValue
 }
 
-func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil) -> [CostPeriodRow] {
-    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport),
+func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil, monthlyCost: Double = AppSettings.monthlyPlanCost, paymentStartDay: String? = AppSettings.paymentStartDay) -> [CostPeriodRow] {
+    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport, monthlyCost: monthlyCost, paymentStartDay: paymentStartDay),
           estimator.weeklyBudget > 0 else {
         return []
     }
@@ -391,8 +408,8 @@ func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = ni
     return rows.filter { $0.hasData || $0.isFuture }
 }
 
-func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil) -> [CostPeriodRow] {
-    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport),
+func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil, monthlyCost: Double = AppSettings.monthlyPlanCost, paymentStartDay: String? = AppSettings.paymentStartDay) -> [CostPeriodRow] {
+    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport, monthlyCost: monthlyCost, paymentStartDay: paymentStartDay),
           estimator.weeklyBudget > 0 else {
         return []
     }
@@ -424,8 +441,8 @@ func monthlyCostRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = ni
     }
 }
 
-func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil) -> [MonthlySpendRow] {
-    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport),
+func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = nil, quotaReferenceReport: TokenReport? = nil, monthlyCost: Double = AppSettings.monthlyPlanCost, paymentStartDay: String? = AppSettings.paymentStartDay) -> [MonthlySpendRow] {
+    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport, monthlyCost: monthlyCost, paymentStartDay: paymentStartDay),
           estimator.weeklyBudget > 0 else {
         return []
     }
@@ -445,8 +462,8 @@ func monthlySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = n
     }
 }
 
-func planCostEstimate(report: TokenReport, selectedDay: DayUsage?, limit: LiveRateLimit?, quotaReferenceReport: TokenReport? = nil) -> PlanCostEstimate? {
-    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport) else { return nil }
+func planCostEstimate(report: TokenReport, selectedDay: DayUsage?, limit: LiveRateLimit?, quotaReferenceReport: TokenReport? = nil, monthlyCost: Double = AppSettings.monthlyPlanCost, paymentStartDay: String? = AppSettings.paymentStartDay) -> PlanCostEstimate? {
+    guard let estimator = CostEstimator(report: report, limit: limit, quotaReferenceReport: quotaReferenceReport, monthlyCost: monthlyCost, paymentStartDay: paymentStartDay) else { return nil }
 
     let today = report.byDay.first { $0.day == todayKey() } ?? report.byDay.suffix(7).last
     let selected = selectedDay ?? today
@@ -514,4 +531,3 @@ func relative(_ date: Date) -> String {
     if hours > 0 { return "\(hours)h\(minutes)m\(suffix)" }
     return "\(minutes)m\(suffix)"
 }
-

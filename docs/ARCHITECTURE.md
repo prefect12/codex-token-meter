@@ -52,6 +52,7 @@ The split is intentionally conservative: code moved by section, with behavior pr
 - The learned model-limit ID comes from live rate limits when available, with `AppSettings.fallbackModelLimitID` only as a fallback.
 - Profile API totals can provide larger lifetime/day totals, but zero Profile API days should fall back to local rollout data when local usage exists.
 - Subscription-value estimates are local heuristics, not official billing.
+- Codex and Claude subscription settings are platform-scoped. Each platform keeps its own monthly plan cost, payment currency, display currency, and payment start date; the combined cost view converts those platform plans before summing.
 - API-equivalent cost is separate from subscription value and prices recognized model names by fresh input, cached input, and output.
 - Do not add `reasoning_output_tokens` again to API-equivalent cost unless Codex changes the meaning of `total_tokens`.
 

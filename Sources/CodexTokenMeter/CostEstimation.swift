@@ -425,10 +425,9 @@ struct CostEstimator {
     let recentWeekTotal: Int64
     let startDay: String
 
-    init?(report: TokenReport, limit: LiveRateLimit?, quotaReferenceReport: TokenReport? = nil) {
-        let monthlyCost = AppSettings.monthlyPlanCost
+    init?(report: TokenReport, limit: LiveRateLimit?, quotaReferenceReport: TokenReport? = nil, monthlyCost: Double = AppSettings.monthlyPlanCost, paymentStartDay: String? = AppSettings.paymentStartDay) {
         guard monthlyCost > 0 else { return nil }
-        let startDay = effectivePaymentStartDay(in: report)
+        let startDay = effectivePaymentStartDay(in: report, paymentStartDay: paymentStartDay)
         let weekly = limit?.secondary
         let weeklyBuckets = Self.weeklyUsageBuckets(days: report.byDay, startDay: startDay)
         let weeklyActiveDays = Self.weeklyActiveDayCounts(days: report.byDay, startDay: startDay)

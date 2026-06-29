@@ -93,10 +93,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onClaudeHomeRingMetricChanged = { [weak self] metric in
             self?.changeClaudeHomeRingMetric(metric)
         }
-        detailsController.detailsView.onPlanCostChanged = { [weak self] value in self?.changePlanCost(value) }
-        detailsController.detailsView.onPaymentStartDayChanged = { [weak self] value in self?.changePaymentStartDay(value) }
-        detailsController.detailsView.onPaymentCurrencyChanged = { [weak self] currency in self?.changePaymentCurrency(currency) }
-        detailsController.detailsView.onDisplayCurrencyChanged = { [weak self] currency in self?.changeDisplayCurrency(currency) }
+        detailsController.detailsView.onPlanCostChanged = { [weak self] value, source in self?.changePlanCost(value, source: source) }
+        detailsController.detailsView.onPaymentStartDayChanged = { [weak self] value, source in self?.changePaymentStartDay(value, source: source) }
+        detailsController.detailsView.onPaymentCurrencyChanged = { [weak self] currency, source in self?.changePaymentCurrency(currency, source: source) }
+        detailsController.detailsView.onDisplayCurrencyChanged = { [weak self] currency, source in self?.changeDisplayCurrency(currency, source: source) }
         detailsController.detailsView.onShowHistoricalEmptyWeeksChanged = { [weak self] isOn in self?.changeShowHistoricalEmptyWeeks(isOn) }
         detailsController.detailsView.onChooseLogFolder = { [weak self] in self?.chooseLogFolder() }
         detailsController.detailsView.onResetLogFolder = { [weak self] in self?.resetLogFolder() }
@@ -646,34 +646,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         reloadScannerFromSettings()
     }
 
-    private func changePlanCost(_ value: Double) {
-        AppSettings.monthlyPlanCost = value
+    private func changePlanCost(_ value: Double, source: QuotaViewOption) {
+        AppSettings.setMonthlyPlanCost(value, for: source)
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
     }
 
-    private func changePaymentStartDay(_ value: String) {
-        AppSettings.paymentStartDay = value
+    private func changePaymentStartDay(_ value: String, source: QuotaViewOption) {
+        AppSettings.setPaymentStartDay(value, for: source)
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
     }
 
-    private func changePaymentCurrency(_ currency: CurrencyCode) {
-        let oldCurrency = AppSettings.paymentCurrency
+    private func changePaymentCurrency(_ currency: CurrencyCode, source: QuotaViewOption) {
+        let oldCurrency = AppSettings.paymentCurrency(for: source)
         guard oldCurrency != currency else { return }
-        AppSettings.monthlyPlanCost = convertCurrency(AppSettings.monthlyPlanCost, from: oldCurrency, to: currency)
-        AppSettings.paymentCurrency = currency
-        if UserDefaults.standard.string(forKey: AppSettings.displayCurrencyKey) == nil {
-            AppSettings.displayCurrency = currency
+        AppSettings.setMonthlyPlanCost(convertCurrency(AppSettings.monthlyPlanCost(for: source), from: oldCurrency, to: currency), for: source)
+        AppSettings.setPaymentCurrency(currency, for: source)
+        if !AppSettings.hasDisplayCurrency(for: source) {
+            AppSettings.setDisplayCurrency(currency, for: source)
         }
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
     }
 
-    private func changeDisplayCurrency(_ currency: CurrencyCode) {
-        AppSettings.displayCurrency = currency
+    private func changeDisplayCurrency(_ currency: CurrencyCode, source: QuotaViewOption) {
+        AppSettings.setDisplayCurrency(currency, for: source)
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
@@ -871,14 +871,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for limit in state.liveLimits {
             lines.append("\(limit.name): 5h \(limit.primary.usedPercent)% used, weekly \(limit.secondary.usedPercent)% used")
         }
+        let costSource = state.selectedQuota
         if let limit = selectedLimit(from: state.liveLimits, quota: state.selectedQuota),
-           let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit) {
-            lines.append("Payment currency: \(AppSettings.paymentCurrency.rawValue)")
-            lines.append("Display currency: \(AppSettings.displayCurrency.rawValue)")
-            lines.append("Plan cost: \(paymentMoney(estimate.monthlyCost))/month")
-            lines.append("Today value: \(displayMoney(estimate.todayValue))")
-            lines.append("Weekly used value: \(displayMoney(estimate.weeklyUsedValue))")
-            lines.append("Weekly unused value: \(displayMoney(estimate.weeklyUnusedValue))")
+           let estimate = planCostEstimate(
+            report: report,
+            selectedDay: nil,
+            limit: limit,
+            monthlyCost: AppSettings.monthlyPlanCost(for: costSource),
+            paymentStartDay: AppSettings.paymentStartDay(for: costSource)
+           ) {
+            lines.append("Payment currency: \(AppSettings.paymentCurrency(for: costSource).rawValue)")
+            lines.append("Display currency: \(AppSettings.displayCurrency(for: costSource).rawValue)")
+            lines.append("Plan cost: \(paymentMoney(estimate.monthlyCost, source: costSource))/month")
+            lines.append("Today value: \(displayMoney(estimate.todayValue, source: costSource))")
+            lines.append("Weekly used value: \(displayMoney(estimate.weeklyUsedValue, source: costSource))")
+            lines.append("Weekly unused value: \(displayMoney(estimate.weeklyUnusedValue, source: costSource))")
         }
         lines.append("By day:")
         for day in report.byDay {

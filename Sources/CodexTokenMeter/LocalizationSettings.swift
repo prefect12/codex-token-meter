@@ -1305,6 +1305,41 @@ enum AppSettings {
         }
     }
 
+    private static func platformCostKey(_ base: String, source: QuotaViewOption) -> String? {
+        switch source {
+        case .codex:
+            return "codex.\(base)"
+        case .claude:
+            return "claude.\(base)"
+        case .all:
+            return nil
+        }
+    }
+
+    static func monthlyPlanCost(for source: QuotaViewOption) -> Double {
+        switch source {
+        case .all:
+            let display = displayCurrency(for: .all)
+            return [.codex, .claude].reduce(0) { total, source in
+                total + convertCurrency(monthlyPlanCost(for: source), from: paymentCurrency(for: source), to: display)
+            }
+        case .codex, .claude:
+            guard let key = platformCostKey(monthlyPlanCostKey, source: source) else { return monthlyPlanCost }
+            let stored = UserDefaults.standard.double(forKey: key)
+            return stored > 0 ? stored : monthlyPlanCost
+        }
+    }
+
+    static func setMonthlyPlanCost(_ value: Double, for source: QuotaViewOption) {
+        switch source {
+        case .all:
+            monthlyPlanCost = value
+        case .codex, .claude:
+            guard let key = platformCostKey(monthlyPlanCostKey, source: source) else { return }
+            UserDefaults.standard.set(max(0, value), forKey: key)
+        }
+    }
+
     static var paymentCurrency: CurrencyCode {
         get {
             guard let raw = UserDefaults.standard.string(forKey: paymentCurrencyKey),
@@ -1318,6 +1353,30 @@ enum AppSettings {
         }
     }
 
+    static func paymentCurrency(for source: QuotaViewOption) -> CurrencyCode {
+        switch source {
+        case .all:
+            return displayCurrency
+        case .codex, .claude:
+            guard let key = platformCostKey(paymentCurrencyKey, source: source),
+                  let raw = UserDefaults.standard.string(forKey: key),
+                  let currency = CurrencyCode(rawValue: raw) else {
+                return paymentCurrency
+            }
+            return currency
+        }
+    }
+
+    static func setPaymentCurrency(_ currency: CurrencyCode, for source: QuotaViewOption) {
+        switch source {
+        case .all:
+            paymentCurrency = currency
+        case .codex, .claude:
+            guard let key = platformCostKey(paymentCurrencyKey, source: source) else { return }
+            UserDefaults.standard.set(currency.rawValue, forKey: key)
+        }
+    }
+
     static var displayCurrency: CurrencyCode {
         get {
             guard let raw = UserDefaults.standard.string(forKey: displayCurrencyKey),
@@ -1328,6 +1387,37 @@ enum AppSettings {
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: displayCurrencyKey)
+        }
+    }
+
+    static func hasDisplayCurrency(for source: QuotaViewOption) -> Bool {
+        guard let key = platformCostKey(displayCurrencyKey, source: source) else {
+            return UserDefaults.standard.string(forKey: displayCurrencyKey) != nil
+        }
+        return UserDefaults.standard.string(forKey: key) != nil
+    }
+
+    static func displayCurrency(for source: QuotaViewOption) -> CurrencyCode {
+        switch source {
+        case .all:
+            return displayCurrency
+        case .codex, .claude:
+            guard let key = platformCostKey(displayCurrencyKey, source: source),
+                  let raw = UserDefaults.standard.string(forKey: key),
+                  let currency = CurrencyCode(rawValue: raw) else {
+                return displayCurrency
+            }
+            return currency
+        }
+    }
+
+    static func setDisplayCurrency(_ currency: CurrencyCode, for source: QuotaViewOption) {
+        switch source {
+        case .all:
+            displayCurrency = currency
+        case .codex, .claude:
+            guard let key = platformCostKey(displayCurrencyKey, source: source) else { return }
+            UserDefaults.standard.set(currency.rawValue, forKey: key)
         }
     }
 
@@ -1367,6 +1457,31 @@ enum AppSettings {
                 UserDefaults.standard.set(newValue, forKey: paymentStartDayKey)
             } else {
                 UserDefaults.standard.removeObject(forKey: paymentStartDayKey)
+            }
+        }
+    }
+
+    static func paymentStartDay(for source: QuotaViewOption) -> String? {
+        switch source {
+        case .all:
+            return paymentStartDay
+        case .codex, .claude:
+            guard let key = platformCostKey(paymentStartDayKey, source: source) else { return paymentStartDay }
+            let value = UserDefaults.standard.string(forKey: key)
+            return (value?.isEmpty == false) ? value : paymentStartDay
+        }
+    }
+
+    static func setPaymentStartDay(_ value: String?, for source: QuotaViewOption) {
+        switch source {
+        case .all:
+            paymentStartDay = value
+        case .codex, .claude:
+            guard let key = platformCostKey(paymentStartDayKey, source: source) else { return }
+            if let value, !value.isEmpty {
+                UserDefaults.standard.set(value, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
             }
         }
     }

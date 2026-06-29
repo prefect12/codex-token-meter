@@ -357,6 +357,7 @@ final class UsageChartView: NSView {
     var weeklyQuotaUsedPercent: Double? { didSet { needsDisplay = true } }
     var weeklyQuotaReferenceTotal: Int64? { didSet { needsDisplay = true } }
     var costEstimator: CostEstimator? { didSet { needsDisplay = true } }
+    var costSource: QuotaViewOption = .all { didSet { needsDisplay = true } }
     var apiEstimate: APICostEstimate? { didSet { needsDisplay = true } }
     private var hoveredIndex: Int?
     private var hoverPoint: CGPoint?
@@ -620,13 +621,13 @@ final class UsageChartView: NSView {
         }
         if let costEstimator {
             if selectedWindow == .day {
-                lines.append(TooltipLine(text: "\(t(.dayValue))  \(displayMoney(costEstimator.value(for: usage)))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false))
+                lines.append(TooltipLine(text: "\(t(.dayValue))  \(displayMoney(costEstimator.value(for: usage), source: costSource))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false))
             } else {
-                lines.append(TooltipLine(text: "\(t(.dayValue))  \(displayMoney(costEstimator.tokenValue(forDayKey: title, usage: usage)))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false))
+                lines.append(TooltipLine(text: "\(t(.dayValue))  \(displayMoney(costEstimator.tokenValue(forDayKey: title, usage: usage), source: costSource))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false))
             }
         }
         if let apiEquivalentUSD = apiEquivalentUSD(for: title, usage: usage) {
-            lines.append(TooltipLine(text: "\(t(.apiEquivalent))  \(displayAPIMoney(apiEquivalentUSD))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false))
+            lines.append(TooltipLine(text: "\(t(.apiEquivalent))  \(displayAPIMoney(apiEquivalentUSD, source: costSource))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false))
         }
 
         let width: CGFloat = 256
@@ -1467,7 +1468,13 @@ final class DashboardView: NSView {
         dayChart.scannedAt = report.scannedAt
         dayChart.weeklyQuotaUsedPercent = state.selectedWindow == .day ? nil : weekly?.usedPercent
         dayChart.weeklyQuotaReferenceTotal = state.selectedWindow == .day ? nil : report.byDay.suffix(7).reduce(Int64(0)) { $0 + $1.usage.total }
-        dayChart.costEstimator = state.selectedWindow == .day ? nil : CostEstimator(report: report, limit: displayLimit)
+        dayChart.costSource = state.selectedQuota
+        dayChart.costEstimator = state.selectedWindow == .day ? nil : CostEstimator(
+            report: report,
+            limit: displayLimit,
+            monthlyCost: AppSettings.monthlyPlanCost(for: state.selectedQuota),
+            paymentStartDay: AppSettings.paymentStartDay(for: state.selectedQuota)
+        )
         dayChart.apiEstimate = apiEstimate
         dayChart.isHidden = false
         serviceStatusView.snapshot = state.serviceStatus
@@ -1476,10 +1483,10 @@ final class DashboardView: NSView {
         var costParts: [String] = []
         if apiEstimate.hasPricedUsage {
             let coverage = apiEstimate.coveragePercent < 99.5 ? " \(String(format: "%.0f%%", apiEstimate.coveragePercent)) \(t(.priced))" : ""
-            costParts.append("\(t(.apiEquivalent)) \(displayAPIMoney(apiEstimate.usdValue))\(coverage)")
+            costParts.append("\(t(.apiEquivalent)) \(displayAPIMoney(apiEstimate.usdValue, source: state.selectedQuota))\(coverage)")
         }
         if let externalAPI, externalAPI.hasData {
-            costParts.append("\(t(.externalAPICost)) \(displayAPIMoney(externalAPI.usdValue))")
+            costParts.append("\(t(.externalAPICost)) \(displayAPIMoney(externalAPI.usdValue, source: state.selectedQuota))")
         }
         if !costParts.isEmpty {
             costLabel.stringValue = costParts.joined(separator: "  |  ")
