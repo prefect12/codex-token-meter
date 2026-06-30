@@ -60,12 +60,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.applicationIconImage = NSImage(named: "LogoHeader")
         popover.contentViewController = dashboardController
-        updateDashboardSize(for: selectedQuota)
+        resizeDashboardPopover(to: dashboardController.dashboardView.preferredPopoverSize)
         popover.behavior = .transient
         configureStatusButton()
 
         dashboardController.dashboardView.onWindowChanged = { [weak self] option in self?.selectWindow(option) }
         dashboardController.dashboardView.onQuotaChanged = { [weak self] option in self?.selectQuota(option) }
+        dashboardController.dashboardView.onPreferredSizeChanged = { [weak self] size in
+            self?.resizeDashboardPopover(to: size)
+        }
         dashboardController.dashboardView.onRefresh = { [weak self] in
             self?.refresh(forceLive: false)
             self?.refreshLiveLimits()
@@ -190,16 +193,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            updateDashboardSize(for: selectedQuota)
+            resizeDashboardPopover(to: dashboardController.dashboardView.preferredPopoverSize)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            resizeDashboardPopover(to: dashboardController.dashboardView.preferredPopoverSize)
             NSApp.activate(ignoringOtherApps: true)
         }
     }
 
-    private func updateDashboardSize(for quota: QuotaViewOption) {
-        let size = DashboardView.preferredSize(for: quota)
-        dashboardController.setDashboardSize(size)
-        popover.contentSize = size
+    private func resizeDashboardPopover(to size: NSSize) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            dashboardController.setDashboardSize(size)
+            popover.contentSize = size
+            dashboardController.setDashboardSize(size)
+            dashboardController.view.layoutSubtreeIfNeeded()
+        }
     }
 
     private func selectWindow(_ option: WindowOption) {
@@ -215,7 +224,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func selectQuota(_ option: QuotaViewOption) {
         selectedQuota = option
         UserDefaults.standard.set(option.rawValue, forKey: "selectedQuotaView")
-        updateDashboardSize(for: option)
         showCachedOrLoadingState()
         refresh(forceLive: false)
         if liveLimits.isEmpty {
@@ -722,7 +730,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         scanQueue.async {
             updateProgress(0.12, .loadingAllUsage)
-            let all = self.scanner.scan(days: 365)
+            let codex = self.scanner.scan(days: 365)
+            let claude = self.claudeScanner.scan(days: 365)
+            let all = mergedTokenReports([codex, claude], scannedAt: Date())
             updateProgress(0.28, .loadingSparkUsage)
             let spark = self.scanner.scan(days: 365, includedModelName: QuotaViewOption.spark.includedModelName)
             updateProgress(0.44, .loadingOtherUsage)
@@ -734,7 +744,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             let accountUsage = self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
             updateProgress(0.94, .loadingFinalizing)
-            let snapshot = DetailsSnapshot(all: all, spark: spark, other: other, repoInsights: repoInsights, repoInsightReports: repoInsightReports, liveLimits: limits, serviceStatus: currentServiceStatus, costReferenceReport: costReferenceReport, accountUsage: accountUsage)
+            let snapshot = DetailsSnapshot(all: all, codex: codex, claude: claude, spark: spark, other: other, repoInsights: repoInsights, repoInsightReports: repoInsightReports, liveLimits: limits, serviceStatus: currentServiceStatus, costReferenceReport: costReferenceReport, accountUsage: accountUsage)
             DispatchQueue.main.async {
                 guard self.detailsLoadGeneration == loadGeneration else { return }
                 if let accountUsage {

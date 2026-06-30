@@ -151,10 +151,13 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
 
 func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
+    let claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     let section = requestedDetailsSection(from: arguments)
     let isInsightsSection = section == .insights
     let accountUsage = !isInsightsSection && AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
-    let allLocal = isInsightsSection ? TokenReport(scannedAt: Date()) : scanner.scan(window: .week)
+    let codexLocal = isInsightsSection ? TokenReport(scannedAt: Date()) : scanner.scan(window: .week)
+    let claudeLocal = isInsightsSection ? TokenReport(scannedAt: Date()) : claudeScanner.scan(window: .week)
+    let allLocal = mergedTokenReports([codexLocal, claudeLocal], scannedAt: Date())
     let all: TokenReport
     if let accountUsage, accountUsage.hasData {
         all = profileReportWithLocalFallback(accountUsage.report(window: .week), localReport: allLocal)
@@ -165,6 +168,8 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let repoInsights = repoInsightReports[90] ?? scanner.scanRepoInsights(days: 90)
     let snapshot = DetailsSnapshot(
         all: all,
+        codex: codexLocal,
+        claude: claudeLocal,
         spark: isInsightsSection ? TokenReport(scannedAt: Date()) : scanner.scan(window: .week, includedModelName: "codex-spark"),
         other: isInsightsSection ? TokenReport(scannedAt: Date()) : scanner.scan(window: .week, excludedModelName: "codex-spark"),
         repoInsights: repoInsights,
