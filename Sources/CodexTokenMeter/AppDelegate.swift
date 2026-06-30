@@ -807,17 +807,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openSettingsWindow() {
         detailsController.detailsView.showSettingsPage()
-        openDetailsWindow()
+        openDetailsWindow(showLoading: false)
     }
 
-    private func openDetailsWindow() {
+    private func openDetailsWindow(showLoading: Bool = true) {
         detailsLoadGeneration += 1
         let loadGeneration = detailsLoadGeneration
         let cachedSnapshot = DetailsSnapshotCacheStore.read().map(hydratedDetailsSnapshot)
         if let cachedSnapshot {
             detailsController.showCached(snapshot: cachedSnapshot)
-        } else {
+        } else if showLoading {
             detailsController.showLoading()
+        } else {
+            detailsController.showContent()
         }
         if liveLimits.isEmpty {
             refreshLiveLimits()

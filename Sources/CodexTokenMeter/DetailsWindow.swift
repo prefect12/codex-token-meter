@@ -1227,6 +1227,14 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
         updateDocumentLayout()
     }
 
+    func showContent() {
+        detailsView.isLoading = false
+        showWindow(nil)
+        window?.center()
+        NSApp.activate(ignoringOtherApps: true)
+        updateDocumentLayout()
+    }
+
     func updateLoadingProgress(_ progress: DetailsLoadingProgress) {
         guard detailsView.isLoading else { return }
         detailsView.loadingProgress = progress
@@ -1318,6 +1326,15 @@ enum DetailsSection: CaseIterable {
             return AppLanguage.current.insightCopy.headerTitle
         default:
             return t(.usageDetails)
+        }
+    }
+
+    var canRenderWithoutSnapshot: Bool {
+        switch self {
+        case .settings, .about:
+            return true
+        default:
+            return false
         }
     }
 }
@@ -1481,6 +1498,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     var onPreferredHeightChanged: (() -> Void)?
     private var selectedSection: DetailsSection = .overview {
         didSet {
+            if selectedSection.canRenderWithoutSnapshot {
+                isLoading = false
+            }
             if selectedSection != .costs {
                 hoveredCostHistoryIndex = nil
                 hoveredCostOverviewInfo = nil
@@ -2490,7 +2510,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
 
         guard let snapshot else {
-            if isLoading {
+            if selectedSection == .settings {
+                drawSettingsPage(content: content)
+            } else if selectedSection == .about {
+                drawAboutPage(content: content)
+            } else if isLoading {
                 drawLoadingState(content: content)
             } else {
                 drawText(t(.noDataLoaded), rect: NSRect(x: content.minX, y: content.minY + 92, width: content.width, height: 24), font: .systemFont(ofSize: 15, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
@@ -2514,7 +2538,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         case .diagnostics:
             drawDiagnosticsPage(snapshot: snapshot, content: content)
         case .about:
-            drawAboutPage(snapshot: snapshot, content: content)
+            drawAboutPage(content: content)
         }
 
         if selectedSection == .costs {
@@ -4563,7 +4587,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawMultilineText(t(.profileAPITotalsHint), rect: NSRect(x: rect.minX + 12, y: rect.minY + 30, width: rect.width - 24, height: 42), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.58))
     }
 
-    private func drawAboutPage(snapshot: DetailsSnapshot, content: NSRect) {
+    private func drawAboutPage(content: NSRect) {
         let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 276)
         drawPanel(rect)
         drawText(t(.definitions), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
