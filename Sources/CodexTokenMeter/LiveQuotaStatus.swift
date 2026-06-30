@@ -57,8 +57,8 @@ enum QuotaViewOption: String, CaseIterable {
     var fallbackTitle: String {
         switch self {
         case .all: return t(.combinedUsage)
-        case .codex: return t(.codexAppTotal)
-        case .claude: return t(.claudeCode)
+        case .codex: return t(.codex)
+        case .claude: return t(.claude)
         }
     }
 
