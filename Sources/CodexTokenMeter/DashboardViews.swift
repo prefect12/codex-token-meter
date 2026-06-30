@@ -5,17 +5,6 @@ import UserNotifications
 
 // MARK: - Dashboard Views
 
-enum MeterChrome {
-    static let cardRadius: CGFloat = 14
-    static let controlRadius: CGFloat = 8
-    static let panelFill = NSColor(calibratedRed: 0.047, green: 0.051, blue: 0.058, alpha: 0.98)
-    static let panelStroke = NSColor.white.withAlphaComponent(0.12)
-    static let secondaryFill = NSColor.white.withAlphaComponent(0.055)
-    static let selectedFill = NSColor.white.withAlphaComponent(0.09)
-    static let textPrimary = NSColor.white.withAlphaComponent(0.90)
-    static let textSecondary = NSColor.white.withAlphaComponent(0.58)
-}
-
 final class RingView: NSView {
     var percent: Double = 0 { didSet { needsDisplay = true } }
     var title: String = "" { didSet { needsDisplay = true } }
@@ -755,28 +744,24 @@ final class UsageChartView: NSView {
 final class CodexStatusChipView: NSView {
     var snapshot: CodexServiceStatusSnapshot? { didSet { needsDisplay = true } }
 
-    private let chipFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+    private let chipFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
 
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
-        MeterChrome.secondaryFill.setFill()
-        NSBezierPath(roundedRect: rect, xRadius: MeterChrome.controlRadius, yRadius: MeterChrome.controlRadius).fill()
-        MeterChrome.panelStroke.setStroke()
-        NSBezierPath(roundedRect: rect, xRadius: MeterChrome.controlRadius, yRadius: MeterChrome.controlRadius).stroke()
+        let rect = bounds
 
         let text = statusText
         let dotColor = statusColor
         dotColor.setFill()
-        NSBezierPath(ovalIn: NSRect(x: rect.minX + 9, y: rect.midY - 3, width: 6, height: 6)).fill()
+        NSBezierPath(ovalIn: NSRect(x: rect.minX + 4, y: rect.midY - 3, width: 6, height: 6)).fill()
         drawText(
             text,
-            rect: NSRect(x: rect.minX + 21, y: rect.minY + 4, width: rect.width - 28, height: rect.height - 8),
+            rect: NSRect(x: rect.minX + 16, y: rect.minY + 4, width: rect.width - 18, height: rect.height - 8),
             font: chipFont,
-            color: MeterChrome.textPrimary
+            color: NSColor.white.withAlphaComponent(0.82)
         )
     }
 
@@ -803,7 +788,7 @@ final class CodexStatusChipView: NSView {
         let textWidth = (statusText as NSString).size(withAttributes: [
             .font: chipFont
         ]).width
-        return min(maxWidth, ceil(textWidth) + 36)
+        return min(maxWidth, ceil(textWidth) + 22)
     }
 }
 
@@ -1533,10 +1518,10 @@ final class DashboardView: NSView {
         dirtyRect.fill()
 
         let card = bounds.insetBy(dx: 8, dy: 8)
-        MeterChrome.panelFill.setFill()
-        NSBezierPath(roundedRect: card, xRadius: MeterChrome.cardRadius, yRadius: MeterChrome.cardRadius).fill()
-        MeterChrome.panelStroke.setStroke()
-        let border = NSBezierPath(roundedRect: card.insetBy(dx: 0.5, dy: 0.5), xRadius: MeterChrome.cardRadius, yRadius: MeterChrome.cardRadius)
+        NSColor(calibratedWhite: 0.045, alpha: 0.98).setFill()
+        NSBezierPath(roundedRect: card, xRadius: 26, yRadius: 26).fill()
+        NSColor.white.withAlphaComponent(0.09).setStroke()
+        let border = NSBezierPath(roundedRect: card.insetBy(dx: 0.5, dy: 0.5), xRadius: 26, yRadius: 26)
         border.lineWidth = 1
         border.stroke()
     }
@@ -1669,12 +1654,12 @@ final class DashboardView: NSView {
             addSubview($0)
         }
 
-        titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
-        titleLabel.textColor = MeterChrome.textPrimary
+        titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
+        titleLabel.textColor = .white
         titleLabel.usesSingleLineMode = true
         titleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        subtitleLabel.textColor = MeterChrome.textSecondary
+        subtitleLabel.textColor = NSColor.white.withAlphaComponent(0.58)
         subtitleLabel.usesSingleLineMode = true
         subtitleLabel.lineBreakMode = .byTruncatingTail
         totalLabel.font = .monospacedDigitSystemFont(ofSize: 28, weight: .bold)
@@ -1707,12 +1692,12 @@ final class DashboardView: NSView {
 
         quotaSegment.target = self
         quotaSegment.action = #selector(quotaSegmentChanged)
-        quotaSegment.segmentStyle = .texturedRounded
+        quotaSegment.segmentStyle = .rounded
         addSubview(quotaSegment)
 
         segment.target = self
         segment.action = #selector(segmentChanged)
-        segment.segmentStyle = .texturedRounded
+        segment.segmentStyle = .rounded
         segment.toolTip = t(.usageWindow)
         addSubview(segment)
 
