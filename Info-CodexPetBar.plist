@@ -4,14 +4,16 @@
 <dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleExecutable</key>
-    <string>CodexPetBar</string>
+    <string>CodexBar</string>
     <key>CFBundleIdentifier</key>
-    <string>local.codex-pet-bar</string>
+    <string>local.codex-bar</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Codex Pet Bar</string>
+    <string>Codex Bar</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

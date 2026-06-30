@@ -5,6 +5,7 @@ enum ThreadRunStatus {
     case running
     case stale
     case waiting
+    case unread
 }
 
 struct CodexThreadItem {
@@ -63,7 +64,7 @@ final class CodexActivityReader {
             } else if summary.isRunning {
                 status = .running
             } else {
-                status = .waiting
+                status = .unread
             }
             let title = cleanTitle(summary.title)
                 ?? summary.cwd.map(shortFolderName)
@@ -81,12 +82,7 @@ final class CodexActivityReader {
         }
 
         return Array(byID.values)
-            .sorted {
-                let lhsRank = statusRank($0.status)
-                let rhsRank = statusRank($1.status)
-                if lhsRank != rhsRank { return lhsRank < rhsRank }
-                return $0.lastActivity > $1.lastActivity
-            }
+            .sorted(by: stableThreadOrder)
             .prefix(limit)
             .map { $0 }
     }
@@ -119,7 +115,7 @@ final class CodexActivityReader {
         }
 
         let messages = [
-            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-pet-bar","version":"0.1.0"},"capabilities":{}}}"#,
+            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-bar","version":"0.1.0"},"capabilities":{}}}"#,
             #"{"method":"initialized"}"#,
             #"{"id":2,"method":"thread/loaded/list"}"#,
             #"{"id":3,"method":"thread/list","params":{"limit":20}}"#
@@ -475,6 +471,7 @@ final class CodexActivityReader {
 }
 
 final class ReadStateStore {
+    private static let readWatermarkTolerance: TimeInterval = 60
     private let fileManager = FileManager.default
     private let fileURL: URL
     private let launchDate = Date()
@@ -484,9 +481,12 @@ final class ReadStateStore {
     init() {
         let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
-        let directory = support.appendingPathComponent("Codex Pet Bar", isDirectory: true)
+        let directory = support.appendingPathComponent("Codex Bar", isDirectory: true)
+        let legacyDirectory = support.appendingPathComponent("Codex Pet Bar", isDirectory: true)
         fileURL = directory.appendingPathComponent("read-state.json")
-        if let data = try? Data(contentsOf: fileURL),
+        let legacyFileURL = legacyDirectory.appendingPathComponent("read-state.json")
+        let sourceURL = fileManager.fileExists(atPath: fileURL.path) ? fileURL : legacyFileURL
+        if let data = try? Data(contentsOf: sourceURL),
            let decoded = try? JSONDecoder().decode(ReadStateFile.self, from: data) {
             state = decoded
         } else {
@@ -498,8 +498,8 @@ final class ReadStateStore {
         lock.lock()
         var current = state
         if !current.didBaselineExistingWaiting {
-            for item in items where item.status == .waiting {
-                current.openedAt[item.id] = Date().timeIntervalSince1970
+            for item in items where isReadDismissible(item.status) {
+                current.openedAt[item.id] = readThroughTime(for: item)
             }
             current.didBaselineExistingWaiting = true
             state = current
@@ -509,9 +509,9 @@ final class ReadStateStore {
             switch item.status {
             case .running, .stale:
                 return true
-            case .waiting:
+            case .waiting, .unread:
                 if item.lastActivity < launchDate {
-                    current.openedAt[item.id] = Date().timeIntervalSince1970
+                    current.openedAt[item.id] = readThroughTime(for: item)
                     state = current
                     saveLocked()
                     return false
@@ -524,6 +524,13 @@ final class ReadStateStore {
         return visible
     }
 
+    func markRead(_ item: CodexThreadItem) {
+        lock.lock()
+        state.openedAt[item.id] = readThroughTime(for: item)
+        saveLocked()
+        lock.unlock()
+    }
+
     func markRead(threadID: String, at date: Date = Date()) {
         lock.lock()
         state.openedAt[threadID] = date.timeIntervalSince1970
@@ -533,12 +540,16 @@ final class ReadStateStore {
 
     func markWaitingRead(_ items: [CodexThreadItem], at date: Date = Date()) {
         lock.lock()
-        for item in items where item.status == .waiting {
-            state.openedAt[item.id] = date.timeIntervalSince1970
+        for item in items where isReadDismissible(item.status) {
+            state.openedAt[item.id] = readThroughTime(for: item, at: date)
         }
         state.didBaselineExistingWaiting = true
         saveLocked()
         lock.unlock()
+    }
+
+    private func readThroughTime(for item: CodexThreadItem, at date: Date = Date()) -> TimeInterval {
+        max(date.timeIntervalSince1970, item.lastActivity.timeIntervalSince1970 + Self.readWatermarkTolerance)
     }
 
     private func saveLocked() {
@@ -565,6 +576,8 @@ final class PetStatusIcon {
         case .stale:
             color = NSColor.systemOrange
         case .waiting:
+            color = NSColor.systemBlue
+        case .unread:
             color = NSColor.systemBlue
         case nil:
             color = NSColor.white.withAlphaComponent(0.58)
@@ -599,7 +612,7 @@ final class PetStatusIcon {
 }
 
 final class PanelHeaderView: NSView {
-    private let titleLabel = NSTextField(labelWithString: "Codex Pet Bar")
+    private let titleLabel = NSTextField(labelWithString: "Codex Bar")
     private let summaryLabel = NSTextField(labelWithString: "")
 
     init(runningCount: Int, unreadCount: Int) {
@@ -751,7 +764,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.setActivationPolicy(.accessory)
         menu.delegate = self
         statusItem.menu = menu
-        statusItem.button?.toolTip = "Codex Pet Bar"
+        statusItem.button?.toolTip = "Codex Bar"
         refresh()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             self?.refresh()
@@ -786,8 +799,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateStatusIcon() {
         let primaryStatus = threads.map(\.status).sorted { statusRank($0) < statusRank($1) }.first
         let runningCount = threads.filter { $0.status == .running || $0.status == .stale }.count
-        let waitingCount = threads.filter { $0.status == .waiting }.count
-        let totalCount = runningCount + waitingCount
+        let unreadCount = threads.filter { isReadDismissible($0.status) }.count
+        let totalCount = runningCount + unreadCount
         statusItem.button?.image = icon.image(status: primaryStatus, count: totalCount)
         statusItem.button?.imagePosition = .imageLeading
         if totalCount > 0 {
@@ -800,9 +813,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func rebuildMenu() {
         menu.removeAllItems()
         let active = threads.filter { $0.status == .running || $0.status == .stale }
-        let waitingCount = threads.filter { $0.status == .waiting }.count
+        let unreadCount = threads.filter { isReadDismissible($0.status) }.count
         let headerItem = NSMenuItem()
-        headerItem.view = PanelHeaderView(runningCount: active.count, unreadCount: waitingCount)
+        headerItem.view = PanelHeaderView(runningCount: active.count, unreadCount: unreadCount)
         menu.addItem(headerItem)
         menu.addItem(.separator())
 
@@ -827,12 +840,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let openCodex = NSMenuItem(title: "Open Codex", action: #selector(openCodexApp), keyEquivalent: "")
         openCodex.target = self
         menu.addItem(openCodex)
-        let markRead = NSMenuItem(title: "Mark waiting as read", action: #selector(markWaitingAsRead), keyEquivalent: "")
+        let markRead = NSMenuItem(title: "Mark unread as read", action: #selector(markWaitingAsRead), keyEquivalent: "")
         markRead.target = self
-        markRead.isEnabled = threads.contains { $0.status == .waiting }
+        markRead.isEnabled = threads.contains { isReadDismissible($0.status) }
         menu.addItem(markRead)
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Codex Pet Bar", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit Codex Bar", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
     }
@@ -859,8 +872,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let url = URL(string: "codex://threads/\(id)") else {
             return
         }
-        readState.markRead(threadID: id)
-        threads.removeAll { $0.id == id && $0.status == .waiting }
+        if let item = threads.first(where: { $0.id == id }) {
+            readState.markRead(item)
+        } else {
+            readState.markRead(threadID: id)
+        }
+        threads.removeAll { $0.id == id && isReadDismissible($0.status) }
         updateStatusIcon()
         rebuildMenu()
         menu.cancelTracking()
@@ -877,7 +894,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func markWaitingAsRead() {
         readState.markWaitingRead(threads)
-        threads.removeAll { $0.status == .waiting }
+        threads.removeAll { isReadDismissible($0.status) }
         updateStatusIcon()
         rebuildMenu()
     }
@@ -902,6 +919,8 @@ private func statusColor(_ status: ThreadRunStatus) -> NSColor {
         return .systemOrange
     case .waiting:
         return .systemBlue
+    case .unread:
+        return .systemBlue
     }
 }
 
@@ -913,6 +932,8 @@ private func compactStatusLabel(_ status: ThreadRunStatus) -> String {
         return "SLOW"
     case .waiting:
         return "WAIT"
+    case .unread:
+        return "UNREAD"
     }
 }
 
@@ -921,7 +942,20 @@ private func statusRank(_ status: ThreadRunStatus) -> Int {
     case .stale: return 0
     case .running: return 1
     case .waiting: return 2
+    case .unread: return 3
     }
+}
+
+private func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -> Bool {
+    let lhsRank = statusRank(lhs.status)
+    let rhsRank = statusRank(rhs.status)
+    if lhsRank != rhsRank { return lhsRank < rhsRank }
+
+    let lhsID = lhs.id.lowercased()
+    let rhsID = rhs.id.lowercased()
+    if lhsID != rhsID { return lhsID > rhsID }
+
+    return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
 }
 
 private func statusLabel(_ status: ThreadRunStatus) -> String {
@@ -929,6 +963,7 @@ private func statusLabel(_ status: ThreadRunStatus) -> String {
     case .running: return "Running"
     case .stale: return "Running"
     case .waiting: return "Waiting"
+    case .unread: return "Unread"
     }
 }
 
@@ -939,6 +974,15 @@ private func detailText(for item: CodexThreadItem) -> String {
         return "已处理 \(durationSince(startedAt))  ·  \(folder)"
     }
     return "\(folder)  ·  \(relative(item.lastActivity))"
+}
+
+private func isReadDismissible(_ status: ThreadRunStatus) -> Bool {
+    switch status {
+    case .waiting, .unread:
+        return true
+    case .running, .stale:
+        return false
+    }
 }
 
 private func cleanTitle(_ value: String?) -> String? {
