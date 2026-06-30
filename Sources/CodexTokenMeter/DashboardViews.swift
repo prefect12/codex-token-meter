@@ -1837,4 +1837,10 @@ final class DashboardViewController: NSViewController {
         view = dashboardView
         preferredContentSize = DashboardView.idealSize
     }
+
+    func setDashboardSize(_ size: NSSize) {
+        view.frame = NSRect(origin: .zero, size: size)
+        dashboardView.frame = NSRect(origin: .zero, size: size)
+        preferredContentSize = size
+    }
 }

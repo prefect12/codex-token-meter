@@ -18,6 +18,32 @@ if CommandLine.arguments.contains("--claude-statusline") {
     exit(0)
 }
 
+if CommandLine.arguments.contains("--print-version") {
+    let info = Bundle.main.infoDictionary ?? [:]
+    let bundleURL = Bundle.main.bundleURL
+    let executablePath = Bundle.main.executableURL?.path ?? CommandLine.arguments.first ?? ""
+    let payload: [String: Any] = [
+        "bundle_display_name": info["CFBundleDisplayName"] as? String ?? "",
+        "bundle_name": info["CFBundleName"] as? String ?? "",
+        "bundle_identifier": info["CFBundleIdentifier"] as? String ?? "",
+        "version": info["CFBundleShortVersionString"] as? String ?? "",
+        "build": info["CFBundleVersion"] as? String ?? "",
+        "bundle_path": bundleURL.path,
+        "executable_path": executablePath,
+        "is_app_bundle": bundleURL.pathExtension == "app",
+        "running_from_applications": bundleURL.path.hasPrefix("/Applications/"),
+        "git_branch": info["CodexBuildGitBranch"] as? String ?? "",
+        "git_commit": info["CodexBuildGitCommit"] as? String ?? "",
+        "git_describe": info["CodexBuildGitDescribe"] as? String ?? "",
+        "build_timestamp": info["CodexBuildTimestamp"] as? String ?? ""
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+       let text = String(data: data, encoding: .utf8) {
+        print(text)
+    }
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--print-profile") {
     let snapshot = AccountUsageReader().read()
     let payload: [String: Any] = [
