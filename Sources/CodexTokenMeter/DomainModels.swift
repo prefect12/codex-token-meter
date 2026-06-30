@@ -8,16 +8,60 @@ import UserNotifications
 struct Usage: Codable {
     var input: Int64 = 0
     var cachedInput: Int64 = 0
+    var cacheCreationInput: Int64 = 0
+    var cacheCreationInput1h: Int64 = 0
     var output: Int64 = 0
     var reasoningOutput: Int64 = 0
     var total: Int64 = 0
 
-    var freshInput: Int64 { max(0, input - cachedInput) }
+    var freshInput: Int64 { max(0, input - cachedInput - cacheCreationInput - cacheCreationInput1h) }
     var cachePercent: Double { input == 0 ? 0 : Double(cachedInput) / Double(input) * 100 }
+    var totalCacheCreationInput: Int64 { cacheCreationInput + cacheCreationInput1h }
+
+    init(
+        input: Int64 = 0,
+        cachedInput: Int64 = 0,
+        cacheCreationInput: Int64 = 0,
+        cacheCreationInput1h: Int64 = 0,
+        output: Int64 = 0,
+        reasoningOutput: Int64 = 0,
+        total: Int64 = 0
+    ) {
+        self.input = input
+        self.cachedInput = cachedInput
+        self.cacheCreationInput = cacheCreationInput
+        self.cacheCreationInput1h = cacheCreationInput1h
+        self.output = output
+        self.reasoningOutput = reasoningOutput
+        self.total = total
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case input
+        case cachedInput
+        case cacheCreationInput
+        case cacheCreationInput1h
+        case output
+        case reasoningOutput
+        case total
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        input = try container.decodeIfPresent(Int64.self, forKey: .input) ?? 0
+        cachedInput = try container.decodeIfPresent(Int64.self, forKey: .cachedInput) ?? 0
+        cacheCreationInput = try container.decodeIfPresent(Int64.self, forKey: .cacheCreationInput) ?? 0
+        cacheCreationInput1h = try container.decodeIfPresent(Int64.self, forKey: .cacheCreationInput1h) ?? 0
+        output = try container.decodeIfPresent(Int64.self, forKey: .output) ?? 0
+        reasoningOutput = try container.decodeIfPresent(Int64.self, forKey: .reasoningOutput) ?? 0
+        total = try container.decodeIfPresent(Int64.self, forKey: .total) ?? 0
+    }
 
     mutating func add(_ other: Usage) {
         input += other.input
         cachedInput += other.cachedInput
+        cacheCreationInput += other.cacheCreationInput
+        cacheCreationInput1h += other.cacheCreationInput1h
         output += other.output
         reasoningOutput += other.reasoningOutput
         total += other.total
@@ -27,6 +71,8 @@ struct Usage: Codable {
         Usage(
             input: max(0, current.input - previous.input),
             cachedInput: max(0, current.cachedInput - previous.cachedInput),
+            cacheCreationInput: max(0, current.cacheCreationInput - previous.cacheCreationInput),
+            cacheCreationInput1h: max(0, current.cacheCreationInput1h - previous.cacheCreationInput1h),
             output: max(0, current.output - previous.output),
             reasoningOutput: max(0, current.reasoningOutput - previous.reasoningOutput),
             total: max(0, current.total - previous.total)
@@ -42,27 +88,27 @@ struct TokenEvent: Codable {
     let model: String?
 }
 
-struct DayUsage {
+struct DayUsage: Codable {
     let day: String
     var usage: Usage
     var turns: Int
     var modelBreakdown: [ModelUsage] = []
 }
 
-struct HourUsage {
+struct HourUsage: Codable {
     let hour: Date
     var usage: Usage
     var turns: Int
 }
 
-struct SessionUsage {
+struct SessionUsage: Codable {
     let path: String
     let lastEvent: Date
     var turns: Int
     var usage: Usage
 }
 
-struct ModelUsage {
+struct ModelUsage: Codable {
     let name: String
     var usage: Usage
     var events: Int
@@ -103,6 +149,8 @@ struct APIModelRate {
     let inputPerMillionUSD: Double
     let cachedInputPerMillionUSD: Double
     let outputPerMillionUSD: Double
+    var cacheCreationInputPerMillionUSD: Double? = nil
+    var cacheCreationInput1hPerMillionUSD: Double? = nil
 }
 
 enum APICostEstimator {
@@ -148,10 +196,16 @@ enum APICostEstimator {
         }
         let totalOnlyInput = usage.input == 0 && usage.output == 0 && usage.total > 0 ? usage.total : usage.input
         let cachedInput = max(Int64(0), min(usage.cachedInput, totalOnlyInput))
-        let freshInput = max(Int64(0), totalOnlyInput - cachedInput)
+        let cacheCreationInput = max(Int64(0), min(usage.cacheCreationInput, max(0, totalOnlyInput - cachedInput)))
+        let cacheCreationInput1h = max(Int64(0), min(usage.cacheCreationInput1h, max(0, totalOnlyInput - cachedInput - cacheCreationInput)))
+        let freshInput = max(Int64(0), totalOnlyInput - cachedInput - cacheCreationInput - cacheCreationInput1h)
+        let cacheCreationRate = rate.cacheCreationInputPerMillionUSD ?? rate.inputPerMillionUSD
+        let cacheCreation1hRate = rate.cacheCreationInput1hPerMillionUSD ?? cacheCreationRate
         let value = (
             Double(freshInput) * rate.inputPerMillionUSD
                 + Double(cachedInput) * rate.cachedInputPerMillionUSD
+                + Double(cacheCreationInput) * cacheCreationRate
+                + Double(cacheCreationInput1h) * cacheCreation1hRate
                 + Double(usage.output) * rate.outputPerMillionUSD
         ) / 1_000_000
         return APICostEstimate(usdValue: value, pricedTokens: usage.total, totalTokens: usage.total)
@@ -192,11 +246,34 @@ enum APICostEstimator {
         if name.contains("gpt-5.3-codex") || name.contains("gpt-5.2-codex") || name.contains("gpt-5.2") || name.contains("gpt-5-codex") {
             return APIModelRate(inputPerMillionUSD: 1.75, cachedInputPerMillionUSD: 0.175, outputPerMillionUSD: 14)
         }
+        if name.contains("claude-fable-5") || name.contains("claude-mythos-5") {
+            return APIModelRate(inputPerMillionUSD: 10, cachedInputPerMillionUSD: 1, outputPerMillionUSD: 50, cacheCreationInputPerMillionUSD: 12.5, cacheCreationInput1hPerMillionUSD: 20)
+        }
+        if name.contains("claude-opus-4-8")
+            || name.contains("claude-opus-4-7")
+            || name.contains("claude-opus-4-6")
+            || name.contains("claude-opus-4-5") {
+            return APIModelRate(inputPerMillionUSD: 5, cachedInputPerMillionUSD: 0.5, outputPerMillionUSD: 25, cacheCreationInputPerMillionUSD: 6.25, cacheCreationInput1hPerMillionUSD: 10)
+        }
+        if name.contains("claude-opus-4-1")
+            || name.contains("claude-opus-4") {
+            return APIModelRate(inputPerMillionUSD: 15, cachedInputPerMillionUSD: 1.5, outputPerMillionUSD: 75, cacheCreationInputPerMillionUSD: 18.75, cacheCreationInput1hPerMillionUSD: 30)
+        }
+        if name.contains("claude-sonnet-4-6")
+            || name.contains("claude-sonnet-4-5") {
+            return APIModelRate(inputPerMillionUSD: 3, cachedInputPerMillionUSD: 0.3, outputPerMillionUSD: 15, cacheCreationInputPerMillionUSD: 3.75, cacheCreationInput1hPerMillionUSD: 6)
+        }
+        if name.contains("claude-haiku-4-5") {
+            return APIModelRate(inputPerMillionUSD: 1, cachedInputPerMillionUSD: 0.1, outputPerMillionUSD: 5, cacheCreationInputPerMillionUSD: 1.25, cacheCreationInput1hPerMillionUSD: 2)
+        }
+        if name.contains("claude-haiku-3") {
+            return APIModelRate(inputPerMillionUSD: 0.25, cachedInputPerMillionUSD: 0.025, outputPerMillionUSD: 1.25, cacheCreationInputPerMillionUSD: 0.3, cacheCreationInput1hPerMillionUSD: 0.5)
+        }
         return nil
     }
 }
 
-struct TokenReport {
+struct TokenReport: Codable {
     var usage = Usage()
     var sessions = 0
     var events = 0
@@ -209,95 +286,31 @@ struct TokenReport {
     var scannedAt = Date()
 }
 
-func mergedTokenReports(_ reports: [TokenReport], scannedAt: Date = Date()) -> TokenReport {
-    var merged = TokenReport(scannedAt: scannedAt)
-    var dayUsage: [String: Usage] = [:]
-    var dayTurns: [String: Int] = [:]
-    var dayModels: [String: [String: ModelUsage]] = [:]
-    var hourUsage: [Date: Usage] = [:]
-    var hourTurns: [Date: Int] = [:]
-    var models: [String: ModelUsage] = [:]
-    var sessions: [SessionUsage] = []
-
-    for report in reports {
-        merged.usage.add(report.usage)
-        merged.sessions += report.sessions
-        merged.events += report.events
-        merged.turns += report.turns
-        merged.limitNames.formUnion(report.limitNames)
-        sessions.append(contentsOf: report.topSessions)
-
-        for day in report.byDay {
-            var usage = dayUsage[day.day] ?? Usage()
-            usage.add(day.usage)
-            dayUsage[day.day] = usage
-            dayTurns[day.day, default: 0] += day.turns
-            var bucket = dayModels[day.day] ?? [:]
-            for model in day.modelBreakdown {
-                var existing = bucket[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
-                existing.usage.add(model.usage)
-                existing.events += model.events
-                existing.sessions += model.sessions
-                bucket[model.name] = existing
-            }
-            dayModels[day.day] = bucket
-        }
-
-        for hour in report.byHour {
-            var usage = hourUsage[hour.hour] ?? Usage()
-            usage.add(hour.usage)
-            hourUsage[hour.hour] = usage
-            hourTurns[hour.hour, default: 0] += hour.turns
-        }
-
-        for model in report.modelBreakdown {
-            var existing = models[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
-            existing.usage.add(model.usage)
-            existing.events += model.events
-            existing.sessions += model.sessions
-            models[model.name] = existing
-        }
-    }
-
-    merged.byDay = Set(dayUsage.keys).union(dayTurns.keys)
-        .map { day in
-            let modelRows = (dayModels[day] ?? [:]).values.sorted { $0.usage.total > $1.usage.total }
-            return DayUsage(day: day, usage: dayUsage[day] ?? Usage(), turns: dayTurns[day] ?? 0, modelBreakdown: modelRows)
-        }
-        .sorted { $0.day < $1.day }
-    merged.byHour = Set(hourUsage.keys).union(hourTurns.keys)
-        .map { HourUsage(hour: $0, usage: hourUsage[$0] ?? Usage(), turns: hourTurns[$0] ?? 0) }
-        .sorted { $0.hour < $1.hour }
-    merged.modelBreakdown = models.values.sorted { $0.usage.total > $1.usage.total }
-    merged.topSessions = sessions.sorted { $0.usage.total > $1.usage.total }.prefix(8).map { $0 }
-    return merged
-}
-
-struct RepoInsightDay {
+struct RepoInsightDay: Codable {
     let day: String
     var conversations: Int
     var turns: Int
     var compressions: Int
 }
 
-struct RepoInsightTurnBuckets {
+struct RepoInsightTurnBuckets: Codable {
     var short: Int = 0
     var medium: Int = 0
     var long: Int = 0
     var extraLong: Int = 0
 }
 
-struct RepoInsightCompressionBuckets {
+struct RepoInsightCompressionBuckets: Codable {
     var zero: Int = 0
     var one: Int = 0
     var two: Int = 0
     var threePlus: Int = 0
 }
 
-struct RepoInsight {
-    let key: String
-    let displayName: String
-    let primaryFolder: String
+struct RepoInsight: Codable {
+    var key: String
+    var displayName: String
+    var primaryFolder: String
     var folders: Set<String>
     var conversations: Int
     var turns: Int
@@ -353,13 +366,13 @@ enum RepoInsightRisk {
     case healthy
 }
 
-struct RepoInsightsReport {
+struct RepoInsightsReport: Codable {
     var rows: [RepoInsight]
     var scannedAt: Date
     var windowDays: Int
 }
 
-struct AccountUsageSummary {
+struct AccountUsageSummary: Codable {
     let lifetimeTokens: Int64?
     let peakDailyTokens: Int64?
     let longestRunningTurnSec: Int64?
@@ -367,12 +380,12 @@ struct AccountUsageSummary {
     let longestStreakDays: Int64?
 }
 
-struct AccountUsageDailyBucket {
+struct AccountUsageDailyBucket: Codable {
     let startDate: String
     let tokens: Int64
 }
 
-struct AccountUsageSnapshot {
+struct AccountUsageSnapshot: Codable {
     let summary: AccountUsageSummary
     let dailyUsageBuckets: [AccountUsageDailyBucket]
     let readAt: Date

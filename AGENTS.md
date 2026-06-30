@@ -1,4 +1,4 @@
-# Codex Token Meter Development Guide
+# AI Token Meter Development Guide
 
 ## Project Shape
 
@@ -11,10 +11,10 @@
 ## Build And Verification
 
 - Compile check: `./build.sh`
-- CLI parser check: `"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --window=week --quota=all`
-- Live quota check: `"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-live`
-- Service-status check: `"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-service-status`
-- Dashboard render check for UI changes: `"./build/Codex Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-dashboard=/tmp/codex-token-meter-dashboard.png`
+- CLI parser check: `"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --window=week --quota=all`
+- Live quota check: `"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-live`
+- Service-status check: `"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-service-status`
+- Dashboard render check for UI changes: `"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-dashboard=/tmp/ai-token-meter-dashboard.png`
 
 `--print-live`, `--print-profile`, `--print-service-status`, and dashboard rendering can depend on Codex login state or network availability. Do not treat their unavailability as a compile regression unless the failure is caused by local code.
 

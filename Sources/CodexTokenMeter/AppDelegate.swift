@@ -5,12 +5,6 @@ import UserNotifications
 
 // MARK: - App Lifecycle
 
-private struct DashboardReportBundle {
-    let report: TokenReport
-    let codexReport: TokenReport?
-    let claudeReport: TokenReport?
-}
-
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
@@ -35,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var liveRefreshTimer: Timer?
     private var activeScans: Set<ReportCacheKey> = []
     private var liveRefreshInFlight = false
+    private var detailsSnapshotPrewarmInFlight = false
     private var statusSpinnerTimer: Timer?
     private var statusSpinnerFrame = 0
     private var statusIsLoading = false
@@ -54,13 +49,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let quota = QuotaViewOption.option(from: rawQuota) {
             selectedQuota = quota
         }
-        if !QuotaViewOption.visibleCases.contains(selectedQuota) {
-            selectedQuota = QuotaViewOption.visibleCases.first ?? .codex
-        }
 
         NSApp.applicationIconImage = NSImage(named: "LogoHeader")
         popover.contentViewController = dashboardController
-        resizeDashboardPopover(to: dashboardController.dashboardView.preferredPopoverSize)
+        resizeDashboardPopover(to: DashboardView.idealSize)
         popover.behavior = .transient
         configureStatusButton()
 
@@ -76,6 +68,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dashboardController.dashboardView.onOpenDetails = { [weak self] in self?.openUsageDetailsWindow() }
         dashboardController.dashboardView.onOpenSettings = { [weak self] in self?.openSettingsWindow() }
         dashboardController.dashboardView.onOpenCodexStatus = { [weak self] in self?.openCodexStatusPage() }
+        dashboardController.dashboardView.onOpenPlatformStatus = { [weak self] option in
+            self?.openPlatformStatusPage(option)
+        }
         dashboardController.dashboardView.onQuit = { NSApp.terminate(nil) }
         detailsController.detailsView.onLanguageChanged = { [weak self] language in
             AppLanguage.current = language
@@ -93,10 +88,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onQuotaDisplayStyleChanged = { [weak self] style in
             self?.changeQuotaDisplayStyle(style)
         }
-        detailsController.detailsView.onPlanCostChanged = { [weak self] value in self?.changePlanCost(value) }
-        detailsController.detailsView.onPaymentStartDayChanged = { [weak self] value in self?.changePaymentStartDay(value) }
-        detailsController.detailsView.onPaymentCurrencyChanged = { [weak self] currency in self?.changePaymentCurrency(currency) }
-        detailsController.detailsView.onDisplayCurrencyChanged = { [weak self] currency in self?.changeDisplayCurrency(currency) }
+        detailsController.detailsView.onCodexHomeRingMetricChanged = { [weak self] metric in
+            self?.changeCodexHomeRingMetric(metric)
+        }
+        detailsController.detailsView.onClaudeHomeRingMetricChanged = { [weak self] metric in
+            self?.changeClaudeHomeRingMetric(metric)
+        }
+        detailsController.detailsView.onPlanCostChanged = { [weak self] value, source in self?.changePlanCost(value, source: source) }
+        detailsController.detailsView.onPaymentStartDayChanged = { [weak self] value, source in self?.changePaymentStartDay(value, source: source) }
+        detailsController.detailsView.onPaymentCurrencyChanged = { [weak self] currency, source in self?.changePaymentCurrency(currency, source: source) }
+        detailsController.detailsView.onDisplayCurrencyChanged = { [weak self] currency, source in self?.changeDisplayCurrency(currency, source: source) }
         detailsController.detailsView.onShowHistoricalEmptyWeeksChanged = { [weak self] isOn in self?.changeShowHistoricalEmptyWeeks(isOn) }
         detailsController.detailsView.onChooseLogFolder = { [weak self] in self?.chooseLogFolder() }
         detailsController.detailsView.onResetLogFolder = { [weak self] in self?.resetLogFolder() }
@@ -108,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyLanguage()
         QuotaWarningManager.shared.requestAuthorization()
 
+        reportCache = DashboardReportCacheStore.read()
         refresh(forceLive: false)
         refreshLiveLimits()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
@@ -118,6 +120,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func resizeDashboardPopover(to size: NSSize) {
+        guard popover.contentSize != size else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            dashboardController.preferredContentSize = size
+            dashboardController.view.frame = NSRect(origin: .zero, size: size)
+            dashboardController.dashboardView.frame = NSRect(origin: .zero, size: size)
+            dashboardController.dashboardView.layoutSubtreeIfNeeded()
+            popover.contentSize = size
+        }
+    }
+
     private func configureStatusButton() {
         statusItem.length = NSStatusItem.variableLength
         guard let button = statusItem.button else { return }
@@ -125,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.imagePosition = .imageLeading
         button.imageHugsTitle = true
         button.title = "--%"
-        button.toolTip = "Token Meter"
+        button.toolTip = "AI Token Meter"
         button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
         button.action = #selector(togglePopover)
         button.target = self
@@ -193,21 +208,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            resizeDashboardPopover(to: dashboardController.dashboardView.preferredPopoverSize)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            resizeDashboardPopover(to: dashboardController.dashboardView.preferredPopoverSize)
             NSApp.activate(ignoringOtherApps: true)
-        }
-    }
-
-    private func resizeDashboardPopover(to size: NSSize) {
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0
-            context.allowsImplicitAnimation = false
-            dashboardController.setDashboardSize(size)
-            popover.contentSize = size
-            dashboardController.setDashboardSize(size)
-            dashboardController.view.layoutSubtreeIfNeeded()
         }
     }
 
@@ -233,9 +235,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showCachedOrLoadingState() {
         let key = ReportCacheKey(window: selectedWindow, quota: selectedQuota)
+        let platformReports = cachedPlatformReports(window: selectedWindow, quota: selectedQuota)
         if let cached = reportCache[key] {
             latestState = DashboardState(
                 report: cached,
+                codexReport: platformReports.codex,
+                claudeReport: platformReports.claude,
                 profileReport: profileReport(window: selectedWindow, quota: selectedQuota, accountUsage: accountUsage, localReport: cached),
                 accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: cached),
@@ -252,6 +257,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             latestState = DashboardState(
                 report: TokenReport(scannedAt: Date()),
+                codexReport: platformReports.codex,
+                claudeReport: platformReports.claude,
                 profileReport: profileReport(window: selectedWindow, quota: selectedQuota, accountUsage: accountUsage, localReport: nil),
                 accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: nil),
@@ -268,15 +275,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func cachedPlatformReports(window: WindowOption, quota: QuotaViewOption) -> (codex: TokenReport?, claude: TokenReport?) {
+        guard quota == .all else { return (nil, nil) }
+        return (
+            reportCache[ReportCacheKey(window: window, quota: .codex)],
+            reportCache[ReportCacheKey(window: window, quota: .claude)]
+        )
+    }
+
     private func refresh(forceLive: Bool) {
         let window = selectedWindow
         let quota = selectedQuota
         let key = ReportCacheKey(window: window, quota: quota)
         guard !activeScans.contains(key) else { return }
         activeScans.insert(key)
+        let platformReports = cachedPlatformReports(window: window, quota: quota)
 
         latestState = DashboardState(
             report: reportCache[key] ?? TokenReport(scannedAt: Date()),
+            codexReport: platformReports.codex,
+            claudeReport: platformReports.claude,
             profileReport: profileReport(window: window, quota: quota, accountUsage: accountUsage, localReport: reportCache[key]),
             accountUsage: accountUsage,
             costReferenceReport: costReferenceReport(quota: quota, fallback: reportCache[key]),
@@ -285,7 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             selectedWindow: window,
             selectedQuota: quota,
             nextRefreshAt: latestState.nextRefreshAt,
-            isLoading: reportCache[key] == nil,
+            isLoading: true,
             error: nil
         )
         dashboardController.dashboardView.update(latestState)
@@ -294,19 +312,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentAccountUsage = accountUsage
 
         scanQueue.async {
-            let bundle = self.scanReportBundle(window: window, quota: quota)
-            let report = bundle.report
-            let accountUsage = self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
-            let limits = forceLive ? self.rateLimitReader.read() : currentLimits
-            if forceLive, !limits.isEmpty {
-                AppSettings.learnModelLimit(from: limits)
-                CostHistoryStore.shared.record(limits: limits)
-                QuotaWarningManager.shared.evaluate(limits: limits)
+            let codexReport: TokenReport?
+            let claudeReport: TokenReport?
+            let report: TokenReport
+            if quota == .all {
+                let codex = self.scanner.scan(window: window)
+                let claude = self.claudeScanner.scan(window: window)
+                codexReport = codex
+                claudeReport = claude
+                report = mergedTokenReport([codex, claude])
+            } else {
+                codexReport = nil
+                claudeReport = nil
+                report = self.scanReport(window: window, source: quota)
+            }
+            let accountUsage = quota.usesCodexProfileAPI ? self.readAccountUsageIfNeeded(fallback: currentAccountUsage) : currentAccountUsage
+            let freshLimits = forceLive ? combinedLiveLimits(codexReader: self.rateLimitReader) : currentLimits
+            let limits = forceLive ? self.mergedLiveLimits(fresh: freshLimits, fallback: currentLimits) : currentLimits
+            let codexLimits = limits.filter { $0.id != QuotaViewOption.claude.liveLimitID }
+            if forceLive, !codexLimits.isEmpty {
+                AppSettings.learnModelLimit(from: codexLimits)
+                CostHistoryStore.shared.record(limits: codexLimits)
+                QuotaWarningManager.shared.evaluate(limits: codexLimits)
             }
             let nextRefresh = Date().addingTimeInterval(self.refreshInterval)
             DispatchQueue.main.async {
                 self.activeScans.remove(key)
                 self.reportCache[key] = report
+                if let codexReport {
+                    self.reportCache[ReportCacheKey(window: window, quota: .codex)] = codexReport
+                }
+                if let claudeReport {
+                    self.reportCache[ReportCacheKey(window: window, quota: .claude)] = claudeReport
+                }
+                DashboardReportCacheStore.write(self.reportCache)
                 if let accountUsage {
                     self.accountUsage = accountUsage
                 } else if !AppSettings.profileAPITotalsEnabled {
@@ -316,11 +355,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.liveLimits = limits
                 }
                 if self.selectedWindow == window && self.selectedQuota == quota {
+                    let cachedPlatforms = self.cachedPlatformReports(window: window, quota: quota)
                     let effectiveLimits = forceLive && !limits.isEmpty ? limits : self.liveLimits
                     self.latestState = DashboardState(
                         report: report,
-                        codexReport: bundle.codexReport,
-                        claudeReport: bundle.claudeReport,
+                        codexReport: codexReport ?? cachedPlatforms.codex,
+                        claudeReport: claudeReport ?? cachedPlatforms.claude,
                         profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage, localReport: report),
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
@@ -343,6 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.dashboardController.dashboardView.update(self.latestState)
                 }
                 self.prewarmAllWindows()
+                self.prewarmDetailsSnapshot()
             }
         }
     }
@@ -350,12 +391,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshLiveLimits() {
         guard !liveRefreshInFlight else { return }
         liveRefreshInFlight = true
+        let currentLimits = liveLimits
         liveQueue.async {
-            let limits = self.rateLimitReader.read()
+            let freshLimits = combinedLiveLimits(codexReader: self.rateLimitReader)
+            let limits = self.mergedLiveLimits(fresh: freshLimits, fallback: currentLimits)
+            let codexLimits = limits.filter { $0.id != QuotaViewOption.claude.liveLimitID }
             let serviceStatus = self.serviceStatusReader.read()
-            AppSettings.learnModelLimit(from: limits)
-            CostHistoryStore.shared.record(limits: limits)
-            QuotaWarningManager.shared.evaluate(limits: limits)
+            AppSettings.learnModelLimit(from: codexLimits)
+            CostHistoryStore.shared.record(limits: codexLimits)
+            QuotaWarningManager.shared.evaluate(limits: codexLimits)
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             DispatchQueue.main.async {
                 self.liveRefreshInFlight = false
@@ -379,8 +423,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func mergedLiveLimits(fresh: [LiveRateLimit], fallback: [LiveRateLimit]) -> [LiveRateLimit] {
+        guard !fresh.isEmpty else { return fallback }
+        var merged = fallback
+        for limit in fresh {
+            if let index = merged.firstIndex(where: { $0.id == limit.id }) {
+                merged[index] = limit
+            } else {
+                merged.append(limit)
+            }
+        }
+        return merged
+    }
+
     private func prewarmAllWindows() {
-        for quota in QuotaViewOption.visibleCases {
+        for quota in QuotaViewOption.allCases {
             prewarm(window: .day, quota: quota)
             prewarm(window: .week, quota: quota)
             prewarm(window: .month, quota: quota)
@@ -392,17 +449,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard reportCache[key] == nil, !activeScans.contains(key) else { return }
         activeScans.insert(key)
         scanQueue.async {
-            let bundle = self.scanReportBundle(window: window, quota: quota)
-            let report = bundle.report
+            let report = self.scanReport(window: window, source: quota)
             DispatchQueue.main.async {
                 self.activeScans.remove(key)
                 self.reportCache[key] = report
+                DashboardReportCacheStore.write(self.reportCache)
                 self.updateStatusTitle(report: self.latestState.report, limits: self.liveLimits, quota: self.latestState.selectedQuota)
                 if self.selectedWindow == window && self.selectedQuota == quota {
+                    let platformReports = self.cachedPlatformReports(window: window, quota: quota)
                     self.latestState = DashboardState(
                         report: report,
-                        codexReport: bundle.codexReport,
-                        claudeReport: bundle.claudeReport,
+                        codexReport: platformReports.codex,
+                        claudeReport: platformReports.claude,
                         profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage, localReport: report),
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
@@ -419,36 +477,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else if window == .week && self.selectedQuota == quota {
                     self.latestState.costReferenceReport = report
                     self.dashboardController.dashboardView.update(self.latestState)
+                } else if self.selectedWindow == window && self.selectedQuota == .all && quota != .all {
+                    if quota == .codex {
+                        self.latestState.codexReport = report
+                    } else if quota == .claude {
+                        self.latestState.claudeReport = report
+                    }
+                    self.dashboardController.dashboardView.update(self.latestState)
                 }
             }
+        }
+    }
+
+    private func scanReport(window: WindowOption, source: QuotaViewOption) -> TokenReport {
+        switch source {
+        case .all:
+            return mergedTokenReport([
+                scanner.scan(window: window),
+                claudeScanner.scan(window: window)
+            ])
+        case .codex:
+            return scanner.scan(window: window)
+        case .claude:
+            return claudeScanner.scan(window: window)
+        }
+    }
+
+    private func scanReport(days: Int, source: QuotaViewOption) -> TokenReport {
+        switch source {
+        case .all:
+            return mergedTokenReport([
+                scanner.scan(days: days),
+                claudeScanner.scan(days: days)
+            ])
+        case .codex:
+            return scanner.scan(days: days)
+        case .claude:
+            return claudeScanner.scan(days: days)
         }
     }
 
     private func readAccountUsageIfNeeded(fallback: AccountUsageSnapshot?) -> AccountUsageSnapshot? {
         guard AppSettings.profileAPITotalsEnabled else { return nil }
         return accountUsageReader.read() ?? fallback
-    }
-
-    private func scanReport(window: WindowOption, quota: QuotaViewOption) -> TokenReport {
-        scanReportBundle(window: window, quota: quota).report
-    }
-
-    private func scanReportBundle(window: WindowOption, quota: QuotaViewOption) -> DashboardReportBundle {
-        switch quota {
-        case .claude:
-            let claude = claudeScanner.scan(window: window)
-            return DashboardReportBundle(report: claude, codexReport: nil, claudeReport: claude)
-        case .all:
-            let codex = scanner.scan(window: window)
-            let claude = claudeScanner.scan(window: window)
-            return DashboardReportBundle(report: mergedTokenReports([codex, claude], scannedAt: Date()), codexReport: codex, claudeReport: claude)
-        case .codex:
-            let codex = scanner.scan(window: window)
-            return DashboardReportBundle(report: codex, codexReport: codex, claudeReport: nil)
-        default:
-            let report = scanner.scan(window: window, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
-            return DashboardReportBundle(report: report, codexReport: report, claudeReport: nil)
-        }
     }
 
     private func profileReport(window: WindowOption, quota: QuotaViewOption, accountUsage: AccountUsageSnapshot?, localReport: TokenReport?) -> TokenReport? {
@@ -533,13 +604,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func statusValueIsPending(option: StatusDisplayOption, quota: QuotaViewOption, limits: [LiveRateLimit]) -> Bool {
         switch option {
         case .fiveHourPercent:
-            return limits.isEmpty && selectedLimit(from: limits, quota: quota)?.primary.remainingPercent == nil && liveRefreshInFlight
+            return selectedLimit(from: limits, quota: quota)?.primary.remainingPercent == nil && liveRefreshInFlight
         case .weeklyPercent:
-            return limits.isEmpty && selectedLimit(from: limits, quota: quota)?.secondary.remainingPercent == nil && liveRefreshInFlight
+            return selectedLimit(from: limits, quota: quota)?.secondary.remainingPercent == nil && liveRefreshInFlight
         case .weeklyTokens, .dailyTokens:
             guard let window = option.requiredReportWindow else { return false }
             let key = ReportCacheKey(window: window, quota: quota)
-            return reportCache[key] == nil && activeScans.contains(key)
+            return reportCache[key] == nil || activeScans.contains(key)
         }
     }
 
@@ -562,8 +633,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let exact = limits.first(where: { $0.id == quota.liveLimitID }) {
             return exact
         }
-        if quota == .spark {
-            return limits.first { $0.id != QuotaViewOption.all.liveLimitID }
+        if quota == .all || quota == .codex {
+            return limits.first { $0.id == QuotaViewOption.codex.liveLimitID } ?? limits.first
         }
         return nil
     }
@@ -574,6 +645,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openCodexStatusPage() {
         guard let url = URL(string: "https://status.openai.com") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func openPlatformStatusPage(_ option: QuotaViewOption) {
+        let rawURL: String
+        switch option {
+        case .all, .codex:
+            rawURL = "https://status.openai.com"
+        case .claude:
+            rawURL = "https://status.claude.com"
+        }
+        guard let url = URL(string: rawURL) else { return }
         NSWorkspace.shared.open(url)
     }
 
@@ -595,34 +678,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         reloadScannerFromSettings()
     }
 
-    private func changePlanCost(_ value: Double) {
-        AppSettings.monthlyPlanCost = value
+    private func changePlanCost(_ value: Double, source: QuotaViewOption) {
+        AppSettings.setMonthlyPlanCost(value, for: source)
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
     }
 
-    private func changePaymentStartDay(_ value: String) {
-        AppSettings.paymentStartDay = value
+    private func changePaymentStartDay(_ value: String, source: QuotaViewOption) {
+        AppSettings.setPaymentStartDay(value, for: source)
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
     }
 
-    private func changePaymentCurrency(_ currency: CurrencyCode) {
-        let oldCurrency = AppSettings.paymentCurrency
+    private func changePaymentCurrency(_ currency: CurrencyCode, source: QuotaViewOption) {
+        let oldCurrency = AppSettings.paymentCurrency(for: source)
         guard oldCurrency != currency else { return }
-        AppSettings.monthlyPlanCost = convertCurrency(AppSettings.monthlyPlanCost, from: oldCurrency, to: currency)
-        AppSettings.paymentCurrency = currency
-        if UserDefaults.standard.string(forKey: AppSettings.displayCurrencyKey) == nil {
-            AppSettings.displayCurrency = currency
+        AppSettings.setMonthlyPlanCost(convertCurrency(AppSettings.monthlyPlanCost(for: source), from: oldCurrency, to: currency), for: source)
+        AppSettings.setPaymentCurrency(currency, for: source)
+        if !AppSettings.hasDisplayCurrency(for: source) {
+            AppSettings.setDisplayCurrency(currency, for: source)
         }
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
     }
 
-    private func changeDisplayCurrency(_ currency: CurrencyCode) {
-        AppSettings.displayCurrency = currency
+    private func changeDisplayCurrency(_ currency: CurrencyCode, source: QuotaViewOption) {
+        AppSettings.setDisplayCurrency(currency, for: source)
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
@@ -639,6 +722,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         QuotaDisplayStyle.current = style
         detailsController.detailsView.needsDisplay = true
         dashboardController.dashboardView.needsLayout = true
+        dashboardController.dashboardView.update(latestState)
+    }
+
+    private func changeCodexHomeRingMetric(_ metric: HomeQuotaRingMetric) {
+        AppSettings.codexHomeRingMetric = metric
+        detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
+        dashboardController.dashboardView.update(latestState)
+    }
+
+    private func changeClaudeHomeRingMetric(_ metric: HomeQuotaRingMetric) {
+        AppSettings.claudeHomeRingMetric = metric
+        detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
     }
 
@@ -695,9 +792,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func reloadScannerFromSettings() {
         scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
-        claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
         reportCache.removeAll()
         activeScans.removeAll()
+        DashboardReportCacheStore.write(reportCache)
+        DetailsSnapshotCacheStore.remove()
         detailsController.detailsView.needsDisplay = true
         refresh(forceLive: false)
     }
@@ -715,7 +813,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func openDetailsWindow() {
         detailsLoadGeneration += 1
         let loadGeneration = detailsLoadGeneration
-        detailsController.showLoading()
+        let cachedSnapshot = DetailsSnapshotCacheStore.read().map(hydratedDetailsSnapshot)
+        if let cachedSnapshot {
+            detailsController.showCached(snapshot: cachedSnapshot)
+        } else {
+            detailsController.showLoading()
+        }
         if liveLimits.isEmpty {
             refreshLiveLimits()
         }
@@ -729,25 +832,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         scanQueue.async {
-            updateProgress(0.12, .loadingAllUsage)
-            let codex = self.scanner.scan(days: 365)
-            let claude = self.claudeScanner.scan(days: 365)
-            let all = mergedTokenReports([codex, claude], scannedAt: Date())
-            updateProgress(0.28, .loadingSparkUsage)
-            let spark = self.scanner.scan(days: 365, includedModelName: QuotaViewOption.spark.includedModelName)
-            updateProgress(0.44, .loadingOtherUsage)
-            let other = self.scanner.scan(days: 365, excludedModelName: QuotaViewOption.other.excludedModelName)
-            updateProgress(0.62, .loadingRepoInsights)
-            let repoInsightReports = self.scanner.scanRepoInsights(windows: [7, 30, 90])
-            let repoInsights = repoInsightReports[90] ?? self.scanner.scanRepoInsights(days: 90)
-            updateProgress(0.82, .loadingProfileTotals)
-            let costReferenceReport = self.liveCostReferenceReport(limits: limits)
-            let accountUsage = self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
-            updateProgress(0.94, .loadingFinalizing)
-            let snapshot = DetailsSnapshot(all: all, codex: codex, claude: claude, spark: spark, other: other, repoInsights: repoInsights, repoInsightReports: repoInsightReports, liveLimits: limits, serviceStatus: currentServiceStatus, costReferenceReport: costReferenceReport, accountUsage: accountUsage)
+            let snapshot = self.buildDetailsSnapshot(
+                limits: limits,
+                serviceStatus: currentServiceStatus,
+                currentAccountUsage: currentAccountUsage,
+                updateProgress: updateProgress
+            )
+            DetailsSnapshotCacheStore.write(snapshot)
             DispatchQueue.main.async {
                 guard self.detailsLoadGeneration == loadGeneration else { return }
-                if let accountUsage {
+                if let accountUsage = snapshot.accountUsage {
                     self.accountUsage = accountUsage
                     self.latestState.accountUsage = accountUsage
                     self.latestState.profileReport = self.profileReport(window: self.latestState.selectedWindow, quota: self.latestState.selectedQuota, accountUsage: accountUsage, localReport: self.latestState.report)
@@ -763,10 +857,105 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func prewarmDetailsSnapshot() {
+        guard !detailsSnapshotPrewarmInFlight,
+              detailsController.window?.isVisible != true,
+              !DetailsSnapshotCacheStore.isFresh(maxAge: 10 * 60) else { return }
+        detailsSnapshotPrewarmInFlight = true
+        let limits = liveLimits
+        let currentServiceStatus = serviceStatus
+        let currentAccountUsage = accountUsage
+        scanQueue.async {
+            let snapshot = self.buildDetailsSnapshot(
+                limits: limits,
+                serviceStatus: currentServiceStatus,
+                currentAccountUsage: currentAccountUsage,
+                updateProgress: nil
+            )
+            DetailsSnapshotCacheStore.write(snapshot)
+            DispatchQueue.main.async {
+                self.detailsSnapshotPrewarmInFlight = false
+                if let accountUsage = snapshot.accountUsage {
+                    self.accountUsage = accountUsage
+                } else if !AppSettings.profileAPITotalsEnabled {
+                    self.accountUsage = nil
+                }
+            }
+        }
+    }
+
+    private func hydratedDetailsSnapshot(_ snapshot: DetailsSnapshot) -> DetailsSnapshot {
+        var hydrated = snapshot
+        if !liveLimits.isEmpty {
+            hydrated.liveLimits = liveLimits
+            hydrated.costReferenceReport = liveCostReferenceReport(limits: liveLimits) ?? hydrated.costReferenceReport
+        }
+        if let serviceStatus {
+            hydrated.serviceStatus = serviceStatus
+        }
+        if AppSettings.profileAPITotalsEnabled {
+            if let accountUsage {
+                hydrated.accountUsage = accountUsage
+            }
+        } else {
+            hydrated.accountUsage = nil
+        }
+        return hydrated
+    }
+
+    private func buildDetailsSnapshot(
+        limits: [LiveRateLimit],
+        serviceStatus: CodexServiceStatusSnapshot?,
+        currentAccountUsage: AccountUsageSnapshot?,
+        updateProgress: ((Double, L10nKey) -> Void)?
+    ) -> DetailsSnapshot {
+        updateProgress?(0.12, .loadingCodexUsage)
+        let codex = scanner.scan(days: 365)
+        updateProgress?(0.28, .loadingClaudeUsage)
+        let claude = claudeScanner.scan(days: 365)
+        updateProgress?(0.44, .loadingAllUsage)
+        let all = mergedTokenReport([codex, claude])
+        updateProgress?(0.62, .loadingRepoInsights)
+        let codexRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90])
+        let claudeRepoInsightReports = claudeScanner.scanRepoInsights(windows: [7, 30, 90])
+        let repoInsightReports = Dictionary(uniqueKeysWithValues: [7, 30, 90].map { days in
+            let report = mergedRepoInsightsReport(
+                [
+                    codexRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days),
+                    claudeRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days)
+                ],
+                windowDays: days
+            )
+            return (days, report)
+        })
+        let repoInsights = repoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+        let codexRepoInsights = codexRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+        let claudeRepoInsights = claudeRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+        updateProgress?(0.82, .loadingProfileTotals)
+        let costReferenceReport = liveCostReferenceReport(limits: limits)
+        let accountUsage = readAccountUsageIfNeeded(fallback: currentAccountUsage)
+        updateProgress?(0.94, .loadingFinalizing)
+        return DetailsSnapshot(
+            all: all,
+            codex: codex,
+            claude: claude,
+            repoInsights: repoInsights,
+            repoInsightReports: repoInsightReports,
+            codexRepoInsights: codexRepoInsights,
+            codexRepoInsightReports: codexRepoInsightReports,
+            claudeRepoInsights: claudeRepoInsights,
+            claudeRepoInsightReports: claudeRepoInsightReports,
+            liveLimits: limits,
+            serviceStatus: serviceStatus,
+            costReferenceReport: costReferenceReport,
+            accountUsage: accountUsage
+        )
+    }
+
     private func summaryText(state: DashboardState) -> String {
         let report = state.report
         var lines = [
-            "Token Meter - \(state.selectedWindow.title)",
+            "AI Token Meter - \(state.selectedWindow.title)",
             "Scanned: \(localFormatter.string(from: report.scannedAt)) Asia/Shanghai",
             "Next refresh: \(localFormatter.string(from: state.nextRefreshAt)) Asia/Shanghai",
             "Sessions: \(report.sessions)",
@@ -782,14 +971,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for limit in state.liveLimits {
             lines.append("\(limit.name): 5h \(limit.primary.usedPercent)% used, weekly \(limit.secondary.usedPercent)% used")
         }
+        let costSource = state.selectedQuota
         if let limit = selectedLimit(from: state.liveLimits, quota: state.selectedQuota),
-           let estimate = planCostEstimate(report: report, selectedDay: nil, limit: limit) {
-            lines.append("Payment currency: \(AppSettings.paymentCurrency.rawValue)")
-            lines.append("Display currency: \(AppSettings.displayCurrency.rawValue)")
-            lines.append("Plan cost: \(paymentMoney(estimate.monthlyCost))/month")
-            lines.append("Today value: \(displayMoney(estimate.todayValue))")
-            lines.append("Weekly used value: \(displayMoney(estimate.weeklyUsedValue))")
-            lines.append("Weekly unused value: \(displayMoney(estimate.weeklyUnusedValue))")
+           let estimate = planCostEstimate(
+            report: report,
+            selectedDay: nil,
+            limit: limit,
+            monthlyCost: AppSettings.monthlyPlanCost(for: costSource),
+            paymentStartDay: AppSettings.paymentStartDay(for: costSource)
+           ) {
+            lines.append("Payment currency: \(AppSettings.paymentCurrency(for: costSource).rawValue)")
+            lines.append("Display currency: \(AppSettings.displayCurrency(for: costSource).rawValue)")
+            lines.append("Plan cost: \(paymentMoney(estimate.monthlyCost, source: costSource))/month")
+            lines.append("Today value: \(displayMoney(estimate.todayValue, source: costSource))")
+            lines.append("Weekly used value: \(displayMoney(estimate.weeklyUsedValue, source: costSource))")
+            lines.append("Weekly unused value: \(displayMoney(estimate.weeklyUnusedValue, source: costSource))")
         }
         lines.append("By day:")
         for day in report.byDay {

@@ -53,7 +53,7 @@ final class RingView: NSView {
                 end: end
             )
         } else {
-            let pText = "\(Int(round(percent)))%"
+            let pText = percent < 0 ? "--" : "\(Int(round(percent)))%"
             drawCenteredAt(pText, center: center, font: meterNumberFont(ofSize: 23), color: .white)
         }
         drawCentered(title, rect: NSRect(x: bounds.minX, y: rect.maxY + 2, width: bounds.width, height: 18), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.86))
@@ -247,7 +247,7 @@ final class QuotaBulletView: NSView {
         super.draw(dirtyRect)
         let bounds = self.bounds.insetBy(dx: 2, dy: 2)
         let valueFont = meterNumberFont(ofSize: 16)
-        let value = "\(Int(round(actualRemainingPercent)))%"
+        let value = actualRemainingPercent < 0 ? "--" : "\(Int(round(actualRemainingPercent)))%"
         let valueWidth = max(48, measuredTextWidth(value, font: valueFont) + 4)
         let titleFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
         let titleWidth = min(bounds.width - valueWidth - 16, measuredTextWidth(title, font: titleFont) + 2)
@@ -349,13 +349,24 @@ final class UsageChartView: NSView {
     var selectedWindow: WindowOption = .week { didSet { needsDisplay = true } }
     var days: [DayUsage] = [] { didSet { hoveredIndex = nil; needsDisplay = true } }
     var hours: [HourUsage] = [] { didSet { hoveredIndex = nil; needsDisplay = true } }
+    var codexDays: [DayUsage] = [] { didSet { needsDisplay = true } }
+    var codexHours: [HourUsage] = [] { didSet { needsDisplay = true } }
+    var claudeDays: [DayUsage] = [] { didSet { needsDisplay = true } }
+    var claudeHours: [HourUsage] = [] { didSet { needsDisplay = true } }
     var scannedAt: Date? { didSet { hoveredIndex = nil; needsDisplay = true } }
     var weeklyQuotaUsedPercent: Double? { didSet { needsDisplay = true } }
     var weeklyQuotaReferenceTotal: Int64? { didSet { needsDisplay = true } }
     var costEstimator: CostEstimator? { didSet { needsDisplay = true } }
+    var costSource: QuotaViewOption = .all { didSet { needsDisplay = true } }
     var apiEstimate: APICostEstimate? { didSet { needsDisplay = true } }
     private var hoveredIndex: Int?
     private var hoverPoint: CGPoint?
+
+    private struct TooltipLine {
+        let text: String
+        let color: NSColor
+        let isTitle: Bool
+    }
 
     override var isFlipped: Bool { true }
 
@@ -567,46 +578,59 @@ final class UsageChartView: NSView {
         guard let hoveredIndex, let hoverPoint else { return }
         let title: String
         let usage: Usage
+        let codexUsage: Usage?
+        let claudeUsage: Usage?
 
         if selectedWindow == .day {
             let series = continuousHours()
             guard series.indices.contains(hoveredIndex) else { return }
+            let hour = series[hoveredIndex].hour
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
             formatter.dateFormat = "MM/dd HH:mm"
-            title = formatter.string(from: series[hoveredIndex].hour)
+            title = formatter.string(from: hour)
             usage = series[hoveredIndex].usage
+            codexUsage = usageForHour(hour, in: codexHours)
+            claudeUsage = usageForHour(hour, in: claudeHours)
         } else {
             guard days.indices.contains(hoveredIndex) else { return }
             title = days[hoveredIndex].day
             usage = days[hoveredIndex].usage
+            codexUsage = usageForDay(title, in: codexDays)
+            claudeUsage = usageForDay(title, in: claudeDays)
         }
 
         var lines = [
-            title,
-            "\(t(.input))       \(compact(usage.input))",
-            "\(t(.output))      \(compact(usage.output))",
-            "\(t(.cached))      \(compact(usage.cachedInput))",
-            "\(t(.fresh))       \(compact(usage.freshInput))"
+            TooltipLine(text: title, color: NSColor.white.withAlphaComponent(0.9), isTitle: true)
         ]
+        if let codexUsage, let claudeUsage, codexUsage.total + claudeUsage.total > 0 {
+            lines.append(TooltipLine(text: "Codex      \(compact(codexUsage.total))", color: platformBrandColor(.codex), isTitle: false))
+            lines.append(TooltipLine(text: "Claude     \(compact(claudeUsage.total))", color: platformBrandColor(.claude), isTitle: false))
+        }
+        lines.append(contentsOf: [
+            TooltipLine(text: "\(t(.input))       \(compact(usage.input))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false),
+            TooltipLine(text: "\(t(.output))      \(compact(usage.output))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false),
+            TooltipLine(text: "\(t(.cached))      \(compact(usage.cachedInput))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false),
+            TooltipLine(text: "\(t(.fresh))       \(compact(usage.freshInput))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false)
+        ])
         if let weeklyQuotaPercent = stableWeeklyQuotaShare(for: usage) ?? weeklyQuotaShare(for: usage) {
-            lines.append("\(t(.weeklyQuotaShare))   \(String(format: "%.1f%%", weeklyQuotaPercent))")
+            lines.append(TooltipLine(text: "\(t(.weeklyQuotaShare))   \(String(format: "%.1f%%", weeklyQuotaPercent))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false))
         } else if let visibleWeekPercent = visibleWeekShare(for: usage) {
-            lines.append("\(t(.visibleWeekShare)) \(String(format: "%.1f%%", visibleWeekPercent))")
+            lines.append(TooltipLine(text: "\(t(.visibleWeekShare)) \(String(format: "%.1f%%", visibleWeekPercent))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false))
         }
         if let costEstimator {
             if selectedWindow == .day {
-                lines.append("\(t(.dayValue))  \(displayMoney(costEstimator.value(for: usage)))")
+                lines.append(TooltipLine(text: "\(t(.dayValue))  \(displayMoney(costEstimator.value(for: usage), source: costSource))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false))
             } else {
-                lines.append("\(t(.dayValue))  \(displayMoney(costEstimator.tokenValue(forDayKey: title, usage: usage)))")
+                lines.append(TooltipLine(text: "\(t(.dayValue))  \(displayMoney(costEstimator.tokenValue(forDayKey: title, usage: usage), source: costSource))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false))
             }
         }
         if let apiEquivalentUSD = apiEquivalentUSD(for: title, usage: usage) {
-            lines.append("\(t(.apiEquivalent))  \(displayAPIMoney(apiEquivalentUSD))")
+            lines.append(TooltipLine(text: "\(t(.apiEquivalent))  \(displayAPIMoney(apiEquivalentUSD, source: costSource))", color: NSColor.white.withAlphaComponent(0.62), isTitle: false))
         }
 
-        let width: CGFloat = 244
+        let width: CGFloat = 256
         let height = CGFloat(18 + lines.count * 16)
         var origin = CGPoint(x: hoverPoint.x + 12, y: hoverPoint.y - height - 8)
         if origin.x + width > bounds.maxX - 8 {
@@ -627,15 +651,33 @@ final class UsageChartView: NSView {
         border.stroke()
 
         for (index, line) in lines.enumerated() {
-            let isTitle = index == 0
             let textRect = NSRect(x: rect.minX + 10, y: rect.minY + 8 + CGFloat(index) * 16, width: rect.width - 20, height: 15)
-            (line as NSString).draw(
+            (line.text as NSString).draw(
                 in: textRect,
                 withAttributes: [
-                    .font: isTitle ? NSFont.systemFont(ofSize: 11, weight: .bold) : NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium),
-                    .foregroundColor: isTitle ? NSColor.white.withAlphaComponent(0.9) : NSColor.white.withAlphaComponent(0.62)
+                    .font: line.isTitle ? NSFont.systemFont(ofSize: 11, weight: .bold) : NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium),
+                    .foregroundColor: line.color
                 ]
             )
+        }
+    }
+
+    private func usageForHour(_ hour: Date, in rows: [HourUsage]) -> Usage? {
+        rows.first { $0.hour == hour }?.usage ?? Usage()
+    }
+
+    private func usageForDay(_ day: String, in rows: [DayUsage]) -> Usage? {
+        rows.first { $0.day == day }?.usage ?? Usage()
+    }
+
+    private func platformBrandColor(_ target: QuotaViewOption) -> NSColor {
+        switch target {
+        case .codex:
+            return NSColor(calibratedRed: 0.45, green: 0.50, blue: 1.00, alpha: 1.0)
+        case .claude:
+            return NSColor(calibratedRed: 0.898, green: 0.420, blue: 0.278, alpha: 1.0)
+        case .all:
+            return .white
         }
     }
 
@@ -752,70 +794,13 @@ final class CodexStatusChipView: NSView {
 
 final class PlatformQuotaOverviewView: NSView {
     var limits: [LiveRateLimit] = [] { didSet { needsDisplay = true } }
-    var codexReport: TokenReport? { didSet { needsDisplay = true } }
-    var claudeReport: TokenReport? { didSet { needsDisplay = true } }
+    var selectedQuota: QuotaViewOption = .all { didSet { needsDisplay = true } }
 
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let codexLimit = limits.first { $0.id == QuotaViewOption.codex.liveLimitID }
-        let claudeLimit = limits.first { $0.id == QuotaViewOption.claude.liveLimitID }
-
-        drawRingBlock(
-            title: "Codex",
-            subtitle: t(.weeklyLeft),
-            reset: codexLimit?.secondary.resetsAt,
-            percent: codexLimit?.secondary.remainingPercent,
-            accent: NSColor(calibratedRed: 0.45, green: 0.50, blue: 1.00, alpha: 1.0),
-            center: NSPoint(x: bounds.minX + bounds.width * 0.28, y: bounds.minY + 72)
-        )
-        drawRingBlock(
-            title: "Claude",
-            subtitle: t(.weeklyLeft),
-            reset: claudeLimit?.secondary.resetsAt,
-            percent: claudeLimit?.secondary.remainingPercent,
-            accent: NSColor(calibratedRed: 0.898, green: 0.420, blue: 0.278, alpha: 1.0),
-            center: NSPoint(x: bounds.minX + bounds.width * 0.72, y: bounds.minY + 72)
-        )
-
-        let table = NSRect(x: bounds.minX, y: bounds.minY + 194, width: bounds.width, height: 130)
-        drawTable(table, codexLimit: codexLimit, claudeLimit: claudeLimit)
-    }
-
-    private func drawRingBlock(title: String, subtitle: String, reset: Date?, percent: Double?, accent: NSColor, center: NSPoint) {
-        let value = percent ?? -1
-        drawRing(center: center, radius: 46, lineWidth: 10, percent: value, color: colorForRemaining(value))
-        drawText(
-            value < 0 ? "--" : "\(Int(round(value)))%",
-            rect: NSRect(x: center.x - 50, y: center.y - 15, width: 100, height: 32),
-            font: .monospacedDigitSystemFont(ofSize: 25, weight: .bold),
-            color: .white,
-            alignment: .center
-        )
-        drawText(title, rect: NSRect(x: center.x - 66, y: center.y + 54, width: 132, height: 20), font: .systemFont(ofSize: 14, weight: .bold), color: accent, alignment: .center)
-        drawText(subtitle, rect: NSRect(x: center.x - 66, y: center.y + 74, width: 132, height: 16), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62), alignment: .center)
-        drawText(reset.map { "\(t(.reset)) \(compactResetRelative($0))" } ?? t(.usageWindow), rect: NSRect(x: center.x - 66, y: center.y + 90, width: 132, height: 15), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42), alignment: .center)
-    }
-
-    private func drawRing(center: NSPoint, radius: CGFloat, lineWidth: CGFloat, percent: Double, color: NSColor) {
-        NSColor.white.withAlphaComponent(0.16).setStroke()
-        let base = NSBezierPath()
-        base.appendArc(withCenter: center, radius: radius, startAngle: 125, endAngle: 415)
-        base.lineWidth = lineWidth
-        base.lineCapStyle = .round
-        base.stroke()
-
-        guard percent >= 0 else { return }
-        color.setStroke()
-        let arc = NSBezierPath()
-        arc.appendArc(withCenter: center, radius: radius, startAngle: 125, endAngle: 125 + 290 * CGFloat(min(100, percent) / 100))
-        arc.lineWidth = lineWidth
-        arc.lineCapStyle = .round
-        arc.stroke()
-    }
-
-    private func drawTable(_ table: NSRect, codexLimit: LiveRateLimit?, claudeLimit: LiveRateLimit?) {
+        let table = bounds.insetBy(dx: 0, dy: 0)
         NSColor.white.withAlphaComponent(0.055).setFill()
         NSBezierPath(roundedRect: table, xRadius: 8, yRadius: 8).fill()
         NSColor.white.withAlphaComponent(0.13).setStroke()
@@ -823,38 +808,493 @@ final class PlatformQuotaOverviewView: NSView {
         border.lineWidth = 1
         border.stroke()
 
-        drawText("平台", rect: NSRect(x: table.minX + 14, y: table.minY + 10, width: 70, height: 16), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.55), alignment: .left)
-        drawText("5h", rect: NSRect(x: table.minX + 102, y: table.minY + 10, width: 60, height: 16), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.55), alignment: .left)
-        drawText("\(t(.input)) / \(t(.output))", rect: NSRect(x: table.minX + 178, y: table.minY + 10, width: 110, height: 16), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.55), alignment: .left)
-        drawText("状态", rect: NSRect(x: table.minX + 304, y: table.minY + 10, width: 64, height: 16), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.55), alignment: .left)
-        drawSeparator(y: table.minY + 32, in: table, alpha: 0.10)
-        drawRow(table: table, y: table.minY + 40, title: "Codex", report: codexReport, limit: codexLimit, accent: NSColor(calibratedRed: 0.45, green: 0.50, blue: 1.00, alpha: 1.0))
-        drawSeparator(y: table.minY + 78, in: table, alpha: 0.07)
-        drawRow(table: table, y: table.minY + 86, title: "Claude", report: claudeReport, limit: claudeLimit, accent: NSColor(calibratedRed: 0.898, green: 0.420, blue: 0.278, alpha: 1.0))
+        let headerHeight: CGFloat = 34
+        let rowHeight = floor((table.height - headerHeight) / 2)
+        let columns = columnRects(in: table)
+        drawHeader(table: table, columns: columns, height: headerHeight)
+
+        let codexRect = NSRect(x: table.minX, y: table.minY + headerHeight, width: table.width, height: rowHeight)
+        let claudeRect = NSRect(x: table.minX, y: codexRect.maxY, width: table.width, height: rowHeight)
+        drawRow(
+            title: "Codex",
+            limitID: QuotaViewOption.codex.liveLimitID,
+            accent: NSColor.systemGreen,
+            fallback: t(.liveLimitUnavailable),
+            rect: codexRect,
+            columns: columns
+        )
+        drawSeparator(y: codexRect.maxY, table: table, alpha: 0.08)
+        drawRow(
+            title: "Claude",
+            limitID: QuotaViewOption.claude.liveLimitID,
+            accent: NSColor.systemCyan,
+            fallback: t(.claudeStatuslineRequired),
+            rect: claudeRect,
+            columns: columns
+        )
     }
 
-    private func drawRow(table: NSRect, y: CGFloat, title: String, report: TokenReport?, limit: LiveRateLimit?, accent: NSColor) {
-        let primaryPercent = limit?.primary.remainingPercent
-        drawText(title, rect: NSRect(x: table.minX + 14, y: y + 7, width: 74, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: accent, alignment: .left)
-        drawText(primaryPercent.map { "\(Int(round($0)))%" } ?? "--", rect: NSRect(x: table.minX + 102, y: y + 7, width: 60, height: 18), font: .monospacedDigitSystemFont(ofSize: 13, weight: .bold), color: colorForRemaining(primaryPercent ?? -1), alignment: .left)
-        let inputOutput: String
-        if let report {
-            inputOutput = "\(compactDashboardMetric(report.usage.input)) / \(compactDashboardMetric(report.usage.output))"
-        } else {
-            inputOutput = "-- / --"
+    private struct TableColumns {
+        let platform: NSRect
+        let primary: NSRect
+        let weekly: NSRect
+        let reset: NSRect
+        let status: NSRect
+    }
+
+    private func columnRects(in table: NSRect) -> TableColumns {
+        let left = table.minX
+        let w = table.width
+        let platformW: CGFloat = 76
+        let statusW: CGFloat = 52
+        let resetW: CGFloat = 76
+        let primaryW = floor((w - platformW - statusW - resetW) / 2)
+        let weeklyW = w - platformW - statusW - resetW - primaryW
+        let fullH = table.height
+        let platform = NSRect(x: left, y: table.minY, width: platformW, height: fullH)
+        let primary = NSRect(x: platform.maxX, y: table.minY, width: primaryW, height: fullH)
+        let weekly = NSRect(x: primary.maxX, y: table.minY, width: weeklyW, height: fullH)
+        let reset = NSRect(x: weekly.maxX, y: table.minY, width: resetW, height: fullH)
+        let status = NSRect(x: reset.maxX, y: table.minY, width: statusW, height: fullH)
+        return TableColumns(platform: platform, primary: primary, weekly: weekly, reset: reset, status: status)
+    }
+
+    private func drawHeader(table: NSRect, columns: TableColumns, height: CGFloat) {
+        let headerRect = NSRect(x: table.minX, y: table.minY, width: table.width, height: height)
+        NSColor.white.withAlphaComponent(0.035).setFill()
+        NSBezierPath(roundedRect: headerRect, xRadius: 8, yRadius: 8).fill()
+        drawSeparator(y: headerRect.maxY, table: table, alpha: 0.10)
+        let color = NSColor.white.withAlphaComponent(0.58)
+        drawText("平台", rect: NSRect(x: columns.platform.minX + 10, y: table.minY + 9, width: columns.platform.width - 20, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: color)
+        drawText("5小时剩余", rect: NSRect(x: columns.primary.minX + 8, y: table.minY + 9, width: columns.primary.width - 16, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: color)
+        drawText("周额度剩余", rect: NSRect(x: columns.weekly.minX + 8, y: table.minY + 9, width: columns.weekly.width - 16, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: color)
+        drawText("重置时间", rect: NSRect(x: columns.reset.minX + 8, y: table.minY + 9, width: columns.reset.width - 16, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: color)
+        drawText("状态", rect: NSRect(x: columns.status.minX + 6, y: table.minY + 9, width: columns.status.width - 10, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: color)
+    }
+
+    private func drawRow(title: String, limitID: String, accent: NSColor, fallback: String, rect: NSRect, columns: TableColumns) {
+        let selected = selectedQuota == .all
+            || (selectedQuota == .codex && limitID == QuotaViewOption.codex.liveLimitID)
+            || (selectedQuota == .claude && limitID == QuotaViewOption.claude.liveLimitID)
+        let limit = limits.first { $0.id == limitID }
+        if selected {
+            NSColor.white.withAlphaComponent(0.025).setFill()
+            rect.fill()
         }
-        drawText(inputOutput, rect: NSRect(x: table.minX + 178, y: y + 7, width: 112, height: 18), font: .monospacedDigitSystemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.84), alignment: .left)
-        let statusColor = limit == nil ? NSColor.white.withAlphaComponent(0.28) : NSColor.systemGreen
-        statusColor.setFill()
-        NSBezierPath(ovalIn: NSRect(x: table.minX + 304, y: y + 12, width: 8, height: 8)).fill()
-        drawText(limit == nil ? "--" : t(.codexStatusOperational), rect: NSRect(x: table.minX + 318, y: y + 7, width: 58, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: .white, alignment: .left)
+        drawVerticalSeparators(columns: columns, row: rect)
+
+        let dotY = rect.minY + 25
+        drawDot(color: limit == nil ? NSColor.white.withAlphaComponent(0.26) : accent, at: NSPoint(x: columns.platform.minX + 12, y: dotY))
+        drawText(
+            title,
+            rect: NSRect(x: columns.platform.minX + 26, y: rect.minY + 15, width: columns.platform.width - 28, height: 20),
+            font: .systemFont(ofSize: 12, weight: .bold),
+            color: NSColor.white.withAlphaComponent(selected ? 0.92 : 0.72)
+        )
+
+        drawWindowCell(window: limit?.primary, fallback: fallback, accent: accent, rect: rowCell(columns.primary, row: rect))
+        drawWindowCell(window: limit?.secondary, fallback: fallback, accent: accent, rect: rowCell(columns.weekly, row: rect))
+        drawResetCell(primary: limit?.primary, secondary: limit?.secondary, fallback: fallback, rect: rowCell(columns.reset, row: rect))
+        drawStatusCell(limit: limit, accent: accent, fallback: fallback, rect: rowCell(columns.status, row: rect))
     }
 
-    private func colorForRemaining(_ percent: Double) -> NSColor {
-        if percent < 0 { return NSColor.white.withAlphaComponent(0.25) }
+    private func rowCell(_ column: NSRect, row: NSRect) -> NSRect {
+        NSRect(x: column.minX + 8, y: row.minY + 7, width: column.width - 16, height: row.height - 14)
+    }
+
+    private func drawWindowCell(window: RateWindow?, fallback: String, accent: NSColor, rect: NSRect) {
+        let percent = window?.remainingPercent ?? -1
+        let value = percent < 0 ? "--" : "\(Int(round(percent)))%"
+        drawText(value, rect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: 24), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold), color: percent < 0 ? NSColor.white.withAlphaComponent(0.42) : colorForRemaining(percent: percent, accent: accent))
+
+        let track = NSRect(x: rect.minX, y: rect.minY + 27, width: rect.width, height: 5)
+        NSColor.white.withAlphaComponent(0.10).setFill()
+        NSBezierPath(roundedRect: track, xRadius: 2.5, yRadius: 2.5).fill()
+        if percent >= 0 {
+            let fill = NSRect(x: track.minX, y: track.minY, width: max(6, track.width * CGFloat(min(100, percent) / 100)), height: track.height)
+            colorForRemaining(percent: percent, accent: accent).withAlphaComponent(0.92).setFill()
+            NSBezierPath(roundedRect: fill, xRadius: 2.5, yRadius: 2.5).fill()
+        }
+
+        let note = window == nil ? fallback : "官方额度 100%"
+        drawText(note, rect: NSRect(x: rect.minX, y: rect.minY + 34, width: rect.width, height: 16), font: .systemFont(ofSize: 9.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+    }
+
+    private func drawResetCell(primary: RateWindow?, secondary: RateWindow?, fallback: String, rect: NSRect) {
+        let window = primary?.resetsAt != nil ? primary : secondary
+        guard let resetDate = window?.resetsAt else {
+            drawText(fallback, rect: NSRect(x: rect.minX, y: rect.minY + 16, width: rect.width, height: 18), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42))
+            return
+        }
+        drawText("\(compactResetRelative(resetDate)) 后", rect: NSRect(x: rect.minX, y: rect.minY + 1, width: rect.width, height: 22), font: .monospacedDigitSystemFont(ofSize: 15, weight: .bold), color: NSColor.white.withAlphaComponent(0.86))
+        drawText(resetClockText(resetDate), rect: NSRect(x: rect.minX, y: rect.minY + 25, width: rect.width, height: 18), font: .systemFont(ofSize: 9.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.44))
+    }
+
+    private func drawStatusCell(limit: LiveRateLimit?, accent: NSColor, fallback: String, rect: NSRect) {
+        let hasLimit = limit != nil
+        drawDot(color: hasLimit ? accent : NSColor.white.withAlphaComponent(0.26), at: NSPoint(x: rect.minX, y: rect.minY + 20))
+        drawText(hasLimit ? "正常" : fallback, rect: NSRect(x: rect.minX + 12, y: rect.minY + 11, width: rect.width - 12, height: 20), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(hasLimit ? 0.78 : 0.42))
+    }
+
+    private func colorForRemaining(percent: Double, accent: NSColor) -> NSColor {
+        if percent <= 15 { return .systemRed }
+        if percent <= 35 { return .systemOrange }
+        return accent
+    }
+
+    private func drawSeparator(y: CGFloat, table: NSRect, alpha: CGFloat) {
+        NSColor.white.withAlphaComponent(alpha).setStroke()
+        let path = NSBezierPath()
+        path.lineWidth = 1
+        path.move(to: NSPoint(x: table.minX, y: y))
+        path.line(to: NSPoint(x: table.maxX, y: y))
+        path.stroke()
+    }
+
+    private func drawVerticalSeparators(columns: TableColumns, row: NSRect) {
+        let xs = [columns.primary.minX, columns.weekly.minX, columns.reset.minX, columns.status.minX]
+        NSColor.white.withAlphaComponent(0.06).setStroke()
+        for x in xs {
+            let path = NSBezierPath()
+            path.lineWidth = 1
+            path.move(to: NSPoint(x: x, y: row.minY + 14))
+            path.line(to: NSPoint(x: x, y: row.maxY - 14))
+            path.stroke()
+        }
+    }
+
+    private func resetClockText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_Hans_CN")
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.dateFormat = Calendar.current.isDateInToday(date) ? "预计 HH:mm" : "预计 E HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private func drawDot(color: NSColor, at point: NSPoint) {
+        color.setFill()
+        NSBezierPath(ovalIn: NSRect(x: point.x, y: point.y, width: 7, height: 7)).fill()
+    }
+
+    private func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        (text as NSString).draw(in: rect, withAttributes: [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraph
+        ])
+    }
+}
+
+final class PlatformQuotaRingsOverviewView: NSView {
+    var limits: [LiveRateLimit] = [] { didSet { needsDisplay = true } }
+    var report = TokenReport(scannedAt: Date()) { didSet { needsDisplay = true } }
+    var codexReport: TokenReport? { didSet { needsDisplay = true } }
+    var claudeReport: TokenReport? { didSet { needsDisplay = true } }
+    var costText = "" { didSet { needsDisplay = true } }
+    private var statusHitRects: [QuotaViewOption: NSRect] = [:]
+    private var hoverRegions: [(rect: NSRect, tooltip: String)] = []
+
+    override var isFlipped: Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        toolTip = hoverRegions.first { $0.rect.contains(point) }?.tooltip
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        toolTip = nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        hoverRegions.removeAll()
+        let codex = codexLimit(from: limits)
+        let claude = limits.first { $0.id == QuotaViewOption.claude.liveLimitID }
+        drawRingBlock(
+            title: "Codex",
+            target: .codex,
+            limit: codex,
+            metric: AppSettings.codexHomeRingMetric,
+            center: NSPoint(x: bounds.minX + bounds.width * 0.27, y: bounds.minY + 66)
+        )
+        drawRingBlock(
+            title: "Claude",
+            target: .claude,
+            limit: claude,
+            metric: AppSettings.claudeHomeRingMetric,
+            center: NSPoint(x: bounds.minX + bounds.width * 0.73, y: bounds.minY + 66)
+        )
+
+        let table = NSRect(x: bounds.minX, y: bounds.minY + 172, width: bounds.width, height: 130)
+        drawQuotaTable(table: table, codex: codex, claude: claude)
+
+    }
+
+    func statusTarget(at point: NSPoint) -> QuotaViewOption? {
+        for (target, rect) in statusHitRects where rect.insetBy(dx: -4, dy: -4).contains(point) {
+            return target
+        }
+        return nil
+    }
+
+    private func codexLimit(from limits: [LiveRateLimit]) -> LiveRateLimit? {
+        if let exact = limits.first(where: { $0.id == QuotaViewOption.codex.liveLimitID }) {
+            return exact
+        }
+        return limits.first { $0.id != QuotaViewOption.claude.liveLimitID }
+    }
+
+    private func drawRingBlock(title: String, target: QuotaViewOption, limit: LiveRateLimit?, metric: HomeQuotaRingMetric, center: NSPoint) {
+        let window = selectedWindow(from: limit, metric: metric)
+        let percent = window?.remainingPercent ?? -1
+        let accent = colorForRemaining(percent: percent)
+        let labelColor = platformBrandColor(target)
+        let radius: CGFloat = 46
+        let lineWidth: CGFloat = 10
+        drawRing(center: center, radius: radius, lineWidth: lineWidth, percent: percent, color: accent)
+        if let comparison = remainingComparison(for: window) {
+            drawExpectedRemainingMarker(
+                percent: comparison.expectedRemainingPercent,
+                actual: comparison.actualRemainingPercent,
+                center: center,
+                radius: radius,
+                lineWidth: lineWidth
+            )
+        }
+        let value = percent < 0 ? "--" : "\(Int(round(percent)))%"
+        drawText(value, rect: NSRect(x: center.x - 50, y: center.y - 14, width: 100, height: 30), font: .monospacedDigitSystemFont(ofSize: 24, weight: .bold), color: .white, alignment: .center)
+        drawText(title, rect: NSRect(x: center.x - 66, y: center.y + 51, width: 132, height: 19), font: .systemFont(ofSize: 14, weight: .bold), color: labelColor, alignment: .center)
+        drawText(metric.title, rect: NSRect(x: center.x - 66, y: center.y + 70, width: 132, height: 16), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62), alignment: .center)
+        drawText(resetSubtitle(window), rect: NSRect(x: center.x - 66, y: center.y + 86, width: 132, height: 15), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42), alignment: .center)
+        hoverRegions.append((
+            rect: NSRect(x: center.x - 62, y: center.y - 58, width: 124, height: 160),
+            tooltip: ringTooltip(title: title, window: window, metric: metric)
+        ))
+    }
+
+    private func drawRing(center: NSPoint, radius: CGFloat, lineWidth: CGFloat, percent: Double, color: NSColor) {
+        let rect = NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+        NSColor.white.withAlphaComponent(0.16).setStroke()
+        let base = NSBezierPath()
+        base.appendArc(withCenter: center, radius: radius, startAngle: 125, endAngle: 415)
+        base.lineWidth = lineWidth
+        base.lineCapStyle = .round
+        base.stroke()
+        guard percent >= 0 else { return }
+        color.setStroke()
+        let arc = NSBezierPath()
+        arc.appendArc(withCenter: center, radius: radius, startAngle: 125, endAngle: 125 + 290 * CGFloat(min(100, percent) / 100))
+        arc.lineWidth = lineWidth
+        arc.lineCapStyle = .round
+        arc.stroke()
+        _ = rect
+    }
+
+    private func drawExpectedRemainingMarker(percent: Double, actual: Double, center: NSPoint, radius: CGFloat, lineWidth: CGFloat) {
+        let clamped = max(0, min(100, percent)) / 100
+        let angle = (125 + 290 * CGFloat(clamped)) * .pi / 180
+        let radial = NSPoint(x: cos(angle), y: sin(angle))
+        let markerCenter = NSPoint(
+            x: center.x + radial.x * radius,
+            y: center.y + radial.y * radius
+        )
+        let markerLength = max(15, lineWidth * 1.9)
+        let halfLength = markerLength / 2
+        let marker = NSBezierPath()
+        marker.lineWidth = max(2.4, lineWidth * 0.32)
+        marker.lineCapStyle = .round
+        marker.move(to: NSPoint(
+            x: markerCenter.x - radial.x * halfLength,
+            y: markerCenter.y - radial.y * halfLength
+        ))
+        marker.line(to: NSPoint(
+            x: markerCenter.x + radial.x * halfLength,
+            y: markerCenter.y + radial.y * halfLength
+        ))
+        expectedRemainingMarkerColor(expected: percent, actual: actual).setStroke()
+        marker.stroke()
+    }
+
+    private func drawQuotaTable(table: NSRect, codex: LiveRateLimit?, claude: LiveRateLimit?) {
+        statusHitRects.removeAll()
+        NSColor.white.withAlphaComponent(0.055).setFill()
+        NSBezierPath(roundedRect: table, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(0.13).setStroke()
+        let border = NSBezierPath(roundedRect: table.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        border.lineWidth = 1
+        border.stroke()
+
+        let columns: [(String, CGFloat, CGFloat)] = [
+            (platformHeader, 12, 84), ("5h", 102, 58), (inputOutputHeader, 178, 104), (statusHeader, 292, 80)
+        ]
+        for (title, x, width) in columns {
+            drawText(title, rect: NSRect(x: table.minX + x, y: table.minY + 9, width: width, height: 15), font: .systemFont(ofSize: 9.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.55), alignment: .left)
+        }
+        drawSeparator(y: table.minY + 32, in: table, alpha: 0.10)
+        drawTableRow(table: table, y: table.minY + 40, title: "Codex", target: .codex, limit: codex, report: codexReport)
+        drawSeparator(y: table.minY + 78, in: table, alpha: 0.07)
+        drawTableRow(table: table, y: table.minY + 86, title: "Claude", target: .claude, limit: claude, report: claudeReport)
+    }
+
+    private func drawTableRow(table: NSRect, y: CGFloat, title: String, target: QuotaViewOption, limit: LiveRateLimit?, report: TokenReport?) {
+        let primaryColor = colorForRemaining(percent: limit?.primary.remainingPercent ?? -1)
+        let statusColor = colorForRemaining(percent: min(limit?.primary.remainingPercent ?? -1, limit?.secondary.remainingPercent ?? -1))
+        hoverRegions.append((
+            rect: NSRect(x: table.minX, y: y - 4, width: table.width, height: 42),
+            tooltip: rowTooltip(title: title, limit: limit, report: report)
+        ))
+        drawText(title, rect: NSRect(x: table.minX + 14, y: y + 7, width: 74, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: platformBrandColor(target), alignment: .left)
+        drawText(percentText(limit?.primary.remainingPercent), rect: NSRect(x: table.minX + 102, y: y + 7, width: 58, height: 18), font: .monospacedDigitSystemFont(ofSize: 13, weight: .bold), color: primaryColor, alignment: .left)
+        drawText(inputOutputText(report), rect: NSRect(x: table.minX + 178, y: y + 7, width: 104, height: 18), font: .monospacedDigitSystemFont(ofSize: 11.5, weight: .bold), color: NSColor.white.withAlphaComponent(0.90), alignment: .left)
+        let statusRect = NSRect(x: table.minX + 292, y: y + 1, width: 80, height: 32)
+        statusHitRects[target] = statusRect
+        statusColor.setFill()
+        NSBezierPath(ovalIn: NSRect(x: statusRect.minX, y: y + 12, width: 8, height: 8)).fill()
+        drawText(limit == nil ? "--" : t(.codexStatusOperational), rect: NSRect(x: statusRect.minX + 14, y: y + 7, width: statusRect.width - 14, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: .white, alignment: .left)
+    }
+
+    private var platformHeader: String {
+        AppLanguage.current == .english ? "Platform" : "平台"
+    }
+
+    private var inputOutputHeader: String {
+        AppLanguage.current == .english ? "In / Out" : "输入/输出"
+    }
+
+    private var statusHeader: String {
+        AppLanguage.current == .english ? "Status" : "状态"
+    }
+
+    private func selectedWindow(from limit: LiveRateLimit?, metric: HomeQuotaRingMetric) -> RateWindow? {
+        switch metric {
+        case .fiveHour: return limit?.primary
+        case .weekly: return limit?.secondary
+        }
+    }
+
+    private func colorForRemaining(percent: Double) -> NSColor {
+        if percent < 0 { return NSColor.white.withAlphaComponent(0.28) }
         if percent <= 15 { return .systemRed }
         if percent <= 35 { return .systemOrange }
         return .systemGreen
+    }
+
+    private func expectedRemainingMarkerColor(expected: Double, actual: Double) -> NSColor {
+        if actual >= expected {
+            return NSColor(calibratedRed: 0.56, green: 1.0, blue: 0.16, alpha: 0.98)
+        }
+        return NSColor.systemYellow.withAlphaComponent(0.98)
+    }
+
+    private func remainingComparison(for window: RateWindow?) -> RingRemainingComparison? {
+        guard let window,
+              let comparison = paceComparison(for: window) else {
+            return nil
+        }
+        return RingRemainingComparison(
+            expectedRemainingPercent: max(0, min(100, 100 - comparison.progressPercent)),
+            actualRemainingPercent: window.remainingPercent,
+            status: comparison.status
+        )
+    }
+
+    private func platformBrandColor(_ target: QuotaViewOption) -> NSColor {
+        switch target {
+        case .codex:
+            return NSColor(calibratedRed: 0.45, green: 0.50, blue: 1.00, alpha: 1.0)
+        case .claude:
+            return NSColor(calibratedRed: 0.898, green: 0.420, blue: 0.278, alpha: 1.0)
+        case .all:
+            return .white
+        }
+    }
+
+    private func resetSubtitle(_ window: RateWindow?) -> String {
+        guard let window else { return "\(t(.reset)) --" }
+        return "\(t(.reset)) \(compactResetRelative(window.resetsAt))"
+    }
+
+    private func ringTooltip(title: String, window: RateWindow?, metric: HomeQuotaRingMetric) -> String {
+        guard let window else {
+            return "\(title) \(metric.title)\n\(t(.liveLimitUnavailable))"
+        }
+        var lines = [
+            "\(title) \(metric.title)",
+            "圈内数字：实际剩余 \(Int(round(window.remainingPercent)))%"
+        ]
+        if let comparison = remainingComparison(for: window) {
+            lines.append("彩色标记：预计剩余 \(Int(round(comparison.expectedRemainingPercent)))%")
+            switch comparison.status {
+            case .ahead:
+                lines.append("实际剩余低于预计，用得偏快")
+            case .behind:
+                lines.append("实际剩余高于预计，用得较少")
+            }
+        }
+        if let resetsAt = window.resetsAt {
+            lines.append("重置：\(relative(resetsAt))")
+        } else {
+            lines.append("重置：--")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func rowTooltip(title: String, limit: LiveRateLimit?, report: TokenReport?) -> String {
+        var lines = [title]
+        if let limit {
+            lines.append("5h \(t(.remaining)) \(Int(round(limit.primary.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(limit.primary.resetsAt))")
+            lines.append("\(t(.weeklyLeft)) \(Int(round(limit.secondary.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(limit.secondary.resetsAt))")
+        } else {
+            lines.append(t(.liveLimitUnavailable))
+        }
+        guard let report else {
+            lines.append("\(t(.input)) --")
+            lines.append("\(t(.output)) --")
+            return lines.joined(separator: "\n")
+        }
+        let estimate = APICostEstimator.estimate(report: report)
+        lines.append("\(t(.input)) \(formatFull(report.usage.input))")
+        lines.append("\(t(.output)) \(formatFull(report.usage.output))")
+        lines.append("\(t(.cached)) \(formatFull(report.usage.cachedInput))")
+        lines.append("\(t(.fresh)) \(formatFull(report.usage.freshInput))")
+        if estimate.hasPricedUsage {
+            lines.append("\(t(.apiEquivalent)) \(displayAPIMoney(estimate.usdValue))")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func resetSummary(_ limit: LiveRateLimit?) -> String {
+        guard let limit else { return t(.liveLimitUnavailable) }
+        return "5h \(compactResetRelative(limit.primary.resetsAt))  /  周 \(compactResetRelative(limit.secondary.resetsAt))"
+    }
+
+    private func percentText(_ value: Double?) -> String {
+        guard let value else { return "--" }
+        return "\(Int(round(value)))%"
+    }
+
+    private func inputOutputText(_ report: TokenReport?) -> String {
+        guard let report else { return "-- / --" }
+        return "\(compactDashboardMetric(report.usage.input)) / \(compactDashboardMetric(report.usage.output))"
+    }
+
+    private func formatFull(_ value: Int64) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 
     private func compactResetRelative(_ date: Date?) -> String {
@@ -883,28 +1323,20 @@ final class PlatformQuotaOverviewView: NSView {
 }
 
 final class DashboardView: NSView {
-    static let compactSize = NSSize(width: 430, height: 610)
-    static let expandedSize = NSSize(width: 430, height: 760)
-    static let idealSize = compactSize
-    private static let productName = "AI Token Meter"
-    private static var productScope: String {
-        "Codex + Claude"
-    }
-
-    static func preferredSize(for quota: QuotaViewOption) -> NSSize {
-        quota == .all ? expandedSize : compactSize
-    }
+    static let allOverviewSize = NSSize(width: 430, height: 760)
+    static let singlePlatformSize = NSSize(width: 430, height: 610)
+    static let idealSize = singlePlatformSize
 
     private var state = DashboardState()
     private let logoImageView = NSImageView()
-    private let titleLabel = NSTextField(labelWithString: DashboardView.productName)
+    private let titleLabel = NSTextField(labelWithString: "AI Token Meter")
     private let subtitleLabel = NSTextField(labelWithString: "")
     private let totalLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private let usageLabel = NSTextField(labelWithString: "")
     private let refreshLabel = NSTextField(labelWithString: "")
     private let costLabel = NSTextField(labelWithString: "")
-    private let quotaSegment = NSSegmentedControl(labels: QuotaViewOption.visibleCases.map { $0.shortTitle }, trackingMode: .selectOne, target: nil, action: nil)
+    private let quotaSegment = NSSegmentedControl(labels: QuotaViewOption.allCases.map { $0.shortTitle }, trackingMode: .selectOne, target: nil, action: nil)
     private let segment = NSSegmentedControl(labels: WindowOption.allCases.map { $0.shortTitle }, trackingMode: .selectOne, target: nil, action: nil)
     private let primaryRing = RingView()
     private let weeklyRing = RingView()
@@ -913,7 +1345,7 @@ final class DashboardView: NSView {
     private let weeklyBullet = QuotaBulletView()
     private let cacheBullet = QuotaBulletView()
     private let dayChart = UsageChartView()
-    private let platformQuotaView = PlatformQuotaOverviewView()
+    private let platformQuotaView = PlatformQuotaRingsOverviewView()
     private let serviceStatusView = CodexStatusChipView()
     private let sessionsLabel = NSTextField(labelWithString: "")
     private let buttonsStack = NSStackView()
@@ -925,7 +1357,9 @@ final class DashboardView: NSView {
     var onOpenDetails: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onOpenCodexStatus: (() -> Void)?
+    var onOpenPlatformStatus: ((QuotaViewOption) -> Void)?
     var onQuit: (() -> Void)?
+    var onPreferredSizeChanged: ((NSSize) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -938,16 +1372,19 @@ final class DashboardView: NSView {
     }
 
     override var isFlipped: Bool { true }
-    override var intrinsicContentSize: NSSize { Self.preferredSize(for: state.selectedQuota) }
+    override var intrinsicContentSize: NSSize { preferredPopoverSize }
+    var preferredPopoverSize: NSSize {
+        state.selectedQuota == .all ? Self.allOverviewSize : Self.singlePlatformSize
+    }
 
     func update(_ state: DashboardState) {
         self.state = state
         let report = state.report
         let totalReport = state.selectedQuota.usesCodexProfileAPI ? (state.profileReport ?? report) : report
         applyLanguage()
-        titleLabel.stringValue = Self.productName
+        titleLabel.stringValue = "AI Token Meter"
         let displayLimit = selectedLimit(from: state.liveLimits, quota: state.selectedQuota)
-        subtitleLabel.stringValue = state.selectedQuota == .all ? Self.productScope : state.selectedQuota.fallbackTitle
+        subtitleLabel.stringValue = state.selectedQuota.fallbackTitle
         totalLabel.stringValue = compactDashboardTotal(totalReport.usage.total)
         detailLabel.stringValue = state.profileReport != nil && state.selectedQuota.usesCodexProfileAPI
             ? "\(state.selectedWindow.title) · \(t(.profileAPISource))"
@@ -956,51 +1393,54 @@ final class DashboardView: NSView {
         refreshLabel.stringValue = state.isLoading ? t(.refreshing) : "\(t(.updated)) \(relative(report.scannedAt))  |  \(t(.next)) \(relative(state.nextRefreshAt))"
         let apiEstimate = APICostEstimator.estimate(report: report)
         let externalAPI = ExternalAPICostStore.read()
+        let showsComparisonTable = state.selectedQuota == .all
+        let quotaStyle = QuotaDisplayStyle.current
 
-        configureQuotaSegments(selected: state.selectedQuota)
+        quotaSegment.selectedSegment = QuotaViewOption.allCases.firstIndex(of: state.selectedQuota) ?? 0
         segment.selectedSegment = WindowOption.allCases.firstIndex(of: state.selectedWindow) ?? 1
+        platformQuotaView.limits = state.liveLimits
+        platformQuotaView.report = report
+        platformQuotaView.codexReport = state.codexReport
+        platformQuotaView.claudeReport = state.claudeReport
+        platformQuotaView.isHidden = !showsComparisonTable
 
         let primary = displayLimit?.primary
         let weekly = displayLimit?.secondary
         let primaryComparison = remainingComparison(for: primary)
         let weeklyComparison = remainingComparison(for: weekly)
-        let quotaStyle = QuotaDisplayStyle.current
-        let showsPlatformOverview = state.selectedQuota == .all
-        platformQuotaView.limits = state.liveLimits
-        platformQuotaView.codexReport = state.codexReport
-        platformQuotaView.claudeReport = state.claudeReport
-        platformQuotaView.isHidden = !showsPlatformOverview
-        primaryRing.percent = primary?.remainingPercent ?? 0
+        let missingLiveLimitSubtitle = state.selectedQuota == .claude ? t(.claudeStatuslineRequired) : t(.liveLimitUnavailable)
+        let missingWeeklyLimitSubtitle = state.selectedQuota == .claude ? t(.claudeStatuslineRequired) : t(.usageWindow)
+        primaryRing.percent = primary?.remainingPercent ?? -1
         primaryRing.title = t(.fiveHourLeft)
-        primaryRing.subtitle = primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? t(.liveLimitUnavailable)
+        primaryRing.subtitle = primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingLiveLimitSubtitle
         primaryRing.color = colorForRemaining(percent: primaryRing.percent)
         primaryRing.resetTooltip = primary?.resetsAt.map { relative($0) }
         primaryRing.remainingComparison = primaryComparison
-        primaryRing.isHidden = showsPlatformOverview || quotaStyle != .rings
+        primaryRing.isHidden = showsComparisonTable || quotaStyle != .rings
 
-        primaryBullet.actualRemainingPercent = primary?.remainingPercent ?? 0
+        primaryBullet.actualRemainingPercent = primary?.remainingPercent ?? -1
         primaryBullet.title = t(.fiveHourLeft)
-        primaryBullet.subtitle = primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? t(.liveLimitUnavailable)
+        primaryBullet.subtitle = primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingLiveLimitSubtitle
         primaryBullet.color = colorForRemaining(percent: primaryBullet.actualRemainingPercent)
         primaryBullet.resetTooltip = primary?.resetsAt.map { relative($0) }
         primaryBullet.remainingComparison = primaryComparison
-        primaryBullet.isHidden = showsPlatformOverview || quotaStyle != .bullet
+        primaryBullet.isHidden = showsComparisonTable || quotaStyle != .bullet
 
-        weeklyRing.percent = weekly?.remainingPercent ?? 0
+        weeklyRing.percent = weekly?.remainingPercent ?? -1
         weeklyRing.title = t(.weeklyLeft)
-        weeklyRing.subtitle = weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? t(.usageWindow)
+        weeklyRing.subtitle = weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingWeeklyLimitSubtitle
         weeklyRing.color = colorForRemaining(percent: weeklyRing.percent)
         weeklyRing.resetTooltip = weekly?.resetsAt.map { relative($0) }
         weeklyRing.remainingComparison = weeklyComparison
-        weeklyRing.isHidden = showsPlatformOverview || quotaStyle != .rings
+        weeklyRing.isHidden = showsComparisonTable || quotaStyle != .rings
 
-        weeklyBullet.actualRemainingPercent = weekly?.remainingPercent ?? 0
+        weeklyBullet.actualRemainingPercent = weekly?.remainingPercent ?? -1
         weeklyBullet.title = t(.weeklyLeft)
-        weeklyBullet.subtitle = weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? t(.usageWindow)
+        weeklyBullet.subtitle = weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingWeeklyLimitSubtitle
         weeklyBullet.color = colorForRemaining(percent: weeklyBullet.actualRemainingPercent)
         weeklyBullet.resetTooltip = weekly?.resetsAt.map { relative($0) }
         weeklyBullet.remainingComparison = weeklyComparison
-        weeklyBullet.isHidden = showsPlatformOverview || quotaStyle != .bullet
+        weeklyBullet.isHidden = showsComparisonTable || quotaStyle != .bullet
 
         cacheRing.percent = report.usage.cachePercent
         cacheRing.title = t(.cacheHit)
@@ -1008,7 +1448,7 @@ final class DashboardView: NSView {
         cacheRing.color = NSColor.systemTeal
         cacheRing.resetTooltip = nil
         cacheRing.remainingComparison = nil
-        cacheRing.isHidden = showsPlatformOverview || quotaStyle == .bullet
+        cacheRing.isHidden = showsComparisonTable || quotaStyle == .bullet
 
         cacheBullet.actualRemainingPercent = report.usage.cachePercent
         cacheBullet.title = t(.cacheHit)
@@ -1016,26 +1456,37 @@ final class DashboardView: NSView {
         cacheBullet.color = NSColor.systemTeal
         cacheBullet.resetTooltip = nil
         cacheBullet.remainingComparison = nil
-        cacheBullet.isHidden = showsPlatformOverview || quotaStyle != .bullet
+        cacheBullet.isHidden = showsComparisonTable || quotaStyle != .bullet
 
         dayChart.selectedWindow = state.selectedWindow
         dayChart.days = report.byDay
         dayChart.hours = report.byHour
+        dayChart.codexDays = showsComparisonTable ? (state.codexReport?.byDay ?? []) : []
+        dayChart.codexHours = showsComparisonTable ? (state.codexReport?.byHour ?? []) : []
+        dayChart.claudeDays = showsComparisonTable ? (state.claudeReport?.byDay ?? []) : []
+        dayChart.claudeHours = showsComparisonTable ? (state.claudeReport?.byHour ?? []) : []
         dayChart.scannedAt = report.scannedAt
         dayChart.weeklyQuotaUsedPercent = state.selectedWindow == .day ? nil : weekly?.usedPercent
         dayChart.weeklyQuotaReferenceTotal = state.selectedWindow == .day ? nil : report.byDay.suffix(7).reduce(Int64(0)) { $0 + $1.usage.total }
-        dayChart.costEstimator = state.selectedWindow == .day ? nil : CostEstimator(report: report, limit: displayLimit)
+        dayChart.costSource = state.selectedQuota
+        dayChart.costEstimator = state.selectedWindow == .day ? nil : CostEstimator(
+            report: report,
+            limit: displayLimit,
+            monthlyCost: AppSettings.monthlyPlanCost(for: state.selectedQuota),
+            paymentStartDay: AppSettings.paymentStartDay(for: state.selectedQuota)
+        )
         dayChart.apiEstimate = apiEstimate
+        dayChart.isHidden = false
         serviceStatusView.snapshot = state.serviceStatus
-        serviceStatusView.isHidden = showsPlatformOverview || !AppSettings.showCodexStatusEnabled || state.selectedQuota == .claude
+        serviceStatusView.isHidden = showsComparisonTable || !AppSettings.showCodexStatusEnabled || state.selectedQuota == .claude
         sessionsLabel.stringValue = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
         var costParts: [String] = []
         if apiEstimate.hasPricedUsage {
             let coverage = apiEstimate.coveragePercent < 99.5 ? " \(String(format: "%.0f%%", apiEstimate.coveragePercent)) \(t(.priced))" : ""
-            costParts.append("\(t(.apiEquivalent)) \(displayAPIMoney(apiEstimate.usdValue))\(coverage)")
+            costParts.append("\(t(.apiEquivalent)) \(displayAPIMoney(apiEstimate.usdValue, source: state.selectedQuota))\(coverage)")
         }
         if let externalAPI, externalAPI.hasData {
-            costParts.append("\(t(.externalAPICost)) \(displayAPIMoney(externalAPI.usdValue))")
+            costParts.append("\(t(.externalAPICost)) \(displayAPIMoney(externalAPI.usdValue, source: state.selectedQuota))")
         }
         if !costParts.isEmpty {
             costLabel.stringValue = costParts.joined(separator: "  |  ")
@@ -1043,32 +1494,24 @@ final class DashboardView: NSView {
             costLabel.stringValue = ""
         }
         updateAccessibilityLabels(report: report, totalReport: totalReport)
-        invalidateIntrinsicContentSize()
         needsLayout = true
         needsDisplay = true
+        onPreferredSizeChanged?(preferredPopoverSize)
     }
 
     func applyLanguage() {
-        configureQuotaSegments(selected: state.selectedQuota)
+        for (index, option) in QuotaViewOption.allCases.enumerated() {
+            quotaSegment.setLabel(option.shortTitle, forSegment: index)
+        }
         for (index, option) in WindowOption.allCases.enumerated() {
             segment.setLabel(option.shortTitle, forSegment: index)
         }
         for key in [L10nKey.refresh, .details, .settings, .quit] {
             guard let button = buttonsByKey[key] else { continue }
-            styleActionButton(button, titleKey: key)
+            button.title = t(key)
             button.toolTip = t(key)
+            button.image = symbolImage(for: key)
         }
-    }
-
-    private func configureQuotaSegments(selected: QuotaViewOption) {
-        let options = QuotaViewOption.visibleCases
-        if quotaSegment.segmentCount != options.count {
-            quotaSegment.segmentCount = options.count
-        }
-        for (index, option) in options.enumerated() {
-            quotaSegment.setLabel(option.shortTitle, forSegment: index)
-        }
-        quotaSegment.selectedSegment = options.firstIndex(of: selected) ?? 0
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -1086,9 +1529,16 @@ final class DashboardView: NSView {
 
     override func layout() {
         super.layout()
-        let layoutBounds = NSRect(origin: .zero, size: NSSize(width: max(bounds.width, Self.idealSize.width), height: max(bounds.height, Self.idealSize.height)))
-        let content = layoutBounds.insetBy(dx: 28, dy: 24)
-        let totalWidth: CGFloat = 132
+        let targetSize = preferredPopoverSize
+        let layoutBounds = NSRect(origin: .zero, size: targetSize)
+        if state.selectedQuota == .all {
+            layoutComparison(in: layoutBounds)
+        } else {
+            layoutSinglePlatform(in: layoutBounds)
+        }
+    }
+
+    private func layoutHeader(in content: NSRect, totalWidth: CGFloat, quotaSegmentWidth: CGFloat, usageOffset: CGFloat) {
         let totalX = content.maxX - totalWidth
         let titleX = content.minX + 28
         logoImageView.frame = NSRect(x: content.minX, y: content.minY + 2, width: 22, height: 22)
@@ -1096,28 +1546,38 @@ final class DashboardView: NSView {
         subtitleLabel.frame = NSRect(x: titleX, y: content.minY + 30, width: max(132, totalX - titleX - 12), height: 18)
         totalLabel.frame = NSRect(x: totalX, y: content.minY, width: totalWidth, height: 36)
         detailLabel.frame = NSRect(x: content.maxX - 172, y: content.minY + 37, width: 162, height: 16)
-        quotaSegment.frame = NSRect(x: content.minX, y: content.minY + 52, width: 216, height: 24)
-        usageLabel.frame = NSRect(x: content.minX + 228, y: content.minY + 55, width: content.width - 228, height: 16)
+        quotaSegment.frame = NSRect(x: content.minX, y: content.minY + 52, width: quotaSegmentWidth, height: 24)
+        usageLabel.frame = NSRect(x: content.minX + usageOffset, y: content.minY + 55, width: content.width - usageOffset, height: 16)
         segment.frame = NSRect(x: content.minX, y: content.minY + 82, width: content.width, height: 30)
+    }
 
-        let showsPlatformOverview = state.selectedQuota == .all
-        if showsPlatformOverview {
-            platformQuotaView.frame = NSRect(x: content.minX, y: content.minY + 128, width: content.width, height: 324)
-            primaryRing.frame = .zero
-            weeklyRing.frame = .zero
-            cacheRing.frame = .zero
-            primaryBullet.frame = .zero
-            weeklyBullet.frame = .zero
-            cacheBullet.frame = .zero
+    private func layoutComparison(in layoutBounds: NSRect) {
+        let content = layoutBounds.insetBy(dx: 28, dy: 24)
+        layoutHeader(in: content, totalWidth: 132, quotaSegmentWidth: 216, usageOffset: 228)
 
-            buttonsStack.frame = NSRect(x: content.minX, y: content.maxY - 36, width: content.width, height: 28)
-            dayChart.frame = NSRect(x: content.minX, y: platformQuotaView.frame.maxY + 12, width: content.width, height: 112)
-            sessionsLabel.frame = NSRect(x: content.minX, y: dayChart.frame.maxY + 12, width: content.width, height: 18)
-            costLabel.frame = NSRect(x: content.minX, y: sessionsLabel.frame.maxY + 7, width: content.width, height: 16)
-            refreshLabel.frame = NSRect(x: content.minX, y: costLabel.frame.maxY + 7, width: content.width, height: 18)
-            serviceStatusView.frame = .zero
-            return
-        }
+        let tableY = content.minY + 128
+        platformQuotaView.frame = NSRect(x: content.minX, y: tableY, width: content.width, height: 302)
+        primaryRing.frame = .zero
+        weeklyRing.frame = .zero
+        cacheRing.frame = .zero
+        primaryBullet.frame = .zero
+        weeklyBullet.frame = .zero
+        cacheBullet.frame = .zero
+
+        buttonsStack.frame = NSRect(x: content.minX, y: content.maxY - 36, width: content.width, height: 28)
+        let infoWidth = content.width
+        let chartY = platformQuotaView.frame.maxY + 12
+        dayChart.frame = NSRect(x: content.minX, y: chartY, width: content.width, height: 112)
+        sessionsLabel.frame = NSRect(x: content.minX, y: dayChart.frame.maxY + 12, width: infoWidth, height: 18)
+        costLabel.frame = NSRect(x: content.minX, y: sessionsLabel.frame.maxY + 7, width: infoWidth, height: 16)
+        refreshLabel.frame = NSRect(x: content.minX, y: costLabel.frame.maxY + 7, width: infoWidth, height: 18)
+        serviceStatusView.frame = .zero
+        platformQuotaView.needsDisplay = true
+    }
+
+    private func layoutSinglePlatform(in layoutBounds: NSRect) {
+        let content = layoutBounds.insetBy(dx: 28, dy: 24)
+        layoutHeader(in: content, totalWidth: 132, quotaSegmentWidth: 216, usageOffset: 228)
 
         platformQuotaView.frame = .zero
         let ringY = content.minY + 132
@@ -1134,15 +1594,15 @@ final class DashboardView: NSView {
         } else {
             primaryRing.frame = NSRect(x: content.minX, y: ringY, width: ringW, height: 136)
             weeklyRing.frame = NSRect(x: content.minX + ringW + 12, y: ringY, width: ringW, height: 136)
+            cacheRing.frame = NSRect(x: content.minX + (ringW + 12) * 2, y: ringY, width: ringW, height: 136)
             primaryBullet.frame = .zero
             weeklyBullet.frame = .zero
             cacheBullet.frame = .zero
-            cacheRing.frame = NSRect(x: content.minX + (ringW + 12) * 2, y: ringY, width: ringW, height: 136)
         }
 
         let statsY = ringY + 154
         buttonsStack.frame = NSRect(x: content.minX, y: content.maxY - 36, width: content.width, height: 28)
-        let showsStatus = AppSettings.showCodexStatusEnabled
+        let showsStatus = AppSettings.showCodexStatusEnabled && state.selectedQuota != .claude
         let chipGap: CGFloat = 10
         let maxChipWidth = min(136, max(108, content.width * 0.36))
         let chipWidth = showsStatus ? serviceStatusView.preferredWidth(maxWidth: maxChipWidth) : 0
@@ -1164,6 +1624,14 @@ final class DashboardView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if !platformQuotaView.isHidden,
+           platformQuotaView.frame.contains(point) {
+            let localPoint = convert(point, to: platformQuotaView)
+            if let target = platformQuotaView.statusTarget(at: localPoint) {
+                onOpenPlatformStatus?(target)
+                return
+            }
+        }
         if !serviceStatusView.isHidden,
            serviceStatusView.frame.insetBy(dx: -2, dy: -2).contains(point) {
             onOpenCodexStatus?()
@@ -1234,7 +1702,7 @@ final class DashboardView: NSView {
         segment.toolTip = t(.usageWindow)
         addSubview(segment)
 
-        [primaryRing, weeklyRing, primaryBullet, weeklyBullet, cacheBullet, cacheRing, platformQuotaView, dayChart, serviceStatusView].forEach { addSubview($0) }
+        [primaryRing, weeklyRing, primaryBullet, weeklyBullet, cacheBullet, cacheRing, dayChart, platformQuotaView, serviceStatusView].forEach { addSubview($0) }
         serviceStatusView.toolTip = "Open OpenAI Status"
 
         buttonsStack.orientation = .horizontal
@@ -1251,27 +1719,12 @@ final class DashboardView: NSView {
     private func addButton(_ titleKey: L10nKey, action: Selector) {
         let button = NSButton(title: t(titleKey), target: self, action: action)
         button.bezelStyle = .rounded
+        button.font = .systemFont(ofSize: 12, weight: .semibold)
+        button.image = symbolImage(for: titleKey)
         button.imagePosition = .imageLeading
-        styleActionButton(button, titleKey: titleKey)
+        button.toolTip = t(titleKey)
         buttonsByKey[titleKey] = button
         buttonsStack.addArrangedSubview(button)
-    }
-
-    private func styleActionButton(_ button: NSButton, titleKey: L10nKey) {
-        let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        let title = t(titleKey)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor.white.withAlphaComponent(0.90)
-        ]
-        button.font = font
-        button.title = title
-        button.attributedTitle = NSAttributedString(string: title, attributes: attributes)
-        button.attributedAlternateTitle = NSAttributedString(string: title, attributes: attributes)
-        button.image = symbolImage(for: titleKey)
-        button.bezelColor = NSColor.white.withAlphaComponent(0.16)
-        button.contentTintColor = NSColor.white.withAlphaComponent(0.90)
-        button.toolTip = title
     }
 
     private func symbolImage(for key: L10nKey) -> NSImage? {
@@ -1296,7 +1749,7 @@ final class DashboardView: NSView {
     }
 
     private func updateAccessibilityLabels(report: TokenReport, totalReport: TokenReport) {
-        titleLabel.setAccessibilityLabel(Self.productName)
+        titleLabel.setAccessibilityLabel("AI Token Meter")
         subtitleLabel.setAccessibilityLabel(subtitleLabel.stringValue)
         totalLabel.setAccessibilityLabel("\(t(.total)) \(compactDashboardTotal(totalReport.usage.total))")
         usageLabel.setAccessibilityLabel("\(t(.input)) \(compactDashboardMetric(report.usage.input)), \(t(.output)) \(compactDashboardMetric(report.usage.output))")
@@ -1323,8 +1776,8 @@ final class DashboardView: NSView {
         if let exact = limits.first(where: { $0.id == quota.liveLimitID }) {
             return exact
         }
-        if quota == .spark {
-            return limits.first { $0.id != QuotaViewOption.all.liveLimitID }
+        if quota == .all || quota == .codex {
+            return limits.first { $0.id == QuotaViewOption.codex.liveLimitID } ?? limits.first
         }
         return nil
     }
@@ -1341,9 +1794,8 @@ final class DashboardView: NSView {
 
     @objc private func quotaSegmentChanged() {
         let index = quotaSegment.selectedSegment
-        let options = QuotaViewOption.visibleCases
-        guard index >= 0, index < options.count else { return }
-        onQuotaChanged?(options[index])
+        guard index >= 0, index < QuotaViewOption.allCases.count else { return }
+        onQuotaChanged?(QuotaViewOption.allCases[index])
     }
 
     @objc private func refreshTapped() { onRefresh?() }
@@ -1358,6 +1810,7 @@ final class DashboardView: NSView {
     }
 
     private func colorForRemaining(percent: Double) -> NSColor {
+        if percent < 0 { return NSColor.white.withAlphaComponent(0.28) }
         if percent <= 15 { return .systemRed }
         if percent <= 35 { return .systemOrange }
         return .systemGreen
@@ -1383,10 +1836,5 @@ final class DashboardViewController: NSViewController {
         dashboardView.frame = NSRect(origin: .zero, size: DashboardView.idealSize)
         view = dashboardView
         preferredContentSize = DashboardView.idealSize
-    }
-
-    func setDashboardSize(_ size: NSSize) {
-        dashboardView.frame = NSRect(origin: .zero, size: size)
-        preferredContentSize = size
     }
 }

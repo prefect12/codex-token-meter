@@ -187,6 +187,18 @@ enum QuotaDisplayStyle: String, CaseIterable {
     }
 }
 
+enum HomeQuotaRingMetric: String, CaseIterable {
+    case fiveHour
+    case weekly
+
+    var title: String {
+        switch self {
+        case .fiveHour: return t(.fiveHourLeft)
+        case .weekly: return t(.weeklyLeft)
+        }
+    }
+}
+
 enum NumberUnitStyle: String, CaseIterable {
     case english
     case chinese
@@ -239,10 +251,18 @@ enum L10nKey {
     case cacheHit
     case cacheHitDescription
     case cached
+    case claudeStatuslineRequired
     case calendar
     case calendarSubtitle
     case clickForDetails
+    case claude
+    case claudeCode
+    case claudeDescription
+    case claudeLogs
+    case codex
     case codexAppTotal
+    case codexDescription
+    case combinedUsage
     case copy
     case costs
     case costsSubtitle
@@ -259,6 +279,7 @@ enum L10nKey {
     case codexStatusPartialOutage
     case codexStatusResolved
     case codexStatusUnavailable
+    case codexHomeRing
     case dayValue
     case dataSource
     case dataSourceLine1
@@ -299,6 +320,8 @@ enum L10nKey {
     case logFolderDefault
     case logFolderOpen
     case loadingAllUsage
+    case loadingClaudeUsage
+    case loadingCodexUsage
     case loadingFinalizing
     case loadingOtherUsage
     case loadingProfileTotals
@@ -334,6 +357,7 @@ enum L10nKey {
     case output
     case overview
     case overviewSubtitle
+    case claudeHomeRing
     case past24Hours
     case past30Days
     case past7Days
@@ -354,6 +378,7 @@ enum L10nKey {
     case quotaDisplayHint
     case quotaDisplayRings
     case quotaDisplayStyle
+    case quotaHomeRingHint
     case quotaViews
     case quotaWarnings
     case quotaWarningsHint
@@ -413,7 +438,7 @@ enum L10nKey {
     var english: String {
         switch self {
         case .about: return "About"
-        case .aboutSubtitle: return "How the meter reads and groups Codex usage"
+        case .aboutSubtitle: return "How the meter reads and groups local usage"
         case .all: return "All"
         case .allDescription: return "Everything with token detail"
         case .apiEquivalent: return "API equivalent"
@@ -424,10 +449,18 @@ enum L10nKey {
         case .cacheHit: return "Cache Hit"
         case .cacheHitDescription: return "Cached input divided by total input for the selected window."
         case .cached: return "Cached"
+        case .claudeStatuslineRequired: return "Needs statusline"
         case .calendar: return "Calendar"
         case .calendarSubtitle: return "Daily usage intensity over the last year"
         case .clickForDetails: return "Click for details"
+        case .claude: return "Claude"
+        case .claudeCode: return "Claude Code"
+        case .claudeDescription: return "Claude Code local logs"
+        case .claudeLogs: return "Claude logs"
+        case .codex: return "Codex"
         case .codexAppTotal: return "Codex app total"
+        case .codexDescription: return "Codex local logs"
+        case .combinedUsage: return "Codex + Claude"
         case .copy: return "Copy"
         case .costs: return "Costs"
         case .costsSubtitle: return "Plan settings and estimated money usage"
@@ -443,15 +476,16 @@ enum L10nKey {
         case .codexStatusOperational: return "Operational"
         case .codexStatusPartialOutage: return "Partial Outage"
         case .codexStatusResolved: return "Resolved"
+        case .codexHomeRing: return "Codex home ring"
         case .codexStatusUnavailable: return "Status unavailable"
         case .dayValue: return "Day value"
         case .dataSource: return "Data Source"
-        case .dataSourceLine1: return "The app reads local Codex session logs under ~/.codex/sessions, ~/.codex/archived_sessions, and CODEX_HOME when set."
+        case .dataSourceLine1: return "The app reads local Codex logs under ~/.codex and Claude Code logs under ~/.claude/projects."
         case .dataSourceLine2: return "Totals are local-observed token usage, not an official billing export."
         case .definitions: return "Definitions"
         case .detectedNotTracked: return "Detected, not counted"
         case .details: return "Details"
-        case .detailsWindowTitle: return "Token Meter Details"
+        case .detailsWindowTitle: return "AI Token Meter Details"
         case .diagnostics: return "Diagnostics"
         case .diagnosticsSubtitle: return "Data sources, warnings, and tool coverage"
         case .disabled: return "Disabled"
@@ -475,7 +509,7 @@ enum L10nKey {
         case .language: return "Language"
         case .languageHint: return "Changes apply immediately to the popover and details window."
         case .launchAtLogin: return "Open at Login"
-        case .launchAtLoginHint: return "Start Token Meter automatically when you sign in."
+        case .launchAtLoginHint: return "Start AI Token Meter automatically when you sign in."
         case .liveQuota: return "Live quota"
         case .liveLimitUnavailable: return "Live limit unavailable"
         case .logFolder: return "Log Folder"
@@ -484,6 +518,8 @@ enum L10nKey {
         case .logFolderDefault: return "Default"
         case .logFolderOpen: return "Finder"
         case .loadingAllUsage: return "Scanning all usage..."
+        case .loadingClaudeUsage: return "Scanning Claude usage..."
+        case .loadingCodexUsage: return "Scanning Codex usage..."
         case .loadingFinalizing: return "Preparing details..."
         case .loadingOtherUsage: return "Scanning other models..."
         case .loadingProfileTotals: return "Reading Profile API totals..."
@@ -494,7 +530,7 @@ enum L10nKey {
         case .logs: return "Logs"
         case .manualRefreshCycle: return "OpenAI refresh"
         case .modelLimit: return "Model"
-        case .modelGroupingNote: return "Model grouping comes from turn_context.model in local Codex rollout logs."
+        case .modelGroupingNote: return "Model grouping comes from local Codex rollout logs and Claude Code assistant usage entries."
         case .modelMissingNote: return "Rows without a model label are counted in totals but cannot be assigned to a model."
         case .monthlySpendHistory: return "Monthly spend history"
         case .models: return "Models"
@@ -518,7 +554,8 @@ enum L10nKey {
         case .outShort: return "out"
         case .output: return "Output"
         case .overview: return "Overview"
-        case .overviewSubtitle: return "365-day token usage by quota and model"
+        case .overviewSubtitle: return "365-day token usage by source and model"
+        case .claudeHomeRing: return "Claude home ring"
         case .past24Hours: return "Past 24 Hours"
         case .past30Days: return "Past 30 Days"
         case .past7Days: return "Past 7 Days"
@@ -539,7 +576,8 @@ enum L10nKey {
         case .quotaDisplayHint: return "Choose how the 5h and weekly quota pace are shown."
         case .quotaDisplayRings: return "Rings"
         case .quotaDisplayStyle: return "Quota Display"
-        case .quotaViews: return "Quota Views"
+        case .quotaHomeRingHint: return "Controls the two large rings on the combined Codex + Claude home page."
+        case .quotaViews: return "Usage Sources"
         case .quotaWarnings: return "Quota warnings"
         case .quotaWarningsHint: return "Notify once when a live quota window drops below 15% remaining."
         case .recentRollouts: return "Recent rollouts"
@@ -600,7 +638,7 @@ enum L10nKey {
     var chinese: String {
         switch self {
         case .about: return "关于"
-        case .aboutSubtitle: return "Codex 用量的读取和分组方式"
+        case .aboutSubtitle: return "本地用量的读取和分组方式"
         case .all: return "全部"
         case .allDescription: return "包含 token 明细的全部记录"
         case .apiEquivalent: return "API 等价成本"
@@ -611,10 +649,18 @@ enum L10nKey {
         case .cacheHit: return "缓存命中"
         case .cacheHitDescription: return "选定时间范围内，缓存输入占总输入的比例。"
         case .cached: return "缓存"
+        case .claudeStatuslineRequired: return "需 statusline"
         case .calendar: return "日历"
         case .calendarSubtitle: return "过去一年的每日使用强度"
         case .clickForDetails: return "点击查看详情"
+        case .claude: return "Claude"
+        case .claudeCode: return "Claude Code"
+        case .claudeDescription: return "Claude Code 本地日志"
+        case .claudeLogs: return "Claude 日志"
+        case .codex: return "Codex"
         case .codexAppTotal: return "Codex 总用量"
+        case .codexDescription: return "Codex 本地日志"
+        case .combinedUsage: return "Codex + Claude"
         case .copy: return "复制"
         case .costs: return "金额"
         case .costsSubtitle: return "套餐设置和金额估算"
@@ -631,14 +677,15 @@ enum L10nKey {
         case .codexStatusPartialOutage: return "部分中断"
         case .codexStatusResolved: return "已恢复"
         case .codexStatusUnavailable: return "状态暂不可用"
+        case .codexHomeRing: return "Codex 首页圆环"
         case .dayValue: return "当日价值"
         case .dataSource: return "数据来源"
-        case .dataSourceLine1: return "应用读取 ~/.codex/sessions、~/.codex/archived_sessions，以及已设置的 CODEX_HOME。"
+        case .dataSourceLine1: return "应用读取 ~/.codex 下的 Codex 日志，以及 ~/.claude/projects 下的 Claude Code 日志。"
         case .dataSourceLine2: return "这里是本地观测到的 token 用量，不是官方账单导出。"
         case .definitions: return "定义"
         case .detectedNotTracked: return "已检测，未计入"
         case .details: return "详情"
-        case .detailsWindowTitle: return "Token Meter 详情"
+        case .detailsWindowTitle: return "AI Token Meter 详情"
         case .diagnostics: return "诊断"
         case .diagnosticsSubtitle: return "数据源、提醒和工具覆盖"
         case .disabled: return "已关闭"
@@ -662,7 +709,7 @@ enum L10nKey {
         case .language: return "语言"
         case .languageHint: return "切换后会立即应用到弹窗和详情窗口。"
         case .launchAtLogin: return "开机启动"
-        case .launchAtLoginHint: return "登录 macOS 后自动启动 Token Meter。"
+        case .launchAtLoginHint: return "登录 macOS 后自动启动 AI Token Meter。"
         case .liveQuota: return "实时额度"
         case .liveLimitUnavailable: return "实时限额不可用"
         case .logFolder: return "日志目录"
@@ -671,6 +718,8 @@ enum L10nKey {
         case .logFolderDefault: return "默认"
         case .logFolderOpen: return "Finder"
         case .loadingAllUsage: return "正在扫描全部用量..."
+        case .loadingClaudeUsage: return "正在扫描 Claude 用量..."
+        case .loadingCodexUsage: return "正在扫描 Codex 用量..."
         case .loadingFinalizing: return "正在整理详情..."
         case .loadingOtherUsage: return "正在扫描其他模型..."
         case .loadingProfileTotals: return "正在读取 Profile API 总量..."
@@ -681,7 +730,7 @@ enum L10nKey {
         case .logs: return "日志"
         case .manualRefreshCycle: return "OpenAI 手动刷新"
         case .modelLimit: return "模型"
-        case .modelGroupingNote: return "模型分组来自本地 Codex rollout 日志里的 turn_context.model。"
+        case .modelGroupingNote: return "模型分组来自本地 Codex rollout 日志和 Claude Code assistant usage 记录。"
         case .modelMissingNote: return "没有模型标签的记录会计入总量，但无法归入单个模型。"
         case .monthlySpendHistory: return "月度金额历史"
         case .models: return "模型"
@@ -705,7 +754,8 @@ enum L10nKey {
         case .outShort: return "输出"
         case .output: return "输出"
         case .overview: return "概览"
-        case .overviewSubtitle: return "过去 365 天按限额和模型统计"
+        case .overviewSubtitle: return "过去 365 天按来源和模型统计"
+        case .claudeHomeRing: return "Claude 首页圆环"
         case .past24Hours: return "过去 24 小时"
         case .past30Days: return "过去 30 天"
         case .past7Days: return "过去 7 天"
@@ -726,7 +776,8 @@ enum L10nKey {
         case .quotaDisplayHint: return "选择 5小时和周额度的节奏展示方式。"
         case .quotaDisplayRings: return "圆环"
         case .quotaDisplayStyle: return "额度样式"
-        case .quotaViews: return "限额视图"
+        case .quotaHomeRingHint: return "控制 Codex + Claude 合并首页上方两个大圆环显示 5小时还是周额度。"
+        case .quotaViews: return "用量来源"
         case .quotaWarnings: return "额度提醒"
         case .quotaWarningsHint: return "实时额度低于 15% 时，每个窗口只提醒一次。"
         case .recentRollouts: return "近期日志"
@@ -787,7 +838,7 @@ enum L10nKey {
     var japanese: String {
         switch self {
         case .about: return "概要"
-        case .aboutSubtitle: return "Codex 使用量の読み取りと分類方法"
+        case .aboutSubtitle: return "ローカル使用量の読み取りと分類方法"
         case .all: return "すべて"
         case .allDescription: return "token 詳細を含むすべての記録"
         case .apiEquivalent: return "API 換算"
@@ -798,10 +849,18 @@ enum L10nKey {
         case .cacheHit: return "キャッシュ率"
         case .cacheHitDescription: return "選択した期間の総入力に対するキャッシュ入力の割合。"
         case .cached: return "キャッシュ"
+        case .claudeStatuslineRequired: return "statusline 必要"
         case .calendar: return "カレンダー"
         case .calendarSubtitle: return "過去 1 年の日別使用量"
         case .clickForDetails: return "クリックで詳細"
+        case .claude: return "Claude"
+        case .claudeCode: return "Claude Code"
+        case .claudeDescription: return "Claude Code ローカルログ"
+        case .claudeLogs: return "Claude ログ"
+        case .codex: return "Codex"
         case .codexAppTotal: return "Codex 全体使用量"
+        case .codexDescription: return "Codex ローカルログ"
+        case .combinedUsage: return "Codex + Claude"
         case .copy: return "コピー"
         case .costs: return "金額"
         case .costsSubtitle: return "プラン設定と金額推定"
@@ -818,14 +877,15 @@ enum L10nKey {
         case .codexStatusPartialOutage: return "一部停止"
         case .codexStatusResolved: return "復旧済み"
         case .codexStatusUnavailable: return "状態を取得できません"
+        case .codexHomeRing: return "Codex ホームリング"
         case .dayValue: return "当日の価値"
         case .dataSource: return "データソース"
-        case .dataSourceLine1: return "このアプリは ~/.codex/sessions、~/.codex/archived_sessions、設定済みの CODEX_HOME を読み取ります。"
+        case .dataSourceLine1: return "このアプリは ~/.codex の Codex ログと ~/.claude/projects の Claude Code ログを読み取ります。"
         case .dataSourceLine2: return "表示値はローカルで観測した token 使用量であり、公式の請求書エクスポートではありません。"
         case .definitions: return "定義"
         case .detectedNotTracked: return "検出済み・未集計"
         case .details: return "詳細"
-        case .detailsWindowTitle: return "Token Meter 詳細"
+        case .detailsWindowTitle: return "AI Token Meter 詳細"
         case .diagnostics: return "診断"
         case .diagnosticsSubtitle: return "データソース、通知、ツール範囲"
         case .disabled: return "無効"
@@ -849,7 +909,7 @@ enum L10nKey {
         case .language: return "言語"
         case .languageHint: return "変更はポップオーバーと詳細ウィンドウにすぐ反映されます。"
         case .launchAtLogin: return "ログイン時に開く"
-        case .launchAtLoginHint: return "macOS にサインインしたときに Token Meter を自動起動します。"
+        case .launchAtLoginHint: return "macOS にサインインしたときに AI Token Meter を自動起動します。"
         case .liveQuota: return "リアルタイム制限"
         case .liveLimitUnavailable: return "リアルタイム制限を取得できません"
         case .logFolder: return "ログフォルダ"
@@ -858,6 +918,8 @@ enum L10nKey {
         case .logFolderDefault: return "既定"
         case .logFolderOpen: return "Finder"
         case .loadingAllUsage: return "全体の使用量をスキャン中..."
+        case .loadingClaudeUsage: return "Claude 使用量をスキャン中..."
+        case .loadingCodexUsage: return "Codex 使用量をスキャン中..."
         case .loadingFinalizing: return "詳細を準備中..."
         case .loadingOtherUsage: return "その他モデルをスキャン中..."
         case .loadingProfileTotals: return "Profile API 合計を読み込み中..."
@@ -868,7 +930,7 @@ enum L10nKey {
         case .logs: return "ログ"
         case .manualRefreshCycle: return "OpenAI 手動更新"
         case .modelLimit: return "モデル"
-        case .modelGroupingNote: return "モデル別集計はローカル Codex rollout ログの turn_context.model から取得します。"
+        case .modelGroupingNote: return "モデル別集計はローカル Codex rollout ログと Claude Code assistant usage から取得します。"
         case .modelMissingNote: return "モデル名がない行は合計に含まれますが、個別モデルには割り当てられません。"
         case .monthlySpendHistory: return "月次金額履歴"
         case .models: return "モデル"
@@ -892,7 +954,8 @@ enum L10nKey {
         case .outShort: return "出力"
         case .output: return "出力"
         case .overview: return "概要"
-        case .overviewSubtitle: return "過去 365 日の制限枠とモデル別使用量"
+        case .overviewSubtitle: return "過去 365 日のソースとモデル別使用量"
+        case .claudeHomeRing: return "Claude ホームリング"
         case .past24Hours: return "過去 24 時間"
         case .past30Days: return "過去 30 日"
         case .past7Days: return "過去 7 日"
@@ -913,7 +976,8 @@ enum L10nKey {
         case .quotaDisplayHint: return "5h と週制限のペース表示を選びます。"
         case .quotaDisplayRings: return "リング"
         case .quotaDisplayStyle: return "制限表示"
-        case .quotaViews: return "制限枠ビュー"
+        case .quotaHomeRingHint: return "Codex + Claude 統合ホーム上部の 2 つのリングに 5h と週のどちらを出すかを選びます。"
+        case .quotaViews: return "使用量ソース"
         case .quotaWarnings: return "制限通知"
         case .quotaWarningsHint: return "残り 15% 未満になった制限枠ごとに一度だけ通知します。"
         case .recentRollouts: return "最近の rollout"
@@ -1071,12 +1135,53 @@ enum AppSettings {
     static let externalAPICostPathKey = "externalAPICostPath"
     static let profileAPITotalsEnabledKey = "profileAPITotalsEnabled"
     static let showCodexStatusEnabledKey = "showCodexStatusEnabled"
+    static let codexHomeRingMetricKey = "codexHomeRingMetric"
+    static let claudeHomeRingMetricKey = "claudeHomeRingMetric"
 
     static let fallbackModelLimitID = "codex_bengalfox"
     static let fallbackModelLimitName = "GPT-5.3-Codex-Spark"
 
     static var defaultCodexHomeURL: URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex", isDirectory: true)
+    }
+
+    static var defaultClaudeHomeURL: URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude", isDirectory: true)
+    }
+
+    static var defaultClaudeProjectsURL: URL {
+        defaultClaudeHomeURL.appendingPathComponent("projects", isDirectory: true)
+    }
+
+    static var xdgClaudeProjectsURL: URL {
+        let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
+            .flatMap { $0.isEmpty ? nil : $0 }
+            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".config", isDirectory: true)
+        return xdgConfigHome
+            .appendingPathComponent("claude", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+    }
+
+    static var environmentClaudeProjectsURLs: [URL] {
+        guard let raw = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !raw.isEmpty else {
+            return []
+        }
+        return raw.split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { path in
+                let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+                return url.lastPathComponent == "projects" ? url : url.appendingPathComponent("projects", isDirectory: true)
+            }
+    }
+
+    static var claudeLogFolderURLs: [URL] {
+        uniqueDirectoryURLs(environmentClaudeProjectsURLs + [xdgClaudeProjectsURL, defaultClaudeProjectsURL])
+    }
+
+    static var claudeLogFolderDisplayPath: String {
+        claudeLogFolderURLs.map { displayPath(for: $0) }.joined(separator: " + ")
     }
 
     static var environmentCodexHomeURL: URL? {
@@ -1092,27 +1197,6 @@ enum AppSettings {
 
     static var defaultArchivedLogFolderURL: URL {
         defaultCodexHomeURL.appendingPathComponent("archived_sessions", isDirectory: true)
-    }
-
-    static var defaultClaudeProjectsURL: URL {
-        URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".claude", isDirectory: true)
-            .appendingPathComponent("projects", isDirectory: true)
-    }
-
-    static var claudeLogFolderURLs: [URL] {
-        var roots: [URL] = []
-        if let configDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !configDir.isEmpty {
-            roots.append(URL(fileURLWithPath: (configDir as NSString).expandingTildeInPath, isDirectory: true)
-                .appendingPathComponent("projects", isDirectory: true))
-        }
-        if let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"], !xdgConfigHome.isEmpty {
-            roots.append(URL(fileURLWithPath: (xdgConfigHome as NSString).expandingTildeInPath, isDirectory: true)
-                .appendingPathComponent("claude", isDirectory: true)
-                .appendingPathComponent("projects", isDirectory: true))
-        }
-        roots.append(defaultClaudeProjectsURL)
-        return uniqueDirectoryURLs(roots)
     }
 
     static var hasCustomLogFolder: Bool {
@@ -1160,6 +1244,18 @@ enum AppSettings {
 
     static var costHistoryURL: URL {
         appSupportDirectoryURL.appendingPathComponent("cost-history.json")
+    }
+
+    static var dashboardReportCacheURL: URL {
+        appSupportDirectoryURL.appendingPathComponent("dashboard-report-cache.json")
+    }
+
+    static var detailsSnapshotCacheURL: URL {
+        appSupportDirectoryURL.appendingPathComponent("details-snapshot-cache.json")
+    }
+
+    static var claudeStatuslineCaptureURL: URL {
+        appSupportDirectoryURL.appendingPathComponent("claude-statusline.json")
     }
 
     static var defaultExternalAPICostURL: URL {
@@ -1217,6 +1313,41 @@ enum AppSettings {
         }
     }
 
+    private static func platformCostKey(_ base: String, source: QuotaViewOption) -> String? {
+        switch source {
+        case .codex:
+            return "codex.\(base)"
+        case .claude:
+            return "claude.\(base)"
+        case .all:
+            return nil
+        }
+    }
+
+    static func monthlyPlanCost(for source: QuotaViewOption) -> Double {
+        switch source {
+        case .all:
+            let display = displayCurrency(for: .all)
+            return [.codex, .claude].reduce(0) { total, source in
+                total + convertCurrency(monthlyPlanCost(for: source), from: paymentCurrency(for: source), to: display)
+            }
+        case .codex, .claude:
+            guard let key = platformCostKey(monthlyPlanCostKey, source: source) else { return monthlyPlanCost }
+            let stored = UserDefaults.standard.double(forKey: key)
+            return stored > 0 ? stored : monthlyPlanCost
+        }
+    }
+
+    static func setMonthlyPlanCost(_ value: Double, for source: QuotaViewOption) {
+        switch source {
+        case .all:
+            monthlyPlanCost = value
+        case .codex, .claude:
+            guard let key = platformCostKey(monthlyPlanCostKey, source: source) else { return }
+            UserDefaults.standard.set(max(0, value), forKey: key)
+        }
+    }
+
     static var paymentCurrency: CurrencyCode {
         get {
             guard let raw = UserDefaults.standard.string(forKey: paymentCurrencyKey),
@@ -1230,6 +1361,30 @@ enum AppSettings {
         }
     }
 
+    static func paymentCurrency(for source: QuotaViewOption) -> CurrencyCode {
+        switch source {
+        case .all:
+            return displayCurrency
+        case .codex, .claude:
+            guard let key = platformCostKey(paymentCurrencyKey, source: source),
+                  let raw = UserDefaults.standard.string(forKey: key),
+                  let currency = CurrencyCode(rawValue: raw) else {
+                return paymentCurrency
+            }
+            return currency
+        }
+    }
+
+    static func setPaymentCurrency(_ currency: CurrencyCode, for source: QuotaViewOption) {
+        switch source {
+        case .all:
+            paymentCurrency = currency
+        case .codex, .claude:
+            guard let key = platformCostKey(paymentCurrencyKey, source: source) else { return }
+            UserDefaults.standard.set(currency.rawValue, forKey: key)
+        }
+    }
+
     static var displayCurrency: CurrencyCode {
         get {
             guard let raw = UserDefaults.standard.string(forKey: displayCurrencyKey),
@@ -1240,6 +1395,37 @@ enum AppSettings {
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: displayCurrencyKey)
+        }
+    }
+
+    static func hasDisplayCurrency(for source: QuotaViewOption) -> Bool {
+        guard let key = platformCostKey(displayCurrencyKey, source: source) else {
+            return UserDefaults.standard.string(forKey: displayCurrencyKey) != nil
+        }
+        return UserDefaults.standard.string(forKey: key) != nil
+    }
+
+    static func displayCurrency(for source: QuotaViewOption) -> CurrencyCode {
+        switch source {
+        case .all:
+            return displayCurrency
+        case .codex, .claude:
+            guard let key = platformCostKey(displayCurrencyKey, source: source),
+                  let raw = UserDefaults.standard.string(forKey: key),
+                  let currency = CurrencyCode(rawValue: raw) else {
+                return displayCurrency
+            }
+            return currency
+        }
+    }
+
+    static func setDisplayCurrency(_ currency: CurrencyCode, for source: QuotaViewOption) {
+        switch source {
+        case .all:
+            displayCurrency = currency
+        case .codex, .claude:
+            guard let key = platformCostKey(displayCurrencyKey, source: source) else { return }
+            UserDefaults.standard.set(currency.rawValue, forKey: key)
         }
     }
 
@@ -1279,6 +1465,31 @@ enum AppSettings {
                 UserDefaults.standard.set(newValue, forKey: paymentStartDayKey)
             } else {
                 UserDefaults.standard.removeObject(forKey: paymentStartDayKey)
+            }
+        }
+    }
+
+    static func paymentStartDay(for source: QuotaViewOption) -> String? {
+        switch source {
+        case .all:
+            return paymentStartDay
+        case .codex, .claude:
+            guard let key = platformCostKey(paymentStartDayKey, source: source) else { return paymentStartDay }
+            let value = UserDefaults.standard.string(forKey: key)
+            return (value?.isEmpty == false) ? value : paymentStartDay
+        }
+    }
+
+    static func setPaymentStartDay(_ value: String?, for source: QuotaViewOption) {
+        switch source {
+        case .all:
+            paymentStartDay = value
+        case .codex, .claude:
+            guard let key = platformCostKey(paymentStartDayKey, source: source) else { return }
+            if let value, !value.isEmpty {
+                UserDefaults.standard.set(value, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
             }
         }
     }
@@ -1339,6 +1550,32 @@ enum AppSettings {
         }
     }
 
+    static var codexHomeRingMetric: HomeQuotaRingMetric {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: codexHomeRingMetricKey),
+                  let metric = HomeQuotaRingMetric(rawValue: raw) else {
+                return .weekly
+            }
+            return metric
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: codexHomeRingMetricKey)
+        }
+    }
+
+    static var claudeHomeRingMetric: HomeQuotaRingMetric {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: claudeHomeRingMetricKey),
+                  let metric = HomeQuotaRingMetric(rawValue: raw) else {
+                return .weekly
+            }
+            return metric
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: claudeHomeRingMetricKey)
+        }
+    }
+
     static var externalAPICostURL: URL {
         get {
             guard let path = UserDefaults.standard.string(forKey: externalAPICostPathKey), !path.isEmpty else {
@@ -1374,7 +1611,7 @@ enum LoginItemManager {
                     }
                 }
             } catch {
-                NSLog("Codex Token Meter login item update failed: \(error.localizedDescription)")
+                NSLog("AI Token Meter login item update failed: \(error.localizedDescription)")
             }
             return SMAppService.mainApp.status == .enabled
         }

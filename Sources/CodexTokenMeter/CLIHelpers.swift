@@ -24,32 +24,31 @@ func requestedQuota(from arguments: [String]) -> QuotaViewOption? {
     }.first
 }
 
-func cliReport(window: WindowOption, quota: QuotaViewOption, scanner: CodexTokenScanner, claudeScanner: ClaudeTokenScanner) -> TokenReport {
-    switch quota {
+func scanReport(window: WindowOption, source: QuotaViewOption, codexScanner: CodexTokenScanner, claudeScanner: ClaudeTokenScanner) -> TokenReport {
+    switch source {
+    case .all:
+        return mergedTokenReport([
+            codexScanner.scan(window: window),
+            claudeScanner.scan(window: window)
+        ])
+    case .codex:
+        return codexScanner.scan(window: window)
     case .claude:
         return claudeScanner.scan(window: window)
-    case .all:
-        return mergedTokenReports([scanner.scan(window: window), claudeScanner.scan(window: window)], scannedAt: Date())
-    case .codex:
-        return scanner.scan(window: window)
-    default:
-        return scanner.scan(window: window, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
     }
 }
 
-func cliReport(hours: Int, quota: QuotaViewOption?, scanner: CodexTokenScanner, claudeScanner: ClaudeTokenScanner) -> TokenReport {
-    guard let quota else {
-        return mergedTokenReports([scanner.scan(hours: hours), claudeScanner.scan(hours: hours)], scannedAt: Date())
-    }
-    switch quota {
+func scanReport(hours: Int, source: QuotaViewOption, codexScanner: CodexTokenScanner, claudeScanner: ClaudeTokenScanner) -> TokenReport {
+    switch source {
+    case .all:
+        return mergedTokenReport([
+            codexScanner.scan(hours: hours),
+            claudeScanner.scan(hours: hours)
+        ])
+    case .codex:
+        return codexScanner.scan(hours: hours)
     case .claude:
         return claudeScanner.scan(hours: hours)
-    case .all:
-        return mergedTokenReports([scanner.scan(hours: hours), claudeScanner.scan(hours: hours)], scannedAt: Date())
-    case .codex:
-        return scanner.scan(hours: hours)
-    default:
-        return scanner.scan(hours: hours, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
     }
 }
 
@@ -81,6 +80,18 @@ func requestedDetailsSection(from arguments: [String]) -> DetailsSection {
     }
 }
 
+func requestedDetailsSource(from arguments: [String]) -> QuotaViewOption? {
+    arguments.compactMap { argument -> QuotaViewOption? in
+        if argument.hasPrefix("--details-source=") {
+            return QuotaViewOption.option(from: String(argument.dropFirst("--details-source=".count)))
+        }
+        if argument.hasPrefix("--source=") {
+            return QuotaViewOption.option(from: String(argument.dropFirst("--source=".count)))
+        }
+        return nil
+    }.first
+}
+
 func writePNG(of view: NSView, to url: URL) throws {
     guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
         throw NSError(domain: "CodexTokenMeter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create bitmap"])
@@ -97,23 +108,19 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
     let claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     let window = requestedWindow(from: arguments) ?? .week
     let quota = requestedQuota(from: arguments) ?? .all
-    let codexReport = quota == .all ? scanner.scan(window: window) : (quota == .codex ? scanner.scan(window: window) : nil)
-    let claudeReport = quota == .all ? claudeScanner.scan(window: window) : (quota == .claude ? claudeScanner.scan(window: window) : nil)
+    let codexReport = quota == .all ? scanner.scan(window: window) : nil
+    let claudeReport = quota == .all ? claudeScanner.scan(window: window) : nil
     let report: TokenReport
-    if quota == .all, let codexReport, let claudeReport {
-        report = mergedTokenReports([codexReport, claudeReport], scannedAt: Date())
-    } else if let codexReport {
-        report = codexReport
-    } else if let claudeReport {
-        report = claudeReport
+    if let codexReport, let claudeReport {
+        report = mergedTokenReport([codexReport, claudeReport])
     } else {
-        report = cliReport(window: window, quota: quota, scanner: scanner, claudeScanner: claudeScanner)
+        report = scanReport(window: window, source: quota, codexScanner: scanner, claudeScanner: claudeScanner)
     }
-    let liveLimits = LiveRateLimitReader().read()
+    let liveLimits = combinedLiveLimits()
     let serviceStatus = CodexServiceStatusReader().read()
     let accountUsage = AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
     let profileReport: TokenReport?
-    if quota == .all, let accountUsage, accountUsage.hasData {
+    if quota.usesCodexProfileAPI, let accountUsage, accountUsage.hasData {
         profileReport = profileReportWithLocalFallback(accountUsage.report(window: window), localReport: report)
     } else {
         profileReport = nil
@@ -142,8 +149,10 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
         error: nil
     )
 
-    let view = DashboardView(frame: NSRect(origin: .zero, size: DashboardView.preferredSize(for: quota)))
+    let view = DashboardView(frame: NSRect(origin: .zero, size: DashboardView.idealSize))
     view.update(state)
+    let preferredSize = view.preferredPopoverSize
+    view.frame = NSRect(origin: .zero, size: preferredSize)
     view.layoutSubtreeIfNeeded()
     try writePNG(of: view, to: outputURL)
     return outputURL
@@ -153,30 +162,40 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
     let claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     let section = requestedDetailsSection(from: arguments)
+    let source = requestedDetailsSource(from: arguments) ?? .all
     let isInsightsSection = section == .insights
     let accountUsage = !isInsightsSection && AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
-    let codexLocal = isInsightsSection ? TokenReport(scannedAt: Date()) : scanner.scan(window: .week)
-    let claudeLocal = isInsightsSection ? TokenReport(scannedAt: Date()) : claudeScanner.scan(window: .week)
-    let allLocal = mergedTokenReports([codexLocal, claudeLocal], scannedAt: Date())
-    let all: TokenReport
-    if let accountUsage, accountUsage.hasData {
-        all = profileReportWithLocalFallback(accountUsage.report(window: .week), localReport: allLocal)
-    } else {
-        all = allLocal
-    }
-    let repoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90])
-    let repoInsights = repoInsightReports[90] ?? scanner.scanRepoInsights(days: 90)
+    let codex = isInsightsSection ? TokenReport(scannedAt: Date()) : scanner.scan(window: .week)
+    let claude = isInsightsSection ? TokenReport(scannedAt: Date()) : claudeScanner.scan(window: .week)
+    let all = mergedTokenReport([codex, claude])
+    let codexRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90])
+    let claudeRepoInsightReports = claudeScanner.scanRepoInsights(windows: [7, 30, 90])
+    let repoInsightReports = Dictionary(uniqueKeysWithValues: [7, 30, 90].map { days in
+        let report = mergedRepoInsightsReport(
+            [
+                codexRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days),
+                claudeRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days)
+            ],
+            windowDays: days
+        )
+        return (days, report)
+    })
+    let repoInsights = repoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+    let codexRepoInsights = codexRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+    let claudeRepoInsights = claudeRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
     let snapshot = DetailsSnapshot(
         all: all,
-        codex: codexLocal,
-        claude: claudeLocal,
-        spark: isInsightsSection ? TokenReport(scannedAt: Date()) : scanner.scan(window: .week, includedModelName: "codex-spark"),
-        other: isInsightsSection ? TokenReport(scannedAt: Date()) : scanner.scan(window: .week, excludedModelName: "codex-spark"),
+        codex: codex,
+        claude: claude,
         repoInsights: repoInsights,
         repoInsightReports: repoInsightReports,
-        liveLimits: isInsightsSection ? [] : LiveRateLimitReader().read(),
+        codexRepoInsights: codexRepoInsights,
+        codexRepoInsightReports: codexRepoInsightReports,
+        claudeRepoInsights: claudeRepoInsights,
+        claudeRepoInsightReports: claudeRepoInsightReports,
+        liveLimits: isInsightsSection ? [] : combinedLiveLimits(),
         serviceStatus: isInsightsSection ? nil : CodexServiceStatusReader().read(),
-        costReferenceReport: allLocal,
+        costReferenceReport: source == .codex ? codex : all,
         accountUsage: accountUsage
     )
 
@@ -194,7 +213,7 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
             return Int(argument.dropFirst("--insight-window=".count))
         }
         .first ?? 90
-    view.showSection(section, insightWindowDays: windowDays)
+    view.showSection(section, insightWindowDays: windowDays, source: source)
     view.snapshot = snapshot
     view.isLoading = false
     view.layoutSubtreeIfNeeded()

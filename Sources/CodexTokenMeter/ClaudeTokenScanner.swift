@@ -460,6 +460,8 @@ final class ClaudeTokenScanner {
         return Usage(
             input: inputTotal,
             cachedInput: cacheRead,
+            cacheCreationInput: cacheCreation,
+            cacheCreationInput1h: cacheCreation1h,
             output: output,
             reasoningOutput: 0,
             total: inputTotal + output

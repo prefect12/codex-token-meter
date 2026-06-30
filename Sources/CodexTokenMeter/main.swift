@@ -5,6 +5,19 @@ import UserNotifications
 
 // MARK: - Command Line Entrypoints
 
+if CommandLine.arguments.contains("--claude-statusline") {
+    let data = FileHandle.standardInput.readDataToEndOfFile()
+    do {
+        let store = ClaudeStatuslineStore()
+        let snapshot = try store.capture(stdinData: data)
+        print(store.statuslineText(from: data, snapshot: snapshot))
+    } catch {
+        fputs("Failed to capture Claude statusline: \(error)\n", stderr)
+        print("AI Token Meter")
+    }
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--print-profile") {
     let snapshot = AccountUsageReader().read()
     let payload: [String: Any] = [
@@ -30,13 +43,15 @@ if CommandLine.arguments.contains("--print-profile") {
 }
 
 if CommandLine.arguments.contains("--print-live") {
-    let limits = LiveRateLimitReader().read()
-    AppSettings.learnModelLimit(from: limits)
-    CostHistoryStore.shared.record(limits: limits)
+    let limits = combinedLiveLimits()
+    let codexLimits = limits.filter { $0.id != QuotaViewOption.claude.liveLimitID }
+    AppSettings.learnModelLimit(from: codexLimits)
+    CostHistoryStore.shared.record(limits: codexLimits)
     let payload = limits.map { limit in
         [
             "id": limit.id,
             "name": limit.name,
+            "plan_type": limit.planType ?? "",
             "primary_percent": limit.primary.usedPercent,
             "primary_remaining_percent": limit.primary.remainingPercent,
             "weekly_percent": limit.secondary.usedPercent,
@@ -84,20 +99,9 @@ if CommandLine.arguments.contains("--print") {
     let claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     let requestedWindow = requestedWindow(from: CommandLine.arguments)
     let hours = requestedHours(from: CommandLine.arguments)
-    let quota = requestedQuota(from: CommandLine.arguments)
-    let effectiveQuota = quota ?? .all
-    let report = requestedWindow.map {
-        cliReport(window: $0, quota: effectiveQuota, scanner: scanner, claudeScanner: claudeScanner)
-    } ?? cliReport(hours: hours, quota: quota, scanner: scanner, claudeScanner: claudeScanner)
-    let logRoots: [String]
-    switch effectiveQuota {
-    case .claude:
-        logRoots = claudeScanner.rootPaths
-    case .all:
-        logRoots = scanner.rootPaths + claudeScanner.rootPaths
-    default:
-        logRoots = scanner.rootPaths
-    }
+    let quota = requestedQuota(from: CommandLine.arguments) ?? .all
+    let report = requestedWindow.map { scanReport(window: $0, source: quota, codexScanner: scanner, claudeScanner: claudeScanner) }
+        ?? scanReport(hours: hours, source: quota, codexScanner: scanner, claudeScanner: claudeScanner)
     let apiEstimate = APICostEstimator.estimate(report: report)
     let externalAPI = ExternalAPICostStore.read()
     let externalAPIPayload: [String: Any] = [
@@ -111,15 +115,17 @@ if CommandLine.arguments.contains("--print") {
     let payload: [String: Any] = [
         "hours": requestedWindow?.rawValue ?? hours,
         "window": requestedWindow?.shortTitle ?? "rolling",
-        "quota": effectiveQuota.outputName,
+        "quota": quota.rawValue,
         "model_limit_id": AppSettings.modelLimitID,
         "model_limit_name": AppSettings.modelLimitName,
-        "log_roots": logRoots,
+        "log_roots": scanner.rootPaths + claudeScanner.rootPaths,
         "sessions": report.sessions,
         "events": report.events,
         "turns": report.turns,
         "input": report.usage.input,
         "cached_input": report.usage.cachedInput,
+        "cache_creation_input": report.usage.cacheCreationInput,
+        "cache_creation_input_1h": report.usage.cacheCreationInput1h,
         "fresh_input": report.usage.freshInput,
         "output": report.usage.output,
         "reasoning_output": report.usage.reasoningOutput,
@@ -139,6 +145,9 @@ if CommandLine.arguments.contains("--print") {
                 "events": model.events,
                 "total": model.usage.total,
                 "input": model.usage.input,
+                "cached_input": model.usage.cachedInput,
+                "cache_creation_input": model.usage.cacheCreationInput,
+                "cache_creation_input_1h": model.usage.cacheCreationInput1h,
                 "output": model.usage.output,
                 "api_equivalent_usd": modelAPIEstimate.usdValue,
                 "api_equivalent_priced_tokens": modelAPIEstimate.pricedTokens
@@ -151,6 +160,8 @@ if CommandLine.arguments.contains("--print") {
                 "turns": day.turns,
                 "input": day.usage.input,
                 "cached_input": day.usage.cachedInput,
+                "cache_creation_input": day.usage.cacheCreationInput,
+                "cache_creation_input_1h": day.usage.cacheCreationInput1h,
                 "fresh_input": day.usage.freshInput,
                 "output": day.usage.output,
                 "reasoning_output": day.usage.reasoningOutput,
@@ -165,6 +176,9 @@ if CommandLine.arguments.contains("--print") {
                         "events": model.events,
                         "total": model.usage.total,
                         "input": model.usage.input,
+                        "cached_input": model.usage.cachedInput,
+                        "cache_creation_input": model.usage.cacheCreationInput,
+                        "cache_creation_input_1h": model.usage.cacheCreationInput1h,
                         "output": model.usage.output,
                         "api_equivalent_usd": modelAPIEstimate.usdValue
                     ] as [String: Any]

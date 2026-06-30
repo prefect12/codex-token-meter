@@ -2,11 +2,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-APP="$ROOT/build/Codex Token Meter.app"
+APP="$ROOT/build/AI Token Meter.app"
 DIST="$ROOT/dist"
 STAGE="$ROOT/build/dmg-stage"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/Info.plist")"
-DMG="$DIST/Codex-Token-Meter-$VERSION.dmg"
+DMG="$DIST/AI-Token-Meter-$VERSION.dmg"
 
 "$ROOT/build.sh" >/dev/null
 
@@ -15,9 +15,9 @@ mkdir -p "$STAGE" "$DIST"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 
-codesign --force --deep --sign - "$STAGE/Codex Token Meter.app"
+codesign --force --deep --sign - "$STAGE/AI Token Meter.app"
 rm -f "$DMG"
-hdiutil create -volname "Token Meter" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+hdiutil create -volname "AI Token Meter" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
 hdiutil verify "$DMG"
 
 echo "$DMG"
