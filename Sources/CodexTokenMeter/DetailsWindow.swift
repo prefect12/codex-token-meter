@@ -1786,7 +1786,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func layoutCostControls() {
-        let visible = selectedSection == .costs
+        let visible = selectedSection == .costs && !isLoading
         costAmountField.isHidden = !visible
         paymentStartDayField.isHidden = !visible
         paymentCurrencyPopup.isHidden = !visible
@@ -1814,7 +1814,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func layoutSettingsControls() {
-        let visible = selectedSection == .settings
+        let visible = selectedSection == .settings && !isLoading
         languagePopup.isHidden = !visible
         launchAtLoginSwitch.isHidden = !visible
         showCodexStatusSwitch.isHidden = !visible
@@ -1828,10 +1828,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
         let leftSwitchX = rect.midX - 64
         let rightSwitchX = rect.maxX - 64
-        showCodexStatusSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 474, width: 48, height: 24)
-        launchAtLoginSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 474, width: 48, height: 24)
-        quotaWarningsSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 502, width: 48, height: 24)
-        profileAPITotalsSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 502, width: 48, height: 24)
+        showCodexStatusSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 530, width: 48, height: 24)
+        launchAtLoginSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 530, width: 48, height: 24)
+        quotaWarningsSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 558, width: 48, height: 24)
+        profileAPITotalsSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 558, width: 48, height: 24)
         updateLanguagePopupFromSettings()
         updateSettingsControlsFromSystem()
     }
@@ -1900,11 +1900,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             let heatmapHeight: CGFloat = 148
             let topOffset: CGFloat = 78
             let bottomPadding: CGFloat = 44
+            let rowCount = snapshot.map { sortedInsightRows(insightReport(for: $0).rows).count } ?? 8
+            let listHeight = insightProjectListPreferredHeight(rowCount: rowCount)
+            let detailHeight: CGFloat = 430
             if contentWidth >= 940 {
-                targetHeight = topOffset + 444 + 16 + heatmapHeight + bottomPadding
+                targetHeight = topOffset + max(listHeight, detailHeight) + 16 + heatmapHeight + bottomPadding
             } else {
-                let listHeight: CGFloat = 444
-                let detailHeight: CGFloat = 430
                 targetHeight = topOffset + listHeight + 16 + detailHeight + 16 + heatmapHeight + bottomPadding
             }
         case .models:
@@ -1939,6 +1940,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             targetHeight = 580
         }
         return max(minHeight, targetHeight)
+    }
+
+    private func insightProjectListPreferredHeight(rowCount: Int) -> CGFloat {
+        let rowHeight: CGFloat = 42
+        let chromeHeight: CGFloat = 118
+        let compactRowLimit = 6
+        let maximumHeight: CGFloat = 444
+        guard rowCount <= compactRowLimit else { return maximumHeight }
+        let visibleRows = max(rowCount, 1)
+        return chromeHeight + CGFloat(visibleRows) * rowHeight
     }
 
     private func selectedDayPanelPreferredHeight(contentWidth: CGFloat) -> CGFloat {
@@ -2616,22 +2627,26 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
         let topY = content.minY + 78
         drawInsightWindowPills(content: content)
+        let listHeight = insightProjectListPreferredHeight(rowCount: rows.count)
+        let detailHeight: CGFloat = 430
+        let heatmapHeight: CGFloat = 148
 
         if content.width >= 940 {
             let gap: CGFloat = 16
             let listWidth = min(CGFloat(430), content.width * 0.47)
-            let listRect = NSRect(x: content.minX, y: topY, width: listWidth, height: 444)
-            let detailRect = NSRect(x: listRect.maxX + gap, y: topY, width: content.width - listWidth - gap, height: 444)
-            let heatmapRect = NSRect(x: content.minX, y: topY + 444 + 16, width: content.width, height: 148)
+            let listRect = NSRect(x: content.minX, y: topY, width: listWidth, height: listHeight)
+            let detailRect = NSRect(x: listRect.maxX + gap, y: topY, width: content.width - listWidth - gap, height: detailHeight)
+            let heatmapY = topY + max(listHeight, detailHeight) + 16
+            let heatmapRect = NSRect(x: content.minX, y: heatmapY, width: content.width, height: heatmapHeight)
             drawInsightProjectList(rows: rows, rect: listRect)
             let selected = selectedInsight(in: report, sortedRows: rows)
             drawInsightDetail(selected, rect: detailRect)
             drawInsightHeatmap(row: selected, rect: heatmapRect)
         } else {
             let selected = selectedInsight(in: report, sortedRows: rows)
-            let listRect = NSRect(x: content.minX, y: topY, width: content.width, height: 444)
-            let detailRect = NSRect(x: content.minX, y: listRect.maxY + 16, width: content.width, height: 430)
-            let heatmapRect = NSRect(x: content.minX, y: detailRect.maxY + 16, width: content.width, height: 148)
+            let listRect = NSRect(x: content.minX, y: topY, width: content.width, height: listHeight)
+            let detailRect = NSRect(x: content.minX, y: listRect.maxY + 16, width: content.width, height: detailHeight)
+            let heatmapRect = NSRect(x: content.minX, y: detailRect.maxY + 16, width: content.width, height: heatmapHeight)
             drawInsightProjectList(rows: rows, rect: listRect)
             drawInsightDetail(selected, rect: detailRect)
             drawInsightHeatmap(row: selected, rect: heatmapRect)
@@ -2661,7 +2676,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func sortedInsightRows(_ rows: [RepoInsight]) -> [RepoInsight] {
-        rows.sorted { lhs, rhs in
+        rows.sorted(by: { lhs, rhs in
             let ascending = isInsightSortAscending
             switch selectedInsightSort {
             case .project:
@@ -2719,7 +2734,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 }
             }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-        }
+        })
     }
 
     private func insightRiskSortRank(_ risk: RepoInsightRisk) -> Int {
@@ -3246,13 +3261,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func otherToolDiagnostics() -> [(String, String, NSColor)] {
         let home = NSHomeDirectory()
-        let probes: [(String, String, Bool)] = [
+        var probes: [(String, String, Bool)] = [
             ("Codex", AppSettings.logFolderDisplayPath, true),
-            ("Claude Code", "\(home)/.claude/projects", false),
             ("Cursor", "\(home)/Library/Application Support/Cursor", false),
             ("OpenCode", "\(home)/.local/share/opencode", false),
             ("Gemini CLI", "\(home)/.gemini", false)
         ]
+        probes.insert(("Claude Code", "\(home)/.claude/projects", false), at: 1)
         return probes.map { name, path, tracked in
             let exists = FileManager.default.fileExists(atPath: path)
             let value: String
@@ -3875,6 +3890,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(612, content.height - 78))
         drawPanel(rect)
         drawText(t(.language), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
+
         drawText(t(.interfaceLanguage), rect: NSRect(x: rect.minX + 16, y: rect.minY + 56, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         drawInputFieldBackground(languagePopup.frame)
 
@@ -3936,10 +3952,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let leftSwitchLabelW = max(120, showCodexStatusSwitch.frame.minX - rect.minX - 24)
         let rightSwitchLabelX = rect.midX + 18
         let rightSwitchLabelW = max(120, launchAtLoginSwitch.frame.minX - rightSwitchLabelX - 8)
-        drawText(t(.showCodexStatus), rect: NSRect(x: rect.minX + 16, y: rect.minY + 476, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.launchAtLogin), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 476, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 504, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.profileAPITotals), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 504, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.showCodexStatus), rect: NSRect(x: rect.minX + 16, y: rect.minY + 532, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.launchAtLogin), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 532, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 560, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.profileAPITotals), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 560, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
     }
 
     private var costUsedColor: NSColor {

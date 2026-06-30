@@ -6,20 +6,47 @@ import UserNotifications
 // MARK: - Live Quota And Service Status
 
 enum QuotaViewOption: String, CaseIterable {
-    case all = "codex"
+    case all
+    case codex
     case other
     case spark
+    case claude
+
+    static var allCases: [QuotaViewOption] {
+        [.all, .codex, .claude, .other, .spark]
+    }
+
+    static func option(from rawValue: String) -> QuotaViewOption? {
+        switch rawValue {
+        case "all":
+            return .all
+        case "codex":
+            return .codex
+        case "claude":
+            return .claude
+        case "other":
+            return .codex
+        case "spark":
+            return .claude
+        default:
+            return nil
+        }
+    }
+
+    static var visibleCases: [QuotaViewOption] {
+        [.all, .codex, .claude]
+    }
 
     var scanLimitID: String? {
         switch self {
-        case .all, .other: return nil
+        case .all, .codex, .other, .claude: return nil
         case .spark: return AppSettings.modelLimitID
         }
     }
 
     var excludedScanLimitID: String? {
         switch self {
-        case .all, .spark: return nil
+        case .all, .codex, .spark, .claude: return nil
         case .other: return AppSettings.modelLimitID
         }
     }
@@ -27,38 +54,57 @@ enum QuotaViewOption: String, CaseIterable {
     var includedModelName: String? {
         switch self {
         case .spark: return AppSettings.modelLimitName.lowercased()
-        case .all, .other: return nil
+        case .all, .codex, .other, .claude: return nil
         }
     }
 
     var excludedModelName: String? {
         switch self {
         case .other: return AppSettings.modelLimitName.lowercased()
-        case .all, .spark: return nil
+        case .all, .codex, .spark, .claude: return nil
         }
     }
 
     var liveLimitID: String {
         switch self {
-        case .all, .other: return "codex"
+        case .all, .codex, .other: return "codex"
         case .spark: return AppSettings.modelLimitID
+        case .claude: return "claude"
         }
     }
 
     var shortTitle: String {
         switch self {
         case .all: return t(.all)
+        case .codex: return "Codex"
         case .spark: return AppSettings.modelLimitSegmentTitle
         case .other: return t(.other)
+        case .claude: return "Claude"
         }
     }
 
     var fallbackTitle: String {
         switch self {
-        case .all: return t(.codexAppTotal)
+        case .all: return "Codex + Claude"
+        case .codex: return t(.codexAppTotal)
         case .spark: return AppSettings.modelLimitName
         case .other: return t(.nonSparkUsage)
+        case .claude: return "Claude Code"
         }
+    }
+
+    var outputName: String {
+        switch self {
+        case .all: return "all"
+        case .codex: return "codex"
+        case .other: return "other"
+        case .spark: return "spark"
+        case .claude: return "claude"
+        }
+    }
+
+    var usesCodexProfileAPI: Bool {
+        self == .codex
     }
 }
 
@@ -367,4 +413,3 @@ func codexStatusColor(_ status: String) -> NSColor {
         return NSColor.white.withAlphaComponent(0.58)
     }
 }
-

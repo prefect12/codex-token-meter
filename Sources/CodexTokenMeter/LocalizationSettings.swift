@@ -451,7 +451,7 @@ enum L10nKey {
         case .definitions: return "Definitions"
         case .detectedNotTracked: return "Detected, not counted"
         case .details: return "Details"
-        case .detailsWindowTitle: return "Codex Token Meter Details"
+        case .detailsWindowTitle: return "Token Meter Details"
         case .diagnostics: return "Diagnostics"
         case .diagnosticsSubtitle: return "Data sources, warnings, and tool coverage"
         case .disabled: return "Disabled"
@@ -475,7 +475,7 @@ enum L10nKey {
         case .language: return "Language"
         case .languageHint: return "Changes apply immediately to the popover and details window."
         case .launchAtLogin: return "Open at Login"
-        case .launchAtLoginHint: return "Start Codex Token Meter automatically when you sign in."
+        case .launchAtLoginHint: return "Start Token Meter automatically when you sign in."
         case .liveQuota: return "Live quota"
         case .liveLimitUnavailable: return "Live limit unavailable"
         case .logFolder: return "Log Folder"
@@ -638,7 +638,7 @@ enum L10nKey {
         case .definitions: return "定义"
         case .detectedNotTracked: return "已检测，未计入"
         case .details: return "详情"
-        case .detailsWindowTitle: return "Codex Token Meter 详情"
+        case .detailsWindowTitle: return "Token Meter 详情"
         case .diagnostics: return "诊断"
         case .diagnosticsSubtitle: return "数据源、提醒和工具覆盖"
         case .disabled: return "已关闭"
@@ -662,7 +662,7 @@ enum L10nKey {
         case .language: return "语言"
         case .languageHint: return "切换后会立即应用到弹窗和详情窗口。"
         case .launchAtLogin: return "开机启动"
-        case .launchAtLoginHint: return "登录 macOS 后自动启动 Codex Token Meter。"
+        case .launchAtLoginHint: return "登录 macOS 后自动启动 Token Meter。"
         case .liveQuota: return "实时额度"
         case .liveLimitUnavailable: return "实时限额不可用"
         case .logFolder: return "日志目录"
@@ -825,7 +825,7 @@ enum L10nKey {
         case .definitions: return "定義"
         case .detectedNotTracked: return "検出済み・未集計"
         case .details: return "詳細"
-        case .detailsWindowTitle: return "Codex Token Meter 詳細"
+        case .detailsWindowTitle: return "Token Meter 詳細"
         case .diagnostics: return "診断"
         case .diagnosticsSubtitle: return "データソース、通知、ツール範囲"
         case .disabled: return "無効"
@@ -849,7 +849,7 @@ enum L10nKey {
         case .language: return "言語"
         case .languageHint: return "変更はポップオーバーと詳細ウィンドウにすぐ反映されます。"
         case .launchAtLogin: return "ログイン時に開く"
-        case .launchAtLoginHint: return "macOS にサインインしたときに Codex Token Meter を自動起動します。"
+        case .launchAtLoginHint: return "macOS にサインインしたときに Token Meter を自動起動します。"
         case .liveQuota: return "リアルタイム制限"
         case .liveLimitUnavailable: return "リアルタイム制限を取得できません"
         case .logFolder: return "ログフォルダ"
@@ -1092,6 +1092,27 @@ enum AppSettings {
 
     static var defaultArchivedLogFolderURL: URL {
         defaultCodexHomeURL.appendingPathComponent("archived_sessions", isDirectory: true)
+    }
+
+    static var defaultClaudeProjectsURL: URL {
+        URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+    }
+
+    static var claudeLogFolderURLs: [URL] {
+        var roots: [URL] = []
+        if let configDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !configDir.isEmpty {
+            roots.append(URL(fileURLWithPath: (configDir as NSString).expandingTildeInPath, isDirectory: true)
+                .appendingPathComponent("projects", isDirectory: true))
+        }
+        if let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"], !xdgConfigHome.isEmpty {
+            roots.append(URL(fileURLWithPath: (xdgConfigHome as NSString).expandingTildeInPath, isDirectory: true)
+                .appendingPathComponent("claude", isDirectory: true)
+                .appendingPathComponent("projects", isDirectory: true))
+        }
+        roots.append(defaultClaudeProjectsURL)
+        return uniqueDirectoryURLs(roots)
     }
 
     static var hasCustomLogFolder: Bool {

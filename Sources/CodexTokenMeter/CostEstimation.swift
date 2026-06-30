@@ -240,6 +240,8 @@ func profileReportWithLocalFallback(_ profileReport: TokenReport, localReport: T
 
 struct DashboardState {
     var report = TokenReport()
+    var codexReport: TokenReport?
+    var claudeReport: TokenReport?
     var profileReport: TokenReport?
     var accountUsage: AccountUsageSnapshot?
     var costReferenceReport: TokenReport?
@@ -519,4 +521,3 @@ struct CostEstimator {
     }
 
 }
-

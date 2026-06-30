@@ -209,6 +209,70 @@ struct TokenReport {
     var scannedAt = Date()
 }
 
+func mergedTokenReports(_ reports: [TokenReport], scannedAt: Date = Date()) -> TokenReport {
+    var merged = TokenReport(scannedAt: scannedAt)
+    var dayUsage: [String: Usage] = [:]
+    var dayTurns: [String: Int] = [:]
+    var dayModels: [String: [String: ModelUsage]] = [:]
+    var hourUsage: [Date: Usage] = [:]
+    var hourTurns: [Date: Int] = [:]
+    var models: [String: ModelUsage] = [:]
+    var sessions: [SessionUsage] = []
+
+    for report in reports {
+        merged.usage.add(report.usage)
+        merged.sessions += report.sessions
+        merged.events += report.events
+        merged.turns += report.turns
+        merged.limitNames.formUnion(report.limitNames)
+        sessions.append(contentsOf: report.topSessions)
+
+        for day in report.byDay {
+            var usage = dayUsage[day.day] ?? Usage()
+            usage.add(day.usage)
+            dayUsage[day.day] = usage
+            dayTurns[day.day, default: 0] += day.turns
+            var bucket = dayModels[day.day] ?? [:]
+            for model in day.modelBreakdown {
+                var existing = bucket[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
+                existing.usage.add(model.usage)
+                existing.events += model.events
+                existing.sessions += model.sessions
+                bucket[model.name] = existing
+            }
+            dayModels[day.day] = bucket
+        }
+
+        for hour in report.byHour {
+            var usage = hourUsage[hour.hour] ?? Usage()
+            usage.add(hour.usage)
+            hourUsage[hour.hour] = usage
+            hourTurns[hour.hour, default: 0] += hour.turns
+        }
+
+        for model in report.modelBreakdown {
+            var existing = models[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
+            existing.usage.add(model.usage)
+            existing.events += model.events
+            existing.sessions += model.sessions
+            models[model.name] = existing
+        }
+    }
+
+    merged.byDay = Set(dayUsage.keys).union(dayTurns.keys)
+        .map { day in
+            let modelRows = (dayModels[day] ?? [:]).values.sorted { $0.usage.total > $1.usage.total }
+            return DayUsage(day: day, usage: dayUsage[day] ?? Usage(), turns: dayTurns[day] ?? 0, modelBreakdown: modelRows)
+        }
+        .sorted { $0.day < $1.day }
+    merged.byHour = Set(hourUsage.keys).union(hourTurns.keys)
+        .map { HourUsage(hour: $0, usage: hourUsage[$0] ?? Usage(), turns: hourTurns[$0] ?? 0) }
+        .sorted { $0.hour < $1.hour }
+    merged.modelBreakdown = models.values.sorted { $0.usage.total > $1.usage.total }
+    merged.topSessions = sessions.sorted { $0.usage.total > $1.usage.total }.prefix(8).map { $0 }
+    return merged
+}
+
 struct RepoInsightDay {
     let day: String
     var conversations: Int

@@ -5,12 +5,19 @@ import UserNotifications
 
 // MARK: - App Lifecycle
 
+private struct DashboardReportBundle {
+    let report: TokenReport
+    let codexReport: TokenReport?
+    let claudeReport: TokenReport?
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let dashboardController = DashboardViewController()
     private let detailsController = UsageDetailsWindowController()
     private var scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
+    private var claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     private let rateLimitReader = LiveRateLimitReader()
     private let accountUsageReader = AccountUsageReader()
     private let serviceStatusReader = CodexServiceStatusReader()
@@ -44,13 +51,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         selectedWindow = .day
         if let rawQuota = UserDefaults.standard.string(forKey: "selectedQuotaView"),
-           let quota = QuotaViewOption(rawValue: rawQuota) {
+           let quota = QuotaViewOption.option(from: rawQuota) {
             selectedQuota = quota
+        }
+        if !QuotaViewOption.visibleCases.contains(selectedQuota) {
+            selectedQuota = QuotaViewOption.visibleCases.first ?? .codex
         }
 
         NSApp.applicationIconImage = NSImage(named: "LogoHeader")
         popover.contentViewController = dashboardController
-        popover.contentSize = DashboardView.idealSize
+        updateDashboardSize(for: selectedQuota)
         popover.behavior = .transient
         configureStatusButton()
 
@@ -112,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.imagePosition = .imageLeading
         button.imageHugsTitle = true
         button.title = "--%"
-        button.toolTip = "Codex Token Meter"
+        button.toolTip = "Token Meter"
         button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
         button.action = #selector(togglePopover)
         button.target = self
@@ -180,9 +190,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            updateDashboardSize(for: selectedQuota)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    private func updateDashboardSize(for quota: QuotaViewOption) {
+        let size = DashboardView.preferredSize(for: quota)
+        dashboardController.setDashboardSize(size)
+        popover.contentSize = size
     }
 
     private func selectWindow(_ option: WindowOption) {
@@ -198,6 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func selectQuota(_ option: QuotaViewOption) {
         selectedQuota = option
         UserDefaults.standard.set(option.rawValue, forKey: "selectedQuotaView")
+        updateDashboardSize(for: option)
         showCachedOrLoadingState()
         refresh(forceLive: false)
         if liveLimits.isEmpty {
@@ -259,7 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             selectedWindow: window,
             selectedQuota: quota,
             nextRefreshAt: latestState.nextRefreshAt,
-            isLoading: true,
+            isLoading: reportCache[key] == nil,
             error: nil
         )
         dashboardController.dashboardView.update(latestState)
@@ -268,7 +286,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentAccountUsage = accountUsage
 
         scanQueue.async {
-            let report = self.scanner.scan(window: window, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
+            let bundle = self.scanReportBundle(window: window, quota: quota)
+            let report = bundle.report
             let accountUsage = self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
             let limits = forceLive ? self.rateLimitReader.read() : currentLimits
             if forceLive, !limits.isEmpty {
@@ -292,6 +311,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let effectiveLimits = forceLive && !limits.isEmpty ? limits : self.liveLimits
                     self.latestState = DashboardState(
                         report: report,
+                        codexReport: bundle.codexReport,
+                        claudeReport: bundle.claudeReport,
                         profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage, localReport: report),
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
@@ -351,7 +372,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func prewarmAllWindows() {
-        for quota in QuotaViewOption.allCases {
+        for quota in QuotaViewOption.visibleCases {
             prewarm(window: .day, quota: quota)
             prewarm(window: .week, quota: quota)
             prewarm(window: .month, quota: quota)
@@ -363,7 +384,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard reportCache[key] == nil, !activeScans.contains(key) else { return }
         activeScans.insert(key)
         scanQueue.async {
-            let report = self.scanner.scan(window: window, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
+            let bundle = self.scanReportBundle(window: window, quota: quota)
+            let report = bundle.report
             DispatchQueue.main.async {
                 self.activeScans.remove(key)
                 self.reportCache[key] = report
@@ -371,6 +393,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if self.selectedWindow == window && self.selectedQuota == quota {
                     self.latestState = DashboardState(
                         report: report,
+                        codexReport: bundle.codexReport,
+                        claudeReport: bundle.claudeReport,
                         profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage, localReport: report),
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
@@ -397,9 +421,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return accountUsageReader.read() ?? fallback
     }
 
+    private func scanReport(window: WindowOption, quota: QuotaViewOption) -> TokenReport {
+        scanReportBundle(window: window, quota: quota).report
+    }
+
+    private func scanReportBundle(window: WindowOption, quota: QuotaViewOption) -> DashboardReportBundle {
+        switch quota {
+        case .claude:
+            let claude = claudeScanner.scan(window: window)
+            return DashboardReportBundle(report: claude, codexReport: nil, claudeReport: claude)
+        case .all:
+            let codex = scanner.scan(window: window)
+            let claude = claudeScanner.scan(window: window)
+            return DashboardReportBundle(report: mergedTokenReports([codex, claude], scannedAt: Date()), codexReport: codex, claudeReport: claude)
+        case .codex:
+            let codex = scanner.scan(window: window)
+            return DashboardReportBundle(report: codex, codexReport: codex, claudeReport: nil)
+        default:
+            let report = scanner.scan(window: window, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
+            return DashboardReportBundle(report: report, codexReport: report, claudeReport: nil)
+        }
+    }
+
     private func profileReport(window: WindowOption, quota: QuotaViewOption, accountUsage: AccountUsageSnapshot?, localReport: TokenReport?) -> TokenReport? {
         guard AppSettings.profileAPITotalsEnabled,
-              quota == .all,
+              quota.usesCodexProfileAPI,
               let accountUsage,
               accountUsage.hasData else {
             return nil
@@ -479,13 +525,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func statusValueIsPending(option: StatusDisplayOption, quota: QuotaViewOption, limits: [LiveRateLimit]) -> Bool {
         switch option {
         case .fiveHourPercent:
-            return selectedLimit(from: limits, quota: quota)?.primary.remainingPercent == nil && liveRefreshInFlight
+            return limits.isEmpty && selectedLimit(from: limits, quota: quota)?.primary.remainingPercent == nil && liveRefreshInFlight
         case .weeklyPercent:
-            return selectedLimit(from: limits, quota: quota)?.secondary.remainingPercent == nil && liveRefreshInFlight
+            return limits.isEmpty && selectedLimit(from: limits, quota: quota)?.secondary.remainingPercent == nil && liveRefreshInFlight
         case .weeklyTokens, .dailyTokens:
             guard let window = option.requiredReportWindow else { return false }
             let key = ReportCacheKey(window: window, quota: quota)
-            return reportCache[key] == nil || activeScans.contains(key)
+            return reportCache[key] == nil && activeScans.contains(key)
         }
     }
 
@@ -641,6 +687,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func reloadScannerFromSettings() {
         scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
+        claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
         reportCache.removeAll()
         activeScans.removeAll()
         detailsController.detailsView.needsDisplay = true
@@ -709,7 +756,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func summaryText(state: DashboardState) -> String {
         let report = state.report
         var lines = [
-            "Codex Token Meter - \(state.selectedWindow.title)",
+            "Token Meter - \(state.selectedWindow.title)",
             "Scanned: \(localFormatter.string(from: report.scannedAt)) Asia/Shanghai",
             "Next refresh: \(localFormatter.string(from: state.nextRefreshAt)) Asia/Shanghai",
             "Sessions: \(report.sessions)",

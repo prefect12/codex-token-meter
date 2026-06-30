@@ -81,11 +81,23 @@ if CommandLine.arguments.contains("--print-service-status") {
 
 if CommandLine.arguments.contains("--print") {
     let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
+    let claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     let requestedWindow = requestedWindow(from: CommandLine.arguments)
     let hours = requestedHours(from: CommandLine.arguments)
     let quota = requestedQuota(from: CommandLine.arguments)
-    let report = requestedWindow.map { scanner.scan(window: $0, includedModelName: quota?.includedModelName, excludedModelName: quota?.excludedModelName) }
-        ?? scanner.scan(hours: hours, includedModelName: quota?.includedModelName, excludedModelName: quota?.excludedModelName)
+    let effectiveQuota = quota ?? .all
+    let report = requestedWindow.map {
+        cliReport(window: $0, quota: effectiveQuota, scanner: scanner, claudeScanner: claudeScanner)
+    } ?? cliReport(hours: hours, quota: quota, scanner: scanner, claudeScanner: claudeScanner)
+    let logRoots: [String]
+    switch effectiveQuota {
+    case .claude:
+        logRoots = claudeScanner.rootPaths
+    case .all:
+        logRoots = scanner.rootPaths + claudeScanner.rootPaths
+    default:
+        logRoots = scanner.rootPaths
+    }
     let apiEstimate = APICostEstimator.estimate(report: report)
     let externalAPI = ExternalAPICostStore.read()
     let externalAPIPayload: [String: Any] = [
@@ -99,10 +111,10 @@ if CommandLine.arguments.contains("--print") {
     let payload: [String: Any] = [
         "hours": requestedWindow?.rawValue ?? hours,
         "window": requestedWindow?.shortTitle ?? "rolling",
-        "quota": quota?.rawValue ?? "all",
+        "quota": effectiveQuota.outputName,
         "model_limit_id": AppSettings.modelLimitID,
         "model_limit_name": AppSettings.modelLimitName,
-        "log_roots": scanner.rootPaths,
+        "log_roots": logRoots,
         "sessions": report.sessions,
         "events": report.events,
         "turns": report.turns,

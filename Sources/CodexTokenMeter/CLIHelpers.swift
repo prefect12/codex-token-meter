@@ -20,8 +20,37 @@ func requestedWindow(from arguments: [String]) -> WindowOption? {
 func requestedQuota(from arguments: [String]) -> QuotaViewOption? {
     arguments.compactMap { argument -> QuotaViewOption? in
         guard argument.hasPrefix("--quota=") else { return nil }
-        return QuotaViewOption(rawValue: String(argument.dropFirst("--quota=".count)))
+        return QuotaViewOption.option(from: String(argument.dropFirst("--quota=".count)))
     }.first
+}
+
+func cliReport(window: WindowOption, quota: QuotaViewOption, scanner: CodexTokenScanner, claudeScanner: ClaudeTokenScanner) -> TokenReport {
+    switch quota {
+    case .claude:
+        return claudeScanner.scan(window: window)
+    case .all:
+        return mergedTokenReports([scanner.scan(window: window), claudeScanner.scan(window: window)], scannedAt: Date())
+    case .codex:
+        return scanner.scan(window: window)
+    default:
+        return scanner.scan(window: window, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
+    }
+}
+
+func cliReport(hours: Int, quota: QuotaViewOption?, scanner: CodexTokenScanner, claudeScanner: ClaudeTokenScanner) -> TokenReport {
+    guard let quota else {
+        return mergedTokenReports([scanner.scan(hours: hours), claudeScanner.scan(hours: hours)], scannedAt: Date())
+    }
+    switch quota {
+    case .claude:
+        return claudeScanner.scan(hours: hours)
+    case .all:
+        return mergedTokenReports([scanner.scan(hours: hours), claudeScanner.scan(hours: hours)], scannedAt: Date())
+    case .codex:
+        return scanner.scan(hours: hours)
+    default:
+        return scanner.scan(hours: hours, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
+    }
 }
 
 func requestedHours(from arguments: [String], defaultValue: Int = WindowOption.week.rawValue) -> Int {
@@ -65,9 +94,21 @@ func writePNG(of view: NSView, to url: URL) throws {
 
 func renderDashboardSnapshot(arguments: [String]) throws -> URL {
     let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
+    let claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     let window = requestedWindow(from: arguments) ?? .week
-    let quota = requestedQuota(from: arguments) ?? .other
-    let report = scanner.scan(window: window, includedModelName: quota.includedModelName, excludedModelName: quota.excludedModelName)
+    let quota = requestedQuota(from: arguments) ?? .all
+    let codexReport = quota == .all ? scanner.scan(window: window) : (quota == .codex ? scanner.scan(window: window) : nil)
+    let claudeReport = quota == .all ? claudeScanner.scan(window: window) : (quota == .claude ? claudeScanner.scan(window: window) : nil)
+    let report: TokenReport
+    if quota == .all, let codexReport, let claudeReport {
+        report = mergedTokenReports([codexReport, claudeReport], scannedAt: Date())
+    } else if let codexReport {
+        report = codexReport
+    } else if let claudeReport {
+        report = claudeReport
+    } else {
+        report = cliReport(window: window, quota: quota, scanner: scanner, claudeScanner: claudeScanner)
+    }
     let liveLimits = LiveRateLimitReader().read()
     let serviceStatus = CodexServiceStatusReader().read()
     let accountUsage = AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
@@ -87,6 +128,8 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
 
     let state = DashboardState(
         report: report,
+        codexReport: codexReport,
+        claudeReport: claudeReport,
         profileReport: profileReport,
         accountUsage: accountUsage,
         costReferenceReport: nil,
@@ -99,7 +142,7 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
         error: nil
     )
 
-    let view = DashboardView(frame: NSRect(origin: .zero, size: DashboardView.idealSize))
+    let view = DashboardView(frame: NSRect(origin: .zero, size: DashboardView.preferredSize(for: quota)))
     view.update(state)
     view.layoutSubtreeIfNeeded()
     try writePNG(of: view, to: outputURL)

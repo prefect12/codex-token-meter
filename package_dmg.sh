@@ -17,7 +17,7 @@ ln -s /Applications "$STAGE/Applications"
 
 codesign --force --deep --sign - "$STAGE/Codex Token Meter.app"
 rm -f "$DMG"
-hdiutil create -volname "Codex Token Meter" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+hdiutil create -volname "Token Meter" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
 hdiutil verify "$DMG"
 
 echo "$DMG"

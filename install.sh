@@ -7,6 +7,7 @@ DEST="/Applications/Codex Token Meter.app"
 
 "$ROOT/build.sh" >/dev/null
 
+osascript -e 'tell application "Token Meter" to quit' >/dev/null 2>&1 || true
 osascript -e 'tell application "Codex Token Meter" to quit' >/dev/null 2>&1 || true
 sleep 0.5
 pkill -x CodexTokenMeter >/dev/null 2>&1 || true
