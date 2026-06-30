@@ -1323,7 +1323,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
 }
 
 final class DashboardView: NSView {
-    static let allOverviewSize = NSSize(width: 430, height: 760)
+    static let allOverviewSize = NSSize(width: 430, height: 700)
     static let singlePlatformSize = NSSize(width: 430, height: 610)
     static let idealSize = singlePlatformSize
 
@@ -1564,13 +1564,13 @@ final class DashboardView: NSView {
         weeklyBullet.frame = .zero
         cacheBullet.frame = .zero
 
-        buttonsStack.frame = NSRect(x: content.minX, y: content.maxY - 36, width: content.width, height: 28)
         let infoWidth = content.width
-        let chartY = platformQuotaView.frame.maxY + 12
-        dayChart.frame = NSRect(x: content.minX, y: chartY, width: content.width, height: 112)
-        sessionsLabel.frame = NSRect(x: content.minX, y: dayChart.frame.maxY + 12, width: infoWidth, height: 18)
-        costLabel.frame = NSRect(x: content.minX, y: sessionsLabel.frame.maxY + 7, width: infoWidth, height: 16)
-        refreshLabel.frame = NSRect(x: content.minX, y: costLabel.frame.maxY + 7, width: infoWidth, height: 18)
+        let chartY = platformQuotaView.frame.maxY + 10
+        dayChart.frame = NSRect(x: content.minX, y: chartY, width: content.width, height: 96)
+        sessionsLabel.frame = NSRect(x: content.minX, y: dayChart.frame.maxY + 10, width: infoWidth, height: 18)
+        costLabel.frame = NSRect(x: content.minX, y: sessionsLabel.frame.maxY + 6, width: infoWidth, height: 16)
+        refreshLabel.frame = NSRect(x: content.minX, y: costLabel.frame.maxY + 6, width: infoWidth, height: 18)
+        buttonsStack.frame = NSRect(x: content.minX, y: refreshLabel.frame.maxY + 8, width: content.width, height: 28)
         serviceStatusView.frame = .zero
         platformQuotaView.needsDisplay = true
     }
