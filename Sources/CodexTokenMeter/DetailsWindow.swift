@@ -1480,6 +1480,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     var onLanguageChanged: ((AppLanguage) -> Void)?
     var onNumberUnitStyleChanged: ((NumberUnitStyle) -> Void)?
     var onStatusDisplayChanged: ((StatusDisplayOption) -> Void)?
+    var onStatusBarQuotaSourceChanged: ((QuotaViewOption) -> Void)?
     var onQuotaDisplayStyleChanged: ((QuotaDisplayStyle) -> Void)?
     var onCodexHomeRingMetricChanged: ((HomeQuotaRingMetric) -> Void)?
     var onClaudeHomeRingMetricChanged: ((HomeQuotaRingMetric) -> Void)?
@@ -1550,6 +1551,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private var insightListScrollOffset: CGFloat = 0
     private var numberUnitOptionRects: [NumberUnitStyle: NSRect] = [:]
     private var statusOptionRects: [StatusDisplayOption: NSRect] = [:]
+    private var statusQuotaSourceRects: [QuotaViewOption: NSRect] = [:]
     private var quotaDisplayStyleRects: [QuotaDisplayStyle: NSRect] = [:]
     private var codexHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
     private var claudeHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
@@ -1854,15 +1856,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         guard visible else { return }
 
         let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(640, content.height - 78))
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(692, content.height - 78))
         let popupWidth = min(300, max(252, rect.width * 0.34))
         languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
         let leftSwitchX = rect.midX - 64
         let rightSwitchX = rect.maxX - 64
-        showCodexStatusSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 572, width: 48, height: 24)
-        launchAtLoginSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 572, width: 48, height: 24)
-        quotaWarningsSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 600, width: 48, height: 24)
-        profileAPITotalsSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 600, width: 48, height: 24)
+        showCodexStatusSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 624, width: 48, height: 24)
+        launchAtLoginSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 624, width: 48, height: 24)
+        quotaWarningsSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 652, width: 48, height: 24)
+        profileAPITotalsSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 652, width: 48, height: 24)
         updateLanguagePopupFromSettings()
         updateSettingsControlsFromSystem()
     }
@@ -1976,7 +1978,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         case .diagnostics:
             targetHeight = 714
         case .settings:
-            targetHeight = 760
+            targetHeight = 812
         case .about:
             targetHeight = 580
         }
@@ -2310,6 +2312,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 onStatusDisplayChanged?(option)
                 return
             }
+            for (source, rect) in statusQuotaSourceRects where rect.contains(point) {
+                onStatusBarQuotaSourceChanged?(source)
+                return
+            }
             for (style, rect) in quotaDisplayStyleRects where rect.contains(point) {
                 onQuotaDisplayStyleChanged?(style)
                 return
@@ -2495,6 +2501,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         insightListViewportRect = nil
         numberUnitOptionRects.removeAll()
         statusOptionRects.removeAll()
+        statusQuotaSourceRects.removeAll()
         quotaDisplayStyleRects.removeAll()
         sourceOptionRects.removeAll()
         chooseLogFolderRect = nil
@@ -4090,7 +4097,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private func drawSettingsPage(content: NSRect) {
         codexHomeRingMetricRects.removeAll()
         claudeHomeRingMetricRects.removeAll()
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(640, content.height - 78))
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(692, content.height - 78))
         drawPanel(rect)
         drawText(t(.language), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.interfaceLanguage), rect: NSRect(x: rect.minX + 16, y: rect.minY + 56, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
@@ -4137,10 +4144,21 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             statusOptionRects[option] = optionRect
             drawSelectablePill(option.title, rect: optionRect, selected: option == StatusDisplayOption.current)
         }
-        drawText(t(.statusDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 378, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        drawText(t(.statusBarSource), rect: NSRect(x: rect.minX + 16, y: rect.minY + 378, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        let statusSourceY = rect.minY + 374
+        let statusSourceGap: CGFloat = 10
+        let statusSourceW: CGFloat = 104
+        let statusSources: [QuotaViewOption] = [.all, .codex, .claude]
+        let statusSourceStartX = rect.maxX - 16 - statusSourceW * CGFloat(statusSources.count) - statusSourceGap * CGFloat(statusSources.count - 1)
+        for (index, source) in statusSources.enumerated() {
+            let optionRect = NSRect(x: statusSourceStartX + CGFloat(index) * (statusSourceW + statusSourceGap), y: statusSourceY, width: statusSourceW, height: 36)
+            statusQuotaSourceRects[source] = optionRect
+            drawSelectablePill(source.shortTitle, rect: optionRect, selected: source == AppSettings.statusBarQuotaSource)
+        }
+        drawText(t(.statusDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 422, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.quotaDisplayStyle), rect: NSRect(x: rect.minX + 16, y: rect.minY + 410, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let quotaStyleY = rect.minY + 406
+        drawText(t(.quotaDisplayStyle), rect: NSRect(x: rect.minX + 16, y: rect.minY + 462, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        let quotaStyleY = rect.minY + 458
         let quotaStyleGap: CGFloat = 10
         let quotaStyleW: CGFloat = 116
         let quotaStyleStartX = rect.maxX - 16 - quotaStyleW * CGFloat(QuotaDisplayStyle.allCases.count) - quotaStyleGap * CGFloat(QuotaDisplayStyle.allCases.count - 1)
@@ -4149,31 +4167,31 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             quotaDisplayStyleRects[style] = optionRect
             drawSelectablePill(style.title, rect: optionRect, selected: style == QuotaDisplayStyle.current)
         }
-        drawText(t(.quotaDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 452, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        drawText(t(.quotaDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 504, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.codexHomeRing), rect: NSRect(x: rect.minX + 16, y: rect.minY + 476, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.claudeHomeRing), rect: NSRect(x: rect.minX + 16, y: rect.minY + 514, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.codexHomeRing), rect: NSRect(x: rect.minX + 16, y: rect.minY + 528, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.claudeHomeRing), rect: NSRect(x: rect.minX + 16, y: rect.minY + 566, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         let homeMetricW: CGFloat = 116
         let homeMetricGap: CGFloat = 10
         let homeMetricStartX = rect.maxX - 16 - homeMetricW * CGFloat(HomeQuotaRingMetric.allCases.count) - homeMetricGap * CGFloat(HomeQuotaRingMetric.allCases.count - 1)
         for (index, metric) in HomeQuotaRingMetric.allCases.enumerated() {
-            let codexRect = NSRect(x: homeMetricStartX + CGFloat(index) * (homeMetricW + homeMetricGap), y: rect.minY + 472, width: homeMetricW, height: 36)
+            let codexRect = NSRect(x: homeMetricStartX + CGFloat(index) * (homeMetricW + homeMetricGap), y: rect.minY + 524, width: homeMetricW, height: 36)
             codexHomeRingMetricRects[metric] = codexRect
             drawSelectablePill(metric.title, rect: codexRect, selected: metric == AppSettings.codexHomeRingMetric)
 
-            let claudeRect = NSRect(x: homeMetricStartX + CGFloat(index) * (homeMetricW + homeMetricGap), y: rect.minY + 510, width: homeMetricW, height: 36)
+            let claudeRect = NSRect(x: homeMetricStartX + CGFloat(index) * (homeMetricW + homeMetricGap), y: rect.minY + 562, width: homeMetricW, height: 36)
             claudeHomeRingMetricRects[metric] = claudeRect
             drawSelectablePill(metric.title, rect: claudeRect, selected: metric == AppSettings.claudeHomeRingMetric)
         }
-        drawText(t(.quotaHomeRingHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 546, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
+        drawText(t(.quotaHomeRingHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 598, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
 
         let leftSwitchLabelW = max(120, showCodexStatusSwitch.frame.minX - rect.minX - 24)
         let rightSwitchLabelX = rect.midX + 18
         let rightSwitchLabelW = max(120, launchAtLoginSwitch.frame.minX - rightSwitchLabelX - 8)
-        drawText(t(.showCodexStatus), rect: NSRect(x: rect.minX + 16, y: rect.minY + 574, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.launchAtLogin), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 574, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 602, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.profileAPITotals), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 602, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.showCodexStatus), rect: NSRect(x: rect.minX + 16, y: rect.minY + 626, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.launchAtLogin), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 626, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 654, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.profileAPITotals), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 654, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
     }
 
     private var costUsedColor: NSColor {
