@@ -274,7 +274,11 @@ func combinedLiveLimits(codexReader: LiveRateLimitReader = LiveRateLimitReader()
        !limits.contains(where: { $0.id == claude.id }) {
         limits.append(claude)
     }
-    return limits
+    return limits.sorted { $0.id < $1.id }
+}
+
+func codexTrackedLiveLimits(_ limits: [LiveRateLimit]) -> [LiveRateLimit] {
+    limits.filter { $0.id != QuotaViewOption.claude.liveLimitID }
 }
 
 struct CodexServiceComponentStatus: Codable {
