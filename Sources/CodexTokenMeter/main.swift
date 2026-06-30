@@ -70,7 +70,7 @@ if CommandLine.arguments.contains("--print-profile") {
 
 if CommandLine.arguments.contains("--print-live") {
     let limits = combinedLiveLimits()
-    let codexLimits = limits.filter { $0.id != QuotaViewOption.claude.liveLimitID }
+    let codexLimits = codexTrackedLiveLimits(limits)
     AppSettings.learnModelLimit(from: codexLimits)
     CostHistoryStore.shared.record(limits: codexLimits)
     let payload = limits.map { limit in

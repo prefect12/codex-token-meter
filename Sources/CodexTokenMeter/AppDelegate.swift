@@ -329,7 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let accountUsage = quota.usesCodexProfileAPI ? self.readAccountUsageIfNeeded(fallback: currentAccountUsage) : currentAccountUsage
             let freshLimits = forceLive ? combinedLiveLimits(codexReader: self.rateLimitReader) : currentLimits
             let limits = forceLive ? self.mergedLiveLimits(fresh: freshLimits, fallback: currentLimits) : currentLimits
-            let codexLimits = limits.filter { $0.id != QuotaViewOption.claude.liveLimitID }
+            let codexLimits = codexTrackedLiveLimits(limits)
             if forceLive, !codexLimits.isEmpty {
                 AppSettings.learnModelLimit(from: codexLimits)
                 CostHistoryStore.shared.record(limits: codexLimits)
@@ -395,8 +395,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveQueue.async {
             let freshLimits = combinedLiveLimits(codexReader: self.rateLimitReader)
             let limits = self.mergedLiveLimits(fresh: freshLimits, fallback: currentLimits)
-            let codexLimits = limits.filter { $0.id != QuotaViewOption.claude.liveLimitID }
             let serviceStatus = self.serviceStatusReader.read()
+            let codexLimits = codexTrackedLiveLimits(limits)
             AppSettings.learnModelLimit(from: codexLimits)
             CostHistoryStore.shared.record(limits: codexLimits)
             QuotaWarningManager.shared.evaluate(limits: codexLimits)
@@ -763,7 +763,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppSettings.quotaWarningsEnabled = value
         if value {
             QuotaWarningManager.shared.requestAuthorization()
-            QuotaWarningManager.shared.evaluate(limits: liveLimits)
+            QuotaWarningManager.shared.evaluate(limits: codexTrackedLiveLimits(liveLimits))
         }
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true

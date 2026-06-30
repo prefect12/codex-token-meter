@@ -1509,7 +1509,7 @@ enum AppSettings {
     }
 
     static func learnModelLimit(from limits: [LiveRateLimit]) {
-        guard let modelLimit = limits.first(where: { $0.id != "codex" }) else { return }
+        guard let modelLimit = limits.first(where: { $0.id != "codex" && $0.id != QuotaViewOption.claude.liveLimitID }) else { return }
         UserDefaults.standard.set(modelLimit.id, forKey: learnedModelLimitIDKey)
         UserDefaults.standard.set(modelLimit.name, forKey: learnedModelLimitNameKey)
     }
