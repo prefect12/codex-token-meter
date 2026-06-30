@@ -7,6 +7,8 @@ import UserNotifications
 
 struct DetailsSnapshot {
     var all: TokenReport
+    var codex: TokenReport
+    var claude: TokenReport
     var spark: TokenReport
     var other: TokenReport
     var repoInsights: RepoInsightsReport
@@ -1534,6 +1536,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private var numberUnitOptionRects: [NumberUnitStyle: NSRect] = [:]
     private var statusOptionRects: [StatusDisplayOption: NSRect] = [:]
     private var quotaDisplayStyleRects: [QuotaDisplayStyle: NSRect] = [:]
+    private var calendarQuotaRects: [QuotaViewOption: NSRect] = [:]
     private var chooseLogFolderRect: NSRect?
     private var resetLogFolderRect: NSRect?
     private var openLogFolderRect: NSRect?
@@ -1549,6 +1552,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private var profileAPIInfoRect: NSRect?
     private var showHistoricalEmptyWeeksToggleRect: NSRect?
     private var selectedDay: String?
+    private var selectedCalendarQuota: QuotaViewOption = .all
     private var hoveredCostHistoryIndex: Int?
     private var hoveredCostOverviewInfo: CostOverviewInfo?
     private var isHoveringDayValueInfo = false
@@ -1913,7 +1917,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         case .calendar:
             let gridHeight: CGFloat = normalizedWidth >= 1200 ? 236 : 222
             let detailHeight = selectedDayPanelPreferredHeight(contentWidth: contentWidth)
-            targetHeight = 174 + gridHeight + detailHeight
+            targetHeight = 218 + gridHeight + detailHeight
         case .costs:
             let monthlyRows: Int
             if let snapshot {
@@ -1954,12 +1958,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func selectedDayPanelPreferredHeight(contentWidth: CGFloat) -> CGFloat {
         guard let snapshot else { return 248 }
-        if usesProfileAPIReport(for: snapshot) {
+        if calendarUsesProfileAPIReport(for: snapshot) {
             let report = calendarReport(for: snapshot)
             let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
                 ?? report.byDay.last(where: { $0.usage.total > 0 })
                 ?? report.byDay.last
-            let localDay = day.flatMap { profileDay in snapshot.all.byDay.first { $0.day == profileDay.day } }
+            let localDay = day.flatMap { profileDay in snapshot.codex.byDay.first { $0.day == profileDay.day } }
             let apiEstimate = day.map { profileAPIDayEstimate(profileDay: $0, localDay: localDay) }
             let metricsCount = 3 + (apiEstimate?.hasPricedUsage == true ? 1 : 0)
             let startX = min(CGFloat(420), max(CGFloat(292), contentWidth * 0.50))
@@ -1974,7 +1978,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             let modelY = max(CGFloat(134), metricsBottom + 18)
             return max(284, modelY + minimumModelHeight + 18)
         }
-        let report = snapshot.all
+        let report = calendarReport(for: snapshot)
         let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
             ?? report.byDay.last(where: { $0.usage.total > 0 })
             ?? report.byDay.last
@@ -2016,10 +2020,27 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func calendarReport(for snapshot: DetailsSnapshot) -> TokenReport {
-        guard let report = rawProfileCalendarReport(for: snapshot) else {
-            return snapshot.all
+        switch selectedCalendarQuota {
+        case .claude:
+            return snapshot.claude
+        case .codex, .other:
+            return codexCalendarReport(for: snapshot)
+        case .all:
+            return mergedTokenReports([codexCalendarReport(for: snapshot), snapshot.claude], scannedAt: Date())
+        case .spark:
+            return snapshot.claude
         }
-        return profileReportWithLocalFallback(report, localReport: snapshot.all)
+    }
+
+    private func codexCalendarReport(for snapshot: DetailsSnapshot) -> TokenReport {
+        guard let report = rawProfileCalendarReport(for: snapshot) else {
+            return snapshot.codex
+        }
+        return profileReportWithLocalFallback(report, localReport: snapshot.codex)
+    }
+
+    private func calendarUsesProfileAPIReport(for snapshot: DetailsSnapshot) -> Bool {
+        selectedCalendarQuota == .codex && usesProfileAPIReport(for: snapshot)
     }
 
     private func rawProfileCalendarReport(for snapshot: DetailsSnapshot) -> TokenReport? {
@@ -2198,7 +2219,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let point = convert(event.locationInWindow, from: nil)
         for (section, rect) in sidebarItemRects where rect.contains(point) {
             selectedSection = section
-            if section == .calendar, let report = snapshot?.all {
+            if section == .calendar, let snapshot {
+                let report = calendarReport(for: snapshot)
                 selectedDay = preferredSelectedDay(in: report, fallback: selectedDay)
             }
             if section == .insights, let snapshot {
@@ -2258,6 +2280,20 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             }
             if openLogFolderRect?.contains(point) == true {
                 onOpenLogFolder?()
+                return
+            }
+        }
+        if selectedSection == .calendar {
+            for (quota, rect) in calendarQuotaRects where rect.contains(point) {
+                selectedCalendarQuota = quota
+                if let snapshot {
+                    let report = calendarReport(for: snapshot)
+                    selectedDay = preferredSelectedDay(in: report, fallback: selectedDay)
+                }
+                isHoveringDayValueInfo = false
+                isHoveringProfileAPIInfo = false
+                needsDisplay = true
+                needsLayout = true
                 return
             }
         }
@@ -3313,21 +3349,63 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func drawCalendarPage(snapshot: DetailsSnapshot, content: NSRect) {
         let report = calendarReport(for: snapshot)
-        let title = usesProfileAPIReport(for: snapshot)
-            ? "\(t(.tokenActivity)) · \(t(.profileAPISource))"
-            : t(.tokenActivity)
+        let title = calendarTitle(for: snapshot)
+        drawCalendarQuotaSelector(in: NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 32))
         let preferredGridHeight = contributionGridPreferredHeight(report: report, width: content.width, compact: false)
         let gridHeight = min(preferredGridHeight, max(214, content.height * 0.36))
-        let gridRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: gridHeight)
+        let gridRect = NSRect(x: content.minX, y: content.minY + 122, width: content.width, height: gridHeight)
         drawContributionGrid(report: report, rect: gridRect, title: title, compact: false)
 
         let available = max(248, content.maxY - gridRect.maxY - 16)
         let preferredHeight = selectedDayPanelPreferredHeight(contentWidth: content.width)
         let detailRect = NSRect(x: content.minX, y: gridRect.maxY + 16, width: content.width, height: min(preferredHeight, available))
-        if usesProfileAPIReport(for: snapshot) {
+        if calendarUsesProfileAPIReport(for: snapshot) {
             drawProfileSelectedDayPanel(snapshot: snapshot, report: report, rect: detailRect)
         } else {
-            drawSelectedDayPanel(snapshot: snapshot, rect: detailRect)
+            drawSelectedDayPanel(snapshot: snapshot, report: report, rect: detailRect)
+        }
+    }
+
+    private func calendarTitle(for snapshot: DetailsSnapshot) -> String {
+        switch selectedCalendarQuota {
+        case .all:
+            return "\(t(.tokenActivity)) · Codex + Claude"
+        case .codex, .other:
+            return calendarUsesProfileAPIReport(for: snapshot)
+                ? "\(t(.tokenActivity)) · Codex \(t(.profileAPISource))"
+                : "\(t(.tokenActivity)) · Codex"
+        case .claude, .spark:
+            return "\(t(.tokenActivity)) · Claude"
+        }
+    }
+
+    private func drawCalendarQuotaSelector(in rect: NSRect) {
+        let options = QuotaViewOption.visibleCases
+        calendarQuotaRects.removeAll()
+        let optionW: CGFloat = 116
+        let gap: CGFloat = 10
+        let totalW = optionW * CGFloat(options.count) + gap * CGFloat(max(0, options.count - 1))
+        let startX = rect.minX
+        let y = rect.minY
+        for (index, option) in options.enumerated() {
+            let optionRect = NSRect(x: startX + CGFloat(index) * (optionW + gap), y: y, width: optionW, height: 32)
+            calendarQuotaRects[option] = optionRect
+            drawSelectablePill(option.shortTitle, rect: optionRect, selected: option == selectedCalendarQuota)
+        }
+        let hintX = startX + totalW + 16
+        if hintX < rect.maxX {
+            drawText(calendarTitleHint, rect: NSRect(x: hintX, y: y + 7, width: rect.maxX - hintX, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
+        }
+    }
+
+    private var calendarTitleHint: String {
+        switch selectedCalendarQuota {
+        case .all:
+            return "Codex + Claude"
+        case .codex, .other:
+            return "Codex"
+        case .claude, .spark:
+            return "Claude Code"
         }
     }
 
@@ -3665,7 +3743,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             return
         }
 
-        let localDay = snapshot.all.byDay.first { $0.day == day.day }
+        let localDay = snapshot.codex.byDay.first { $0.day == day.day }
         let rawProfileDay = rawProfileCalendarReport(for: snapshot)?.byDay.first { $0.day == day.day }
         let rawProfileTotal = rawProfileDay?.usage.total ?? 0
         let localTotal = localDay?.usage.total ?? 0
@@ -3750,9 +3828,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         return APICostEstimator.estimate(day: mergedDay)
     }
 
-    private func drawSelectedDayPanel(snapshot: DetailsSnapshot, rect: NSRect) {
+    private func drawSelectedDayPanel(snapshot: DetailsSnapshot, report: TokenReport, rect: NSRect) {
         drawPanel(rect)
-        let report = snapshot.all
         let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
             ?? report.byDay.last(where: { $0.usage.total > 0 })
             ?? report.byDay.last
@@ -4574,10 +4651,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func contributionDayAPIEstimate(_ day: DayUsage) -> APICostEstimate {
-        guard let snapshot, usesProfileAPIReport(for: snapshot) else {
+        guard let snapshot, calendarUsesProfileAPIReport(for: snapshot) else {
             return APICostEstimator.estimate(day: day)
         }
-        let localDay = snapshot.all.byDay.first { $0.day == day.day }
+        let localDay = snapshot.codex.byDay.first { $0.day == day.day }
         return profileAPIDayEstimate(profileDay: day, localDay: localDay)
     }
 
@@ -4756,7 +4833,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         var usage = Usage()
         var turns = 0
         var hasTokenDetail = false
-        for day in snapshot.all.byDay where day.day >= summary.startDay && day.day <= summary.endDay {
+        let report = calendarReport(for: snapshot)
+        for day in report.byDay where day.day >= summary.startDay && day.day <= summary.endDay {
             usage.add(day.usage)
             turns += day.turns
             if day.usage.input > 0 || day.usage.output > 0 || day.usage.cachedInput > 0 {
