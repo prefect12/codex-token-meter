@@ -3020,8 +3020,9 @@ private final class TaskBarPopoverContentView: NSView {
         totalCount = total
         let filtered = threads.filter { selectedTab.matches($0.status) }
         taskCountView = TaskCountView(shown: filtered.count, total: total)
-        taskCountView.isHidden = total == 0
-        taskCountHeight = total == 0 ? 0 : taskCountView.frame.height
+        // "N of M tasks" footer removed: uninformative next to the header chips.
+        taskCountView.isHidden = true
+        taskCountHeight = 0
 
         let rowViews = TaskBarPopoverContentView.makeRowViews(
             filtered: filtered,
