@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusIsLoading = false
     private var detailsLoadGeneration = 0
     private let refreshInterval: TimeInterval = 300
-    private let liveRefreshInterval: TimeInterval = 60
+    private let liveRefreshInterval: TimeInterval = 15
     private let statusIconSize = NSSize(width: 14, height: 14)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -213,6 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
+            refreshLiveLimits()
         }
     }
 
