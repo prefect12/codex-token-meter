@@ -184,10 +184,10 @@ final class CodexActivityReader {
                     title: title,
                     preview: cleanPreview(string(dict["lastAgentMessage"] ?? dict["lastMessage"] ?? dict["subtitle"] ?? dict["summary"])),
                     cwd: cwd,
-                    lastActivity: Date(timeIntervalSince1970: updatedSeconds > 10_000_000_000 ? updatedSeconds / 1000 : updatedSeconds),
+                    lastActivity: unixDate(seconds: updatedSeconds),
                     startedAt: nil,
                     status: status,
-                    turns: Int(double(dict["turns"] ?? dict["turnCount"]) ?? 0),
+                    turns: turnCount(from: dict["turns"] ?? dict["turnCount"]),
                     source: "app-server"
                 ))
             }
@@ -223,15 +223,7 @@ final class CodexActivityReader {
     }
 
     private func appServerStatus(from raw: Any?) -> ThreadRunStatus? {
-        let rawText: String
-        if let dict = raw as? [String: Any] {
-            let type = string(dict["type"]) ?? ""
-            let flags = (dict["activeFlags"] as? [Any])?.compactMap(string).joined(separator: " ") ?? ""
-            rawText = "\(type) \(flags)"
-        } else {
-            rawText = string(raw) ?? ""
-        }
-        let statusText = rawText.lowercased()
+        let statusText = appServerStatusText(from: raw)
         let tokens = Set(statusText.split { !$0.isLetter && !$0.isNumber }.map(String.init))
 
         if tokens.contains("notloaded")
@@ -257,6 +249,18 @@ final class CodexActivityReader {
             return .waiting
         }
         return nil
+    }
+
+    private func appServerStatusText(from raw: Any?) -> String {
+        let rawText: String
+        if let dict = raw as? [String: Any] {
+            let type = string(dict["type"]) ?? ""
+            let flags = (dict["activeFlags"] as? [Any])?.compactMap(string).joined(separator: " ") ?? ""
+            rawText = "\(type) \(flags)"
+        } else {
+            rawText = string(raw) ?? ""
+        }
+        return rawText.lowercased()
     }
 
     private func firstArray(in object: [String: Any], keys: [String]) -> [Any] {
@@ -555,10 +559,10 @@ final class CodexActivityReader {
 }
 
 final class ReadStateStore {
+    private static let schemaVersion = 2
     private static let readWatermarkTolerance: TimeInterval = 60
     private let fileManager = FileManager.default
     private let fileURL: URL
-    private let launchDate = Date()
     private let lock = NSLock()
     private var state: ReadStateFile
 
@@ -572,37 +576,68 @@ final class ReadStateStore {
         let sourceURL = fileManager.fileExists(atPath: fileURL.path) ? fileURL : legacyFileURL
         if let data = try? Data(contentsOf: sourceURL),
            let decoded = try? JSONDecoder().decode(ReadStateFile.self, from: data) {
-            state = decoded
+            state = ReadStateFile(
+                schemaVersion: decoded.schemaVersion ?? Self.schemaVersion,
+                didBaselineExistingWaiting: decoded.didBaselineExistingWaiting,
+                openedAt: decoded.openedAt,
+                runningSeenAt: decoded.runningSeenAt ?? [:]
+            )
         } else {
-            state = ReadStateFile(didBaselineExistingWaiting: false, openedAt: [:])
+            state = ReadStateFile(
+                schemaVersion: Self.schemaVersion,
+                didBaselineExistingWaiting: false,
+                openedAt: [:],
+                runningSeenAt: [:]
+            )
         }
     }
 
     func visibleThreads(from items: [CodexThreadItem]) -> [CodexThreadItem] {
         lock.lock()
         var current = state
+        var didChange = false
         if !current.didBaselineExistingWaiting {
             for item in items where isReadDismissible(item.status) {
                 current.openedAt[item.id] = readThroughTime(for: item)
             }
             current.didBaselineExistingWaiting = true
-            state = current
-            saveLocked()
+            didChange = true
         }
-        let visible = items.filter { item in
+
+        var runningSeenAt = current.runningSeenAt ?? [:]
+        for item in items where item.status == .running || item.status == .stale {
+            let timestamp = max(Date().timeIntervalSince1970, item.lastActivity.timeIntervalSince1970)
+            if (runningSeenAt[item.id] ?? 0) < timestamp {
+                runningSeenAt[item.id] = timestamp
+                didChange = true
+            }
+        }
+        current.runningSeenAt = runningSeenAt
+
+        var visible: [CodexThreadItem] = []
+        for item in items {
             switch item.status {
             case .running, .stale:
-                return true
-            case .waiting, .unread:
-                if item.lastActivity < launchDate {
-                    current.openedAt[item.id] = readThroughTime(for: item)
-                    state = current
-                    saveLocked()
-                    return false
-                }
+                visible.append(item)
+            case .waiting:
                 let readAt = current.openedAt[item.id] ?? 0
-                return readAt < item.lastActivity.timeIntervalSince1970
+                if readAt < item.lastActivity.timeIntervalSince1970 {
+                    visible.append(item)
+                }
+            case .unread:
+                let readAt = current.openedAt[item.id] ?? 0
+                guard readAt < item.lastActivity.timeIntervalSince1970 else { continue }
+                if (current.runningSeenAt?[item.id] ?? 0) > 0 {
+                    visible.append(item)
+                } else {
+                    current.openedAt[item.id] = readThroughTime(for: item)
+                    didChange = true
+                }
             }
+        }
+        state = current
+        if didChange {
+            saveLocked()
         }
         lock.unlock()
         return visible
@@ -1285,7 +1320,11 @@ private func maxDate(_ lhs: Date, _ rhs: Date?) -> Date {
 }
 
 private func unixDate(seconds: Double) -> Date {
-    Date(timeIntervalSince1970: seconds > 10_000_000_000 ? seconds / 1000 : seconds)
+    Date(timeIntervalSince1970: normalizedUnixSeconds(seconds))
+}
+
+private func normalizedUnixSeconds(_ value: Double) -> Double {
+    value > 10_000_000_000 ? value / 1000 : value
 }
 
 private func iso8601Date(_ value: String) -> Date? {
@@ -1323,6 +1362,11 @@ private func bool(_ value: Any?) -> Bool? {
         }
     }
     return nil
+}
+
+private func turnCount(from value: Any?) -> Int {
+    if let array = value as? [Any] { return array.count }
+    return Int(double(value) ?? 0)
 }
 
 private func relative(_ date: Date) -> String {
