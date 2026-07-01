@@ -905,13 +905,19 @@ final class CodexActivityReader {
         var summary = RolloutSummary()
         var previousTokenCounters = TokenBreakdown()
         text.enumerateLines { line, _ in
+            let eventDate = self.eventDate(from: line)
             if summary.cwd == nil, line.contains(#""type":"session_meta""#) {
                 summary.cwd = self.extractJSONString(line: line, key: "cwd")
             }
-            if line.contains(#""type":"turn_context""#),
-               let cwd = self.extractJSONString(line: line, key: "cwd"),
-               !cwd.isEmpty {
-                summary.cwd = cwd
+            if line.contains(#""type":"turn_context""#) {
+                if let cwd = self.extractJSONString(line: line, key: "cwd"),
+                   !cwd.isEmpty {
+                    summary.cwd = cwd
+                }
+                summary.isRunning = true
+                summary.turns += 1
+                summary.lastTaskEventAt = eventDate ?? summary.lastTaskEventAt
+                summary.currentTurnStartedAt = eventDate ?? summary.currentTurnStartedAt
             }
             if summary.title == nil,
                line.contains(#""type":"response_item""#),
@@ -930,8 +936,13 @@ final class CodexActivityReader {
                let preview = cleanPreview(candidate) {
                 summary.preview = preview
             }
+            if self.isFinalAssistantMessage(line: line) {
+                summary.isRunning = false
+                summary.lastTaskEventAt = eventDate ?? summary.lastTaskEventAt
+                summary.lastCompletionAt = eventDate ?? summary.lastCompletionAt
+                summary.currentTurnStartedAt = nil
+            }
             guard line.contains(#""type":"event_msg""#) else { return }
-            let eventDate = self.eventDate(from: line)
             if line.contains(#""type":"context_compacted""#) {
                 summary.compressionCount += 1
             }
@@ -944,8 +955,11 @@ final class CodexActivityReader {
                 }
             }
             if line.contains(#""type":"task_started""#) {
+                let wasAlreadyRunning = summary.isRunning
                 summary.isRunning = true
-                summary.turns += 1
+                if !wasAlreadyRunning {
+                    summary.turns += 1
+                }
                 summary.lastTaskEventAt = eventDate ?? summary.lastTaskEventAt
                 summary.currentTurnStartedAt = eventDate ?? summary.currentTurnStartedAt
             } else if line.contains(#""type":"task_complete""#) || line.contains(#""type":"turn_aborted""#) {
@@ -960,6 +974,20 @@ final class CodexActivityReader {
             }
         }
         return summary
+    }
+
+    private func isFinalAssistantMessage(line: String) -> Bool {
+        guard line.contains(#""type":"response_item""#),
+              line.contains(#""payload":{"type":"message""#),
+              line.contains(#""role":"assistant""#),
+              let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let payload = object["payload"] as? [String: Any],
+              string(payload["type"]) == "message",
+              string(payload["role"]) == "assistant" else {
+            return false
+        }
+        return string(payload["phase"]) == "final"
     }
 
     private func tokenCounters(from line: String) -> TokenBreakdown? {
