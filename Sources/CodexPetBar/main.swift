@@ -1790,6 +1790,7 @@ private final class TaskBarSettingsView: NSView {
 final class ThreadRowView: NSView {
     private let item: CodexThreadItem
     private let onOpen: (String) -> Void
+    private let onDismiss: (String) -> Void
     private let showPlatformLabel: Bool
     private let showStatusDot: Bool
     private let statusDot = NSView()
@@ -1800,15 +1801,28 @@ final class ThreadRowView: NSView {
     private let detailLabel = NSTextField(labelWithString: "")
     private var trackingAreaRef: NSTrackingArea?
     private var elapsedTimer: Timer?
+    private var mouseDownPoint = NSPoint.zero
+    private var dragStartOffset: CGFloat = 0
+    private var swipeOffset: CGFloat = 0
+    private var isSwipeTracking = false
+    private var scrollSwipeSettleTimer: Timer?
+    private var didDrag = false
     private var isHovering = false {
         didSet { needsDisplay = true }
     }
 
-    init(item: CodexThreadItem, showPlatformLabel: Bool, showStatusDot: Bool, onOpen: @escaping (String) -> Void) {
+    init(
+        item: CodexThreadItem,
+        showPlatformLabel: Bool,
+        showStatusDot: Bool,
+        onOpen: @escaping (String) -> Void,
+        onDismiss: @escaping (String) -> Void
+    ) {
         self.item = item
         self.showPlatformLabel = showPlatformLabel
         self.showStatusDot = showStatusDot
         self.onOpen = onOpen
+        self.onDismiss = onDismiss
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 76))
         wantsLayer = true
         let tooltip = tooltipText(for: item)
@@ -1887,9 +1901,83 @@ final class ThreadRowView: NSView {
         ThreadHoverPanel.shared.hide(owner: self)
     }
 
+    override func mouseDown(with event: NSEvent) {
+        mouseDownPoint = event.locationInWindow
+        dragStartOffset = swipeOffset
+        isSwipeTracking = false
+        didDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let point = event.locationInWindow
+        let deltaX = point.x - mouseDownPoint.x
+        let deltaY = point.y - mouseDownPoint.y
+        guard isReadDismissible(item.status) else {
+            didDrag = hypot(deltaX, deltaY) > 3
+            return
+        }
+
+        if !isSwipeTracking {
+            guard abs(deltaX) > 6 || abs(deltaY) > 6 else { return }
+            guard abs(deltaX) > abs(deltaY) * 1.2 else { return }
+            isSwipeTracking = true
+            ThreadHoverPanel.shared.hide(owner: self)
+        }
+
+        didDrag = true
+        setSwipeOffset(min(0, max(-ThreadRowView.dismissRevealWidth, dragStartOffset + deltaX)), animated: false)
+    }
+
     override func mouseUp(with event: NSEvent) {
         ThreadHoverPanel.shared.hide(owner: self)
+        if isSwipeTracking {
+            if swipeOffset <= -ThreadRowView.dismissThreshold {
+                onDismiss(item.id)
+            } else {
+                setSwipeOffset(0, animated: true)
+            }
+            isSwipeTracking = false
+            didDrag = false
+            return
+        }
+        guard !didDrag else {
+            didDrag = false
+            return
+        }
         onOpen(item.id)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard isReadDismissible(item.status), event.hasPreciseScrollingDeltas else {
+            super.scrollWheel(with: event)
+            return
+        }
+
+        let horizontal = event.scrollingDeltaX
+        let vertical = event.scrollingDeltaY
+        guard abs(horizontal) > 0.4, abs(horizontal) > abs(vertical) * 1.35 else {
+            super.scrollWheel(with: event)
+            return
+        }
+
+        ThreadHoverPanel.shared.hide(owner: self)
+        isSwipeTracking = true
+        scrollSwipeSettleTimer?.invalidate()
+
+        let revealDelta = event.isDirectionInvertedFromDevice ? horizontal : -horizontal
+        let nextOffset = min(0, max(-ThreadRowView.dismissRevealWidth, swipeOffset - revealDelta))
+        setSwipeOffset(nextOffset, animated: false)
+
+        switch event.phase {
+        case .ended, .cancelled:
+            settleScrollSwipe()
+        default:
+            let timer = Timer(timeInterval: 0.18, repeats: false) { [weak self] _ in
+                self?.settleScrollSwipe()
+            }
+            scrollSwipeSettleTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -1911,28 +1999,84 @@ final class ThreadRowView: NSView {
 
     deinit {
         stopElapsedTimer()
+        scrollSwipeSettleTimer?.invalidate()
         ThreadHoverPanel.shared.hide(owner: self)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard isHovering else { return }
+        if swipeOffset < -1, isReadDismissible(item.status) {
+            let revealWidth = min(ThreadRowView.dismissRevealWidth, -swipeOffset + 16)
+            let revealRect = NSRect(
+                x: bounds.maxX - revealWidth - 8,
+                y: 4,
+                width: revealWidth,
+                height: bounds.height - 8
+            )
+            NSColor.systemRed.withAlphaComponent(0.82).setFill()
+            NSBezierPath(roundedRect: revealRect, xRadius: 8, yRadius: 8).fill()
+            drawDismissLabel(in: revealRect)
+        }
+        guard isHovering, !isSwipeTracking else { return }
         NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 8, dy: 4), xRadius: 8, yRadius: 8).fill()
     }
 
     override func layout() {
         super.layout()
+        let offset = swipeOffset
         let statusTextX: CGFloat = showStatusDot ? 34 : 18
         let statusColumnWidth: CGFloat = showStatusDot ? 62 : 76
         let contentX: CGFloat = 104
         let contentWidth = max(160, bounds.width - contentX - 16)
-        statusDot.frame = NSRect(x: 17, y: 54, width: 8, height: 8)
-        statusLabelView.frame = NSRect(x: statusTextX, y: 48, width: statusColumnWidth, height: 18)
-        statusElapsedLabel.frame = NSRect(x: statusTextX, y: 30, width: statusColumnWidth, height: 16)
-        platformLabelView.frame = NSRect(x: statusTextX, y: 12, width: statusColumnWidth, height: 14)
-        titleLabel.frame = NSRect(x: contentX, y: 49, width: contentWidth, height: 20)
-        detailLabel.frame = NSRect(x: contentX, y: 15, width: contentWidth, height: 34)
+        statusDot.frame = NSRect(x: 17 + offset, y: 54, width: 8, height: 8)
+        statusLabelView.frame = NSRect(x: statusTextX + offset, y: 48, width: statusColumnWidth, height: 18)
+        statusElapsedLabel.frame = NSRect(x: statusTextX + offset, y: 30, width: statusColumnWidth, height: 16)
+        platformLabelView.frame = NSRect(x: statusTextX + offset, y: 12, width: statusColumnWidth, height: 14)
+        titleLabel.frame = NSRect(x: contentX + offset, y: 49, width: contentWidth, height: 20)
+        detailLabel.frame = NSRect(x: contentX + offset, y: 15, width: contentWidth, height: 34)
+    }
+
+    private func setSwipeOffset(_ offset: CGFloat, animated: Bool) {
+        swipeOffset = offset
+        let updates = {
+            self.needsLayout = true
+            self.layoutSubtreeIfNeeded()
+            self.needsDisplay = true
+        }
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.14
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                updates()
+            }
+        } else {
+            updates()
+        }
+    }
+
+    private func drawDismissLabel(in rect: NSRect) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byTruncatingTail
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.white.withAlphaComponent(0.94),
+            .paragraphStyle: paragraph
+        ]
+        ("移除" as NSString).draw(in: rect.insetBy(dx: 10, dy: 22), withAttributes: attributes)
+    }
+
+    private func settleScrollSwipe() {
+        scrollSwipeSettleTimer?.invalidate()
+        scrollSwipeSettleTimer = nil
+        guard isSwipeTracking else { return }
+        isSwipeTracking = false
+        if swipeOffset <= -ThreadRowView.dismissThreshold {
+            onDismiss(item.id)
+        } else {
+            setSwipeOffset(0, animated: true)
+        }
     }
 
     private func startElapsedTimerIfNeeded() {
@@ -1954,6 +2098,9 @@ final class ThreadRowView: NSView {
         statusElapsedLabel.stringValue = text
         statusElapsedLabel.isHidden = text.isEmpty
     }
+
+    private static let dismissRevealWidth: CGFloat = 86
+    private static let dismissThreshold: CGFloat = 58
 }
 
 private struct ThreadTooltipRow {
@@ -2436,6 +2583,7 @@ private final class TaskBarPopoverContentView: NSView {
         showPlatformLabels: Bool,
         showStatusDots: Bool,
         onOpenThread: @escaping (String) -> Void,
+        onDismissThread: @escaping (String) -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void,
         initialSize: NSSize?,
@@ -2456,7 +2604,8 @@ private final class TaskBarPopoverContentView: NSView {
                     item: thread,
                     showPlatformLabel: showPlatformLabels,
                     showStatusDot: showStatusDots,
-                    onOpen: onOpenThread
+                    onOpen: onOpenThread,
+                    onDismiss: onDismissThread
                 )
             }
         }
@@ -2648,6 +2797,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onOpenThread: { [weak self] id in
                 self?.openThread(id: id)
             },
+            onDismissThread: { [weak self] id in
+                self?.dismissThread(id: id)
+            },
             onOpenSettings: { [weak self] in
                 self?.openSettingsWindow()
             },
@@ -2683,6 +2835,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindowController?.showWindow(nil)
         settingsWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func dismissThread(id: String) {
+        let selectedItem = threads.first(where: { $0.id == id })
+        if let item = selectedItem, isReadDismissible(item.status) {
+            readState.markRead(item)
+        } else {
+            readState.markRead(threadID: id)
+        }
+        threads.removeAll { $0.id == id && isReadDismissible($0.status) }
+        updateStatusIcon()
+        if popover.isShown {
+            rebuildPopover()
+        }
+        ThreadHoverPanel.shared.hideAll()
     }
 
     private func openThread(id: String) {
