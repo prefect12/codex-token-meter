@@ -1,5 +1,4 @@
 import Cocoa
-import CoreText
 import Foundation
 
 enum ThreadRunStatus {
@@ -172,6 +171,7 @@ final class CodexActivityReader {
                       let id = string(dict["id"] ?? dict["threadId"] ?? dict["conversationId"]) else {
                     continue
                 }
+                guard !isArchivedThread(dict) else { continue }
                 let title = cleanTitle(string(dict["title"] ?? dict["name"] ?? dict["preview"])) ?? String(id.prefix(8))
                 let cwd = string(dict["cwd"] ?? dict["workingDirectory"] ?? dict["path"])
                 let updatedSeconds = double(dict["updatedAt"] ?? dict["updated_at"] ?? dict["lastActivityAt"]) ?? Date().timeIntervalSince1970
@@ -190,6 +190,33 @@ final class CodexActivityReader {
             }
         }
         return Array(items.prefix(limit))
+    }
+
+    private func isArchivedThread(_ dict: [String: Any]) -> Bool {
+        for key in ["archived", "isArchived", "is_archived"] {
+            if bool(dict[key]) == true {
+                return true
+            }
+        }
+
+        for key in ["status", "state", "lifecycleStatus", "lifecycle_status", "visibility"] {
+            if textContainsArchived(dict[key]) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func textContainsArchived(_ raw: Any?) -> Bool {
+        if let dict = raw as? [String: Any] {
+            return dict.values.contains(where: textContainsArchived)
+        }
+        if let array = raw as? [Any] {
+            return array.contains(where: textContainsArchived)
+        }
+        guard let value = string(raw)?.lowercased() else { return false }
+        let tokens = Set(value.split { !$0.isLetter && !$0.isNumber }.map(String.init))
+        return tokens.contains("archived") || tokens.contains("archive")
     }
 
     private func appServerStatus(from raw: Any?) -> ThreadRunStatus? {
@@ -498,13 +525,11 @@ final class CodexActivityReader {
     private func sessionRoots() -> [URL] {
         let codexHome = URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
         var roots = [
-            codexHome.appendingPathComponent("sessions", isDirectory: true),
-            codexHome.appendingPathComponent("archived_sessions", isDirectory: true)
+            codexHome.appendingPathComponent("sessions", isDirectory: true)
         ]
         if let env = ProcessInfo.processInfo.environment["CODEX_HOME"], !env.isEmpty {
             let custom = URL(fileURLWithPath: (env as NSString).expandingTildeInPath, isDirectory: true)
             roots.append(custom.appendingPathComponent("sessions", isDirectory: true))
-            roots.append(custom.appendingPathComponent("archived_sessions", isDirectory: true))
         }
         return unique(roots)
     }
@@ -722,79 +747,12 @@ final class EmptyStateView: NSView {
     }
 }
 
-final class StatusPillView: NSView {
-    var title: String {
-        didSet {
-            invalidateIntrinsicContentSize()
-            needsDisplay = true
-        }
-    }
-    var color: NSColor {
-        didSet { needsDisplay = true }
-    }
-
-    init(title: String, color: NSColor) {
-        self.title = title
-        self.color = color
-        super.init(frame: .zero)
-        wantsLayer = true
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var intrinsicContentSize: NSSize {
-        let textSize = attributedTitle().size()
-        return NSSize(width: ceil(textSize.width) + 18, height: 19)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        let pillRect = bounds.insetBy(dx: 0.5, dy: 0.5)
-        color.withAlphaComponent(0.13).setFill()
-        NSBezierPath(roundedRect: pillRect, xRadius: 6, yRadius: 6).fill()
-        color.withAlphaComponent(0.25).setStroke()
-        let border = NSBezierPath(roundedRect: pillRect, xRadius: 6, yRadius: 6)
-        border.lineWidth = 1
-        border.stroke()
-
-        let text = attributedTitle()
-        let line = CTLineCreateWithAttributedString(text)
-        var ascent: CGFloat = 0
-        var descent: CGFloat = 0
-        var leading: CGFloat = 0
-        let width = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
-        let lineHeight = ascent + descent
-        let x = floor((bounds.width - width) / 2)
-        let baselineY = floor((bounds.height - lineHeight) / 2 + descent)
-
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-        context.saveGState()
-        context.textPosition = CGPoint(x: x, y: baselineY)
-        CTLineDraw(line, context)
-        context.restoreGState()
-    }
-
-    private func attributedTitle() -> NSAttributedString {
-        NSAttributedString(
-            string: title,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-                .foregroundColor: color
-            ]
-        )
-    }
-}
-
 final class ThreadRowView: NSView {
     private let item: CodexThreadItem
     private let onOpen: (String) -> Void
     private let statusDot = NSView()
-    private let statusLabelView: StatusPillView
+    private let statusLabelView = NSTextField(labelWithString: "")
     private let titleLabel = NSTextField(labelWithString: "")
-    private let previewLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private var trackingAreaRef: NSTrackingArea?
     private var isHovering = false {
@@ -804,37 +762,30 @@ final class ThreadRowView: NSView {
     init(item: CodexThreadItem, onOpen: @escaping (String) -> Void) {
         self.item = item
         self.onOpen = onOpen
-        self.statusLabelView = StatusPillView(title: statusLabel(item.status), color: statusColor(item.status))
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 76))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 58))
         wantsLayer = true
         layer?.backgroundColor = menuPanelBackground.cgColor
 
         statusDot.wantsLayer = true
-        statusDot.layer?.backgroundColor = statusColor(item.status).withAlphaComponent(0.92).cgColor
+        statusDot.layer?.backgroundColor = statusColor(item.status).cgColor
         statusDot.layer?.cornerRadius = 4
         addSubview(statusDot)
 
+        statusLabelView.stringValue = compactStatusLabel(item.status)
+        statusLabelView.font = .systemFont(ofSize: 11, weight: .semibold)
+        statusLabelView.textColor = statusColor(item.status)
+        statusLabelView.lineBreakMode = .byTruncatingTail
         addSubview(statusLabelView)
 
         titleLabel.stringValue = item.title
-        titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         addSubview(titleLabel)
 
-        previewLabel.stringValue = item.preview ?? ""
-        previewLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        previewLabel.textColor = .labelColor.withAlphaComponent(0.82)
-        previewLabel.maximumNumberOfLines = 2
-        previewLabel.lineBreakMode = .byTruncatingTail
-        previewLabel.cell?.wraps = true
-        previewLabel.cell?.isScrollable = false
-        previewLabel.isHidden = item.preview == nil
-        addSubview(previewLabel)
-
         detailLabel.stringValue = detailText(for: item)
-        detailLabel.font = .systemFont(ofSize: 10, weight: .medium)
+        detailLabel.font = .systemFont(ofSize: 11, weight: .medium)
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.lineBreakMode = .byTruncatingTail
         addSubview(detailLabel)
@@ -869,23 +820,16 @@ final class ThreadRowView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard isHovering else { return }
-        NSColor.controlAccentColor.withAlphaComponent(0.13).setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 10, dy: 4), xRadius: 7, yRadius: 7).fill()
+        NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 8, dy: 4), xRadius: 8, yRadius: 8).fill()
     }
 
     override func layout() {
         super.layout()
-        statusDot.frame = NSRect(x: 16, y: 57, width: 7, height: 7)
-        titleLabel.frame = NSRect(x: 42, y: 53, width: bounds.width - 58, height: 17)
-        if item.preview == nil {
-            previewLabel.frame = .zero
-            titleLabel.frame.origin.y = 40
-        } else {
-            previewLabel.frame = NSRect(x: 42, y: 21, width: bounds.width - 58, height: 30)
-        }
-        let pillWidth = max(58, min(86, statusLabelView.intrinsicContentSize.width))
-        statusLabelView.frame = NSRect(x: 42, y: 3, width: pillWidth, height: 19)
-        detailLabel.frame = NSRect(x: 42 + pillWidth + 10, y: 4, width: bounds.width - 42 - pillWidth - 26, height: 16)
+        statusDot.frame = NSRect(x: 16, y: 33, width: 8, height: 8)
+        statusLabelView.frame = NSRect(x: 32, y: 27, width: 72, height: 18)
+        titleLabel.frame = NSRect(x: 104, y: 28, width: bounds.width - 120, height: 19)
+        detailLabel.frame = NSRect(x: 104, y: 11, width: bounds.width - 120, height: 17)
     }
 }
 
