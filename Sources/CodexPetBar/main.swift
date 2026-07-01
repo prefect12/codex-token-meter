@@ -1376,7 +1376,7 @@ final class PanelHeaderView: NSView {
     private let statusSummaryLabel = NSTextField(labelWithString: "")
 
     init(runningCount: Int, waitingCount: Int, unreadCount: Int) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 64))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 50))
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.withAlphaComponent(0.02).cgColor
 
@@ -1384,7 +1384,7 @@ final class PanelHeaderView: NSView {
         logoView.imageScaling = .scaleProportionallyUpOrDown
         addSubview(logoView)
 
-        titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
+        titleLabel.font = .systemFont(ofSize: 17, weight: .bold)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         addSubview(titleLabel)
@@ -1394,7 +1394,7 @@ final class PanelHeaderView: NSView {
             waitingCount: waitingCount,
             unreadCount: unreadCount
         )
-        totalLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        totalLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         totalLabel.textColor = NSColor.white.withAlphaComponent(0.74)
         totalLabel.alignment = .right
         totalLabel.lineBreakMode = .byTruncatingTail
@@ -1418,26 +1418,26 @@ final class PanelHeaderView: NSView {
     override func layout() {
         super.layout()
         let horizontalPadding: CGFloat = 0
-        let logoSize: CGFloat = 26
-        let summaryWidth = min(230, max(176, bounds.width * 0.46))
-        logoView.frame = NSRect(x: horizontalPadding, y: 5, width: logoSize, height: logoSize)
+        let logoSize: CGFloat = 22
+        let summaryWidth = min(210, max(160, bounds.width * 0.42))
+        logoView.frame = NSRect(x: horizontalPadding, y: 12, width: logoSize, height: logoSize)
         totalLabel.frame = NSRect(
             x: bounds.width - horizontalPadding - summaryWidth,
-            y: 7,
+            y: 10,
             width: summaryWidth,
-            height: 16
+            height: 15
         )
         statusSummaryLabel.frame = NSRect(
             x: bounds.width - horizontalPadding - summaryWidth,
-            y: 31,
+            y: 29,
             width: summaryWidth,
-            height: 18
+            height: 16
         )
         titleLabel.frame = NSRect(
             x: logoView.frame.maxX + 10,
-            y: 0,
+            y: 8,
             width: max(80, statusSummaryLabel.frame.minX - logoView.frame.maxX - 22),
-            height: 28
+            height: 24
         )
     }
 }
@@ -1448,7 +1448,7 @@ private func totalTaskSummaryText(runningCount: Int, waitingCount: Int, unreadCo
 }
 
 private func headerStatusSummaryText(runningCount: Int, waitingCount: Int, unreadCount: Int) -> NSAttributedString {
-    let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+    let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
     let paragraph = NSMutableParagraphStyle()
     paragraph.alignment = .right
     paragraph.lineBreakMode = .byTruncatingTail
@@ -1943,12 +1943,12 @@ final class ThreadRowView: NSView {
         addSubview(statusDot)
 
         statusLabelView.stringValue = compactStatusLabel(item.status)
-        statusLabelView.font = .systemFont(ofSize: 13, weight: .bold)
+        statusLabelView.font = .systemFont(ofSize: 12, weight: .bold)
         statusLabelView.textColor = statusColor(item.status)
         statusLabelView.lineBreakMode = .byTruncatingTail
         addSubview(statusLabelView)
 
-        statusElapsedLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        statusElapsedLabel.font = .systemFont(ofSize: 10, weight: .semibold)
         statusElapsedLabel.textColor = .secondaryLabelColor
         statusElapsedLabel.lineBreakMode = .byTruncatingTail
         statusElapsedLabel.maximumNumberOfLines = 1
@@ -1964,14 +1964,14 @@ final class ThreadRowView: NSView {
         addSubview(platformLabelView)
 
         titleLabel.stringValue = item.title
-        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         addSubview(titleLabel)
 
         detailLabel.stringValue = item.preview ?? detailText(for: item)
-        detailLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        detailLabel.font = .systemFont(ofSize: 12, weight: .medium)
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.maximumNumberOfLines = 3
         detailLabel.lineBreakMode = .byTruncatingTail
@@ -2546,7 +2546,16 @@ private final class CommandButtonBarView: NSView {
 
     override func layout() {
         super.layout()
-        stackView.frame = bounds
+        let buttonWidth: CGFloat = 126
+        let buttonHeight: CGFloat = 28
+        let naturalWidth = buttonWidth * CGFloat(buttons.count) + stackView.spacing * CGFloat(max(buttons.count - 1, 0))
+        let width = min(naturalWidth, max(0, bounds.width - 32))
+        stackView.frame = NSRect(
+            x: floor((bounds.width - width) / 2),
+            y: floor((bounds.height - buttonHeight) / 2),
+            width: width,
+            height: buttonHeight
+        )
     }
 }
 
@@ -2718,7 +2727,7 @@ private final class TaskBarPopoverContentView: NSView {
             onQuit: onQuit
         )
 
-        let fixedHeight: CGFloat = 247
+        let fixedHeight: CGFloat = 205
         let maxRowsHeight = max(EmptyStateView().frame.height, taskBarPopoverMaxHeight() - fixedHeight)
         let naturalRowsHeight = min(rowsContentHeight, maxRowsHeight)
         let naturalHeight = fixedHeight + naturalRowsHeight
@@ -2776,31 +2785,31 @@ private final class TaskBarPopoverContentView: NSView {
 
     override func layout() {
         super.layout()
-        let content = bounds.insetBy(dx: 28, dy: 24)
+        let content = bounds.insetBy(dx: 28, dy: 18)
         headerView.frame = NSRect(x: content.minX, y: content.minY, width: content.width, height: headerView.frame.height)
 
         topSeparator.frame = NSRect(
             x: content.minX,
-            y: headerView.frame.maxY + 12,
+            y: headerView.frame.maxY + 8,
             width: content.width,
             height: topSeparator.frame.height
         )
         filterSegment.frame = NSRect(
             x: content.minX,
-            y: topSeparator.frame.maxY + 18,
+            y: topSeparator.frame.maxY + 10,
             width: content.width,
-            height: 30
+            height: 28
         )
 
         let commandY = content.maxY - commandBar.frame.height
         bottomSeparator.frame = NSRect(
             x: content.minX,
-            y: commandY - 24,
+            y: commandY - 18,
             width: content.width,
             height: bottomSeparator.frame.height
         )
 
-        let rowsY = filterSegment.frame.maxY + 16
+        let rowsY = filterSegment.frame.maxY + 12
         let rowsViewportHeight = max(EmptyStateView().frame.height, bottomSeparator.frame.minY - rowsY)
         let rowsFrame = NSRect(x: content.minX, y: rowsY, width: content.width, height: rowsViewportHeight)
         rowsScrollView.frame = rowsFrame
@@ -3204,7 +3213,7 @@ private func taskBarPopoverMaxHeight() -> CGFloat {
     let screenHeight = NSScreen.screens.first { $0.frame.contains(mouse) }?.visibleFrame.height
         ?? NSScreen.main?.visibleFrame.height
         ?? 900
-    return min(700, max(420, screenHeight - 110))
+    return min(620, max(360, screenHeight - 110))
 }
 
 private func taskBarPopoverMaxResizableSize() -> NSSize {
