@@ -4489,20 +4489,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
         let row = costHistoryRows[hoveredCostHistoryIndex]
         let costSource = selectedDetailsSource
-        var lines: [(String, String, NSColor)] = [
-            (t(.used), displayMoney(row.usedValue, source: costSource), costUsedColor(for: row)),
-            (t(.remaining), displayMoney(row.remainingValue, source: costSource), costRemainingColor(for: row)),
-            (t(.budget), displayMoney(row.budgetValue, source: costSource), .white),
-            (t(.usageRate), String(format: "%.1f%%", row.usedPercent), NSColor.white.withAlphaComponent(0.82))
-        ]
+        var lines = costHistoryTooltipLines(for: row, source: costSource)
         if let apiEquivalentUSD = row.apiEquivalentUSD {
             let apiTitle = row.apiEquivalentCoveragePercent > 0 && row.apiEquivalentCoveragePercent < 99.5
                 ? "\(t(.apiEquivalent)) \(String(format: "%.0f%%", row.apiEquivalentCoveragePercent))"
                 : t(.apiEquivalent)
-            lines.insert((apiTitle, displayAPIMoney(apiEquivalentUSD, source: costSource), accentTeal), at: 3)
+            let apiIndex = max(0, lines.count - 1)
+            lines.insert((apiTitle, displayAPIMoney(apiEquivalentUSD, source: costSource), accentTeal), at: apiIndex)
         }
 
-        let width: CGFloat = 326
+        let width: CGFloat = costSource == .all ? 354 : 326
         let titleHeight: CGFloat = row.subtitle == nil ? 24 : 38
         let rowHeight: CGFloat = 20
         let height: CGFloat = titleHeight + 18 + CGFloat(lines.count) * rowHeight
@@ -4532,13 +4528,64 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
 
         let startY = rect.minY + titleHeight + 6
-        let labelWidth: CGFloat = 108
+        let labelWidth: CGFloat = costSource == .all ? 128 : 108
         let valueX = rect.minX + labelWidth + 30
         let valueWidth = rect.maxX - valueX - 14
         for (index, line) in lines.enumerated() {
             let y = startY + CGFloat(index) * rowHeight
             drawText(line.0, rect: NSRect(x: rect.minX + 12, y: y, width: labelWidth, height: 16), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62))
             drawRight(line.1, rect: NSRect(x: valueX, y: y, width: valueWidth, height: 16), color: line.2, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
+        }
+    }
+
+    private func costHistoryTooltipLines(for row: CostPeriodRow, source: QuotaViewOption) -> [(String, String, NSColor)] {
+        guard source == .all, let snapshot else {
+            return [
+                (t(.used), displayMoney(row.usedValue, source: source), costUsedColor(for: row)),
+                (t(.remaining), displayMoney(row.remainingValue, source: source), costRemainingColor(for: row)),
+                (t(.budget), displayMoney(row.budgetValue, source: source), .white),
+                (t(.usageRate), String(format: "%.1f%%", row.usedPercent), NSColor.white.withAlphaComponent(0.82))
+            ]
+        }
+
+        let codex = platformCostHistoryValues(matching: row, source: .codex, snapshot: snapshot)
+        let claude = platformCostHistoryValues(matching: row, source: .claude, snapshot: snapshot)
+        return [
+            (platformCostHistoryLabel(source: .codex, remaining: false), displayMoney(codex.usedValue, source: .codex), costUsedColor),
+            (platformCostHistoryLabel(source: .codex, remaining: true), displayMoney(codex.remainingValue, source: .codex), costRemainingColor),
+            (platformCostHistoryLabel(source: .claude, remaining: false), displayMoney(claude.usedValue, source: .claude), accentAmber),
+            (platformCostHistoryLabel(source: .claude, remaining: true), displayMoney(claude.remainingValue, source: .claude), costRemainingColor.withAlphaComponent(0.78)),
+            (t(.budget), displayMoney(row.budgetValue, source: source), .white),
+            (t(.usageRate), String(format: "%.1f%%", row.usedPercent), NSColor.white.withAlphaComponent(0.82))
+        ]
+    }
+
+    private func platformCostHistoryValues(matching row: CostPeriodRow, source: QuotaViewOption, snapshot: DetailsSnapshot) -> (usedValue: Double, remainingValue: Double) {
+        let rows = weeklySpendRows(
+            report: sourceReport(for: snapshot, source: source),
+            limit: source == .claude ? nil : costEstimateLimit(from: snapshot.liveLimits),
+            year: selectedCostYear,
+            quotaReferenceReport: source == .claude ? nil : snapshot.costReferenceReport,
+            monthlyCost: AppSettings.monthlyPlanCost(for: source),
+            paymentStartDay: AppSettings.paymentStartDay(for: source)
+        )
+        let match = rows.first { $0.label == row.label && $0.cycleIndex == row.cycleIndex && $0.title == row.title }
+            ?? rows.first { $0.label == row.label && $0.cycleIndex == row.cycleIndex }
+            ?? rows.first { $0.label == row.label && $0.cycleIndex == 0 }
+            ?? rows.first { $0.label == row.label }
+        if let match {
+            return (match.usedValue, match.remainingValue)
+        }
+        return (0, AppSettings.monthlyPlanCost(for: source) * 12 / 52)
+    }
+
+    private func platformCostHistoryLabel(source: QuotaViewOption, remaining: Bool) -> String {
+        let name = source == .codex ? "Codex" : "Claude"
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese:
+            return "\(name) \(remaining ? "剩余" : "花费")"
+        default:
+            return "\(name) \(remaining ? "remaining" : "spent")"
         }
     }
 
