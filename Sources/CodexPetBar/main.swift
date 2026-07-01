@@ -1981,10 +1981,52 @@ private final class TaskBarSettingsWindowController: NSWindowController {
     }
 }
 
+private enum TaskBarSettingsSection: CaseIterable {
+    case settings
+    case about
+
+    var title: String {
+        switch self {
+        case .settings: return "设置"
+        case .about: return "关于"
+        }
+    }
+}
+
+private enum TaskBarSettingsInfo: CaseIterable {
+    case layout
+    case tokenUnit
+
+    var title: String {
+        switch self {
+        case .layout: return "信息位置"
+        case .tokenUnit: return "Token 单位"
+        }
+    }
+
+    var body: String {
+        switch self {
+        case .layout:
+            return "选“左侧”把时间 / 状态 / 平台移到左栏，行更窄、可显示更多任务。"
+        case .tokenUnit:
+            return "只影响 hover 中的输入 / 输出等数字；缓存率和金额不变。"
+        }
+    }
+
+    var tooltip: String {
+        "\(title)\n\(body)"
+    }
+}
+
 private final class TaskBarSettingsView: NSView {
     static let preferredSize = NSSize(width: 720, height: 700)
 
     private let onSettingsChanged: () -> Void
+    private var selectedSection: TaskBarSettingsSection = .settings
+    private var settingsTrackingArea: NSTrackingArea?
+    private var sidebarItemRects: [TaskBarSettingsSection: NSRect] = [:]
+    private var infoMarkRects: [TaskBarSettingsInfo: NSRect] = [:]
+    private var hoveredInfo: TaskBarSettingsInfo?
     private var platformOptionRects: [Bool: NSRect] = [:]
     private var tokenUnitOptionRects: [TaskTokenUnitStyle: NSRect] = [:]
     private var layoutOptionRects: [TaskRowLayoutStyle: NSRect] = [:]
@@ -2016,6 +2058,21 @@ private final class TaskBarSettingsView: NSView {
 
     override var isFlipped: Bool { true }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let settingsTrackingArea {
+            removeTrackingArea(settingsTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        settingsTrackingArea = trackingArea
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         drawBackground()
@@ -2029,6 +2086,16 @@ private final class TaskBarSettingsView: NSView {
             width: bounds.width - sidebarWidth - 56,
             height: bounds.height - 56
         )
+        switch selectedSection {
+        case .settings:
+            drawSettingsPage(content: content)
+        case .about:
+            drawAboutPage(content: content)
+        }
+    }
+
+    private func drawSettingsPage(content: NSRect) {
+        infoMarkRects.removeAll(keepingCapacity: true)
         drawText(
             "任务栏设置",
             rect: NSRect(x: content.minX, y: content.minY, width: content.width, height: 34),
@@ -2042,7 +2109,7 @@ private final class TaskBarSettingsView: NSView {
             color: NSColor.white.withAlphaComponent(0.56)
         )
 
-        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 222)
+        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 186)
         drawPanel(settingsCard)
         drawText(
             "列表显示",
@@ -2059,11 +2126,10 @@ private final class TaskBarSettingsView: NSView {
         let layoutStyles = TaskRowLayoutStyle.allCases
         let layoutPillY = settingsCard.minY + 48
         layoutOptionRects.removeAll(keepingCapacity: true)
-        drawText(
+        drawSettingLabel(
             "信息位置",
             rect: NSRect(x: settingsCard.minX + 16, y: layoutPillY + 7, width: binaryOptionX - settingsCard.minX - 32, height: 20),
-            font: .systemFont(ofSize: 13, weight: .semibold),
-            color: .white
+            info: .layout
         )
         for (index, style) in layoutStyles.enumerated() {
             let optionRect = NSRect(
@@ -2094,11 +2160,10 @@ private final class TaskBarSettingsView: NSView {
         let unitOptionX = settingsCard.maxX - 16 - unitPillWidth * CGFloat(unitStyles.count) - pillGap * CGFloat(unitStyles.count - 1)
         let unitPillY = settingsCard.minY + 136
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
-        drawText(
+        drawSettingLabel(
             "Token 单位",
             rect: NSRect(x: settingsCard.minX + 16, y: unitPillY + 7, width: unitOptionX - settingsCard.minX - 32, height: 20),
-            font: .systemFont(ofSize: 13, weight: .semibold),
-            color: .white
+            info: .tokenUnit
         )
         for (index, style) in unitStyles.enumerated() {
             let optionRect = NSRect(
@@ -2110,43 +2175,80 @@ private final class TaskBarSettingsView: NSView {
             tokenUnitOptionRects[style] = optionRect
             drawSelectablePill(style.title, rect: optionRect, selected: TaskBarSettings.tokenUnitStyle == style)
         }
+
+        let orderCard = NSRect(x: content.minX, y: settingsCard.maxY + 16, width: content.width, height: 208)
+        drawStatusOrderCard(orderCard)
+    }
+
+    private func drawAboutPage(content: NSRect) {
+        platformOptionRects.removeAll(keepingCapacity: true)
+        tokenUnitOptionRects.removeAll(keepingCapacity: true)
+        layoutOptionRects.removeAll(keepingCapacity: true)
+        statusOrderRowRects.removeAll(keepingCapacity: true)
+
         drawText(
-            "信息位置选“左侧”把时间 / 状态 / 平台移到左栏，行更窄、可显示更多任务。",
-            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 176, width: settingsCard.width - 32, height: 18),
-            font: .systemFont(ofSize: 12, weight: .medium),
-            color: NSColor.white.withAlphaComponent(0.52)
+            "关于 Task Bar",
+            rect: NSRect(x: content.minX, y: content.minY, width: content.width, height: 34),
+            font: .systemFont(ofSize: 26, weight: .bold),
+            color: .white
         )
         drawText(
-            "Token 单位只影响 hover 中的输入 / 输出等数字；缓存率和金额不变。",
-            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 196, width: settingsCard.width - 32, height: 18),
-            font: .systemFont(ofSize: 12, weight: .medium),
-            color: NSColor.white.withAlphaComponent(0.52)
+            "任务状态、排序和本地数据说明",
+            rect: NSRect(x: content.minX, y: content.minY + 36, width: content.width, height: 20),
+            font: .systemFont(ofSize: 13, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.56)
         )
 
-        let statusCard = NSRect(x: content.minX, y: settingsCard.maxY + 16, width: content.width, height: 104)
+        let statusCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 126)
         drawPanel(statusCard)
         drawText(
             "状态约定",
-            rect: NSRect(x: statusCard.minX + 16, y: statusCard.minY + 16, width: statusCard.width - 32, height: 22),
-            font: .systemFont(ofSize: 16, weight: .bold),
+            rect: NSRect(x: statusCard.minX + 18, y: statusCard.minY + 20, width: statusCard.width - 36, height: 26),
+            font: .systemFont(ofSize: 19, weight: .bold),
             color: .white
         )
         drawStatusLegend(
-            items: [
-                ("RUN", "运行中", NSColor.systemGreen),
-                ("REVIEW", "待检查", NSColor.systemBlue),
-                ("INPUT", "待输入", NSColor.systemOrange),
-                ("DONE", "已完成", NSColor.white.withAlphaComponent(0.45))
-            ],
-            rect: NSRect(x: statusCard.minX + 16, y: statusCard.minY + 56, width: statusCard.width - 32, height: 42)
+            items: statusLegendItems(),
+            rect: NSRect(x: statusCard.minX + 18, y: statusCard.minY + 68, width: statusCard.width - 36, height: 42)
         )
 
-        let orderCard = NSRect(x: content.minX, y: statusCard.maxY + 16, width: content.width, height: 208)
-        drawStatusOrderCard(orderCard)
+        let dataCard = NSRect(x: content.minX, y: statusCard.maxY + 16, width: content.width, height: 126)
+        drawPanel(dataCard)
+        drawText(
+            "数据来源",
+            rect: NSRect(x: dataCard.minX + 18, y: dataCard.minY + 20, width: dataCard.width - 36, height: 24),
+            font: .systemFont(ofSize: 17, weight: .bold),
+            color: .white
+        )
+        drawText(
+            "Task Bar 读取本机 Codex 会话和 Claude Code 项目日志，只在本地整理任务状态。",
+            rect: NSRect(x: dataCard.minX + 18, y: dataCard.minY + 58, width: dataCard.width - 36, height: 18),
+            font: .systemFont(ofSize: 12.5, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.62)
+        )
+        drawText(
+            "状态、顺序和布局偏好保存在本机 UserDefaults，不上传会话内容。",
+            rect: NSRect(x: dataCard.minX + 18, y: dataCard.minY + 82, width: dataCard.width - 36, height: 18),
+            font: .systemFont(ofSize: 12.5, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.52)
+        )
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        for (section, rect) in sidebarItemRects where rect.contains(point) {
+            guard selectedSection != section else { return }
+            selectedSection = section
+            draggingGroup = nil
+            hoveredInfo = nil
+            toolTip = nil
+            needsDisplay = true
+            return
+        }
+        guard selectedSection == .settings else {
+            super.mouseDown(with: event)
+            return
+        }
         for (style, rect) in layoutOptionRects where rect.contains(point) {
             guard TaskBarSettings.rowLayout != style else { return }
             TaskBarSettings.rowLayout = style
@@ -2181,8 +2283,25 @@ private final class TaskBarSettingsView: NSView {
         super.mouseDown(with: event)
     }
 
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let nextInfo = selectedSection == .settings
+            ? infoMarkRects.first(where: { $0.value.contains(point) })?.key
+            : nil
+        guard nextInfo != hoveredInfo else { return }
+        hoveredInfo = nextInfo
+        toolTip = nextInfo?.tooltip
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoveredInfo = nil
+        toolTip = nil
+        needsDisplay = true
+    }
+
     override func mouseDragged(with event: NSEvent) {
-        guard draggingGroup != nil else {
+        guard selectedSection == .settings, draggingGroup != nil else {
             super.mouseDragged(with: event)
             return
         }
@@ -2192,7 +2311,7 @@ private final class TaskBarSettingsView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard draggingGroup != nil else {
+        guard selectedSection == .settings, draggingGroup != nil else {
             super.mouseUp(with: event)
             return
         }
@@ -2267,10 +2386,23 @@ private final class TaskBarSettingsView: NSView {
         drawText("Task Bar", rect: NSRect(x: 28, y: 28, width: width - 56, height: 28), font: .systemFont(ofSize: 20, weight: .bold), color: .white)
         drawText("Codex + Claude", rect: NSRect(x: 28, y: 58, width: width - 56, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
 
-        let itemRect = NSRect(x: 18, y: 118, width: width - 36, height: 42)
-        accentBlue.withAlphaComponent(0.82).setFill()
-        NSBezierPath(roundedRect: itemRect, xRadius: 8, yRadius: 8).fill()
-        drawText("设置", rect: NSRect(x: itemRect.minX + 22, y: itemRect.minY + 10, width: itemRect.width - 44, height: 22), font: .systemFont(ofSize: 15, weight: .semibold), color: .white)
+        sidebarItemRects.removeAll(keepingCapacity: true)
+        for (index, section) in TaskBarSettingsSection.allCases.enumerated() {
+            let itemRect = NSRect(x: 18, y: 118 + CGFloat(index) * 52, width: width - 36, height: 42)
+            sidebarItemRects[section] = itemRect
+            if section == selectedSection {
+                accentBlue.withAlphaComponent(0.82).setFill()
+                NSBezierPath(roundedRect: itemRect, xRadius: 8, yRadius: 8).fill()
+                NSColor.white.withAlphaComponent(0.08).setStroke()
+                NSBezierPath(roundedRect: itemRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+            }
+            drawText(
+                section.title,
+                rect: NSRect(x: itemRect.minX + 22, y: itemRect.minY + 10, width: itemRect.width - 44, height: 22),
+                font: .systemFont(ofSize: 15, weight: .semibold),
+                color: section == selectedSection ? .white : NSColor.white.withAlphaComponent(0.72)
+            )
+        }
     }
 
     private func drawPanel(_ rect: NSRect) {
@@ -2288,6 +2420,28 @@ private final class TaskBarSettingsView: NSView {
         (selected ? accentTeal.withAlphaComponent(0.38) : borderColor).setStroke()
         NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
         drawCentered(title, rect: rect.insetBy(dx: 8, dy: 0), font: .systemFont(ofSize: 12, weight: .semibold), color: .white)
+    }
+
+    private func drawSettingLabel(_ title: String, rect: NSRect, info: TaskBarSettingsInfo) {
+        let font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        drawText(title, rect: rect, font: font, color: .white)
+        let titleWidth = min(rect.width - 20, measuredTextWidth(title, font: font))
+        let iconRect = NSRect(x: rect.minX + titleWidth + 7, y: rect.minY + 2, width: 16, height: 16)
+        infoMarkRects[info] = iconRect
+        drawInfoMark(rect: iconRect, highlighted: hoveredInfo == info)
+    }
+
+    private func drawInfoMark(rect: NSRect, highlighted: Bool) {
+        (highlighted ? accentTeal.withAlphaComponent(0.28) : NSColor.white.withAlphaComponent(0.10)).setFill()
+        NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+        (highlighted ? accentTeal.withAlphaComponent(0.74) : NSColor.white.withAlphaComponent(0.18)).setStroke()
+        NSBezierPath(ovalIn: rect.insetBy(dx: 1.5, dy: 1.5)).stroke()
+        drawCentered(
+            "?",
+            rect: rect.offsetBy(dx: 0, dy: -0.5),
+            font: .systemFont(ofSize: 10, weight: .bold),
+            color: highlighted ? accentTeal : NSColor.white.withAlphaComponent(0.58)
+        )
     }
 
     private func drawSmallButton(_ title: String, rect: NSRect, emphasized: Bool) {
@@ -2310,6 +2464,15 @@ private final class TaskBarSettingsView: NSView {
             drawText(item.0, rect: NSRect(x: itemRect.minX + 12, y: itemRect.minY + 6, width: itemRect.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: item.2)
             drawText(item.1, rect: NSRect(x: itemRect.minX + 12, y: itemRect.minY + 22, width: itemRect.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62))
         }
+    }
+
+    private func statusLegendItems() -> [(String, String, NSColor)] {
+        [
+            ("RUN", "运行中", NSColor.systemGreen),
+            ("REVIEW", "待检查", NSColor.systemBlue),
+            ("INPUT", "待输入", NSColor.systemOrange),
+            ("DONE", "已完成", NSColor.white.withAlphaComponent(0.45))
+        ]
     }
 
     private func drawStatusOrderCard(_ card: NSRect) {
@@ -2407,6 +2570,10 @@ private final class TaskBarSettingsView: NSView {
 
     private func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
         (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color])
+    }
+
+    private func measuredTextWidth(_ text: String, font: NSFont) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: font]).width)
     }
 
     private func drawCentered(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
@@ -2710,12 +2877,12 @@ final class ThreadRowView: NSView {
         titleLabel.frame = NSRect(x: contentX + offset, y: bounds.height - 32, width: contentWidth, height: 20)
         detailLabel.frame = NSRect(x: contentX + offset, y: 28, width: contentWidth, height: 32)
 
-        // Clock symbol sits optically low inside its image box; nudge it up ~2pt so its
-        // circle centers on the duration digits (which have no descender).
+        // Clock symbol sits optically low inside its image box; keep it slightly lower
+        // while nudging text down so the glyph centers align visually.
         clockIconView.frame = NSRect(x: contentX + offset, y: 13, width: 11, height: 11)
-        durationLabel.frame = NSRect(x: contentX + 16 + offset, y: 9, width: 58, height: 15)
+        durationLabel.frame = NSRect(x: contentX + 16 + offset, y: 10.5, width: 58, height: 15)
         metaDotView.frame = NSRect(x: contentX + 76 + offset, y: 14, width: 5, height: 5)
-        metaStatusLabel.frame = NSRect(x: contentX + 87 + offset, y: 9, width: max(0, contentWidth - 87), height: 15)
+        metaStatusLabel.frame = NSRect(x: contentX + 87 + offset, y: 10.5, width: max(0, contentWidth - 87), height: 15)
     }
 
     /// Metadata (time / status / source) stacked in a narrow left rail, with the
@@ -2740,7 +2907,7 @@ final class ThreadRowView: NSView {
         var lineY = bounds.height - (bounds.height - groupHeight) / 2 - lineHeight
 
         clockIconView.frame = NSRect(x: contentX + offset, y: lineY + 2, width: 11, height: 11)
-        durationLabel.frame = NSRect(x: contentX + 14 + offset, y: lineY, width: railWidth - 14, height: lineHeight)
+        durationLabel.frame = NSRect(x: contentX + 14 + offset, y: lineY + 1, width: railWidth - 14, height: lineHeight)
         lineY -= lineHeight + lineGap
 
         metaDotView.frame = NSRect(x: contentX + 1 + offset, y: lineY + 5, width: 5, height: 5)
