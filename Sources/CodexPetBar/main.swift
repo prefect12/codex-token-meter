@@ -2268,6 +2268,7 @@ private final class ThreadHoverPanel {
 
     private weak var owner: NSView?
     private let tooltipView = ThreadTooltipView()
+    private var validationTimer: Timer?
     private lazy var panel: NSPanel = {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 220, height: 132),
@@ -2292,17 +2293,40 @@ private final class ThreadHoverPanel {
         tooltipView.frame = NSRect(origin: .zero, size: size)
         panel.setFrame(NSRect(origin: origin(for: size), size: size), display: true)
         panel.orderFrontRegardless()
+        startValidationTimerIfNeeded()
     }
 
     func hide(owner sourceView: NSView) {
         guard owner === sourceView else { return }
-        owner = nil
-        panel.orderOut(nil)
+        hideAll()
     }
 
     func hideAll() {
         owner = nil
+        validationTimer?.invalidate()
+        validationTimer = nil
         panel.orderOut(nil)
+    }
+
+    private func startValidationTimerIfNeeded() {
+        guard validationTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.08, repeats: true) { [weak self] _ in
+            self?.validateMouseStillInsideOwner()
+        }
+        validationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func validateMouseStillInsideOwner() {
+        guard let owner, let window = owner.window, window.isVisible else {
+            hideAll()
+            return
+        }
+        let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        let ownerPoint = owner.convert(windowPoint, from: nil)
+        if !owner.bounds.insetBy(dx: -2, dy: -2).contains(ownerPoint) {
+            hideAll()
+        }
     }
 
     private func origin(for size: NSSize) -> NSPoint {
@@ -2869,7 +2893,7 @@ private final class TaskBarPopoverContentView: NSView {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let reader = CodexActivityReader()
@@ -2888,6 +2912,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior = .transient
         popover.animates = true
         popover.appearance = NSAppearance(named: .darkAqua)
+        popover.delegate = self
         configureStatusButton()
         refresh()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -2896,6 +2921,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         animationTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { [weak self] _ in
             self?.updateStatusIcon()
         }
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        ThreadHoverPanel.shared.hideAll()
+    }
+
+    func popoverWillClose(_ notification: Notification) {
+        ThreadHoverPanel.shared.hideAll()
     }
 
     private func refresh() {
@@ -2957,6 +2990,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func rebuildPopover() {
+        ThreadHoverPanel.shared.hideAll()
         let active = threads.filter { $0.status == .running || $0.status == .stale }
         let waitingCount = threads.filter { $0.status == .waiting }.count
         let unreadCount = threads.filter { $0.status == .unread }.count
