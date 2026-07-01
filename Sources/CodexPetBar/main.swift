@@ -1776,7 +1776,6 @@ private enum TaskTokenUnitStyle: String, CaseIterable {
 
 private enum TaskBarSettings {
     private static let showPlatformLabelsKey = "showPlatformLabels"
-    private static let showStatusDotsKey = "showStatusDots"
     private static let tokenUnitStyleKey = "tokenUnitStyle"
     private static let popoverWidthKey = "popoverWidth"
     private static let popoverHeightKey = "popoverHeight"
@@ -1817,18 +1816,6 @@ private enum TaskBarSettings {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: showPlatformLabelsKey)
-        }
-    }
-
-    static var showStatusDots: Bool {
-        get {
-            guard UserDefaults.standard.object(forKey: showStatusDotsKey) != nil else {
-                return false
-            }
-            return UserDefaults.standard.bool(forKey: showStatusDotsKey)
-        }
-        set {
-            UserDefaults.standard.set(newValue, forKey: showStatusDotsKey)
         }
     }
 
@@ -1896,7 +1883,6 @@ private final class TaskBarSettingsView: NSView {
 
     private let onSettingsChanged: () -> Void
     private var platformOptionRects: [Bool: NSRect] = [:]
-    private var statusDotOptionRects: [Bool: NSRect] = [:]
     private var tokenUnitOptionRects: [TaskTokenUnitStyle: NSRect] = [:]
 
     init(onSettingsChanged: @escaping () -> Void) {
@@ -1942,7 +1928,7 @@ private final class TaskBarSettingsView: NSView {
             color: NSColor.white.withAlphaComponent(0.56)
         )
 
-        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 206)
+        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 162)
         drawPanel(settingsCard)
         drawText(
             "列表显示",
@@ -1969,23 +1955,10 @@ private final class TaskBarSettingsView: NSView {
         drawSelectablePill("显示", rect: showRect, selected: TaskBarSettings.showPlatformLabels)
         drawSelectablePill("隐藏", rect: hideRect, selected: !TaskBarSettings.showPlatformLabels)
 
-        let dotPillY = settingsCard.minY + 92
-        let dotShowRect = NSRect(x: binaryOptionX, y: dotPillY, width: binaryPillWidth, height: pillHeight)
-        let dotHideRect = NSRect(x: dotShowRect.maxX + pillGap, y: dotPillY, width: binaryPillWidth, height: pillHeight)
-        statusDotOptionRects = [true: dotShowRect, false: dotHideRect]
-        drawText(
-            "状态圆点",
-            rect: NSRect(x: settingsCard.minX + 16, y: dotPillY + 7, width: binaryOptionX - settingsCard.minX - 32, height: 20),
-            font: .systemFont(ofSize: 13, weight: .semibold),
-            color: .white
-        )
-        drawSelectablePill("显示", rect: dotShowRect, selected: TaskBarSettings.showStatusDots)
-        drawSelectablePill("隐藏", rect: dotHideRect, selected: !TaskBarSettings.showStatusDots)
-
         let unitPillWidth: CGFloat = 82
         let unitStyles = TaskTokenUnitStyle.allCases
         let unitOptionX = settingsCard.maxX - 16 - unitPillWidth * CGFloat(unitStyles.count) - pillGap * CGFloat(unitStyles.count - 1)
-        let unitPillY = settingsCard.minY + 136
+        let unitPillY = settingsCard.minY + 92
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
         drawText(
             "Token 单位",
@@ -2005,7 +1978,7 @@ private final class TaskBarSettingsView: NSView {
         }
         drawText(
             "只影响 hover 中的输入 / 输出等 token 数字；缓存率和金额不变。",
-            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 180, width: settingsCard.width - 32, height: 18),
+            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 136, width: settingsCard.width - 32, height: 18),
             font: .systemFont(ofSize: 12, weight: .medium),
             color: NSColor.white.withAlphaComponent(0.52)
         )
@@ -2034,13 +2007,6 @@ private final class TaskBarSettingsView: NSView {
         for (showLabels, rect) in platformOptionRects where rect.contains(point) {
             guard TaskBarSettings.showPlatformLabels != showLabels else { return }
             TaskBarSettings.showPlatformLabels = showLabels
-            needsDisplay = true
-            onSettingsChanged()
-            return
-        }
-        for (showDots, rect) in statusDotOptionRects where rect.contains(point) {
-            guard TaskBarSettings.showStatusDots != showDots else { return }
-            TaskBarSettings.showStatusDots = showDots
             needsDisplay = true
             onSettingsChanged()
             return
@@ -2183,7 +2149,6 @@ final class ThreadRowView: NSView {
     private let onOpen: (String) -> Void
     private let onDismiss: (String) -> Void
     private let showPlatformLabel: Bool
-    private let showStatusDot: Bool
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private let clockIconView = NSImageView()
@@ -2205,13 +2170,11 @@ final class ThreadRowView: NSView {
     init(
         item: CodexThreadItem,
         showPlatformLabel: Bool,
-        showStatusDot: Bool,
         onOpen: @escaping (String) -> Void,
         onDismiss: @escaping (String) -> Void
     ) {
         self.item = item
         self.showPlatformLabel = showPlatformLabel
-        self.showStatusDot = showStatusDot
         self.onOpen = onOpen
         self.onDismiss = onDismiss
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: taskBarRowHeight))
@@ -2993,7 +2956,6 @@ private final class TaskBarPopoverContentView: NSView {
     private let allThreads: [CodexThreadItem]
     private let totalCount: Int
     private let showPlatformLabels: Bool
-    private let showStatusDots: Bool
     private let onOpenThread: (String) -> Void
     private let onDismissThread: (String) -> Void
     private let externalSelectTab: (TaskBarTab) -> Void
@@ -3006,7 +2968,6 @@ private final class TaskBarPopoverContentView: NSView {
         unreadCount: Int,
         selectedTab: TaskBarTab,
         showPlatformLabels: Bool,
-        showStatusDots: Bool,
         onOpenThread: @escaping (String) -> Void,
         onDismissThread: @escaping (String) -> Void,
         onSelectTab: @escaping (TaskBarTab) -> Void,
@@ -3018,7 +2979,6 @@ private final class TaskBarPopoverContentView: NSView {
         self.onResize = onResize
         self.allThreads = threads
         self.showPlatformLabels = showPlatformLabels
-        self.showStatusDots = showStatusDots
         self.onOpenThread = onOpenThread
         self.onDismissThread = onDismissThread
         self.externalSelectTab = onSelectTab
@@ -3043,7 +3003,6 @@ private final class TaskBarPopoverContentView: NSView {
             filtered: filtered,
             selectedTab: selectedTab,
             showPlatformLabels: showPlatformLabels,
-            showStatusDots: showStatusDots,
             onOpenThread: onOpenThread,
             onDismissThread: onDismissThread
         )
@@ -3108,7 +3067,6 @@ private final class TaskBarPopoverContentView: NSView {
             filtered: filtered,
             selectedTab: tab,
             showPlatformLabels: showPlatformLabels,
-            showStatusDots: showStatusDots,
             onOpenThread: onOpenThread,
             onDismissThread: onDismissThread
         )
@@ -3125,7 +3083,6 @@ private final class TaskBarPopoverContentView: NSView {
         filtered: [CodexThreadItem],
         selectedTab: TaskBarTab,
         showPlatformLabels: Bool,
-        showStatusDots: Bool,
         onOpenThread: @escaping (String) -> Void,
         onDismissThread: @escaping (String) -> Void
     ) -> [NSView] {
@@ -3136,7 +3093,6 @@ private final class TaskBarPopoverContentView: NSView {
             ThreadRowView(
                 item: thread,
                 showPlatformLabel: showPlatformLabels,
-                showStatusDot: showStatusDots,
                 onOpen: onOpenThread,
                 onDismiss: onDismissThread
             )
@@ -3302,7 +3258,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             unreadCount: unreadCount,
             selectedTab: selectedTab,
             showPlatformLabels: TaskBarSettings.showPlatformLabels,
-            showStatusDots: TaskBarSettings.showStatusDots,
             onOpenThread: { [weak self] id in
                 self?.openThread(id: id)
             },
@@ -4262,7 +4217,6 @@ private func renderTaskBar(to path: String) {
         unreadCount: unread,
         selectedTab: selectedTab,
         showPlatformLabels: true,
-        showStatusDots: true,
         onOpenThread: { _ in },
         onDismissThread: { _ in },
         onSelectTab: { _ in },
