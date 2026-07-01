@@ -21,8 +21,10 @@ struct CodexThreadItem {
 }
 
 private struct ReadStateFile: Codable {
+    var schemaVersion: Int?
     var didBaselineExistingWaiting: Bool
     var openedAt: [String: TimeInterval]
+    var runningSeenAt: [String: TimeInterval]?
 }
 
 private struct LoggedThread {
@@ -55,20 +57,6 @@ final class CodexActivityReader {
             let rollout = rolloutURL(threadID: logged.id, lastActivity: logged.lastActivity, lookbackHours: lookbackHours)
             let summary = rollout.flatMap(rolloutSummary)
             guard let summary, summary.turns > 0 else { continue }
-            if let existing = byID[logged.id] {
-                byID[logged.id] = CodexThreadItem(
-                    id: existing.id,
-                    title: existing.title,
-                    preview: summary.preview ?? existing.preview,
-                    cwd: existing.cwd ?? summary.cwd,
-                    lastActivity: maxDate(existing.lastActivity, summary.lastTaskEventAt),
-                    startedAt: existing.startedAt ?? (summary.isRunning ? summary.currentTurnStartedAt : nil),
-                    status: existing.status,
-                    turns: existing.turns > 0 ? existing.turns : summary.turns,
-                    source: existing.source
-                )
-                continue
-            }
             let activityDate = summary.isRunning
                 ? maxDate(logged.lastActivity, summary.lastTaskEventAt)
                 : summary.lastCompletionAt ?? summary.lastTaskEventAt ?? logged.lastActivity
@@ -80,6 +68,21 @@ final class CodexActivityReader {
                 status = .running
             } else {
                 status = .unread
+            }
+            if let existing = byID[logged.id] {
+                let preferLoggedStatus = statusRank(status) < statusRank(existing.status)
+                byID[logged.id] = CodexThreadItem(
+                    id: existing.id,
+                    title: existing.title,
+                    preview: summary.preview ?? existing.preview,
+                    cwd: existing.cwd ?? summary.cwd,
+                    lastActivity: maxDate(existing.lastActivity, activityDate),
+                    startedAt: preferLoggedStatus ? summary.currentTurnStartedAt : existing.startedAt,
+                    status: preferLoggedStatus ? status : existing.status,
+                    turns: max(existing.turns, summary.turns),
+                    source: preferLoggedStatus ? "\(existing.source)+logs" : existing.source
+                )
+                continue
             }
             let title = cleanTitle(summary.title)
                 ?? summary.cwd.map(shortFolderName)
