@@ -1451,6 +1451,50 @@ enum TaskBarTab: Int, CaseIterable {
     }
 }
 
+/// The three user-facing status groups shown in the list. `.running` folds in the
+/// `.stale` status; `.done` corresponds to unread/finished threads. Their relative
+/// order in the "All" tab is user-configurable (drag-to-reorder in settings).
+enum TaskStatusGroup: String, CaseIterable {
+    case running
+    case waiting
+    case done
+
+    /// Preserves the historical "All" ordering: waiting, then done, then running.
+    static let defaultOrder: [TaskStatusGroup] = [.waiting, .done, .running]
+
+    static func group(for status: ThreadRunStatus) -> TaskStatusGroup {
+        switch status {
+        case .running, .stale: return .running
+        case .waiting: return .waiting
+        case .unread: return .done
+        }
+    }
+
+    var badge: String {
+        switch self {
+        case .running: return "RUN"
+        case .waiting: return "WAIT"
+        case .done: return "DONE"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .running: return "运行中"
+        case .waiting: return "待输入"
+        case .done: return "已完成"
+        }
+    }
+
+    var accentColor: NSColor {
+        switch self {
+        case .running: return statusAccentColor(.running)
+        case .waiting: return statusAccentColor(.waiting)
+        case .done: return statusAccentColor(.unread)
+        }
+    }
+}
+
 /// App-style rounded icon drawn to echo a checklist, matching the Task Bar mark.
 final class TaskBarAppIconView: NSView {
     override var isFlipped: Bool { true }
@@ -1802,6 +1846,7 @@ private enum TaskBarSettings {
     private static let showPlatformLabelsKey = "showPlatformLabels"
     private static let tokenUnitStyleKey = "tokenUnitStyle"
     private static let rowLayoutKey = "taskRowLayout"
+    private static let statusGroupOrderKey = "statusGroupOrder"
     private static let popoverWidthKey = "popoverWidth"
     private static let popoverHeightKey = "popoverHeight"
 
@@ -1857,6 +1902,26 @@ private enum TaskBarSettings {
         }
     }
 
+    /// User-defined order of the three status groups in the "All" tab. Falls back to
+    /// the default order whenever the stored value is missing or corrupt.
+    static var statusGroupOrder: [TaskStatusGroup] {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: statusGroupOrderKey) else {
+                return TaskStatusGroup.defaultOrder
+            }
+            let groups = raw.split(separator: ",").compactMap { TaskStatusGroup(rawValue: String($0)) }
+            // Require each group to appear exactly once; otherwise treat as corrupt.
+            guard groups.count == TaskStatusGroup.allCases.count,
+                  Set(groups).count == TaskStatusGroup.allCases.count else {
+                return TaskStatusGroup.defaultOrder
+            }
+            return groups
+        }
+        set {
+            UserDefaults.standard.set(newValue.map(\.rawValue).joined(separator: ","), forKey: statusGroupOrderKey)
+        }
+    }
+
     static var rowLayout: TaskRowLayoutStyle {
         get {
             guard let rawValue = UserDefaults.standard.string(forKey: rowLayoutKey),
@@ -1893,7 +1958,7 @@ private final class TaskBarSettingsWindowController: NSWindowController {
             defer: false
         )
         window.title = "Task Bar 设置"
-        window.contentMinSize = NSSize(width: 680, height: 480)
+        window.contentMinSize = NSSize(width: 680, height: 690)
         window.contentView = contentView
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor(calibratedRed: 0.055, green: 0.066, blue: 0.086, alpha: 1.0)
@@ -1917,12 +1982,22 @@ private final class TaskBarSettingsWindowController: NSWindowController {
 }
 
 private final class TaskBarSettingsView: NSView {
-    static let preferredSize = NSSize(width: 720, height: 510)
+    static let preferredSize = NSSize(width: 720, height: 700)
 
     private let onSettingsChanged: () -> Void
     private var platformOptionRects: [Bool: NSRect] = [:]
     private var tokenUnitOptionRects: [TaskTokenUnitStyle: NSRect] = [:]
     private var layoutOptionRects: [TaskRowLayoutStyle: NSRect] = [:]
+
+    // Drag-to-reorder state for the "All" status-order card.
+    private let statusOrderRowHeight: CGFloat = 38
+    private let statusOrderRowGap: CGFloat = 8
+    private var statusOrderRowRects: [NSRect] = []
+    private var statusOrderRowsTop: CGFloat = 0
+    private var draggingGroup: TaskStatusGroup?
+    private var liveOrder: [TaskStatusGroup] = []
+    private var dragPointerY: CGFloat = 0
+    private var dragGrabOffset: CGFloat = 0
 
     init(onSettingsChanged: @escaping () -> Void) {
         self.onSettingsChanged = onSettingsChanged
@@ -2065,6 +2140,9 @@ private final class TaskBarSettingsView: NSView {
             ],
             rect: NSRect(x: statusCard.minX + 16, y: statusCard.minY + 56, width: statusCard.width - 32, height: 42)
         )
+
+        let orderCard = NSRect(x: content.minX, y: statusCard.maxY + 16, width: content.width, height: 208)
+        drawStatusOrderCard(orderCard)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -2090,7 +2168,53 @@ private final class TaskBarSettingsView: NSView {
             onSettingsChanged()
             return
         }
+        for (index, rect) in statusOrderRowRects.enumerated() where rect.contains(point) {
+            let order = TaskBarSettings.statusGroupOrder
+            guard index < order.count else { break }
+            liveOrder = order
+            draggingGroup = order[index]
+            dragPointerY = point.y
+            dragGrabOffset = point.y - rect.minY
+            needsDisplay = true
+            return
+        }
         super.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard draggingGroup != nil else {
+            super.mouseDragged(with: event)
+            return
+        }
+        dragPointerY = convert(event.locationInWindow, from: nil).y
+        reflowLiveOrderForDrag()
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard draggingGroup != nil else {
+            super.mouseUp(with: event)
+            return
+        }
+        let newOrder = liveOrder
+        draggingGroup = nil
+        if newOrder != TaskBarSettings.statusGroupOrder {
+            TaskBarSettings.statusGroupOrder = newOrder
+            onSettingsChanged()
+        }
+        needsDisplay = true
+    }
+
+    /// Moves the grabbed group to whichever slot the pointer is currently hovering over.
+    private func reflowLiveOrderForDrag() {
+        guard let group = draggingGroup, let currentIndex = liveOrder.firstIndex(of: group) else { return }
+        let step = statusOrderRowHeight + statusOrderRowGap
+        let draggedCenter = (dragPointerY - dragGrabOffset) + statusOrderRowHeight / 2
+        var target = Int(((draggedCenter - statusOrderRowsTop) / step).rounded())
+        target = min(max(target, 0), liveOrder.count - 1)
+        guard target != currentIndex else { return }
+        liveOrder.remove(at: currentIndex)
+        liveOrder.insert(group, at: target)
     }
 
     private var appBackgroundTop: NSColor {
@@ -2185,6 +2309,99 @@ private final class TaskBarSettingsView: NSView {
             NSBezierPath(roundedRect: itemRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
             drawText(item.0, rect: NSRect(x: itemRect.minX + 12, y: itemRect.minY + 6, width: itemRect.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: item.2)
             drawText(item.1, rect: NSRect(x: itemRect.minX + 12, y: itemRect.minY + 22, width: itemRect.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62))
+        }
+    }
+
+    private func drawStatusOrderCard(_ card: NSRect) {
+        drawPanel(card)
+        drawText(
+            "「全部」列表顺序",
+            rect: NSRect(x: card.minX + 16, y: card.minY + 16, width: card.width - 32, height: 22),
+            font: .systemFont(ofSize: 16, weight: .bold),
+            color: .white
+        )
+        drawText(
+            "拖动分组，调整「全部」标签下任务的先后顺序（靠上＝靠前）。",
+            rect: NSRect(x: card.minX + 16, y: card.minY + 42, width: card.width - 32, height: 18),
+            font: .systemFont(ofSize: 12, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.52)
+        )
+        drawStatusOrderRows(in: card)
+    }
+
+    /// Draws the three draggable rows. During a drag the settled rows follow `liveOrder`
+    /// while the grabbed row floats under the pointer, on top of the others.
+    private func drawStatusOrderRows(in card: NSRect) {
+        let order = draggingGroup != nil ? liveOrder : TaskBarSettings.statusGroupOrder
+        let rowsTop = card.minY + 72
+        statusOrderRowsTop = rowsTop
+        let rowX = card.minX + 16
+        let rowW = card.width - 32
+        let step = statusOrderRowHeight + statusOrderRowGap
+        statusOrderRowRects = order.indices.map { index in
+            NSRect(x: rowX, y: rowsTop + CGFloat(index) * step, width: rowW, height: statusOrderRowHeight)
+        }
+        for (index, group) in order.enumerated() where group != draggingGroup {
+            drawStatusOrderRow(group, rect: statusOrderRowRects[index], position: index + 1, floating: false)
+        }
+        if let group = draggingGroup, let index = order.firstIndex(of: group) {
+            let maxTop = rowsTop + CGFloat(order.count - 1) * step
+            let floatTop = min(max(dragPointerY - dragGrabOffset, rowsTop), maxTop)
+            let floatRect = NSRect(x: rowX, y: floatTop, width: rowW, height: statusOrderRowHeight)
+            drawStatusOrderRow(group, rect: floatRect, position: index + 1, floating: true)
+        }
+    }
+
+    private func drawStatusOrderRow(_ group: TaskStatusGroup, rect: NSRect, position: Int, floating: Bool) {
+        (floating ? accentBlue.withAlphaComponent(0.24) : inputSurfaceColor.withAlphaComponent(0.82)).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+        (floating ? accentTeal.withAlphaComponent(0.5) : borderColor).setStroke()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+
+        let textY = rect.minY + (rect.height - 16) / 2
+        drawText(
+            "\(position)",
+            rect: NSRect(x: rect.minX + 14, y: textY, width: 14, height: 16),
+            font: .systemFont(ofSize: 12.5, weight: .bold),
+            color: NSColor.white.withAlphaComponent(0.42)
+        )
+
+        let dotSize: CGFloat = 9
+        let dotRect = NSRect(x: rect.minX + 36, y: rect.midY - dotSize / 2, width: dotSize, height: dotSize)
+        group.accentColor.setFill()
+        NSBezierPath(ovalIn: dotRect).fill()
+
+        drawText(
+            group.badge,
+            rect: NSRect(x: rect.minX + 54, y: textY, width: 54, height: 16),
+            font: .systemFont(ofSize: 11.5, weight: .bold),
+            color: group.accentColor
+        )
+        drawText(
+            group.displayName,
+            rect: NSRect(x: rect.minX + 106, y: textY, width: rect.width - 150, height: 16),
+            font: .systemFont(ofSize: 12.5, weight: .semibold),
+            color: NSColor.white.withAlphaComponent(0.82)
+        )
+
+        drawDragHandle(in: NSRect(x: rect.maxX - 38, y: rect.minY, width: 38, height: rect.height))
+    }
+
+    /// A 2×3 grid of dots signalling the row is draggable.
+    private func drawDragHandle(in rect: NSRect) {
+        let dot: CGFloat = 2.6
+        let colGap: CGFloat = 5
+        let rowGap: CGFloat = 5
+        let cols = 2
+        let rows = 3
+        let startX = rect.midX - (CGFloat(cols - 1) * colGap) / 2 - dot / 2
+        let startY = rect.midY - (CGFloat(rows - 1) * rowGap) / 2 - dot / 2
+        NSColor.white.withAlphaComponent(0.32).setFill()
+        for r in 0..<rows {
+            for c in 0..<cols {
+                let dotRect = NSRect(x: startX + CGFloat(c) * colGap, y: startY + CGFloat(r) * rowGap, width: dot, height: dot)
+                NSBezierPath(ovalIn: dotRect).fill()
+            }
         }
     }
 
@@ -2493,7 +2710,9 @@ final class ThreadRowView: NSView {
         titleLabel.frame = NSRect(x: contentX + offset, y: bounds.height - 32, width: contentWidth, height: 20)
         detailLabel.frame = NSRect(x: contentX + offset, y: 28, width: contentWidth, height: 32)
 
-        clockIconView.frame = NSRect(x: contentX + offset, y: 11, width: 11, height: 11)
+        // Clock symbol sits optically low inside its image box; nudge it up ~2pt so its
+        // circle centers on the duration digits (which have no descender).
+        clockIconView.frame = NSRect(x: contentX + offset, y: 13, width: 11, height: 11)
         durationLabel.frame = NSRect(x: contentX + 16 + offset, y: 9, width: 58, height: 15)
         metaDotView.frame = NSRect(x: contentX + 76 + offset, y: 14, width: 5, height: 5)
         metaStatusLabel.frame = NSRect(x: contentX + 87 + offset, y: 9, width: max(0, contentWidth - 87), height: 15)
@@ -3634,12 +3853,10 @@ private func statusRank(_ status: ThreadRunStatus) -> Int {
 }
 
 private func statusDisplayRank(_ status: ThreadRunStatus) -> Int {
-    switch status {
-    case .waiting: return 0
-    case .unread: return 1
-    case .stale: return 2
-    case .running: return 3
-    }
+    let order = TaskBarSettings.statusGroupOrder
+    let base = (order.firstIndex(of: TaskStatusGroup.group(for: status)) ?? 0) * 10
+    // Within the running group, keep stale ahead of running (historical behavior).
+    return status == .running ? base + 1 : base
 }
 
 private func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -> Bool {
@@ -3661,9 +3878,17 @@ private func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -
 private extension Array where Element == CodexThreadItem {
     func limitedForTaskBar(limit: Int) -> [CodexThreadItem] {
         let limit = Swift.max(1, limit)
-        let active = filter { $0.status == .running || $0.status == .stale || $0.status == .waiting }
-        let remaining = filter { $0.status == .unread }.prefix(Swift.max(0, limit - active.count))
-        return Array(active + remaining)
+        // Keep every active thread; only cap finished ("done"/unread) rows to fit the limit.
+        let activeCount = filter { $0.status != .unread }.count
+        let doneAllowed = Swift.max(0, limit - activeCount)
+        // Preserve the incoming sort order (which honors the custom group order) instead of
+        // re-segregating active-before-done, so a "done first" order stays intact.
+        var doneKept = 0
+        return filter { item in
+            guard item.status == .unread else { return true }
+            defer { doneKept += 1 }
+            return doneKept < doneAllowed
+        }
     }
 }
 
