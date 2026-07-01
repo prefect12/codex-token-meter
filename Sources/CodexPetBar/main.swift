@@ -466,6 +466,7 @@ final class CodexActivityReader {
                     && !line.hasPrefix("## ") else {
                 continue
             }
+            guard cleanTitle(line) != nil else { continue }
             return line
         }
         return value
@@ -1259,7 +1260,7 @@ private func isReadDismissible(_ status: ThreadRunStatus) -> Bool {
 
 private func cleanTitle(_ value: String?) -> String? {
     guard let value else { return nil }
-    let compact = value
+    let compact = removingPluginMarkdownLinks(from: value)
         .replacingOccurrences(of: "\n", with: " ")
         .replacingOccurrences(of: "\t", with: " ")
         .split(separator: " ")
@@ -1285,6 +1286,32 @@ private func cleanPreview(_ value: String?) -> String? {
         return compact
     }
     return String(compact.prefix(137)) + "..."
+}
+
+private func removingPluginMarkdownLinks(from value: String) -> String {
+    var result = ""
+    var index = value.startIndex
+
+    while index < value.endIndex {
+        if value[index] == "[",
+           let closeBracket = value[index...].firstIndex(of: "]") {
+            let openParen = value.index(after: closeBracket)
+            if openParen < value.endIndex,
+               value[openParen] == "(" {
+                let urlStart = value.index(after: openParen)
+                if value[urlStart...].hasPrefix("plugin://"),
+                   let closeParen = value[urlStart...].firstIndex(of: ")") {
+                    index = value.index(after: closeParen)
+                    continue
+                }
+            }
+        }
+
+        result.append(value[index])
+        index = value.index(after: index)
+    }
+
+    return result
 }
 
 private func shortFolderName(_ value: String?) -> String {
