@@ -85,6 +85,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             detailsController.detailsView.needsDisplay = true
             updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
         }
+        detailsController.detailsView.onStatusBarQuotaSourceChanged = { [weak self] source in
+            self?.changeStatusBarQuotaSource(source)
+        }
         detailsController.detailsView.onQuotaDisplayStyleChanged = { [weak self] style in
             self?.changeQuotaDisplayStyle(style)
         }
@@ -564,9 +567,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.length = NSStatusItem.variableLength
         guard let button = statusItem.button else { return }
         let option = StatusDisplayOption.current
-        requestStatusUsageIfNeeded(option: option, quota: quota)
-        let title = statusTitle(report: report, limits: limits, quota: quota, option: option)
-        let pending = latestState.isLoading || statusValueIsPending(option: option, quota: quota, limits: limits)
+        let statusQuota = AppSettings.statusBarQuotaSource
+        requestStatusUsageIfNeeded(option: option, quota: statusQuota)
+        let title = statusTitle(report: report, limits: limits, quota: statusQuota, option: option)
+        let pending = latestState.isLoading || statusValueIsPending(option: option, quota: statusQuota, limits: limits)
         button.title = title ?? "--"
         setStatusLoading(pending)
     }
@@ -696,9 +700,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard oldCurrency != currency else { return }
         AppSettings.setMonthlyPlanCost(convertCurrency(AppSettings.monthlyPlanCost(for: source), from: oldCurrency, to: currency), for: source)
         AppSettings.setPaymentCurrency(currency, for: source)
-        if !AppSettings.hasDisplayCurrency(for: source) {
-            AppSettings.setDisplayCurrency(currency, for: source)
-        }
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
@@ -715,6 +716,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NumberUnitStyle.current = style
         detailsController.detailsView.needsDisplay = true
         dashboardController.dashboardView.update(latestState)
+        updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
+    }
+
+    private func changeStatusBarQuotaSource(_ source: QuotaViewOption) {
+        AppSettings.statusBarQuotaSource = source
+        detailsController.detailsView.needsDisplay = true
         updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
     }
 

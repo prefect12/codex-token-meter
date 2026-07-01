@@ -58,7 +58,7 @@ enum QuotaViewOption: String, CaseIterable {
         switch self {
         case .all: return t(.combinedUsage)
         case .codex: return t(.codex)
-        case .claude: return t(.claudeCode)
+        case .claude: return t(.claude)
         }
     }
 

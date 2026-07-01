@@ -398,6 +398,7 @@ enum L10nKey {
     case sparkDescription
     case sparkModel
     case statusBarDisplay
+    case statusBarSource
     case statusDailyTokens
     case statusDisplayHint
     case statusFiveHourPercent
@@ -596,8 +597,9 @@ enum L10nKey {
         case .sparkDescription: return "Events whose model is GPT-5.3-Codex-Spark."
         case .sparkModel: return "GPT-5.3-Codex-Spark model"
         case .statusBarDisplay: return "Menu Bar Display"
+        case .statusBarSource: return "Menu Bar Source"
         case .statusDailyTokens: return "24h tokens"
-        case .statusDisplayHint: return "Choose what the menu bar item shows."
+        case .statusDisplayHint: return "Choose what the menu bar item shows and which source it uses."
         case .statusFiveHourPercent: return "5h %"
         case .statusWeeklyPercent: return "Weekly %"
         case .statusWeeklyTokens: return "7d tokens"
@@ -796,8 +798,9 @@ enum L10nKey {
         case .sparkDescription: return "模型为 GPT-5.3-Codex-Spark 的事件。"
         case .sparkModel: return "GPT-5.3-Codex-Spark 模型"
         case .statusBarDisplay: return "状态栏显示"
+        case .statusBarSource: return "状态栏来源"
         case .statusDailyTokens: return "24h 用量"
-        case .statusDisplayHint: return "选择菜单栏里直接展示的指标。"
+        case .statusDisplayHint: return "选择菜单栏里直接展示的指标和它使用的数据来源。"
         case .statusFiveHourPercent: return "5h 百分比"
         case .statusWeeklyPercent: return "周百分比"
         case .statusWeeklyTokens: return "7d 用量"
@@ -996,8 +999,9 @@ enum L10nKey {
         case .sparkDescription: return "モデルが GPT-5.3-Codex-Spark のイベント。"
         case .sparkModel: return "GPT-5.3-Codex-Spark モデル"
         case .statusBarDisplay: return "メニューバー表示"
+        case .statusBarSource: return "メニューバーソース"
         case .statusDailyTokens: return "24h 使用量"
-        case .statusDisplayHint: return "メニューバーに表示する指標を選びます。"
+        case .statusDisplayHint: return "メニューバーに表示する指標とソースを選びます。"
         case .statusFiveHourPercent: return "5h %"
         case .statusWeeklyPercent: return "週 %"
         case .statusWeeklyTokens: return "7日使用量"
@@ -1137,6 +1141,7 @@ enum AppSettings {
     static let showCodexStatusEnabledKey = "showCodexStatusEnabled"
     static let codexHomeRingMetricKey = "codexHomeRingMetric"
     static let claudeHomeRingMetricKey = "claudeHomeRingMetric"
+    static let statusBarQuotaSourceKey = "statusBarQuotaSource"
 
     static let fallbackModelLimitID = "codex_bengalfox"
     static let fallbackModelLimitName = "GPT-5.3-Codex-Spark"
@@ -1398,13 +1403,6 @@ enum AppSettings {
         }
     }
 
-    static func hasDisplayCurrency(for source: QuotaViewOption) -> Bool {
-        guard let key = platformCostKey(displayCurrencyKey, source: source) else {
-            return UserDefaults.standard.string(forKey: displayCurrencyKey) != nil
-        }
-        return UserDefaults.standard.string(forKey: key) != nil
-    }
-
     static func displayCurrency(for source: QuotaViewOption) -> CurrencyCode {
         switch source {
         case .all:
@@ -1573,6 +1571,19 @@ enum AppSettings {
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: claudeHomeRingMetricKey)
+        }
+    }
+
+    static var statusBarQuotaSource: QuotaViewOption {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: statusBarQuotaSourceKey),
+                  let source = QuotaViewOption.option(from: raw) else {
+                return .all
+            }
+            return source
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: statusBarQuotaSourceKey)
         }
     }
 
