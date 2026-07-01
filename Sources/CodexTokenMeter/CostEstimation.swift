@@ -356,6 +356,55 @@ func profileReportWithLocalFallback(_ profileReport: TokenReport, localReport: T
     return merged
 }
 
+func codexProfileReport(window: WindowOption, accountUsage: AccountUsageSnapshot, localCodexReport: TokenReport?) -> TokenReport {
+    let report: TokenReport
+    if window == .day {
+        let todayReport = accountUsage.report(days: 1)
+        if todayReport.usage.total == 0, localCodexReport?.usage.total ?? 0 > 0 {
+            report = todayReport
+        } else {
+            report = accountUsage.report(window: window)
+        }
+    } else {
+        report = accountUsage.report(window: window)
+    }
+    return profileReportWithLocalFallback(report, localReport: localCodexReport)
+}
+
+func profileBackedReport(
+    window: WindowOption,
+    quota: QuotaViewOption,
+    accountUsage: AccountUsageSnapshot?,
+    localReport: TokenReport?,
+    localCodexReport: TokenReport?,
+    localClaudeReport: TokenReport?
+) -> TokenReport? {
+    guard quota.usesCodexProfileAPI,
+          let accountUsage,
+          accountUsage.hasData else {
+        return nil
+    }
+
+    let codexLocalReport = quota == .codex ? localReport : localCodexReport
+    let codexProfile = codexProfileReport(window: window, accountUsage: accountUsage, localCodexReport: codexLocalReport)
+    guard quota == .all else {
+        return codexProfile
+    }
+
+    if let localClaudeReport {
+        return mergedTokenReport([codexProfile, localClaudeReport])
+    }
+
+    if let localReport, let localCodexReport {
+        var combined = codexProfile
+        combined.usage.total += max(0, localReport.usage.total - localCodexReport.usage.total)
+        combined.scannedAt = max(codexProfile.scannedAt, localReport.scannedAt)
+        return combined
+    }
+
+    return codexProfile
+}
+
 struct DashboardState {
     var report = TokenReport()
     var codexReport: TokenReport?

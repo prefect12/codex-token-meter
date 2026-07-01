@@ -486,6 +486,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     } else if quota == .claude {
                         self.latestState.claudeReport = report
                     }
+                    self.latestState.profileReport = self.profileReport(window: window, quota: .all, accountUsage: self.accountUsage, localReport: self.latestState.report)
                     self.dashboardController.dashboardView.update(self.latestState)
                 }
             }
@@ -526,24 +527,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func profileReport(window: WindowOption, quota: QuotaViewOption, accountUsage: AccountUsageSnapshot?, localReport: TokenReport?) -> TokenReport? {
-        guard AppSettings.profileAPITotalsEnabled,
-              quota.usesCodexProfileAPI,
-              let accountUsage,
-              accountUsage.hasData else {
+        guard AppSettings.profileAPITotalsEnabled else {
             return nil
         }
-        let report: TokenReport
-        if window == .day {
-            let todayReport = accountUsage.report(days: 1)
-            if todayReport.usage.total == 0, localReport?.usage.total ?? 0 > 0 {
-                report = todayReport
-            } else {
-                report = accountUsage.report(window: window)
-            }
-        } else {
-            report = accountUsage.report(window: window)
-        }
-        return profileReportWithLocalFallback(report, localReport: localReport)
+        let platformReports = cachedPlatformReports(window: window, quota: quota)
+        return profileBackedReport(
+            window: window,
+            quota: quota,
+            accountUsage: accountUsage,
+            localReport: localReport,
+            localCodexReport: platformReports.codex,
+            localClaudeReport: platformReports.claude
+        )
     }
 
     private func costReferenceReport(quota: QuotaViewOption, fallback: TokenReport?) -> TokenReport? {
