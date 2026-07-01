@@ -3647,6 +3647,10 @@ private func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -
     let rhsRank = statusDisplayRank(rhs.status)
     if lhsRank != rhsRank { return lhsRank < rhsRank }
 
+    let lhsActivity = lhs.lastActivity.timeIntervalSince1970
+    let rhsActivity = rhs.lastActivity.timeIntervalSince1970
+    if lhsActivity != rhsActivity { return lhsActivity > rhsActivity }
+
     let lhsID = lhs.id.lowercased()
     let rhsID = rhs.id.lowercased()
     if lhsID != rhsID { return lhsID > rhsID }
