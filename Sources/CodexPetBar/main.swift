@@ -2499,7 +2499,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatusIcon() {
-        let primaryStatus = threads.map(\.status).sorted { statusRank($0) < statusRank($1) }.first
+        let primaryStatus = threads.map(\.status).sorted { statusDisplayRank($0) < statusDisplayRank($1) }.first
         let runningCount = threads.filter { $0.status == .running || $0.status == .stale }.count
         let unreadCount = threads.filter { isReadDismissible($0.status) }.count
         let totalCount = runningCount + unreadCount
@@ -2666,9 +2666,18 @@ private func statusRank(_ status: ThreadRunStatus) -> Int {
     }
 }
 
+private func statusDisplayRank(_ status: ThreadRunStatus) -> Int {
+    switch status {
+    case .waiting: return 0
+    case .unread: return 1
+    case .stale: return 2
+    case .running: return 3
+    }
+}
+
 private func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -> Bool {
-    let lhsRank = statusRank(lhs.status)
-    let rhsRank = statusRank(rhs.status)
+    let lhsRank = statusDisplayRank(lhs.status)
+    let rhsRank = statusDisplayRank(rhs.status)
     if lhsRank != rhsRank { return lhsRank < rhsRank }
 
     let lhsID = lhs.id.lowercased()
