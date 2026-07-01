@@ -15,9 +15,67 @@ struct CodexThreadItem {
     let cwd: String?
     let lastActivity: Date
     let startedAt: Date?
+    let externalReadAt: Date?
     let status: ThreadRunStatus
     let turns: Int
+    let compressionCount: Int?
     let source: String
+    let isExplicitUnread: Bool
+    let tokensUsed: Int?
+    let tokenBreakdown: TokenBreakdown
+    let model: String?
+}
+
+struct TokenBreakdown {
+    var input: Int = 0
+    var cachedInput: Int = 0
+    var output: Int = 0
+    var reasoningOutput: Int = 0
+    var total: Int = 0
+    var hasDetailedCounters = false
+
+    var hasAny: Bool {
+        input > 0 || cachedInput > 0 || output > 0 || reasoningOutput > 0 || total > 0
+    }
+
+    var displayTotal: Int? {
+        if total > 0 { return total }
+        let inferred = input + output
+        return inferred > 0 ? inferred : nil
+    }
+
+    static func totalOnly(_ value: Int?) -> TokenBreakdown {
+        guard let value, value > 0 else { return TokenBreakdown() }
+        return TokenBreakdown(total: value)
+    }
+
+    static func delta(from previous: TokenBreakdown, to current: TokenBreakdown) -> TokenBreakdown {
+        TokenBreakdown(
+            input: max(0, current.input - previous.input),
+            cachedInput: max(0, current.cachedInput - previous.cachedInput),
+            output: max(0, current.output - previous.output),
+            reasoningOutput: max(0, current.reasoningOutput - previous.reasoningOutput),
+            total: max(0, current.total - previous.total),
+            hasDetailedCounters: current.hasDetailedCounters
+        )
+    }
+
+    mutating func add(_ other: TokenBreakdown) {
+        input += other.input
+        cachedInput += other.cachedInput
+        output += other.output
+        reasoningOutput += other.reasoningOutput
+        total += other.total
+        hasDetailedCounters = hasDetailedCounters || other.hasDetailedCounters
+    }
+
+    func resolved(with fallback: TokenBreakdown) -> TokenBreakdown {
+        guard hasAny || hasDetailedCounters else { return fallback }
+        guard total == 0, fallback.total > 0 else { return self }
+        var result = self
+        result.total = fallback.total
+        return result
+    }
 }
 
 private struct ReadStateFile: Codable {
@@ -32,6 +90,17 @@ private struct LoggedThread {
     let lastActivity: Date
 }
 
+private struct ThreadStateMetadata {
+    let tokensUsed: Int?
+    let tokenBreakdown: TokenBreakdown
+    let model: String?
+}
+
+private struct AppServerThreadSnapshot {
+    var items: [CodexThreadItem] = []
+    var externalReadAtByID: [String: Date] = [:]
+}
+
 private struct RolloutSummary {
     var title: String?
     var preview: String?
@@ -41,6 +110,8 @@ private struct RolloutSummary {
     var lastTaskEventAt: Date?
     var lastCompletionAt: Date?
     var currentTurnStartedAt: Date?
+    var tokenBreakdown = TokenBreakdown()
+    var compressionCount = 0
 }
 
 final class CodexActivityReader {
@@ -49,7 +120,10 @@ final class CodexActivityReader {
 
     func read(limit: Int = 12, lookbackHours: Int = 12) -> [CodexThreadItem] {
         var byID: [String: CodexThreadItem] = [:]
-        for item in readFromAppServer(limit: limit) {
+        let unreadThreadIDs = globalUnreadThreadIDs()
+        let stateMetadata = stateThreadMetadata()
+        let appServerSnapshot = readFromAppServer(limit: limit, unreadThreadIDs: unreadThreadIDs)
+        for item in appServerSnapshot.items {
             byID[item.id] = item
         }
 
@@ -69,8 +143,12 @@ final class CodexActivityReader {
             } else {
                 status = .unread
             }
+            let externalReadAt = appServerSnapshot.externalReadAtByID[logged.id]
+            let explicitUnread = unreadThreadIDs.contains(logged.id)
+                && !isAppServerReadThrough(externalReadAt: externalReadAt, lastActivity: activityDate)
             if let existing = byID[logged.id] {
                 let preferLoggedStatus = statusRank(status) < statusRank(existing.status)
+                let tokenBreakdown = summary.tokenBreakdown.resolved(with: existing.tokenBreakdown)
                 byID[logged.id] = CodexThreadItem(
                     id: existing.id,
                     title: existing.title,
@@ -78,9 +156,15 @@ final class CodexActivityReader {
                     cwd: existing.cwd ?? summary.cwd,
                     lastActivity: maxDate(existing.lastActivity, activityDate),
                     startedAt: preferLoggedStatus ? summary.currentTurnStartedAt : existing.startedAt,
+                    externalReadAt: maxOptionalDate(existing.externalReadAt, externalReadAt),
                     status: preferLoggedStatus ? status : existing.status,
                     turns: max(existing.turns, summary.turns),
-                    source: preferLoggedStatus ? "\(existing.source)+logs" : existing.source
+                    compressionCount: mergedCompressionCount(existing.compressionCount, summary.compressionCount),
+                    source: preferLoggedStatus ? "\(existing.source)+logs" : existing.source,
+                    isExplicitUnread: existing.isExplicitUnread || explicitUnread,
+                    tokensUsed: existing.tokensUsed ?? tokenBreakdown.displayTotal,
+                    tokenBreakdown: tokenBreakdown,
+                    model: existing.model
                 )
                 continue
             }
@@ -94,20 +178,92 @@ final class CodexActivityReader {
                 cwd: summary.cwd,
                 lastActivity: activityDate,
                 startedAt: summary.isRunning ? summary.currentTurnStartedAt : nil,
+                externalReadAt: externalReadAt,
                 status: status,
                 turns: summary.turns,
-                source: "logs"
+                compressionCount: summary.compressionCount,
+                source: "logs",
+                isExplicitUnread: explicitUnread,
+                tokensUsed: summary.tokenBreakdown.displayTotal,
+                tokenBreakdown: summary.tokenBreakdown,
+                model: nil
             )
         }
 
+        let missingUnreadIDs = unreadThreadIDs.filter { byID[$0] == nil }
+        for item in unreadStateThreads(threadIDs: missingUnreadIDs, externalReadAtByID: appServerSnapshot.externalReadAtByID) {
+            byID[item.id] = item
+        }
+
+        for item in readClaudeThreads(limit: max(limit, 8), lookbackHours: lookbackHours) {
+            byID[item.id] = item
+        }
+
         return Array(byID.values)
+            .map { enrich($0, with: stateMetadata[$0.id]) }
+            .map { enrichWithRolloutSummary($0, lookbackHours: max(lookbackHours, 72)) }
             .sorted(by: stableThreadOrder)
             .prefix(limit)
             .map { $0 }
     }
 
-    private func readFromAppServer(limit: Int) -> [CodexThreadItem] {
-        guard let codexPath = codexExecutablePath() else { return [] }
+    private func enrich(_ item: CodexThreadItem, with metadata: ThreadStateMetadata?) -> CodexThreadItem {
+        guard let metadata else { return item }
+        return CodexThreadItem(
+            id: item.id,
+            title: item.title,
+            preview: item.preview,
+            cwd: item.cwd,
+            lastActivity: item.lastActivity,
+            startedAt: item.startedAt,
+            externalReadAt: item.externalReadAt,
+            status: item.status,
+            turns: item.turns,
+            compressionCount: item.compressionCount,
+            source: item.source,
+            isExplicitUnread: item.isExplicitUnread,
+            tokensUsed: item.tokensUsed ?? metadata.tokensUsed,
+            tokenBreakdown: item.tokenBreakdown.resolved(with: metadata.tokenBreakdown),
+            model: item.model ?? metadata.model
+        )
+    }
+
+    private func enrichWithRolloutSummary(_ item: CodexThreadItem, lookbackHours: Int) -> CodexThreadItem {
+        guard let rollout = rolloutURL(threadID: item.id, lastActivity: item.lastActivity, lookbackHours: lookbackHours),
+              let summary = rolloutSummary(fileURL: rollout) else {
+            return item
+        }
+        let shouldUseSummaryTokens = !item.tokenBreakdown.hasDetailedCounters && summary.tokenBreakdown.hasDetailedCounters
+        let compressionCount = mergedCompressionCount(item.compressionCount, summary.compressionCount)
+        guard shouldUseSummaryTokens
+                || compressionCount != item.compressionCount
+                || summary.turns > item.turns else {
+            return item
+        }
+        let tokenBreakdown = shouldUseSummaryTokens
+            ? summary.tokenBreakdown.resolved(with: item.tokenBreakdown)
+            : item.tokenBreakdown
+        return CodexThreadItem(
+            id: item.id,
+            title: item.title,
+            preview: item.preview ?? summary.preview,
+            cwd: item.cwd ?? summary.cwd,
+            lastActivity: item.lastActivity,
+            startedAt: item.startedAt,
+            externalReadAt: item.externalReadAt,
+            status: item.status,
+            turns: max(item.turns, summary.turns),
+            compressionCount: compressionCount,
+            source: item.source,
+            isExplicitUnread: item.isExplicitUnread,
+            tokensUsed: item.tokensUsed ?? tokenBreakdown.displayTotal,
+            tokenBreakdown: tokenBreakdown,
+            model: item.model
+        )
+    }
+
+    private func readFromAppServer(limit: Int, unreadThreadIDs: Set<String>) -> AppServerThreadSnapshot {
+        guard let codexPath = codexExecutablePath() else { return AppServerThreadSnapshot() }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: codexPath)
         process.arguments = ["app-server"]
@@ -120,7 +276,7 @@ final class CodexActivityReader {
         do {
             try process.run()
         } catch {
-            return []
+            return AppServerThreadSnapshot()
         }
 
         let outputLock = NSLock()
@@ -134,7 +290,7 @@ final class CodexActivityReader {
         }
 
         let messages = [
-            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-bar","version":"0.1.0"},"capabilities":{}}}"#,
+            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"task-bar","version":"0.1.0"},"capabilities":{}}}"#,
             #"{"method":"initialized"}"#,
             #"{"id":2,"method":"thread/loaded/list"}"#,
             #"{"id":3,"method":"thread/list","params":{"limit":20}}"#
@@ -156,12 +312,14 @@ final class CodexActivityReader {
         outputLock.lock()
         let data = outputData
         outputLock.unlock()
-        guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return [] }
-        return parseAppServerThreads(text: text, limit: limit)
+        guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return AppServerThreadSnapshot() }
+        return parseAppServerThreads(text: text, limit: limit, unreadThreadIDs: unreadThreadIDs)
     }
 
-    private func parseAppServerThreads(text: String, limit: Int) -> [CodexThreadItem] {
+    private func parseAppServerThreads(text: String, limit: Int, unreadThreadIDs: Set<String>) -> AppServerThreadSnapshot {
         var items: [CodexThreadItem] = []
+        var externalReadAtByID: [String: Date] = [:]
+        var threadDictionaries: [[String: Any]] = []
         for line in text.split(separator: "\n") {
             guard let data = String(line).data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -175,24 +333,71 @@ final class CodexActivityReader {
                     continue
                 }
                 guard !isArchivedThread(dict) else { continue }
+                threadDictionaries.append(dict)
+                if let externalReadAt = appServerExternalReadAt(from: dict) {
+                    externalReadAtByID[id] = maxOptionalDate(externalReadAtByID[id], externalReadAt) ?? externalReadAt
+                }
+            }
+        }
+
+        for dict in threadDictionaries {
+            guard let id = string(dict["id"] ?? dict["threadId"] ?? dict["conversationId"]) else {
+                continue
+            }
                 let title = cleanTitle(string(dict["title"] ?? dict["name"] ?? dict["preview"])) ?? String(id.prefix(8))
                 let cwd = string(dict["cwd"] ?? dict["workingDirectory"] ?? dict["path"])
                 let updatedSeconds = double(dict["updatedAt"] ?? dict["updated_at"] ?? dict["lastActivityAt"]) ?? Date().timeIntervalSince1970
-                guard let status = appServerStatus(from: dict["status"]) else { continue }
+                let lastActivity = unixDate(seconds: updatedSeconds)
+                let externalReadAt = maxOptionalDate(appServerExternalReadAt(from: dict), externalReadAtByID[id])
+                let explicitUnread = (unreadThreadIDs.contains(id) || isUnreadThread(dict))
+                    && !isAppServerReadThrough(externalReadAt: externalReadAt, lastActivity: lastActivity)
+                guard let status = appServerThreadStatus(dict, explicitUnread: explicitUnread) else { continue }
+                let tokenBreakdown = tokenBreakdown(from: dict)
                 items.append(CodexThreadItem(
                     id: id,
                     title: title,
                     preview: cleanPreview(string(dict["lastAgentMessage"] ?? dict["lastMessage"] ?? dict["subtitle"] ?? dict["summary"])),
                     cwd: cwd,
-                    lastActivity: unixDate(seconds: updatedSeconds),
+                    lastActivity: lastActivity,
                     startedAt: nil,
+                    externalReadAt: externalReadAt,
                     status: status,
                     turns: turnCount(from: dict["turns"] ?? dict["turnCount"]),
-                    source: "app-server"
+                    compressionCount: nil,
+                    source: "app-server",
+                    isExplicitUnread: explicitUnread,
+                    tokensUsed: tokenBreakdown.displayTotal,
+                    tokenBreakdown: tokenBreakdown,
+                    model: string(dict["model"] ?? dict["modelName"])
                 ))
+        }
+        return AppServerThreadSnapshot(items: Array(items.prefix(limit)), externalReadAtByID: externalReadAtByID)
+    }
+
+    private func appServerExternalReadAt(from dict: [String: Any]) -> Date? {
+        let keys = [
+            "readAt",
+            "read_at",
+            "lastReadAt",
+            "last_read_at",
+            "lastViewedAt",
+            "last_viewed_at",
+            "viewedAt",
+            "viewed_at",
+            "recencyAt",
+            "recency_at"
+        ]
+        for key in keys {
+            if let seconds = double(dict[key]) {
+                return unixDate(seconds: seconds)
             }
         }
-        return Array(items.prefix(limit))
+        return nil
+    }
+
+    private func isAppServerReadThrough(externalReadAt: Date?, lastActivity: Date) -> Bool {
+        guard let externalReadAt else { return false }
+        return externalReadAt.timeIntervalSince1970 + 60 >= lastActivity.timeIntervalSince1970
     }
 
     private func isArchivedThread(_ dict: [String: Any]) -> Bool {
@@ -220,6 +425,46 @@ final class CodexActivityReader {
         guard let value = string(raw)?.lowercased() else { return false }
         let tokens = Set(value.split { !$0.isLetter && !$0.isNumber }.map(String.init))
         return tokens.contains("archived") || tokens.contains("archive")
+    }
+
+    private func isUnreadThread(_ dict: [String: Any]) -> Bool {
+        for key in ["unread", "isUnread", "is_unread", "hasUnread", "has_unread", "hasUnreadMessages", "has_unread_messages", "hasUnreadActivity", "has_unread_activity"] {
+            if bool(dict[key]) == true {
+                return true
+            }
+        }
+
+        for key in ["read", "isRead", "is_read"] {
+            if bool(dict[key]) == false {
+                return true
+            }
+        }
+
+        for key in ["status", "state", "activeFlags", "flags"] {
+            if textContainsUnread(dict[key]) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func textContainsUnread(_ raw: Any?) -> Bool {
+        if let dict = raw as? [String: Any] {
+            return dict.values.contains(where: textContainsUnread)
+        }
+        if let array = raw as? [Any] {
+            return array.contains(where: textContainsUnread)
+        }
+        guard let value = string(raw)?.lowercased() else { return false }
+        let tokens = Set(value.split { !$0.isLetter && !$0.isNumber }.map(String.init))
+        return tokens.contains("unread")
+    }
+
+    private func appServerThreadStatus(_ dict: [String: Any], explicitUnread: Bool) -> ThreadRunStatus? {
+        if let activeStatus = appServerStatus(from: dict["status"]) {
+            return activeStatus
+        }
+        return explicitUnread ? .unread : nil
     }
 
     private func appServerStatus(from raw: Any?) -> ThreadRunStatus? {
@@ -263,6 +508,26 @@ final class CodexActivityReader {
         return rawText.lowercased()
     }
 
+    private func globalUnreadThreadIDs() -> Set<String> {
+        let fileURL = URL(fileURLWithPath: home)
+            .appendingPathComponent(".codex", isDirectory: true)
+            .appendingPathComponent(".codex-global-state.json")
+        guard let data = try? Data(contentsOf: fileURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let atoms = object["electron-persisted-atom-state"] as? [String: Any],
+              let unreadByHost = atoms["unread-thread-ids-by-host-v1"] as? [String: Any] else {
+            return []
+        }
+
+        var ids = Set<String>()
+        for value in unreadByHost.values {
+            if let array = value as? [Any] {
+                ids.formUnion(array.compactMap(string))
+            }
+        }
+        return ids
+    }
+
     private func firstArray(in object: [String: Any], keys: [String]) -> [Any] {
         for key in keys {
             if let array = object[key] as? [Any] {
@@ -303,6 +568,75 @@ final class CodexActivityReader {
             }
     }
 
+    private func unreadStateThreads(threadIDs: Set<String>, externalReadAtByID: [String: Date]) -> [CodexThreadItem] {
+        guard !threadIDs.isEmpty,
+              let db = stateDatabaseURLs().first(where: { fileManager.fileExists(atPath: $0.path) }) else {
+            return []
+        }
+        let ids = threadIDs.map(sqlStringLiteral).joined(separator: ",")
+        let sql = """
+        select id, title, preview, cwd, tokens_used, model,
+               coalesce(nullif(updated_at_ms, 0), updated_at * 1000) as updated_ms
+        from threads
+        where archived = 0
+          and id in (\(ids))
+        order by updated_ms desc;
+        """
+        return runSQLiteJSON(databaseURL: db, sql: sql).compactMap { row in
+            guard let id = string(row["id"]) else { return nil }
+            let title = cleanTitle(string(row["title"]) ?? string(row["preview"])) ?? String(id.prefix(8))
+            let updatedMS = double(row["updated_ms"]) ?? Date().timeIntervalSince1970 * 1000
+            let lastActivity = unixDate(seconds: updatedMS)
+            let externalReadAt = externalReadAtByID[id]
+            if isAppServerReadThrough(externalReadAt: externalReadAt, lastActivity: lastActivity) {
+                return nil
+            }
+            let tokenBreakdown = TokenBreakdown.totalOnly(intValue(row["tokens_used"]))
+            return CodexThreadItem(
+                id: id,
+                title: title,
+                preview: cleanPreview(string(row["preview"])),
+                cwd: string(row["cwd"]),
+                lastActivity: lastActivity,
+                startedAt: nil,
+                externalReadAt: externalReadAt,
+                status: .unread,
+                turns: 0,
+                compressionCount: nil,
+                source: "state",
+                isExplicitUnread: true,
+                tokensUsed: tokenBreakdown.displayTotal,
+                tokenBreakdown: tokenBreakdown,
+                model: string(row["model"])
+            )
+        }
+    }
+
+    private func stateThreadMetadata(limit: Int = 300) -> [String: ThreadStateMetadata] {
+        guard let db = stateDatabaseURLs().first(where: { fileManager.fileExists(atPath: $0.path) }) else {
+            return [:]
+        }
+        let sql = """
+        select id, tokens_used, model,
+               coalesce(nullif(updated_at_ms, 0), updated_at * 1000) as updated_ms
+        from threads
+        where archived = 0
+        order by updated_ms desc
+        limit \(max(1, limit));
+        """
+        var result: [String: ThreadStateMetadata] = [:]
+        for row in runSQLiteJSON(databaseURL: db, sql: sql) {
+            guard let id = string(row["id"]) else { continue }
+            let tokenBreakdown = TokenBreakdown.totalOnly(intValue(row["tokens_used"]))
+            result[id] = ThreadStateMetadata(
+                tokensUsed: tokenBreakdown.displayTotal,
+                tokenBreakdown: tokenBreakdown,
+                model: string(row["model"])
+            )
+        }
+        return result
+    }
+
     private func runSQLite(databaseURL: URL, sql: String) -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
@@ -318,6 +652,24 @@ final class CodexActivityReader {
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return "" }
         return String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    }
+
+    private func runSQLiteJSON(databaseURL: URL, sql: String) -> [[String: Any]] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        process.arguments = ["-json", databaseURL.path, sql]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+        do {
+            try process.run()
+        } catch {
+            return []
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return [] }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
 
     private func rolloutURL(threadID: String, lastActivity: Date, lookbackHours: Int) -> URL? {
@@ -343,6 +695,177 @@ final class CodexActivityReader {
         return nil
     }
 
+    private func readClaudeThreads(limit: Int, lookbackHours: Int) -> [CodexThreadItem] {
+        let cutoff = Date().addingTimeInterval(-TimeInterval(max(1, lookbackHours)) * 3600)
+        var items: [CodexThreadItem] = []
+        for root in claudeProjectRoots() {
+            guard let enumerator = fileManager.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
+            }
+            for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                guard (values?.contentModificationDate ?? .distantPast) >= cutoff,
+                      let item = claudeThreadItem(fileURL: url, cutoff: cutoff) else {
+                    continue
+                }
+                items.append(item)
+            }
+        }
+        return items
+            .sorted(by: stableThreadOrder)
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    private func claudeThreadItem(fileURL: URL, cutoff: Date) -> CodexThreadItem? {
+        guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return nil }
+        var sessionID = fileURL.deletingPathExtension().lastPathComponent
+        var cwd: String?
+        var firstUserText: String?
+        var latestUserText: String?
+        var latestAssistantText: String?
+        var lastPrompt: String?
+        var aiTitle: String?
+        var latestUserAt: Date?
+        var latestAssistantAt: Date?
+        var latestAssistantNeedsAction = false
+        var lastActivity: Date?
+        var lastQueueOperation: String?
+        var lastQueueAt: Date?
+        var turns = 0
+
+        text.enumerateLines { line, _ in
+            guard let data = line.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return
+            }
+            if let value = string(object["sessionId"]), !value.isEmpty {
+                sessionID = value
+            }
+            if let value = string(object["cwd"]), !value.isEmpty {
+                cwd = value
+            }
+            let timestamp = string(object["timestamp"]).flatMap(iso8601Date)
+            if let timestamp {
+                lastActivity = maxDate(lastActivity ?? timestamp, timestamp)
+            }
+
+            let type = string(object["type"]) ?? ""
+            if type == "queue-operation" {
+                if let timestamp {
+                    lastQueueAt = timestamp
+                    lastQueueOperation = string(object["operation"])
+                }
+                return
+            }
+            if type == "last-prompt" {
+                if let value = string(object["lastPrompt"]), !value.isEmpty {
+                    lastPrompt = value
+                }
+                return
+            }
+            if type == "ai-title" {
+                if let value = cleanTitle(string(object["aiTitle"])) {
+                    aiTitle = value
+                }
+                return
+            }
+
+            guard let message = object["message"] as? [String: Any] else { return }
+            let role = string(message["role"]) ?? type
+            let contentText = self.messageContentText(message["content"])
+            if role == "user" {
+                if let timestamp {
+                    latestUserAt = timestamp
+                }
+                if let contentText {
+                    firstUserText = firstUserText ?? contentText
+                    latestUserText = contentText
+                }
+                turns += 1
+            } else if role == "assistant" {
+                if let timestamp {
+                    latestAssistantAt = timestamp
+                }
+                let stopReason = string(message["stop_reason"] ?? message["stopReason"])?.lowercased()
+                latestAssistantNeedsAction = stopReason == "tool_use"
+                    || stopReason == "pause_turn"
+                    || self.messageContentContainsType(message["content"], "tool_use")
+                if let contentText {
+                    latestAssistantText = contentText
+                }
+            }
+        }
+
+        guard let activityDate = lastActivity,
+              activityDate >= cutoff,
+              turns > 0 || latestAssistantText != nil else {
+            return nil
+        }
+
+        let pendingUserResponse = (latestUserAt ?? .distantPast) > (latestAssistantAt ?? .distantPast)
+        let queuedAfterAssistant = lastQueueOperation == "enqueue"
+            && (lastQueueAt ?? .distantPast) > (latestAssistantAt ?? .distantPast)
+        let assistantWaitingForAction = latestAssistantNeedsAction
+            && (latestAssistantAt ?? .distantPast) >= (latestUserAt ?? .distantPast)
+        let isWaitingForUser = pendingUserResponse || queuedAfterAssistant || assistantWaitingForAction
+        let title = aiTitle
+            ?? cleanTitle(lastPrompt)
+            ?? cleanTitle(firstUserText)
+            ?? cwd.map(shortFolderName)
+            ?? String(sessionID.prefix(8))
+        let preview = cleanPreview(latestAssistantText ?? latestUserText)
+        return CodexThreadItem(
+            id: "claude:\(sessionID)",
+            title: title,
+            preview: preview,
+            cwd: cwd,
+            lastActivity: activityDate,
+            startedAt: isWaitingForUser ? (latestUserAt ?? lastQueueAt ?? activityDate) : nil,
+            externalReadAt: nil,
+            status: isWaitingForUser ? .waiting : .unread,
+            turns: turns,
+            compressionCount: nil,
+            source: "claude-code",
+            isExplicitUnread: false,
+            tokensUsed: nil,
+            tokenBreakdown: TokenBreakdown(),
+            model: nil
+        )
+    }
+
+    private func messageContentText(_ raw: Any?) -> String? {
+        if let text = raw as? String {
+            return text
+        }
+        if let array = raw as? [[String: Any]] {
+            let text = array.compactMap { item -> String? in
+                let type = string(item["type"]) ?? ""
+                guard type.isEmpty || type == "text" else { return nil }
+                return string(item["text"] ?? item["content"])
+            }.joined(separator: " ")
+            return text.isEmpty ? nil : text
+        }
+        if let dict = raw as? [String: Any] {
+            return string(dict["text"] ?? dict["content"])
+        }
+        return nil
+    }
+
+    private func messageContentContainsType(_ raw: Any?, _ expectedType: String) -> Bool {
+        if let array = raw as? [[String: Any]] {
+            return array.contains { string($0["type"]) == expectedType }
+        }
+        if let dict = raw as? [String: Any] {
+            return string(dict["type"]) == expectedType
+        }
+        return false
+    }
+
     private func candidateRolloutDirectories(root: URL, around date: Date) -> [URL] {
         var directories = [root]
         let calendar = Calendar(identifier: .gregorian)
@@ -365,6 +888,7 @@ final class CodexActivityReader {
     private func rolloutSummary(fileURL: URL) -> RolloutSummary? {
         guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return nil }
         var summary = RolloutSummary()
+        var previousTokenCounters = TokenBreakdown()
         text.enumerateLines { line, _ in
             if summary.cwd == nil, line.contains(#""type":"session_meta""#) {
                 summary.cwd = self.extractJSONString(line: line, key: "cwd")
@@ -393,6 +917,17 @@ final class CodexActivityReader {
             }
             guard line.contains(#""type":"event_msg""#) else { return }
             let eventDate = self.eventDate(from: line)
+            if line.contains(#""type":"context_compacted""#) {
+                summary.compressionCount += 1
+            }
+            if line.contains(#""type":"token_count""#),
+               let currentCounters = self.tokenCounters(from: line) {
+                let delta = TokenBreakdown.delta(from: previousTokenCounters, to: currentCounters)
+                previousTokenCounters = currentCounters
+                if delta.hasAny {
+                    summary.tokenBreakdown.add(delta)
+                }
+            }
             if line.contains(#""type":"task_started""#) {
                 summary.isRunning = true
                 summary.turns += 1
@@ -410,6 +945,18 @@ final class CodexActivityReader {
             }
         }
         return summary
+    }
+
+    private func tokenCounters(from line: String) -> TokenBreakdown? {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let payload = object["payload"] as? [String: Any],
+              string(payload["type"]) == "token_count" else {
+            return nil
+        }
+        let breakdown = tokenBreakdown(from: payload)
+        guard breakdown.hasAny || breakdown.hasDetailedCounters else { return nil }
+        return breakdown
     }
 
     private func eventDate(from line: String) -> Date? {
@@ -541,11 +1088,45 @@ final class CodexActivityReader {
         return unique(roots)
     }
 
+    private func claudeProjectRoots() -> [URL] {
+        var roots: [URL] = []
+        if let raw = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !raw.isEmpty {
+            roots.append(contentsOf: raw.split(separator: ",").map { value in
+                let path = String(value).trimmingCharacters(in: .whitespacesAndNewlines)
+                let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+                return url.lastPathComponent == "projects" ? url : url.appendingPathComponent("projects", isDirectory: true)
+            })
+        }
+        let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
+            .flatMap { $0.isEmpty ? nil : $0 }
+            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+            ?? URL(fileURLWithPath: home).appendingPathComponent(".config", isDirectory: true)
+        roots.append(
+            xdgConfigHome
+                .appendingPathComponent("claude", isDirectory: true)
+                .appendingPathComponent("projects", isDirectory: true)
+        )
+        roots.append(
+            URL(fileURLWithPath: home)
+                .appendingPathComponent(".claude", isDirectory: true)
+                .appendingPathComponent("projects", isDirectory: true)
+        )
+        return unique(roots)
+    }
+
     private func logsDatabaseURLs() -> [URL] {
         let codexHome = URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
         return [
             codexHome.appendingPathComponent("logs_2.sqlite"),
             codexHome.appendingPathComponent("sqlite/logs_2.sqlite")
+        ]
+    }
+
+    private func stateDatabaseURLs() -> [URL] {
+        let codexHome = URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
+        return [
+            codexHome.appendingPathComponent("state_5.sqlite"),
+            codexHome.appendingPathComponent("sqlite/state_5.sqlite")
         ]
     }
 
@@ -569,12 +1150,15 @@ final class ReadStateStore {
     init() {
         let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
-        let directory = support.appendingPathComponent("Codex Bar", isDirectory: true)
-        let legacyDirectory = support.appendingPathComponent("Codex Pet Bar", isDirectory: true)
+        let directory = support.appendingPathComponent("Task Bar", isDirectory: true)
+        let legacyDirectories = [
+            support.appendingPathComponent("Codex Bar", isDirectory: true),
+            support.appendingPathComponent("Codex Pet Bar", isDirectory: true)
+        ]
         fileURL = directory.appendingPathComponent("read-state.json")
-        let legacyFileURL = legacyDirectory.appendingPathComponent("read-state.json")
-        let sourceURL = fileManager.fileExists(atPath: fileURL.path) ? fileURL : legacyFileURL
-        if let data = try? Data(contentsOf: sourceURL),
+        let sourceURLs = [fileURL] + legacyDirectories.map { $0.appendingPathComponent("read-state.json") }
+        let readableURL = sourceURLs.first { FileManager.default.fileExists(atPath: $0.path) } ?? fileURL
+        if let data = try? Data(contentsOf: readableURL),
            let decoded = try? JSONDecoder().decode(ReadStateFile.self, from: data) {
             state = ReadStateFile(
                 schemaVersion: decoded.schemaVersion ?? Self.schemaVersion,
@@ -597,7 +1181,7 @@ final class ReadStateStore {
         var current = state
         var didChange = false
         if !current.didBaselineExistingWaiting {
-            for item in items where isReadDismissible(item.status) {
+            for item in items where isReadDismissible(item.status) && !item.isExplicitUnread {
                 current.openedAt[item.id] = readThroughTime(for: item)
             }
             current.didBaselineExistingWaiting = true
@@ -614,17 +1198,28 @@ final class ReadStateStore {
         }
         current.runningSeenAt = runningSeenAt
 
+        for item in items where !item.isExplicitUnread {
+            guard let externalReadAt = item.externalReadAt,
+                  externalReadAt.timeIntervalSince1970 + Self.readWatermarkTolerance >= item.lastActivity.timeIntervalSince1970 else {
+                continue
+            }
+            let timestamp = readThroughTime(for: item, at: externalReadAt)
+            if (current.openedAt[item.id] ?? 0) < timestamp {
+                current.openedAt[item.id] = timestamp
+                didChange = true
+            }
+        }
+
         var visible: [CodexThreadItem] = []
         for item in items {
             switch item.status {
-            case .running, .stale:
+            case .running, .stale, .waiting:
                 visible.append(item)
-            case .waiting:
-                let readAt = current.openedAt[item.id] ?? 0
-                if readAt < item.lastActivity.timeIntervalSince1970 {
-                    visible.append(item)
-                }
             case .unread:
+                if item.isExplicitUnread {
+                    visible.append(item)
+                    continue
+                }
                 let readAt = current.openedAt[item.id] ?? 0
                 guard readAt < item.lastActivity.timeIntervalSince1970 else { continue }
                 if (current.runningSeenAt?[item.id] ?? 0) > 0 {
@@ -731,21 +1326,25 @@ final class PetStatusIcon {
 }
 
 final class PanelHeaderView: NSView {
-    private let titleLabel = NSTextField(labelWithString: "Codex Bar")
+    private let titleLabel = NSTextField(labelWithString: "Task Bar")
     private let summaryLabel = NSTextField(labelWithString: "")
 
-    init(runningCount: Int, unreadCount: Int) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 62))
+    init(runningCount: Int, waitingCount: Int, unreadCount: Int) {
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 58))
         wantsLayer = true
-        layer?.backgroundColor = menuPanelBackground.cgColor
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.18).cgColor
 
-        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         addSubview(titleLabel)
 
-        summaryLabel.stringValue = summaryText(runningCount: runningCount, unreadCount: unreadCount)
-        summaryLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        summaryLabel.stringValue = summaryText(
+            runningCount: runningCount,
+            waitingCount: waitingCount,
+            unreadCount: unreadCount
+        )
+        summaryLabel.font = .systemFont(ofSize: 12, weight: .medium)
         summaryLabel.textColor = .secondaryLabelColor
         summaryLabel.lineBreakMode = .byTruncatingTail
         addSubview(summaryLabel)
@@ -757,19 +1356,17 @@ final class PanelHeaderView: NSView {
 
     override func layout() {
         super.layout()
-        titleLabel.frame = NSRect(x: 16, y: 29, width: bounds.width - 32, height: 18)
-        summaryLabel.frame = NSRect(x: 16, y: 10, width: bounds.width - 32, height: 15)
+        titleLabel.frame = NSRect(x: 16, y: 30, width: bounds.width - 32, height: 20)
+        summaryLabel.frame = NSRect(x: 16, y: 12, width: bounds.width - 32, height: 17)
     }
 }
 
 final class EmptyStateView: NSView {
-    private let label = NSTextField(labelWithString: "No running or unread Codex turns")
+    private let label = NSTextField(labelWithString: "No running or unread Codex or Claude turns")
 
     init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 40))
-        wantsLayer = true
-        layer?.backgroundColor = menuPanelBackground.cgColor
-        label.font = .systemFont(ofSize: 12, weight: .medium)
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 42))
+        label.font = .systemFont(ofSize: 13, weight: .medium)
         label.textColor = .secondaryLabelColor
         label.alignment = .center
         addSubview(label)
@@ -781,28 +1378,57 @@ final class EmptyStateView: NSView {
 
     override func layout() {
         super.layout()
-        label.frame = NSRect(x: 16, y: 11, width: bounds.width - 32, height: 18)
+        label.frame = NSRect(x: 16, y: 11, width: bounds.width - 32, height: 20)
+    }
+}
+
+private enum TaskBarSettings {
+    private static let showPlatformLabelsKey = "showPlatformLabels"
+
+    static var showPlatformLabels: Bool {
+        get {
+            guard UserDefaults.standard.object(forKey: showPlatformLabelsKey) != nil else {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: showPlatformLabelsKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: showPlatformLabelsKey)
+        }
+    }
+
+    @discardableResult
+    static func togglePlatformLabels() -> Bool {
+        let newValue = !showPlatformLabels
+        showPlatformLabels = newValue
+        return newValue
     }
 }
 
 final class ThreadRowView: NSView {
     private let item: CodexThreadItem
     private let onOpen: (String) -> Void
+    private let showPlatformLabel: Bool
     private let statusDot = NSView()
     private let statusLabelView = NSTextField(labelWithString: "")
+    private let statusElapsedLabel = NSTextField(labelWithString: "")
+    private let platformLabelView = NSTextField(labelWithString: "")
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private var trackingAreaRef: NSTrackingArea?
+    private var elapsedTimer: Timer?
     private var isHovering = false {
         didSet { needsDisplay = true }
     }
 
-    init(item: CodexThreadItem, onOpen: @escaping (String) -> Void) {
+    init(item: CodexThreadItem, showPlatformLabel: Bool, onOpen: @escaping (String) -> Void) {
         self.item = item
+        self.showPlatformLabel = showPlatformLabel
         self.onOpen = onOpen
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 58))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 96))
         wantsLayer = true
-        layer?.backgroundColor = menuPanelBackground.cgColor
+        let tooltip = tooltipText(for: item)
+        setAccessibilityHelp(tooltip)
 
         statusDot.wantsLayer = true
         statusDot.layer?.backgroundColor = statusColor(item.status).cgColor
@@ -815,6 +1441,21 @@ final class ThreadRowView: NSView {
         statusLabelView.lineBreakMode = .byTruncatingTail
         addSubview(statusLabelView)
 
+        statusElapsedLabel.font = .systemFont(ofSize: 10, weight: .semibold)
+        statusElapsedLabel.textColor = .secondaryLabelColor
+        statusElapsedLabel.lineBreakMode = .byTruncatingTail
+        statusElapsedLabel.maximumNumberOfLines = 1
+        addSubview(statusElapsedLabel)
+        updateElapsedLabel()
+
+        platformLabelView.stringValue = sourceLabel(item)
+        platformLabelView.font = .systemFont(ofSize: 9, weight: .semibold)
+        platformLabelView.textColor = sourceColor(item)
+        platformLabelView.lineBreakMode = .byTruncatingTail
+        platformLabelView.maximumNumberOfLines = 1
+        platformLabelView.isHidden = !showPlatformLabel
+        addSubview(platformLabelView)
+
         titleLabel.stringValue = item.title
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.textColor = .labelColor
@@ -822,10 +1463,13 @@ final class ThreadRowView: NSView {
         titleLabel.maximumNumberOfLines = 1
         addSubview(titleLabel)
 
-        detailLabel.stringValue = detailText(for: item)
-        detailLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        detailLabel.stringValue = item.preview ?? detailText(for: item)
+        detailLabel.font = .systemFont(ofSize: 12, weight: .medium)
         detailLabel.textColor = .secondaryLabelColor
+        detailLabel.maximumNumberOfLines = 3
         detailLabel.lineBreakMode = .byTruncatingTail
+        detailLabel.cell?.wraps = true
+        detailLabel.cell?.isScrollable = false
         addSubview(detailLabel)
     }
 
@@ -838,21 +1482,51 @@ final class ThreadRowView: NSView {
         if let trackingAreaRef {
             removeTrackingArea(trackingAreaRef)
         }
-        let area = NSTrackingArea(rect: bounds, options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: bounds, options: [.activeAlways, .mouseEnteredAndExited, .mouseMoved, .inVisibleRect], owner: self)
         trackingAreaRef = area
         addTrackingArea(area)
     }
 
     override func mouseEntered(with event: NSEvent) {
         isHovering = true
+        ThreadHoverPanel.shared.show(item: item, from: self)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        guard isHovering else { return }
+        ThreadHoverPanel.shared.show(item: item, from: self)
     }
 
     override func mouseExited(with event: NSEvent) {
         isHovering = false
+        ThreadHoverPanel.shared.hide(owner: self)
     }
 
     override func mouseUp(with event: NSEvent) {
+        ThreadHoverPanel.shared.hide(owner: self)
         onOpen(item.id)
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil {
+            ThreadHoverPanel.shared.hide(owner: self)
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            stopElapsedTimer()
+        } else {
+            updateElapsedLabel()
+            startElapsedTimerIfNeeded()
+        }
+    }
+
+    deinit {
+        stopElapsedTimer()
+        ThreadHoverPanel.shared.hide(owner: self)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -864,10 +1538,212 @@ final class ThreadRowView: NSView {
 
     override func layout() {
         super.layout()
-        statusDot.frame = NSRect(x: 16, y: 33, width: 8, height: 8)
-        statusLabelView.frame = NSRect(x: 32, y: 27, width: 72, height: 18)
-        titleLabel.frame = NSRect(x: 104, y: 28, width: bounds.width - 120, height: 19)
-        detailLabel.frame = NSRect(x: 104, y: 11, width: bounds.width - 120, height: 17)
+        let statusTextX: CGFloat = 34
+        let statusColumnWidth: CGFloat = 70
+        let contentX: CGFloat = 116
+        let contentWidth = max(160, bounds.width - contentX - 16)
+        statusDot.frame = NSRect(x: 17, y: 68, width: 8, height: 8)
+        statusLabelView.frame = NSRect(x: statusTextX, y: 62, width: statusColumnWidth, height: 18)
+        statusElapsedLabel.frame = NSRect(x: statusTextX, y: 43, width: statusColumnWidth, height: 16)
+        platformLabelView.frame = NSRect(x: statusTextX, y: 24, width: statusColumnWidth, height: 14)
+        titleLabel.frame = NSRect(x: contentX, y: 63, width: contentWidth, height: 20)
+        detailLabel.frame = NSRect(x: contentX, y: 15, width: contentWidth, height: 46)
+    }
+
+    private func startElapsedTimerIfNeeded() {
+        guard elapsedTimer == nil, statusElapsedText(for: item) != nil else { return }
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            self?.updateElapsedLabel()
+        }
+        elapsedTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopElapsedTimer() {
+        elapsedTimer?.invalidate()
+        elapsedTimer = nil
+    }
+
+    private func updateElapsedLabel() {
+        let text = statusElapsedText(for: item) ?? ""
+        statusElapsedLabel.stringValue = text
+        statusElapsedLabel.isHidden = text.isEmpty
+    }
+}
+
+private struct ThreadTooltipRow {
+    let label: String
+    let value: String
+    let valueColor: NSColor
+    let gapBefore: CGFloat
+    let emphasized: Bool
+
+    init(
+        _ label: String,
+        _ value: String,
+        valueColor: NSColor = NSColor.white.withAlphaComponent(0.88),
+        gapBefore: CGFloat = 0,
+        emphasized: Bool = false
+    ) {
+        self.label = label
+        self.value = value
+        self.valueColor = valueColor
+        self.gapBefore = gapBefore
+        self.emphasized = emphasized
+    }
+}
+
+private final class ThreadHoverPanel {
+    static let shared = ThreadHoverPanel()
+
+    private weak var owner: NSView?
+    private let tooltipView = ThreadTooltipView()
+    private lazy var panel: NSPanel = {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 132),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.level = .popUpMenu
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.transient, .ignoresCycle]
+        panel.contentView = tooltipView
+        return panel
+    }()
+
+    func show(item: CodexThreadItem, from sourceView: NSView) {
+        owner = sourceView
+        tooltipView.rows = tooltipRows(for: item)
+        let size = tooltipView.preferredSize
+        tooltipView.frame = NSRect(origin: .zero, size: size)
+        panel.setFrame(NSRect(origin: origin(for: size), size: size), display: true)
+        panel.orderFrontRegardless()
+    }
+
+    func hide(owner sourceView: NSView) {
+        guard owner === sourceView else { return }
+        owner = nil
+        panel.orderOut(nil)
+    }
+
+    func hideAll() {
+        owner = nil
+        panel.orderOut(nil)
+    }
+
+    private func origin(for size: NSSize) -> NSPoint {
+        let mouse = NSEvent.mouseLocation
+        let visibleFrame = NSScreen.screens.first { $0.frame.contains(mouse) }?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let margin: CGFloat = 8
+        var x = mouse.x + 16
+        var y = mouse.y - size.height - 12
+
+        if x + size.width > visibleFrame.maxX - margin {
+            x = mouse.x - size.width - 16
+        }
+        if y < visibleFrame.minY + margin {
+            y = mouse.y + 16
+        }
+
+        x = min(max(x, visibleFrame.minX + margin), visibleFrame.maxX - size.width - margin)
+        y = min(max(y, visibleFrame.minY + margin), visibleFrame.maxY - size.height - margin)
+        return NSPoint(x: x, y: y)
+    }
+}
+
+private final class ThreadTooltipView: NSView {
+    var rows: [ThreadTooltipRow] = [] {
+        didSet { needsDisplay = true }
+    }
+
+    private let horizontalPadding: CGFloat = 10
+    private let verticalPadding: CGFloat = 5
+    private let labelValueGap: CGFloat = 16
+    private let rowHeight: CGFloat = 16
+    private let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+    private let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+    private let emphasizedValueFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
+
+    override var isFlipped: Bool { true }
+
+    var preferredSize: NSSize {
+        let labelWidth = measuredLabelWidth
+        let valueWidth = min(max(measuredValueWidth, 86), 208)
+        let gaps = rows.reduce(CGFloat(0)) { $0 + $1.gapBefore }
+        let width = max(220, horizontalPadding * 2 + labelWidth + labelValueGap + valueWidth)
+        let height = verticalPadding * 2 + CGFloat(rows.count) * rowHeight + gaps
+        return NSSize(width: ceil(width), height: ceil(height))
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
+        NSColor(calibratedWhite: 0.025, alpha: 0.96).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+
+        NSColor.white.withAlphaComponent(0.16).setStroke()
+        let border = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
+        border.lineWidth = 1
+        border.stroke()
+
+        let labelWidth = measuredLabelWidth
+        let valueX = horizontalPadding + labelWidth + labelValueGap
+        let valueWidth = bounds.width - valueX - horizontalPadding
+        var y = verticalPadding
+
+        for row in rows {
+            y += row.gapBefore
+            drawText(
+                row.label,
+                rect: NSRect(x: horizontalPadding, y: y, width: labelWidth, height: rowHeight),
+                font: labelFont,
+                color: NSColor.white.withAlphaComponent(0.62)
+            )
+            drawText(
+                row.value,
+                rect: NSRect(x: valueX, y: y, width: valueWidth, height: rowHeight),
+                font: row.emphasized ? emphasizedValueFont : valueFont,
+                color: row.valueColor
+            )
+            y += rowHeight
+        }
+    }
+
+    private var measuredLabelWidth: CGFloat {
+        let width = rows
+            .map { textWidth($0.label, font: labelFont) }
+            .max() ?? 0
+        return min(max(ceil(width), 56), 78)
+    }
+
+    private var measuredValueWidth: CGFloat {
+        rows
+            .map { textWidth($0.value, font: $0.emphasized ? emphasizedValueFont : valueFont) }
+            .max() ?? 0
+    }
+
+    private func textWidth(_ text: String, font: NSFont) -> CGFloat {
+        (text as NSString).size(withAttributes: [.font: font]).width
+    }
+
+    private func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        (text as NSString).draw(
+            with: rect,
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            attributes: [
+                .font: font,
+                .foregroundColor: color,
+                .paragraphStyle: paragraph
+            ]
+        )
     }
 }
 
@@ -973,9 +1849,257 @@ final class CommandRowView: NSView {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+private final class CommandButtonBarView: NSView {
+    private let stackView = NSStackView()
+    private var buttons: [NSButton] = []
+
+    init(
+        showPlatformLabels: Bool,
+        onRefresh: @escaping () -> Void,
+        onTogglePlatformLabels: @escaping () -> Void,
+        onQuit: @escaping () -> Void
+    ) {
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 44))
+        wantsLayer = true
+        layer?.backgroundColor = menuPanelBackground.cgColor
+
+        stackView.orientation = .horizontal
+        stackView.spacing = 8
+        stackView.distribution = .fillEqually
+        addSubview(stackView)
+
+        addButton(title: "刷新", symbolName: "arrow.clockwise", action: onRefresh)
+        addButton(
+            title: showPlatformLabels ? "标签" : "标签",
+            symbolName: showPlatformLabels ? "tag.fill" : "tag",
+            isActive: showPlatformLabels,
+            action: onTogglePlatformLabels
+        )
+        addButton(
+            title: "设置",
+            symbolName: "gearshape",
+            isActive: showPlatformLabels,
+            action: onTogglePlatformLabels
+        )
+        addButton(title: "退出", symbolName: "power", action: onQuit)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func addButton(title: String, symbolName: String, isActive: Bool = false, action: @escaping () -> Void) {
+        let button = TaskBarActionButton(title: title, action: action)
+        styleButton(button, title: title, symbolName: symbolName, isActive: isActive)
+        buttons.append(button)
+        stackView.addArrangedSubview(button)
+    }
+
+    private func styleButton(_ button: NSButton, title: String, symbolName: String, isActive: Bool) {
+        button.isBordered = false
+        button.wantsLayer = true
+        button.layer?.cornerRadius = 7
+        button.layer?.backgroundColor = NSColor(calibratedWhite: 0.24, alpha: 1).cgColor
+        button.layer?.borderWidth = 1
+        button.layer?.borderColor = (isActive ? NSColor.controlAccentColor.withAlphaComponent(0.55) : NSColor.white.withAlphaComponent(0.16)).cgColor
+        button.imagePosition = .imageLeading
+        button.imageScaling = .scaleProportionallyDown
+        button.alignment = .center
+        button.contentTintColor = isActive ? NSColor.controlAccentColor : NSColor.white.withAlphaComponent(0.9)
+        button.font = .systemFont(ofSize: 13, weight: .semibold)
+        button.toolTip = title
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let color = NSColor.white.withAlphaComponent(0.9)
+        button.attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+            .foregroundColor: color,
+            .paragraphStyle: paragraph
+        ])
+        button.attributedAlternateTitle = NSAttributedString(string: title, attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: paragraph
+        ])
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
+        image?.isTemplate = true
+        button.image = image
+    }
+
+    override func layout() {
+        super.layout()
+        stackView.frame = bounds.insetBy(dx: 16, dy: 7)
+    }
+}
+
+private final class TaskBarActionButton: NSButton {
+    private let handler: () -> Void
+
+    init(title: String, action: @escaping () -> Void) {
+        handler = action
+        super.init(frame: .zero)
+        self.title = title
+        target = self
+        self.action = #selector(runAction)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func runAction() {
+        handler()
+    }
+}
+
+private final class TaskBarRowsView: NSView {
+    private let arrangedViews: [NSView]
+    private let arrangedHeights: [CGFloat]
+
+    init(rowViews: [NSView]) {
+        arrangedViews = rowViews
+        arrangedHeights = rowViews.map(\.frame.height)
+        let height = arrangedHeights.reduce(CGFloat(0), +)
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: height))
+        wantsLayer = true
+        layer?.backgroundColor = menuPanelBackground.cgColor
+        for view in rowViews {
+            addSubview(view)
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        var y: CGFloat = 0
+        for (index, view) in arrangedViews.enumerated() {
+            let height = arrangedHeights[index]
+            view.frame = NSRect(x: 0, y: y, width: bounds.width, height: height)
+            y += height
+        }
+    }
+}
+
+private final class TaskBarPopoverContentView: NSView {
+    private let headerView: PanelHeaderView
+    private let topSeparator = MenuSeparatorView()
+    private let rowsView: TaskBarRowsView
+    private let rowsScrollView: NSScrollView?
+    private let bottomSeparator = MenuSeparatorView()
+    private let commandBar: CommandButtonBarView
+    private let rowsViewportHeight: CGFloat
+    private let rowsContentHeight: CGFloat
+
+    init(
+        threads: [CodexThreadItem],
+        runningCount: Int,
+        waitingCount: Int,
+        unreadCount: Int,
+        showPlatformLabels: Bool,
+        onOpenThread: @escaping (String) -> Void,
+        onRefresh: @escaping () -> Void,
+        onTogglePlatformLabels: @escaping () -> Void,
+        onQuit: @escaping () -> Void
+    ) {
+        headerView = PanelHeaderView(
+            runningCount: runningCount,
+            waitingCount: waitingCount,
+            unreadCount: unreadCount
+        )
+        let rowViews: [NSView]
+        if threads.isEmpty {
+            rowViews = [EmptyStateView()]
+        } else {
+            rowViews = threads.map { thread in
+                ThreadRowView(item: thread, showPlatformLabel: showPlatformLabels, onOpen: onOpenThread)
+            }
+        }
+        rowsView = TaskBarRowsView(rowViews: rowViews)
+        rowsContentHeight = rowsView.frame.height
+        commandBar = CommandButtonBarView(
+            showPlatformLabels: showPlatformLabels,
+            onRefresh: onRefresh,
+            onTogglePlatformLabels: onTogglePlatformLabels,
+            onQuit: onQuit
+        )
+
+        let fixedHeight = headerView.frame.height
+            + topSeparator.frame.height
+            + bottomSeparator.frame.height
+            + commandBar.frame.height
+        let maxRowsHeight = max(EmptyStateView().frame.height, taskBarPopoverMaxHeight() - fixedHeight)
+        rowsViewportHeight = min(rowsContentHeight, maxRowsHeight)
+
+        if rowsContentHeight > rowsViewportHeight + 0.5 {
+            let scrollView = NSScrollView(frame: .zero)
+            scrollView.borderType = .noBorder
+            scrollView.drawsBackground = false
+            scrollView.hasVerticalScroller = true
+            scrollView.autohidesScrollers = true
+            scrollView.scrollerStyle = .overlay
+            scrollView.documentView = rowsView
+            rowsScrollView = scrollView
+        } else {
+            rowsScrollView = nil
+        }
+
+        let totalHeight = fixedHeight + rowsViewportHeight
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: totalHeight))
+        wantsLayer = true
+        layer?.backgroundColor = menuPanelBackground.cgColor
+        appearance = NSAppearance(named: .darkAqua)
+
+        addSubview(headerView)
+        addSubview(topSeparator)
+        if let rowsScrollView {
+            addSubview(rowsScrollView)
+        } else {
+            addSubview(rowsView)
+        }
+        addSubview(bottomSeparator)
+        addSubview(commandBar)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        var y: CGFloat = 0
+        headerView.frame = NSRect(x: 0, y: y, width: bounds.width, height: headerView.frame.height)
+        y += headerView.frame.height
+
+        topSeparator.frame = NSRect(x: 0, y: y, width: bounds.width, height: topSeparator.frame.height)
+        y += topSeparator.frame.height
+
+        let rowsFrame = NSRect(x: 0, y: y, width: bounds.width, height: rowsViewportHeight)
+        if let rowsScrollView {
+            rowsScrollView.frame = rowsFrame
+            rowsView.frame = NSRect(x: 0, y: 0, width: rowsScrollView.contentSize.width, height: rowsContentHeight)
+        } else {
+            rowsView.frame = rowsFrame
+        }
+        y += rowsViewportHeight
+
+        bottomSeparator.frame = NSRect(x: 0, y: y, width: bounds.width, height: bottomSeparator.frame.height)
+        y += bottomSeparator.frame.height
+
+        commandBar.frame = NSRect(x: 0, y: y, width: bounds.width, height: commandBar.frame.height)
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private let menu = NSMenu()
+    private let popover = NSPopover()
     private let reader = CodexActivityReader()
     private let icon = PetStatusIcon()
     private let readState = ReadStateStore()
@@ -986,9 +2110,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        menu.delegate = self
-        statusItem.menu = menu
-        statusItem.button?.toolTip = "Codex Bar"
+        popover.behavior = .transient
+        popover.animates = true
+        popover.appearance = NSAppearance(named: .darkAqua)
+        configureStatusButton()
         refresh()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             self?.refresh()
@@ -996,11 +2121,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         animationTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { [weak self] _ in
             self?.updateStatusIcon()
         }
-    }
-
-    func menuWillOpen(_ menu: NSMenu) {
-        rebuildMenu()
-        refresh()
     }
 
     private func refresh() {
@@ -1013,11 +2133,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.readInFlight = false
                 self.threads = visible
                 self.updateStatusIcon()
-                if self.menu.highlightedItem == nil {
-                    self.rebuildMenu()
+                if self.popover.isShown {
+                    self.rebuildPopover()
                 }
             }
         }
+    }
+
+    private func configureStatusButton() {
+        guard let button = statusItem.button else { return }
+        button.toolTip = "Task Bar"
+        button.action = #selector(togglePopover)
+        button.target = self
     }
 
     private func updateStatusIcon() {
@@ -1034,121 +2161,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func rebuildMenu() {
-        menu.removeAllItems()
+    @objc private func togglePopover() {
+        guard let button = statusItem.button else { return }
+        if popover.isShown {
+            popover.performClose(nil)
+            return
+        }
+        rebuildPopover()
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        NSApp.activate(ignoringOtherApps: true)
+        refresh()
+    }
+
+    private func rebuildPopover() {
         let active = threads.filter { $0.status == .running || $0.status == .stale }
-        let unreadCount = threads.filter { isReadDismissible($0.status) }.count
-        let headerItem = NSMenuItem()
-        headerItem.view = PanelHeaderView(runningCount: active.count, unreadCount: unreadCount)
-        menu.addItem(headerItem)
-        menu.addItem(separatorItem())
-
-        if threads.isEmpty {
-            let emptyItem = NSMenuItem()
-            emptyItem.view = EmptyStateView()
-            menu.addItem(emptyItem)
-        } else {
-            for thread in threads {
-                let item = NSMenuItem()
-                item.view = ThreadRowView(item: thread) { [weak self] id in
-                    self?.openThread(id: id)
-                }
-                menu.addItem(item)
-                if thread.id != threads.last?.id {
-                    menu.addItem(separatorItem())
-                }
+        let waitingCount = threads.filter { $0.status == .waiting }.count
+        let unreadCount = threads.filter { $0.status == .unread }.count
+        let content = TaskBarPopoverContentView(
+            threads: threads,
+            runningCount: active.count,
+            waitingCount: waitingCount,
+            unreadCount: unreadCount,
+            showPlatformLabels: TaskBarSettings.showPlatformLabels,
+            onOpenThread: { [weak self] id in
+                self?.openThread(id: id)
+            },
+            onRefresh: { [weak self] in
+                ThreadHoverPanel.shared.hideAll()
+                self?.refresh()
+            },
+            onTogglePlatformLabels: { [weak self] in
+                TaskBarSettings.togglePlatformLabels()
+                ThreadHoverPanel.shared.hideAll()
+                self?.rebuildPopover()
+            },
+            onQuit: { [weak self] in
+                self?.popover.performClose(nil)
+                ThreadHoverPanel.shared.hideAll()
+                self?.quit()
             }
-        }
-
-        menu.addItem(separatorItem())
-        menu.addItem(commandItem(title: "Open Codex", symbolName: "arrow.up.right.square", shortcut: "⌘O", selector: #selector(openCodexApp), keyEquivalent: "o") { [weak self] in
-            self?.menu.cancelTracking()
-            self?.openCodexApp()
-        })
-        menu.addItem(commandItem(title: "Refresh", symbolName: "arrow.clockwise", shortcut: "⌘R", selector: #selector(refreshFromMenu), keyEquivalent: "r") { [weak self] in
-            self?.menu.cancelTracking()
-            self?.refreshFromMenu()
-        })
-        menu.addItem(commandItem(title: "Mark all as read", symbolName: "tray", shortcut: nil, selector: #selector(markWaitingAsRead), keyEquivalent: "", enabled: threads.contains { isReadDismissible($0.status) }) { [weak self] in
-            self?.menu.cancelTracking()
-            self?.markWaitingAsRead()
-        })
-        menu.addItem(separatorItem())
-        menu.addItem(commandItem(title: "Quit Codex Bar", symbolName: "power", shortcut: "⌘Q", selector: #selector(quit), keyEquivalent: "q") { [weak self] in
-            self?.menu.cancelTracking()
-            self?.quit()
-        })
-    }
-
-    private func separatorItem() -> NSMenuItem {
-        let item = NSMenuItem()
-        item.view = MenuSeparatorView()
-        return item
-    }
-
-    private func commandItem(
-        title: String,
-        symbolName: String,
-        shortcut: String?,
-        selector: Selector,
-        keyEquivalent: String,
-        enabled: Bool = true,
-        action: @escaping () -> Void
-    ) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: selector, keyEquivalent: keyEquivalent)
-        item.target = self
-        item.isEnabled = enabled
-        item.view = CommandRowView(title: title, symbolName: symbolName, shortcut: shortcut, enabled: enabled, action: action)
-        return item
-    }
-
-    private func tooltip(for thread: CodexThreadItem) -> String {
-        var lines = [
-            thread.title,
-            "Thread: \(thread.id)",
-            "Status: \(statusLabel(thread.status))",
-            "Last activity: \(relative(thread.lastActivity))",
-            "Source: \(thread.source)"
-        ]
-        if thread.status == .running || thread.status == .stale,
-           let startedAt = thread.startedAt {
-            lines.append("Elapsed: \(durationSince(startedAt))")
-        }
-        if let cwd = thread.cwd {
-            lines.append("Folder: \(cwd)")
-        }
-        return lines.joined(separator: "\n")
+        )
+        let controller = NSViewController()
+        controller.view = content
+        controller.preferredContentSize = content.frame.size
+        popover.contentViewController = controller
+        popover.contentSize = content.frame.size
     }
 
     private func openThread(id: String) {
-        guard let url = URL(string: "codex://threads/\(id)") else {
-            return
-        }
-        if let item = threads.first(where: { $0.id == id }) {
+        let selectedItem = threads.first(where: { $0.id == id })
+        if let item = selectedItem {
             readState.markRead(item)
         } else {
             readState.markRead(threadID: id)
         }
         threads.removeAll { $0.id == id && isReadDismissible($0.status) }
         updateStatusIcon()
-        rebuildMenu()
-        menu.cancelTracking()
+        if popover.isShown {
+            rebuildPopover()
+            popover.performClose(nil)
+        }
+        ThreadHoverPanel.shared.hideAll()
+
+        if let selectedItem, isClaudeThread(selectedItem) {
+            openClaudeApp(fallbackFolder: selectedItem.cwd)
+            return
+        }
+        if id.hasPrefix("claude:") {
+            openClaudeApp(fallbackFolder: nil)
+            return
+        }
+
+        guard let url = URL(string: "codex://threads/\(id)") else {
+            return
+        }
         NSWorkspace.shared.open(url)
     }
 
-    @objc private func refreshFromMenu() {
-        refresh()
-    }
-
-    @objc private func openCodexApp() {
-        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Codex.app"), configuration: NSWorkspace.OpenConfiguration())
-    }
-
-    @objc private func markWaitingAsRead() {
-        readState.markWaitingRead(threads)
-        threads.removeAll { isReadDismissible($0.status) }
-        updateStatusIcon()
-        rebuildMenu()
+    private func openClaudeApp(fallbackFolder: String?) {
+        let claudeURL = URL(fileURLWithPath: "/Applications/Claude.app")
+        if FileManager.default.fileExists(atPath: claudeURL.path) {
+            NSWorkspace.shared.open(claudeURL)
+        } else if let fallbackFolder {
+            NSWorkspace.shared.open(URL(fileURLWithPath: fallbackFolder, isDirectory: true))
+        }
     }
 
     @objc private func quit() {
@@ -1156,11 +2252,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 }
 
-private func summaryText(runningCount: Int, unreadCount: Int) -> String {
-    if runningCount == 0 && unreadCount == 0 {
+private func summaryText(runningCount: Int, waitingCount: Int, unreadCount: Int) -> String {
+    if runningCount == 0 && waitingCount == 0 && unreadCount == 0 {
         return "All caught up"
     }
-    return "\(runningCount) running  ·  \(unreadCount) unread"
+    var parts: [String] = []
+    if runningCount > 0 {
+        parts.append("\(runningCount) running")
+    }
+    if waitingCount > 0 {
+        parts.append("\(waitingCount) waiting")
+    }
+    if unreadCount > 0 {
+        parts.append("\(unreadCount) unread")
+    }
+    return parts.joined(separator: "  ·  ")
 }
 
 private func statusColor(_ status: ThreadRunStatus) -> NSColor {
@@ -1221,15 +2327,78 @@ private func statusLabel(_ status: ThreadRunStatus) -> String {
 
 private func detailText(for item: CodexThreadItem) -> String {
     let folder = shortFolderName(item.cwd)
-    if (item.status == .running || item.status == .stale),
-       let startedAt = item.startedAt {
-        return "\(durationSince(startedAt))  ·  \(folder)"
+    if item.status == .running || item.status == .stale {
+        return folder
     }
     return "\(folder)  ·  \(relative(item.lastActivity))"
 }
 
-private let menuPanelWidth: CGFloat = 390
+private func statusElapsedText(for item: CodexThreadItem) -> String? {
+    switch item.status {
+    case .running, .stale:
+        guard let startedAt = item.startedAt else { return nil }
+        return compactDurationSinceChinese(startedAt)
+    case .waiting:
+        return compactDurationSinceChinese(item.lastActivity)
+    case .unread:
+        return compactDurationSinceChinese(item.lastActivity)
+    }
+}
+
+private func tooltipText(for item: CodexThreadItem) -> String {
+    tooltipRows(for: item)
+        .map { "\($0.label): \($0.value)" }
+        .joined(separator: "\n")
+}
+
+private func tooltipRows(for item: CodexThreadItem) -> [ThreadTooltipRow] {
+    var rows: [ThreadTooltipRow] = []
+    rows.append(ThreadTooltipRow("状态", tooltipStatusLabel(item.status), valueColor: statusColor(item.status), emphasized: true))
+    appendTokenBreakdownRows(to: &rows, item.tokenBreakdown)
+    rows.append(ThreadTooltipRow("对话轮次", item.turns > 0 ? "\(item.turns)" : "未知", gapBefore: item.tokenBreakdown.hasAny ? 2 : 0))
+    if let compressionCount = item.compressionCount {
+        rows.append(ThreadTooltipRow("压缩次数", "\(compressionCount)"))
+    }
+    if let model = item.model, !model.isEmpty {
+        rows.append(ThreadTooltipRow("模型", model))
+    }
+    return rows
+}
+
+private func appendTokenBreakdownRows(to rows: inout [ThreadTooltipRow], _ breakdown: TokenBreakdown) {
+    if breakdown.hasDetailedCounters {
+        rows.append(ThreadTooltipRow("输入", compactTokenCount(breakdown.input), gapBefore: 2))
+        rows.append(ThreadTooltipRow("输出", compactTokenCount(breakdown.output)))
+        if let cacheRate = cacheRateText(for: breakdown) {
+            rows.append(ThreadTooltipRow("缓存率", cacheRate))
+        }
+        return
+    }
+
+    if let total = breakdown.displayTotal {
+        rows.append(ThreadTooltipRow("Token 消耗", compactTokenCount(total), gapBefore: 2))
+    }
+}
+
+private func tooltipStatusLabel(_ status: ThreadRunStatus) -> String {
+    switch status {
+    case .running: return "运行中"
+    case .stale: return "运行较久"
+    case .waiting: return "等待输入"
+    case .unread: return "未读"
+    }
+}
+
+private let menuPanelWidth: CGFloat = 520
 private let menuPanelBackground = NSColor(calibratedWhite: 0.105, alpha: 0.97)
+
+private func taskBarPopoverMaxHeight() -> CGFloat {
+    let mouse = NSEvent.mouseLocation
+    let screenHeight = NSScreen.screens.first { $0.frame.contains(mouse) }?.visibleFrame.height
+        ?? NSScreen.main?.visibleFrame.height
+        ?? 900
+    return min(620, max(360, screenHeight - 110))
+}
 
 private func isReadDismissible(_ status: ThreadRunStatus) -> Bool {
     switch status {
@@ -1238,6 +2407,26 @@ private func isReadDismissible(_ status: ThreadRunStatus) -> Bool {
     case .running, .stale:
         return false
     }
+}
+
+private func isClaudeThread(_ item: CodexThreadItem) -> Bool {
+    item.source == "claude-code" || item.id.hasPrefix("claude:")
+}
+
+private func sourceLabel(_ item: CodexThreadItem) -> String {
+    isClaudeThread(item) ? "Claude" : "Codex"
+}
+
+private func sourceColor(_ item: CodexThreadItem) -> NSColor {
+    if isClaudeThread(item) {
+        return NSColor(calibratedRed: 0.91, green: 0.48, blue: 0.28, alpha: 1)
+    }
+    return NSColor(calibratedRed: 0.45, green: 0.58, blue: 1.0, alpha: 1)
+}
+
+private func mergedCompressionCount(_ existing: Int?, _ candidate: Int) -> Int? {
+    guard let existing else { return candidate }
+    return max(existing, candidate)
 }
 
 private func cleanTitle(_ value: String?) -> String? {
@@ -1257,7 +2446,18 @@ private func cleanTitle(_ value: String?) -> String? {
 
 private func cleanPreview(_ value: String?) -> String? {
     guard let value else { return nil }
-    let compact = value
+    let rawCompact = value
+        .replacingOccurrences(of: "\n", with: " ")
+        .replacingOccurrences(of: "\t", with: " ")
+        .split(separator: " ")
+        .joined(separator: " ")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !rawCompact.isEmpty else { return nil }
+
+    guard let previewCandidate = automationPreviewText(from: rawCompact) else {
+        return nil
+    }
+    let compact = removingPluginMarkdownLinks(from: previewCandidate)
         .replacingOccurrences(of: "\n", with: " ")
         .replacingOccurrences(of: "\t", with: " ")
         .split(separator: " ")
@@ -1268,6 +2468,54 @@ private func cleanPreview(_ value: String?) -> String? {
         return compact
     }
     return String(compact.prefix(137)) + "..."
+}
+
+private func automationPreviewText(from value: String) -> String? {
+    let lower = value.lowercased()
+    let isAutomationPayload = lower.contains("<heartbeat")
+        || lower.contains("<automation_id>")
+        || lower.contains("<decision>")
+    guard isAutomationPayload else { return value }
+
+    if lower.contains("<decision>dont_notify</decision>") {
+        return nil
+    }
+    if let message = xmlTagValue("message", in: value),
+       !message.isEmpty {
+        return stripXMLTags(from: message)
+    }
+    return nil
+}
+
+private func xmlTagValue(_ tag: String, in value: String) -> String? {
+    let openTag = "<\(tag)>"
+    let closeTag = "</\(tag)>"
+    guard let start = value.range(of: openTag, options: [.caseInsensitive]),
+          let end = value.range(of: closeTag, options: [.caseInsensitive], range: start.upperBound..<value.endIndex) else {
+        return nil
+    }
+    return String(value[start.upperBound..<end.lowerBound])
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private func stripXMLTags(from value: String) -> String {
+    var result = ""
+    var insideTag = false
+    for character in value {
+        if character == "<" {
+            insideTag = true
+            result.append(" ")
+            continue
+        }
+        if character == ">" {
+            insideTag = false
+            continue
+        }
+        if !insideTag {
+            result.append(character)
+        }
+    }
+    return result
 }
 
 private func removingPluginMarkdownLinks(from value: String) -> String {
@@ -1319,6 +2567,12 @@ private func maxDate(_ lhs: Date, _ rhs: Date?) -> Date {
     return lhs > rhs ? lhs : rhs
 }
 
+private func maxOptionalDate(_ lhs: Date?, _ rhs: Date?) -> Date? {
+    guard let lhs else { return rhs }
+    guard let rhs else { return lhs }
+    return lhs > rhs ? lhs : rhs
+}
+
 private func unixDate(seconds: Double) -> Date {
     Date(timeIntervalSince1970: normalizedUnixSeconds(seconds))
 }
@@ -1348,6 +2602,44 @@ private func double(_ value: Any?) -> Double? {
     return nil
 }
 
+private func intValue(_ value: Any?) -> Int? {
+    if let value = value as? Int { return value }
+    if let value = value as? Int64 { return Int(value) }
+    if let value = value as? Double { return Int(value) }
+    if let value = value as? String { return Int(value) }
+    return nil
+}
+
+private func formatInteger(_ value: Int) -> String {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+}
+
+private func compactTokenCount(_ value: Int) -> String {
+    let double = Double(value)
+    if value >= 100_000_000 {
+        return String(format: "%.2f亿", double / 100_000_000)
+    }
+    if value >= 10_000 {
+        return String(format: "%.1f万", double / 10_000)
+    }
+    if value >= 1_000 {
+        return formatInteger(value)
+    }
+    return "\(value)"
+}
+
+private func cacheRateText(for breakdown: TokenBreakdown) -> String? {
+    guard breakdown.hasDetailedCounters, breakdown.input > 0 else { return nil }
+    let percent = Double(breakdown.cachedInput) / Double(breakdown.input) * 100
+    return String(format: "%.1f%%", percent)
+}
+
+private func sqlStringLiteral(_ value: String) -> String {
+    "'\(value.replacingOccurrences(of: "'", with: "''"))'"
+}
+
 private func bool(_ value: Any?) -> Bool? {
     if let value = value as? Bool { return value }
     if let value = value as? Int { return value != 0 }
@@ -1369,6 +2661,61 @@ private func turnCount(from value: Any?) -> Int {
     return Int(double(value) ?? 0)
 }
 
+private func tokenBreakdown(from dict: [String: Any]) -> TokenBreakdown {
+    let source = tokenUsageDictionary(from: dict)
+    let totalFallback = intValue(firstValue(in: dict, keys: ["tokens_used", "tokensUsed", "tokens"]))
+    let detailedKeys = [
+        "input_tokens", "inputTokens",
+        "cached_input_tokens", "cachedInputTokens",
+        "output_tokens", "outputTokens",
+        "reasoning_output_tokens", "reasoningOutputTokens"
+    ]
+
+    return TokenBreakdown(
+        input: intValue(firstValue(in: source, keys: ["input_tokens", "inputTokens"])) ?? 0,
+        cachedInput: intValue(firstValue(in: source, keys: ["cached_input_tokens", "cachedInputTokens"])) ?? 0,
+        output: intValue(firstValue(in: source, keys: ["output_tokens", "outputTokens"])) ?? 0,
+        reasoningOutput: intValue(firstValue(in: source, keys: ["reasoning_output_tokens", "reasoningOutputTokens"])) ?? 0,
+        total: intValue(firstValue(in: source, keys: ["total_tokens", "totalTokens", "total"])) ?? totalFallback ?? 0,
+        hasDetailedCounters: containsAnyKey(source, detailedKeys)
+    )
+}
+
+private func tokenUsageDictionary(from dict: [String: Any]) -> [String: Any] {
+    if let usage = firstDictionary(in: dict, keys: ["total_token_usage", "totalTokenUsage", "usage", "tokenUsage", "token_usage"]) {
+        return usage
+    }
+    if let info = dict["info"] as? [String: Any] {
+        if let usage = firstDictionary(in: info, keys: ["total_token_usage", "totalTokenUsage", "usage", "tokenUsage", "token_usage"]) {
+            return usage
+        }
+        return info
+    }
+    return dict
+}
+
+private func firstValue(in dict: [String: Any], keys: [String]) -> Any? {
+    for key in keys {
+        if let value = dict[key] {
+            return value
+        }
+    }
+    return nil
+}
+
+private func firstDictionary(in dict: [String: Any], keys: [String]) -> [String: Any]? {
+    for key in keys {
+        if let value = dict[key] as? [String: Any] {
+            return value
+        }
+    }
+    return nil
+}
+
+private func containsAnyKey(_ dict: [String: Any], _ keys: [String]) -> Bool {
+    keys.contains { dict.keys.contains($0) }
+}
+
 private func relative(_ date: Date) -> String {
     let seconds = max(0, Int(Date().timeIntervalSince(date)))
     if seconds < 60 { return "\(seconds)s ago" }
@@ -1377,6 +2724,16 @@ private func relative(_ date: Date) -> String {
     let hours = minutes / 60
     if hours < 24 { return "\(hours)h ago" }
     return "\(hours / 24)d ago"
+}
+
+private func relativeChinese(_ date: Date) -> String {
+    let seconds = max(0, Int(Date().timeIntervalSince(date)))
+    if seconds < 60 { return "\(seconds)秒前" }
+    let minutes = seconds / 60
+    if minutes < 60 { return "\(minutes)分钟前" }
+    let hours = minutes / 60
+    if hours < 24 { return "\(hours)小时前" }
+    return "\(hours / 24)天前"
 }
 
 private func durationSince(_ date: Date) -> String {
@@ -1397,10 +2754,44 @@ private func durationSince(_ date: Date) -> String {
     return "\(days)d \(remainderHours)h"
 }
 
+private func durationSinceChinese(_ date: Date) -> String {
+    let seconds = max(0, Int(Date().timeIntervalSince(date)))
+    if seconds < 60 { return "\(seconds)秒" }
+    let minutes = seconds / 60
+    let remainderSeconds = seconds % 60
+    if minutes < 60 {
+        return "\(minutes)分 \(remainderSeconds)秒"
+    }
+    let hours = minutes / 60
+    let remainderMinutes = minutes % 60
+    if hours < 24 {
+        return "\(hours)小时 \(remainderMinutes)分"
+    }
+    let days = hours / 24
+    let remainderHours = hours % 24
+    return "\(days)天 \(remainderHours)小时"
+}
+
+private func compactDurationSinceChinese(_ date: Date) -> String {
+    let seconds = max(0, Int(Date().timeIntervalSince(date)))
+    if seconds < 60 { return "\(seconds)秒" }
+    let minutes = seconds / 60
+    let remainderSeconds = seconds % 60
+    if minutes < 60 { return "\(minutes)分\(String(format: "%02d", remainderSeconds))秒" }
+    let hours = minutes / 60
+    let remainderMinutes = minutes % 60
+    if hours < 24 {
+        return "\(hours)时\(String(format: "%02d", remainderMinutes))分"
+    }
+    let days = hours / 24
+    let remainderHours = hours % 24
+    return "\(days)天\(remainderHours)时"
+}
+
 private func printThreads() {
     let items = ReadStateStore().visibleThreads(from: CodexActivityReader().read())
     if items.isEmpty {
-        print("No running or unread Codex turns")
+        print("No running or unread Codex or Claude turns")
         return
     }
     for item in items {

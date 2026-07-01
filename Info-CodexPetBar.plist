@@ -7,13 +7,13 @@
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleExecutable</key>
-    <string>CodexBar</string>
+    <string>TaskBar</string>
     <key>CFBundleIdentifier</key>
-    <string>local.codex-bar</string>
+    <string>local.task-bar</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Codex Bar</string>
+    <string>Task Bar</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

@@ -4,6 +4,7 @@
 
 - This is a native macOS menu bar app built directly with `swiftc`.
 - The app entrypoint lives in `Sources/CodexTokenMeter/main.swift`; supporting code is split into focused files under the same directory.
+- The companion Task Bar app lives in `Sources/CodexPetBar/main.swift` and is part of the same product family, not a separate design surface.
 - `build.sh` compiles every Swift file under `Sources/CodexTokenMeter`, so future file splits do not need build-script changes.
 - Prefer small, behavior-preserving changes unless you are explicitly doing a planned refactor.
 - Read `docs/ARCHITECTURE.md` before changing parser, quota, cost, or UI behavior.
@@ -33,6 +34,15 @@
 - Subscription-value estimates and API-equivalent costs are separate concepts. Do not mix their labels or calculations.
 - API-equivalent cost should not add `reasoning_output_tokens` a second time because Codex `total_tokens` already includes output.
 - If Profile API daily totals are zero for a local day with Codex logs, preserve the local fallback behavior.
+
+## UI Consistency
+
+- Keep Task Bar and AI Token Meter visually aligned because they live in the same repository and should feel like one product system.
+- Before adding new Task Bar controls, popovers, buttons, labels, hover cards, or status states, check whether an existing AI Token Meter pattern can be reused or adapted first.
+- Prefer shared AppKit interaction patterns: compact segmented button rows, consistent icon sizes, text weights, spacing, corner radii, hover states, and dark popover colors.
+- Do not invent a new visual style for Task Bar unless the existing Token Meter pattern clearly does not fit; document the reason in the change summary when deviating.
+- For Codex/Claude labels, status chips, and token/usage hover data, keep naming, color intensity, number formatting, and alignment consistent with the Token Meter dashboard wherever practical.
+- When UI changes affect Task Bar, verify the installed `/Applications/Task Bar.app`; when they affect AI Token Meter, verify the installed `/Applications/AI Token Meter.app` or the relevant render command.
 
 ## Refactor Guidance
 
