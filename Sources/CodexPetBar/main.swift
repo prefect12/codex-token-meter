@@ -1416,8 +1416,6 @@ private enum TaskBarSettings {
     private static let showPlatformLabelsKey = "showPlatformLabels"
     private static let showStatusDotsKey = "showStatusDots"
     private static let tokenUnitStyleKey = "tokenUnitStyle"
-    private static let popoverWidthKey = "popoverWidth"
-    private static let popoverHeightKey = "popoverHeight"
 
     static var showPlatformLabels: Bool {
         get {
@@ -1454,29 +1452,6 @@ private enum TaskBarSettings {
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: tokenUnitStyleKey)
         }
-    }
-
-    static func popoverSize(defaultHeight: CGFloat) -> NSSize {
-        let defaults = UserDefaults.standard
-        let width: CGFloat
-        if defaults.object(forKey: popoverWidthKey) == nil {
-            width = menuPanelWidth
-        } else {
-            width = CGFloat(defaults.double(forKey: popoverWidthKey))
-        }
-        let height: CGFloat
-        if defaults.object(forKey: popoverHeightKey) == nil {
-            height = defaultHeight
-        } else {
-            height = CGFloat(defaults.double(forKey: popoverHeightKey))
-        }
-        return clampedPopoverSize(NSSize(width: width, height: height))
-    }
-
-    static func setPopoverSize(_ size: NSSize) {
-        let clamped = clampedPopoverSize(size)
-        UserDefaults.standard.set(Double(clamped.width), forKey: popoverWidthKey)
-        UserDefaults.standard.set(Double(clamped.height), forKey: popoverHeightKey)
     }
 
     static func clampedPopoverSize(_ size: NSSize) -> NSSize {
@@ -2297,7 +2272,7 @@ private final class CommandButtonBarView: NSView {
         button.layer?.cornerRadius = 7
         button.layer?.backgroundColor = NSColor(calibratedWhite: 0.24, alpha: 1).cgColor
         button.layer?.borderWidth = 1
-        button.layer?.borderColor = (isActive ? NSColor.controlAccentColor.withAlphaComponent(0.55) : NSColor.white.withAlphaComponent(0.14)).cgColor
+        button.layer?.borderColor = (isActive ? NSColor.controlAccentColor.withAlphaComponent(0.55) : NSColor.white.withAlphaComponent(0.16)).cgColor
         button.imagePosition = .imageLeading
         button.imageScaling = .scaleProportionallyDown
         button.alignment = .center
@@ -2325,7 +2300,16 @@ private final class CommandButtonBarView: NSView {
 
     override func layout() {
         super.layout()
-        stackView.frame = NSRect(x: 16, y: 8, width: bounds.width - 32, height: 40)
+        let buttonWidth: CGFloat = 112
+        let buttonHeight: CGFloat = 32
+        let totalWidth = buttonWidth * CGFloat(max(buttons.count, 1)) + stackView.spacing * CGFloat(max(buttons.count - 1, 0))
+        let width = min(totalWidth, max(0, bounds.width - 32))
+        stackView.frame = NSRect(
+            x: floor((bounds.width - width) / 2),
+            y: floor((bounds.height - buttonHeight) / 2),
+            width: width,
+            height: buttonHeight
+        )
     }
 }
 
@@ -2454,6 +2438,7 @@ private final class TaskBarPopoverContentView: NSView {
         onOpenThread: @escaping (String) -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void,
+        initialSize: NSSize?,
         onResize: @escaping (NSSize, Bool) -> Void
     ) {
         self.onResize = onResize
@@ -2489,7 +2474,8 @@ private final class TaskBarPopoverContentView: NSView {
         let maxRowsHeight = max(EmptyStateView().frame.height, taskBarPopoverMaxHeight() - fixedHeight)
         let naturalRowsHeight = min(rowsContentHeight, maxRowsHeight)
         let naturalHeight = fixedHeight + naturalRowsHeight
-        let initialSize = TaskBarSettings.popoverSize(defaultHeight: naturalHeight)
+        let naturalSize = NSSize(width: menuPanelWidth, height: naturalHeight)
+        let initialSize = TaskBarSettings.clampedPopoverSize(initialSize ?? naturalSize)
 
         let scrollView = NSScrollView(frame: .zero)
         scrollView.borderType = .noBorder
@@ -2574,6 +2560,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var animationTimer: Timer?
     private var settingsWindowController: TaskBarSettingsWindowController?
     private var readInFlight = false
+    private var transientPopoverSize: NSSize?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -2631,9 +2618,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
         if popover.isShown {
-            popover.performClose(nil)
+            if transientPopoverSize != nil {
+                transientPopoverSize = nil
+                rebuildPopover()
+            } else {
+                popover.performClose(nil)
+            }
             return
         }
+        transientPopoverSize = nil
         rebuildPopover()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
@@ -2663,12 +2656,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ThreadHoverPanel.shared.hideAll()
                 self?.quit()
             },
-            onResize: { [weak self, weak controller] size, persist in
+            initialSize: transientPopoverSize,
+            onResize: { [weak self, weak controller] size, _ in
                 controller?.preferredContentSize = size
                 self?.popover.contentSize = size
-                if persist {
-                    TaskBarSettings.setPopoverSize(size)
-                }
+                self?.transientPopoverSize = size
             }
         )
         controller.view = content
