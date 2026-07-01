@@ -28,5 +28,8 @@ if [[ -f "$ROOT/Resources/CodexBarAppIcon.icns" ]]; then
 elif [[ -f "$ROOT/Resources/AppIcon.icns" ]]; then
   cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
+if [[ -f "$ROOT/Resources/CodexBarLogo.png" ]]; then
+  cp "$ROOT/Resources/CodexBarLogo.png" "$APP/Contents/Resources/CodexBarLogo.png"
+fi
 
 echo "$APP"

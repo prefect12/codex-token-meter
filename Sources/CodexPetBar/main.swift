@@ -1341,28 +1341,33 @@ final class PetStatusIcon {
 }
 
 final class PanelHeaderView: NSView {
+    private let logoView = NSImageView(frame: .zero)
     private let titleLabel = NSTextField(labelWithString: "Task Bar")
-    private let summaryLabel = NSTextField(labelWithString: "")
+    private let statusSummaryLabel = NSTextField(labelWithString: "")
 
     init(runningCount: Int, waitingCount: Int, unreadCount: Int) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 58))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 70))
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.18).cgColor
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.02).cgColor
 
-        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        logoView.image = NSImage(named: "CodexBarLogo") ?? NSImage(named: NSImage.applicationIconName)
+        logoView.imageScaling = .scaleProportionallyUpOrDown
+        addSubview(logoView)
+
+        titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         addSubview(titleLabel)
 
-        summaryLabel.stringValue = summaryText(
+        statusSummaryLabel.attributedStringValue = headerStatusSummaryText(
             runningCount: runningCount,
             waitingCount: waitingCount,
             unreadCount: unreadCount
         )
-        summaryLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        summaryLabel.textColor = .secondaryLabelColor
-        summaryLabel.lineBreakMode = .byTruncatingTail
-        addSubview(summaryLabel)
+        statusSummaryLabel.lineBreakMode = .byTruncatingTail
+        statusSummaryLabel.maximumNumberOfLines = 1
+        statusSummaryLabel.alignment = .right
+        addSubview(statusSummaryLabel)
     }
 
     required init?(coder: NSCoder) {
@@ -1371,9 +1376,61 @@ final class PanelHeaderView: NSView {
 
     override func layout() {
         super.layout()
-        titleLabel.frame = NSRect(x: 16, y: 30, width: bounds.width - 32, height: 20)
-        summaryLabel.frame = NSRect(x: 16, y: 12, width: bounds.width - 32, height: 17)
+        let horizontalPadding: CGFloat = 28
+        let logoSize: CGFloat = 24
+        let summaryWidth = min(190, max(150, bounds.width * 0.44))
+        logoView.frame = NSRect(x: horizontalPadding, y: 22, width: logoSize, height: logoSize)
+        statusSummaryLabel.frame = NSRect(
+            x: bounds.width - horizontalPadding - summaryWidth,
+            y: 26,
+            width: summaryWidth,
+            height: 18
+        )
+        titleLabel.frame = NSRect(
+            x: logoView.frame.maxX + 10,
+            y: 20,
+            width: max(80, statusSummaryLabel.frame.minX - logoView.frame.maxX - 22),
+            height: 28
+        )
     }
+}
+
+private func headerStatusSummaryText(runningCount: Int, waitingCount: Int, unreadCount: Int) -> NSAttributedString {
+    let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.alignment = .right
+    paragraph.lineBreakMode = .byTruncatingTail
+    let separatorAttributes: [NSAttributedString.Key: Any] = [
+        .font: font,
+        .foregroundColor: NSColor.white.withAlphaComponent(0.40),
+        .paragraphStyle: paragraph
+    ]
+
+    let result = NSMutableAttributedString()
+    func append(_ text: String, color: NSColor) {
+        if result.length > 0 {
+            result.append(NSAttributedString(string: "  ·  ", attributes: separatorAttributes))
+        }
+        result.append(NSAttributedString(string: text, attributes: [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraph
+        ]))
+    }
+
+    if runningCount > 0 {
+        append("\(runningCount) 运行中", color: statusColor(.running))
+    }
+    if waitingCount > 0 {
+        append("\(waitingCount) 等待", color: statusColor(.waiting))
+    }
+    if unreadCount > 0 {
+        append("\(unreadCount) 未读", color: statusColor(.unread))
+    }
+    if result.length == 0 {
+        append("已完成", color: NSColor.white.withAlphaComponent(0.58))
+    }
+    return result
 }
 
 final class EmptyStateView: NSView {
@@ -2294,7 +2351,7 @@ final class MenuSeparatorView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        NSColor(calibratedWhite: 0.33, alpha: 0.72).setFill()
+        NSColor.white.withAlphaComponent(0.18).setFill()
         NSRect(x: inset, y: floor(bounds.height / 2), width: bounds.width - inset * 2, height: 1).fill()
     }
 }
@@ -3043,7 +3100,7 @@ private func tooltipStatusLabel(_ status: ThreadRunStatus) -> String {
 private let menuPanelWidth: CGFloat = 390
 private let taskBarPopoverMinWidth: CGFloat = 320
 private let taskBarPopoverMinHeight: CGFloat = 180
-private let menuPanelBackground = NSColor(calibratedWhite: 0.105, alpha: 0.97)
+private let menuPanelBackground = NSColor(calibratedWhite: 0.045, alpha: 0.98)
 
 private func taskBarPopoverMaxHeight() -> CGFloat {
     let mouse = NSEvent.mouseLocation
