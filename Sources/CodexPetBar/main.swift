@@ -1774,9 +1774,34 @@ private enum TaskTokenUnitStyle: String, CaseIterable {
     }
 }
 
+/// Where a row places its time / status / platform metadata.
+/// `.standard` keeps them on a single line beneath the text; `.compact`
+/// stacks them in a narrow left rail so each row is shorter and the list
+/// can breathe at a narrower width.
+/// Not `private`: it appears in the (internal) `ThreadRowView.init` signature.
+enum TaskRowLayoutStyle: String, CaseIterable {
+    case standard
+    case compact
+
+    var title: String {
+        switch self {
+        case .standard: return "底部"
+        case .compact: return "左侧"
+        }
+    }
+
+    var rowHeight: CGFloat {
+        switch self {
+        case .standard: return taskBarRowHeight
+        case .compact: return taskBarCompactRowHeight
+        }
+    }
+}
+
 private enum TaskBarSettings {
     private static let showPlatformLabelsKey = "showPlatformLabels"
     private static let tokenUnitStyleKey = "tokenUnitStyle"
+    private static let rowLayoutKey = "taskRowLayout"
     private static let popoverWidthKey = "popoverWidth"
     private static let popoverHeightKey = "popoverHeight"
 
@@ -1832,6 +1857,19 @@ private enum TaskBarSettings {
         }
     }
 
+    static var rowLayout: TaskRowLayoutStyle {
+        get {
+            guard let rawValue = UserDefaults.standard.string(forKey: rowLayoutKey),
+                  let style = TaskRowLayoutStyle(rawValue: rawValue) else {
+                return .standard
+            }
+            return style
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: rowLayoutKey)
+        }
+    }
+
     static func clampedPopoverSize(_ size: NSSize) -> NSSize {
         let maxSize = taskBarPopoverMaxResizableSize()
         return NSSize(
@@ -1855,7 +1893,7 @@ private final class TaskBarSettingsWindowController: NSWindowController {
             defer: false
         )
         window.title = "Task Bar 设置"
-        window.contentMinSize = NSSize(width: 680, height: 420)
+        window.contentMinSize = NSSize(width: 680, height: 480)
         window.contentView = contentView
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor(calibratedRed: 0.055, green: 0.066, blue: 0.086, alpha: 1.0)
@@ -1879,11 +1917,12 @@ private final class TaskBarSettingsWindowController: NSWindowController {
 }
 
 private final class TaskBarSettingsView: NSView {
-    static let preferredSize = NSSize(width: 720, height: 460)
+    static let preferredSize = NSSize(width: 720, height: 510)
 
     private let onSettingsChanged: () -> Void
     private var platformOptionRects: [Bool: NSRect] = [:]
     private var tokenUnitOptionRects: [TaskTokenUnitStyle: NSRect] = [:]
+    private var layoutOptionRects: [TaskRowLayoutStyle: NSRect] = [:]
 
     init(onSettingsChanged: @escaping () -> Void) {
         self.onSettingsChanged = onSettingsChanged
@@ -1928,7 +1967,7 @@ private final class TaskBarSettingsView: NSView {
             color: NSColor.white.withAlphaComponent(0.56)
         )
 
-        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 162)
+        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 222)
         drawPanel(settingsCard)
         drawText(
             "列表显示",
@@ -1942,7 +1981,27 @@ private final class TaskBarSettingsView: NSView {
         let binaryPillWidth: CGFloat = 104
         let binaryOptionX = settingsCard.maxX - 16 - binaryPillWidth * 2 - pillGap
 
-        let labelPillY = settingsCard.minY + 48
+        let layoutStyles = TaskRowLayoutStyle.allCases
+        let layoutPillY = settingsCard.minY + 48
+        layoutOptionRects.removeAll(keepingCapacity: true)
+        drawText(
+            "信息位置",
+            rect: NSRect(x: settingsCard.minX + 16, y: layoutPillY + 7, width: binaryOptionX - settingsCard.minX - 32, height: 20),
+            font: .systemFont(ofSize: 13, weight: .semibold),
+            color: .white
+        )
+        for (index, style) in layoutStyles.enumerated() {
+            let optionRect = NSRect(
+                x: binaryOptionX + CGFloat(index) * (binaryPillWidth + pillGap),
+                y: layoutPillY,
+                width: binaryPillWidth,
+                height: pillHeight
+            )
+            layoutOptionRects[style] = optionRect
+            drawSelectablePill(style.title, rect: optionRect, selected: TaskBarSettings.rowLayout == style)
+        }
+
+        let labelPillY = settingsCard.minY + 92
         let showRect = NSRect(x: binaryOptionX, y: labelPillY, width: binaryPillWidth, height: pillHeight)
         let hideRect = NSRect(x: showRect.maxX + pillGap, y: labelPillY, width: binaryPillWidth, height: pillHeight)
         platformOptionRects = [true: showRect, false: hideRect]
@@ -1958,7 +2017,7 @@ private final class TaskBarSettingsView: NSView {
         let unitPillWidth: CGFloat = 82
         let unitStyles = TaskTokenUnitStyle.allCases
         let unitOptionX = settingsCard.maxX - 16 - unitPillWidth * CGFloat(unitStyles.count) - pillGap * CGFloat(unitStyles.count - 1)
-        let unitPillY = settingsCard.minY + 92
+        let unitPillY = settingsCard.minY + 136
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
         drawText(
             "Token 单位",
@@ -1977,8 +2036,14 @@ private final class TaskBarSettingsView: NSView {
             drawSelectablePill(style.title, rect: optionRect, selected: TaskBarSettings.tokenUnitStyle == style)
         }
         drawText(
-            "只影响 hover 中的输入 / 输出等 token 数字；缓存率和金额不变。",
-            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 136, width: settingsCard.width - 32, height: 18),
+            "信息位置选“左侧”把时间 / 状态 / 平台移到左栏，行更窄、可显示更多任务。",
+            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 176, width: settingsCard.width - 32, height: 18),
+            font: .systemFont(ofSize: 12, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.52)
+        )
+        drawText(
+            "Token 单位只影响 hover 中的输入 / 输出等数字；缓存率和金额不变。",
+            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 196, width: settingsCard.width - 32, height: 18),
             font: .systemFont(ofSize: 12, weight: .medium),
             color: NSColor.white.withAlphaComponent(0.52)
         )
@@ -2004,6 +2069,13 @@ private final class TaskBarSettingsView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        for (style, rect) in layoutOptionRects where rect.contains(point) {
+            guard TaskBarSettings.rowLayout != style else { return }
+            TaskBarSettings.rowLayout = style
+            needsDisplay = true
+            onSettingsChanged()
+            return
+        }
         for (showLabels, rect) in platformOptionRects where rect.contains(point) {
             guard TaskBarSettings.showPlatformLabels != showLabels else { return }
             TaskBarSettings.showPlatformLabels = showLabels
@@ -2149,12 +2221,14 @@ final class ThreadRowView: NSView {
     private let onOpen: (String) -> Void
     private let onDismiss: (String) -> Void
     private let showPlatformLabel: Bool
+    private let rowLayout: TaskRowLayoutStyle
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private let clockIconView = NSImageView()
     private let durationLabel = NSTextField(labelWithString: "")
     private let metaDotView = NSView()
     private let metaStatusLabel = NSTextField(labelWithString: "")
+    private let platformLabel = NSTextField(labelWithString: "")
     private var trackingAreaRef: NSTrackingArea?
     private var elapsedTimer: Timer?
     private var mouseDownPoint = NSPoint.zero
@@ -2170,14 +2244,16 @@ final class ThreadRowView: NSView {
     init(
         item: CodexThreadItem,
         showPlatformLabel: Bool,
+        rowLayout: TaskRowLayoutStyle,
         onOpen: @escaping (String) -> Void,
         onDismiss: @escaping (String) -> Void
     ) {
         self.item = item
         self.showPlatformLabel = showPlatformLabel
+        self.rowLayout = rowLayout
         self.onOpen = onOpen
         self.onDismiss = onDismiss
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: taskBarRowHeight))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: rowLayout.rowHeight))
         wantsLayer = true
         let tooltip = tooltipText(for: item)
         setAccessibilityHelp(tooltip)
@@ -2217,9 +2293,23 @@ final class ThreadRowView: NSView {
         metaDotView.layer?.cornerRadius = 2.5
         addSubview(metaDotView)
 
-        metaStatusLabel.attributedStringValue = rowMetadataAttributed(for: item, showSource: showPlatformLabel)
         metaStatusLabel.lineBreakMode = .byTruncatingTail
         addSubview(metaStatusLabel)
+
+        platformLabel.lineBreakMode = .byTruncatingTail
+        addSubview(platformLabel)
+
+        switch rowLayout {
+        case .standard:
+            // Status word plus the source label share a single trailing line.
+            metaStatusLabel.attributedStringValue = rowMetadataAttributed(for: item, showSource: showPlatformLabel)
+            platformLabel.isHidden = true
+        case .compact:
+            // Status and source get their own lines in the left rail.
+            metaStatusLabel.attributedStringValue = rowStatusOnlyAttributed(for: item)
+            platformLabel.attributedStringValue = rowSourceAttributed(for: item)
+            platformLabel.isHidden = !showPlatformLabel
+        }
 
         updateElapsedLabel()
     }
@@ -2388,6 +2478,14 @@ final class ThreadRowView: NSView {
 
     override func layout() {
         super.layout()
+        switch rowLayout {
+        case .standard: layoutStandard()
+        case .compact: layoutCompact()
+        }
+    }
+
+    /// Title and detail stacked over a single metadata line (time · status · source).
+    private func layoutStandard() {
         let offset = swipeOffset
         let contentX: CGFloat = 26
         let contentWidth = max(120, bounds.width - 18 - contentX)
@@ -2399,6 +2497,40 @@ final class ThreadRowView: NSView {
         durationLabel.frame = NSRect(x: contentX + 16 + offset, y: 9, width: 58, height: 15)
         metaDotView.frame = NSRect(x: contentX + 76 + offset, y: 14, width: 5, height: 5)
         metaStatusLabel.frame = NSRect(x: contentX + 87 + offset, y: 9, width: max(0, contentWidth - 87), height: 15)
+    }
+
+    /// Metadata (time / status / source) stacked in a narrow left rail, with the
+    /// title and detail filling the remaining width so rows stay short.
+    private func layoutCompact() {
+        let offset = swipeOffset
+        let contentX: CGFloat = 26
+        let railWidth: CGFloat = 66
+        let railGap: CGFloat = 10
+        let rightX = contentX + railWidth + railGap
+        let rightWidth = max(80, bounds.width - 18 - rightX)
+
+        titleLabel.frame = NSRect(x: rightX + offset, y: bounds.height - 30, width: rightWidth, height: 20)
+        detailLabel.frame = NSRect(x: rightX + offset, y: 8, width: rightWidth, height: 32)
+
+        // Vertically center however many meta lines are visible (time, status, [source]).
+        let lineHeight: CGFloat = 15
+        let lineGap: CGFloat = 6
+        let showsSource = !platformLabel.isHidden
+        let lineCount: CGFloat = showsSource ? 3 : 2
+        let groupHeight = lineHeight * lineCount + lineGap * (lineCount - 1)
+        var lineY = bounds.height - (bounds.height - groupHeight) / 2 - lineHeight
+
+        clockIconView.frame = NSRect(x: contentX + offset, y: lineY + 2, width: 11, height: 11)
+        durationLabel.frame = NSRect(x: contentX + 14 + offset, y: lineY, width: railWidth - 14, height: lineHeight)
+        lineY -= lineHeight + lineGap
+
+        metaDotView.frame = NSRect(x: contentX + 1 + offset, y: lineY + 5, width: 5, height: 5)
+        metaStatusLabel.frame = NSRect(x: contentX + 11 + offset, y: lineY, width: railWidth - 11, height: lineHeight)
+        lineY -= lineHeight + lineGap
+
+        if showsSource {
+            platformLabel.frame = NSRect(x: contentX + offset, y: lineY, width: railWidth, height: lineHeight)
+        }
     }
 
     private func setSwipeOffset(_ offset: CGFloat, animated: Bool) {
@@ -2956,6 +3088,7 @@ private final class TaskBarPopoverContentView: NSView {
     private let allThreads: [CodexThreadItem]
     private let totalCount: Int
     private let showPlatformLabels: Bool
+    private let rowLayout: TaskRowLayoutStyle
     private let onOpenThread: (String) -> Void
     private let onDismissThread: (String) -> Void
     private let externalSelectTab: (TaskBarTab) -> Void
@@ -2968,6 +3101,7 @@ private final class TaskBarPopoverContentView: NSView {
         unreadCount: Int,
         selectedTab: TaskBarTab,
         showPlatformLabels: Bool,
+        rowLayout: TaskRowLayoutStyle,
         onOpenThread: @escaping (String) -> Void,
         onDismissThread: @escaping (String) -> Void,
         onSelectTab: @escaping (TaskBarTab) -> Void,
@@ -2979,6 +3113,7 @@ private final class TaskBarPopoverContentView: NSView {
         self.onResize = onResize
         self.allThreads = threads
         self.showPlatformLabels = showPlatformLabels
+        self.rowLayout = rowLayout
         self.onOpenThread = onOpenThread
         self.onDismissThread = onDismissThread
         self.externalSelectTab = onSelectTab
@@ -3003,6 +3138,7 @@ private final class TaskBarPopoverContentView: NSView {
             filtered: filtered,
             selectedTab: selectedTab,
             showPlatformLabels: showPlatformLabels,
+            rowLayout: rowLayout,
             onOpenThread: onOpenThread,
             onDismissThread: onDismissThread
         )
@@ -3067,6 +3203,7 @@ private final class TaskBarPopoverContentView: NSView {
             filtered: filtered,
             selectedTab: tab,
             showPlatformLabels: showPlatformLabels,
+            rowLayout: rowLayout,
             onOpenThread: onOpenThread,
             onDismissThread: onDismissThread
         )
@@ -3083,6 +3220,7 @@ private final class TaskBarPopoverContentView: NSView {
         filtered: [CodexThreadItem],
         selectedTab: TaskBarTab,
         showPlatformLabels: Bool,
+        rowLayout: TaskRowLayoutStyle,
         onOpenThread: @escaping (String) -> Void,
         onDismissThread: @escaping (String) -> Void
     ) -> [NSView] {
@@ -3093,6 +3231,7 @@ private final class TaskBarPopoverContentView: NSView {
             ThreadRowView(
                 item: thread,
                 showPlatformLabel: showPlatformLabels,
+                rowLayout: rowLayout,
                 onOpen: onOpenThread,
                 onDismiss: onDismissThread
             )
@@ -3258,6 +3397,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             unreadCount: unreadCount,
             selectedTab: selectedTab,
             showPlatformLabels: TaskBarSettings.showPlatformLabels,
+            rowLayout: TaskBarSettings.rowLayout,
             onOpenThread: { [weak self] id in
                 self?.openThread(id: id)
             },
@@ -3455,6 +3595,23 @@ private func rowMetadataAttributed(for item: CodexThreadItem, showSource: Bool) 
     return result
 }
 
+/// Just the colored status word — used for the compact layout's left rail,
+/// where the source label lives on its own line.
+private func rowStatusOnlyAttributed(for item: CodexThreadItem) -> NSAttributedString {
+    NSAttributedString(string: rowStatusLabel(item.status), attributes: [
+        .font: NSFont.systemFont(ofSize: 10.5, weight: .medium),
+        .foregroundColor: statusAccentColor(item.status)
+    ])
+}
+
+/// Just the colored Codex / Claude source label, for the compact left rail.
+private func rowSourceAttributed(for item: CodexThreadItem) -> NSAttributedString {
+    NSAttributedString(string: sourceLabel(item), attributes: [
+        .font: NSFont.systemFont(ofSize: 10.5, weight: .semibold),
+        .foregroundColor: sourceColor(item)
+    ])
+}
+
 /// Clock-style elapsed time: "MM:SS", or "HH:MM:SS" once past an hour.
 private func clockDuration(_ date: Date) -> String {
     let total = max(0, Int(Date().timeIntervalSince(date)))
@@ -3583,6 +3740,7 @@ private let taskBarPopoverMinWidth: CGFloat = 340
 private let taskBarPopoverMinHeight: CGFloat = 200
 private let menuPanelBackground = NSColor(calibratedWhite: 0.105, alpha: 0.97)
 private let taskBarRowHeight: CGFloat = 92
+private let taskBarCompactRowHeight: CGFloat = 72
 private let taskBarEmptyStateHeight: CGFloat = 120
 
 private func taskBarPopoverMaxHeight() -> CGFloat {
@@ -4217,6 +4375,7 @@ private func renderTaskBar(to path: String) {
         unreadCount: unread,
         selectedTab: selectedTab,
         showPlatformLabels: true,
+        rowLayout: TaskBarSettings.rowLayout,
         onOpenThread: { _ in },
         onDismissThread: { _ in },
         onSelectTab: { _ in },
