@@ -140,6 +140,7 @@ struct ClaudeStatuslineSnapshot {
     let sevenDay: ClaudeStatuslineWindow?
 
     var liveRateLimit: LiveRateLimit? {
+        guard !isStale else { return nil }
         guard let fiveHour,
               let sevenDay else {
             return nil
@@ -155,7 +156,7 @@ struct ClaudeStatuslineSnapshot {
 }
 
 final class ClaudeStatuslineStore {
-    private static let ttlSeconds: TimeInterval = 6 * 60 * 60
+    private static let ttlSeconds: TimeInterval = 10 * 60
     private let url: URL
 
     init(url: URL = AppSettings.claudeStatuslineCaptureURL) {
