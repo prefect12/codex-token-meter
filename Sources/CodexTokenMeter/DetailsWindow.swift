@@ -1987,11 +1987,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func selectedDayPanelPreferredHeight(contentWidth: CGFloat) -> CGFloat {
         guard let snapshot else { return 248 }
-        if usesProfileAPIReport(for: snapshot) {
-            let report = calendarReport(for: snapshot)
-            let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
-                ?? report.byDay.last(where: { $0.usage.total > 0 })
-                ?? report.byDay.last
+        let report = calendarReport(for: snapshot)
+        let day = selectedCalendarDay(in: report)
+        if usesProfileAPIReport(for: snapshot), !profileSelectedDayUsesLocalFallback(snapshot: snapshot, report: report) {
             let localDay = day.flatMap { profileDay in snapshot.codex.byDay.first { $0.day == profileDay.day } }
             let apiEstimate = day.map { profileAPIDayEstimate(profileDay: $0, localDay: localDay) }
             let metricsCount = 3 + (apiEstimate?.hasPricedUsage == true ? 1 : 0)
@@ -2007,10 +2005,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             let modelY = max(CGFloat(134), metricsBottom + 18)
             return max(284, modelY + minimumModelHeight + 18)
         }
-        let report = calendarReport(for: snapshot)
-        let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
-            ?? report.byDay.last(where: { $0.usage.total > 0 })
-            ?? report.byDay.last
         guard let day else { return 160 }
 
         let limit = sourceCostLimit(for: snapshot)
@@ -2091,6 +2085,27 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             return nil
         }
         return accountUsage.report(days: 365)
+    }
+
+    private func selectedCalendarDay(in report: TokenReport) -> DayUsage? {
+        selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
+            ?? report.byDay.last(where: { $0.usage.total > 0 })
+            ?? report.byDay.last
+    }
+
+    private func profileSelectedDayUsesLocalFallback(snapshot: DetailsSnapshot, report: TokenReport) -> Bool {
+        guard usesProfileAPIReport(for: snapshot),
+              let day = selectedCalendarDay(in: report),
+              let localDay = snapshot.codex.byDay.first(where: { $0.day == day.day }),
+              localDay.usage.total > 0 else {
+            return false
+        }
+        let rawProfileTotal = rawProfileCalendarReport(for: snapshot)?
+            .byDay
+            .first { $0.day == day.day }?
+            .usage
+            .total ?? 0
+        return rawProfileTotal == 0 && day.usage.total == localDay.usage.total
     }
 
     private func profileLifetimeTotal(for snapshot: DetailsSnapshot) -> Int64? {
@@ -3500,7 +3515,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func drawCalendarPage(snapshot: DetailsSnapshot, content: NSRect) {
         let report = calendarReport(for: snapshot)
-        let title = usesProfileAPIReport(for: snapshot)
+        let useProfilePanel = usesProfileAPIReport(for: snapshot)
+            && !profileSelectedDayUsesLocalFallback(snapshot: snapshot, report: report)
+        let title = useProfilePanel
             ? "\(t(.tokenActivity)) · \(t(.profileAPISource))"
             : t(.tokenActivity)
         let preferredGridHeight = contributionGridPreferredHeight(report: report, width: content.width, compact: false)
@@ -3511,7 +3528,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let available = max(248, content.maxY - gridRect.maxY - 16)
         let preferredHeight = selectedDayPanelPreferredHeight(contentWidth: content.width)
         let detailRect = NSRect(x: content.minX, y: gridRect.maxY + 16, width: content.width, height: min(preferredHeight, available))
-        if usesProfileAPIReport(for: snapshot) {
+        if useProfilePanel {
             drawProfileSelectedDayPanel(snapshot: snapshot, report: report, rect: detailRect)
         } else {
             drawSelectedDayPanel(snapshot: snapshot, rect: detailRect)
