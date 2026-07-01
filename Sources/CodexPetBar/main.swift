@@ -2164,10 +2164,11 @@ private final class CommandButtonBarView: NSView {
 
     init(
         onRefresh: @escaping () -> Void,
+        onOpenDetails: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 44))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 56))
         wantsLayer = true
         layer?.backgroundColor = menuPanelBackground.cgColor
 
@@ -2177,6 +2178,7 @@ private final class CommandButtonBarView: NSView {
         addSubview(stackView)
 
         addButton(title: "刷新", symbolName: "arrow.clockwise", action: onRefresh)
+        addButton(title: "详情", symbolName: "chart.bar", action: onOpenDetails)
         addButton(title: "设置", symbolName: "gearshape", action: onOpenSettings)
         addButton(title: "退出", symbolName: "power", action: onQuit)
     }
@@ -2198,7 +2200,7 @@ private final class CommandButtonBarView: NSView {
         button.layer?.cornerRadius = 7
         button.layer?.backgroundColor = NSColor(calibratedWhite: 0.24, alpha: 1).cgColor
         button.layer?.borderWidth = 1
-        button.layer?.borderColor = (isActive ? NSColor.controlAccentColor.withAlphaComponent(0.55) : NSColor.white.withAlphaComponent(0.16)).cgColor
+        button.layer?.borderColor = (isActive ? NSColor.controlAccentColor.withAlphaComponent(0.55) : NSColor.white.withAlphaComponent(0.14)).cgColor
         button.imagePosition = .imageLeading
         button.imageScaling = .scaleProportionallyDown
         button.alignment = .center
@@ -2226,7 +2228,7 @@ private final class CommandButtonBarView: NSView {
 
     override func layout() {
         super.layout()
-        stackView.frame = bounds.insetBy(dx: 16, dy: 7)
+        stackView.frame = NSRect(x: 16, y: 8, width: bounds.width - 32, height: 40)
     }
 }
 
@@ -2302,6 +2304,7 @@ private final class TaskBarPopoverContentView: NSView {
         showStatusDots: Bool,
         onOpenThread: @escaping (String) -> Void,
         onRefresh: @escaping () -> Void,
+        onOpenDetails: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
@@ -2327,6 +2330,7 @@ private final class TaskBarPopoverContentView: NSView {
         rowsContentHeight = rowsView.frame.height
         commandBar = CommandButtonBarView(
             onRefresh: onRefresh,
+            onOpenDetails: onOpenDetails,
             onOpenSettings: onOpenSettings,
             onQuit: onQuit
         )
@@ -2494,6 +2498,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ThreadHoverPanel.shared.hideAll()
                 self?.refresh()
             },
+            onOpenDetails: { [weak self] in
+                self?.openTaskDetails()
+            },
             onOpenSettings: { [weak self] in
                 self?.openSettingsWindow()
             },
@@ -2508,6 +2515,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.preferredContentSize = content.frame.size
         popover.contentViewController = controller
         popover.contentSize = content.frame.size
+    }
+
+    private func openTaskDetails() {
+        popover.performClose(nil)
+        ThreadHoverPanel.shared.hideAll()
+        let codexURL = URL(fileURLWithPath: "/Applications/Codex.app")
+        if FileManager.default.fileExists(atPath: codexURL.path) {
+            NSWorkspace.shared.open(codexURL)
+        } else if let item = threads.first {
+            openThread(id: item.id)
+        }
     }
 
     private func openSettingsWindow() {
