@@ -746,12 +746,16 @@ final class CodexActivityReader {
         var lastPrompt: String?
         var aiTitle: String?
         var latestUserAt: Date?
+        var latestUserIsToolResult = false
         var latestAssistantAt: Date?
-        var latestAssistantNeedsAction = false
+        var latestAssistantIsRunning = false
+        var latestAssistantNeedsInput = false
         var lastActivity: Date?
         var lastQueueOperation: String?
         var lastQueueAt: Date?
         var turns = 0
+        var model: String?
+        var tokens = TokenBreakdown()
 
         text.enumerateLines { line, _ in
             guard let data = line.data(using: .utf8),
@@ -797,19 +801,50 @@ final class CodexActivityReader {
                 if let timestamp {
                     latestUserAt = timestamp
                 }
+                let isToolResult = bool(object["toolUseResult"]) == true
+                    || self.messageContentContainsType(message["content"], "tool_result")
+                latestUserIsToolResult = isToolResult
                 if let contentText {
                     firstUserText = firstUserText ?? contentText
                     latestUserText = contentText
                 }
-                turns += 1
+                // Only genuine human prompts count as turns. Tool results are
+                // role=user but automated; sidechain/meta messages are injected.
+                let isSidechain = (object["isSidechain"] as? Bool) ?? false
+                let isMeta = (object["isMeta"] as? Bool) ?? false
+                if !isToolResult, !isSidechain, !isMeta,
+                   let contentText, !contentText.isEmpty {
+                    turns += 1
+                }
             } else if role == "assistant" {
                 if let timestamp {
                     latestAssistantAt = timestamp
                 }
+                latestUserIsToolResult = false
+                if let value = string(message["model"]), !value.isEmpty {
+                    model = value
+                }
+                if let usage = message["usage"] as? [String: Any] {
+                    let input = intValue(usage["input_tokens"]) ?? 0
+                    let cacheRead = intValue(usage["cache_read_input_tokens"]) ?? 0
+                    let cacheCreate = intValue(usage["cache_creation_input_tokens"]) ?? 0
+                    let output = intValue(usage["output_tokens"]) ?? 0
+                    let totalInput = input + cacheRead + cacheCreate
+                    if totalInput + output > 0 {
+                        tokens.add(TokenBreakdown(
+                            input: totalInput,
+                            cachedInput: cacheRead,
+                            output: output,
+                            reasoningOutput: 0,
+                            total: totalInput + output,
+                            hasDetailedCounters: true
+                        ))
+                    }
+                }
                 let stopReason = string(message["stop_reason"] ?? message["stopReason"])?.lowercased()
-                latestAssistantNeedsAction = stopReason == "tool_use"
-                    || stopReason == "pause_turn"
+                latestAssistantIsRunning = stopReason == "tool_use"
                     || self.messageContentContainsType(message["content"], "tool_use")
+                latestAssistantNeedsInput = stopReason == "pause_turn"
                 if let contentText {
                     latestAssistantText = contentText
                 }
@@ -825,9 +860,23 @@ final class CodexActivityReader {
         let pendingUserResponse = (latestUserAt ?? .distantPast) > (latestAssistantAt ?? .distantPast)
         let queuedAfterAssistant = lastQueueOperation == "enqueue"
             && (lastQueueAt ?? .distantPast) > (latestAssistantAt ?? .distantPast)
-        let assistantWaitingForAction = latestAssistantNeedsAction
+        let assistantWaitingForInput = latestAssistantNeedsInput
             && (latestAssistantAt ?? .distantPast) >= (latestUserAt ?? .distantPast)
-        let isWaitingForUser = pendingUserResponse || queuedAfterAssistant || assistantWaitingForAction
+        let assistantRunningTool = latestAssistantIsRunning
+            && (latestAssistantAt ?? .distantPast) >= (latestUserAt ?? .distantPast)
+        let userToolResultStillActive = latestUserIsToolResult
+            && (latestUserAt ?? .distantPast) >= (latestAssistantAt ?? .distantPast)
+        let isRunning = pendingUserResponse || queuedAfterAssistant || assistantRunningTool || userToolResultStillActive
+        let isWaitingForUser = !isRunning && assistantWaitingForInput
+        let status: ThreadRunStatus = isRunning ? .running : (isWaitingForUser ? .waiting : .unread)
+        let startedAt: Date?
+        if isRunning {
+            startedAt = latestUserAt ?? latestAssistantAt ?? lastQueueAt ?? activityDate
+        } else if isWaitingForUser {
+            startedAt = latestAssistantAt ?? activityDate
+        } else {
+            startedAt = nil
+        }
         let title = aiTitle
             ?? cleanTitle(lastPrompt)
             ?? cleanTitle(firstUserText)
@@ -840,16 +889,16 @@ final class CodexActivityReader {
             preview: preview,
             cwd: cwd,
             lastActivity: activityDate,
-            startedAt: isWaitingForUser ? (latestUserAt ?? lastQueueAt ?? activityDate) : nil,
+            startedAt: startedAt,
             externalReadAt: nil,
-            status: isWaitingForUser ? .waiting : .unread,
+            status: status,
             turns: turns,
             compressionCount: nil,
             source: "claude-code",
             isExplicitUnread: false,
-            tokensUsed: nil,
-            tokenBreakdown: TokenBreakdown(),
-            model: nil
+            tokensUsed: tokens.displayTotal,
+            tokenBreakdown: tokens,
+            model: model
         )
     }
 
@@ -905,13 +954,19 @@ final class CodexActivityReader {
         var summary = RolloutSummary()
         var previousTokenCounters = TokenBreakdown()
         text.enumerateLines { line, _ in
+            let eventDate = self.eventDate(from: line)
             if summary.cwd == nil, line.contains(#""type":"session_meta""#) {
                 summary.cwd = self.extractJSONString(line: line, key: "cwd")
             }
-            if line.contains(#""type":"turn_context""#),
-               let cwd = self.extractJSONString(line: line, key: "cwd"),
-               !cwd.isEmpty {
-                summary.cwd = cwd
+            if line.contains(#""type":"turn_context""#) {
+                if let cwd = self.extractJSONString(line: line, key: "cwd"),
+                   !cwd.isEmpty {
+                    summary.cwd = cwd
+                }
+                summary.isRunning = true
+                summary.turns += 1
+                summary.lastTaskEventAt = eventDate ?? summary.lastTaskEventAt
+                summary.currentTurnStartedAt = eventDate ?? summary.currentTurnStartedAt
             }
             if summary.title == nil,
                line.contains(#""type":"response_item""#),
@@ -930,8 +985,13 @@ final class CodexActivityReader {
                let preview = cleanPreview(candidate) {
                 summary.preview = preview
             }
+            if self.isFinalAssistantMessage(line: line) {
+                summary.isRunning = false
+                summary.lastTaskEventAt = eventDate ?? summary.lastTaskEventAt
+                summary.lastCompletionAt = eventDate ?? summary.lastCompletionAt
+                summary.currentTurnStartedAt = nil
+            }
             guard line.contains(#""type":"event_msg""#) else { return }
-            let eventDate = self.eventDate(from: line)
             if line.contains(#""type":"context_compacted""#) {
                 summary.compressionCount += 1
             }
@@ -944,8 +1004,11 @@ final class CodexActivityReader {
                 }
             }
             if line.contains(#""type":"task_started""#) {
+                let wasAlreadyRunning = summary.isRunning
                 summary.isRunning = true
-                summary.turns += 1
+                if !wasAlreadyRunning {
+                    summary.turns += 1
+                }
                 summary.lastTaskEventAt = eventDate ?? summary.lastTaskEventAt
                 summary.currentTurnStartedAt = eventDate ?? summary.currentTurnStartedAt
             } else if line.contains(#""type":"task_complete""#) || line.contains(#""type":"turn_aborted""#) {
@@ -960,6 +1023,20 @@ final class CodexActivityReader {
             }
         }
         return summary
+    }
+
+    private func isFinalAssistantMessage(line: String) -> Bool {
+        guard line.contains(#""type":"response_item""#),
+              line.contains(#""payload":{"type":"message""#),
+              line.contains(#""role":"assistant""#),
+              let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let payload = object["payload"] as? [String: Any],
+              string(payload["type"]) == "message",
+              string(payload["role"]) == "assistant" else {
+            return false
+        }
+        return string(payload["phase"]) == "final"
     }
 
     private func tokenCounters(from line: String) -> TokenBreakdown? {
@@ -1292,7 +1369,7 @@ final class ReadStateStore {
 final class PetStatusIcon {
     private var frame = 0
 
-    func image(status: ThreadRunStatus?, count: Int) -> NSImage {
+    func image(status: ThreadRunStatus?, showsRedDot: Bool) -> NSImage {
         let size = NSSize(width: 18, height: 18)
         let image = NSImage(size: size)
         image.lockFocus()
@@ -1303,9 +1380,9 @@ final class PetStatusIcon {
         case .running:
             color = NSColor.systemGreen
         case .stale:
-            color = NSColor.systemOrange
+            color = NSColor.systemYellow
         case .waiting:
-            color = NSColor.systemOrange
+            color = NSColor.systemYellow
         case .unread:
             color = NSColor.systemBlue
         case nil:
@@ -1328,7 +1405,7 @@ final class PetStatusIcon {
         NSBezierPath(ovalIn: NSRect(x: 5, y: 8 + bob, width: 2.2, height: 2.2)).fill()
         NSBezierPath(ovalIn: NSRect(x: 10.8, y: 8 + bob, width: 2.2, height: 2.2)).fill()
 
-        if count > 0 {
+        if showsRedDot {
             NSColor.systemRed.setFill()
             NSBezierPath(ovalIn: NSRect(x: 11.5, y: 1.5, width: 6, height: 6)).fill()
         }
@@ -3170,11 +3247,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatusIcon() {
-        let primaryStatus = threads.map(\.status).sorted { statusDisplayRank($0) < statusDisplayRank($1) }.first
         let runningCount = threads.filter { $0.status == .running || $0.status == .stale }.count
-        let unreadCount = threads.filter { isReadDismissible($0.status) }.count
-        let totalCount = runningCount + unreadCount
-        statusItem.button?.image = icon.image(status: primaryStatus, count: totalCount)
+        let waitingCount = threads.filter { $0.status == .waiting }.count
+        let unreadCount = threads.filter { $0.status == .unread }.count
+        let actionNeededCount = waitingCount + unreadCount
+        let totalCount = runningCount + actionNeededCount
+        let statusIconStatus: ThreadRunStatus = waitingCount > 0 ? .waiting : (unreadCount > 0 ? .unread : .running)
+        statusItem.button?.image = icon.image(status: statusIconStatus, showsRedDot: actionNeededCount > 0)
         statusItem.button?.imagePosition = .imageLeading
         if totalCount > 0 {
             statusItem.button?.title = " \(totalCount)"
