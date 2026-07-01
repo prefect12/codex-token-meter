@@ -1579,6 +1579,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private var costPageDataCache: CostPageData?
     private var costYearOptionsCacheKey: String?
     private var costYearOptionsCache: [Int] = []
+    private var costAmountEditingSource: QuotaViewOption?
+    private var paymentStartDayEditingSource: QuotaViewOption?
     private let costAmountField: NSTextField = {
         let field = NSTextField()
         field.cell = VerticallyCenteredTextFieldCell(textCell: "")
@@ -2271,6 +2273,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             return
         }
         for (source, rect) in sourceOptionRects where rect.contains(point) {
+            window?.makeFirstResponder(nil)
             selectedDetailsSource = source
             return
         }
@@ -2444,7 +2447,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     func controlTextDidEndEditing(_ obj: Notification) {
         guard let field = obj.object as? NSTextField else { return }
         if field === costAmountField {
-            guard selectedDetailsSource != .all else {
+            let editSource = costAmountEditingSource ?? selectedDetailsSource
+            costAmountEditingSource = nil
+            guard editSource != .all else {
                 updateCostControlsFromSettings()
                 return
             }
@@ -2453,14 +2458,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 updateCostControlsFromSettings()
                 return
             }
-            onPlanCostChanged?(value, selectedDetailsSource)
-            costAmountField.stringValue = paymentAmount(value, source: selectedDetailsSource)
+            onPlanCostChanged?(value, editSource)
+            costAmountField.stringValue = paymentAmount(AppSettings.monthlyPlanCost(for: selectedDetailsSource), source: selectedDetailsSource)
             needsDisplay = true
             needsLayout = true
             return
         }
         if field === paymentStartDayField {
-            guard selectedDetailsSource != .all else {
+            let editSource = paymentStartDayEditingSource ?? selectedDetailsSource
+            paymentStartDayEditingSource = nil
+            guard editSource != .all else {
                 updateCostControlsFromSettings()
                 return
             }
@@ -2469,9 +2476,21 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 updateCostControlsFromSettings()
                 return
             }
-            onPaymentStartDayChanged?(value, selectedDetailsSource)
+            onPaymentStartDayChanged?(value, editSource)
+            if editSource != selectedDetailsSource {
+                updateCostControlsFromSettings()
+            }
             needsDisplay = true
             needsLayout = true
+        }
+    }
+
+    func controlTextDidBeginEditing(_ obj: Notification) {
+        guard let field = obj.object as? NSTextField else { return }
+        if field === costAmountField {
+            costAmountEditingSource = selectedDetailsSource
+        } else if field === paymentStartDayField {
+            paymentStartDayEditingSource = selectedDetailsSource
         }
     }
 

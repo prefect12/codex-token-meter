@@ -678,6 +678,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func changePlanCost(_ value: Double, source: QuotaViewOption) {
+        guard source != .all else { return }
         AppSettings.setMonthlyPlanCost(value, for: source)
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
@@ -685,12 +686,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func changePaymentStartDay(_ value: String, source: QuotaViewOption) {
+        guard source != .all else { return }
         AppSettings.setPaymentStartDay(value, for: source)
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
     }
 
     private func changePaymentCurrency(_ currency: CurrencyCode, source: QuotaViewOption) {
+        guard source != .all else { return }
         let oldCurrency = AppSettings.paymentCurrency(for: source)
         guard oldCurrency != currency else { return }
         AppSettings.setMonthlyPlanCost(convertCurrency(AppSettings.monthlyPlanCost(for: source), from: oldCurrency, to: currency), for: source)
@@ -701,6 +704,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func changeDisplayCurrency(_ currency: CurrencyCode, source: QuotaViewOption) {
+        guard source != .all else { return }
         AppSettings.setDisplayCurrency(currency, for: source)
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true

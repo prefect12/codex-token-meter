@@ -1145,6 +1145,8 @@ enum AppSettings {
 
     static let fallbackModelLimitID = "codex_bengalfox"
     static let fallbackModelLimitName = "GPT-5.3-Codex-Spark"
+    static let defaultCodexMonthlyPlanCost: Double = 200
+    static let defaultClaudeMonthlyPlanCost: Double = 125
 
     static var defaultCodexHomeURL: URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex", isDirectory: true)
@@ -1311,7 +1313,7 @@ enum AppSettings {
     static var monthlyPlanCost: Double {
         get {
             let stored = UserDefaults.standard.double(forKey: monthlyPlanCostKey)
-            return stored > 0 ? stored : 200
+            return stored > 0 ? stored : defaultCodexMonthlyPlanCost
         }
         set {
             UserDefaults.standard.set(max(0, newValue), forKey: monthlyPlanCostKey)
@@ -1329,6 +1331,17 @@ enum AppSettings {
         }
     }
 
+    private static func defaultMonthlyPlanCost(for source: QuotaViewOption) -> Double {
+        switch source {
+        case .all:
+            return defaultCodexMonthlyPlanCost + defaultClaudeMonthlyPlanCost
+        case .codex:
+            return monthlyPlanCost
+        case .claude:
+            return defaultClaudeMonthlyPlanCost
+        }
+    }
+
     static func monthlyPlanCost(for source: QuotaViewOption) -> Double {
         switch source {
         case .all:
@@ -1337,16 +1350,16 @@ enum AppSettings {
                 total + convertCurrency(monthlyPlanCost(for: source), from: paymentCurrency(for: source), to: display)
             }
         case .codex, .claude:
-            guard let key = platformCostKey(monthlyPlanCostKey, source: source) else { return monthlyPlanCost }
+            guard let key = platformCostKey(monthlyPlanCostKey, source: source) else { return defaultMonthlyPlanCost(for: source) }
             let stored = UserDefaults.standard.double(forKey: key)
-            return stored > 0 ? stored : monthlyPlanCost
+            return stored > 0 ? stored : defaultMonthlyPlanCost(for: source)
         }
     }
 
     static func setMonthlyPlanCost(_ value: Double, for source: QuotaViewOption) {
         switch source {
         case .all:
-            monthlyPlanCost = value
+            return
         case .codex, .claude:
             guard let key = platformCostKey(monthlyPlanCostKey, source: source) else { return }
             UserDefaults.standard.set(max(0, value), forKey: key)

@@ -1306,7 +1306,7 @@ final class PetStatusIcon {
         case .stale:
             color = NSColor.systemOrange
         case .waiting:
-            color = NSColor.systemBlue
+            color = NSColor.systemOrange
         case .unread:
             color = NSColor.systemBlue
         case nil:
@@ -1400,6 +1400,7 @@ final class EmptyStateView: NSView {
 
 private enum TaskBarSettings {
     private static let showPlatformLabelsKey = "showPlatformLabels"
+    private static let showStatusDotsKey = "showStatusDots"
 
     static var showPlatformLabels: Bool {
         get {
@@ -1410,6 +1411,18 @@ private enum TaskBarSettings {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: showPlatformLabelsKey)
+        }
+    }
+
+    static var showStatusDots: Bool {
+        get {
+            guard UserDefaults.standard.object(forKey: showStatusDotsKey) != nil else {
+                return false
+            }
+            return UserDefaults.standard.bool(forKey: showStatusDotsKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: showStatusDotsKey)
         }
     }
 }
@@ -1456,7 +1469,7 @@ private final class TaskBarSettingsView: NSView {
 
     private let onSettingsChanged: () -> Void
     private var platformOptionRects: [Bool: NSRect] = [:]
-    private var closeButtonRect: NSRect = .zero
+    private var statusDotOptionRects: [Bool: NSRect] = [:]
 
     init(onSettingsChanged: @escaping () -> Void) {
         self.onSettingsChanged = onSettingsChanged
@@ -1501,38 +1514,59 @@ private final class TaskBarSettingsView: NSView {
             color: NSColor.white.withAlphaComponent(0.56)
         )
 
-        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 152)
+        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 206)
         drawPanel(settingsCard)
         drawText(
-            "任务来源",
+            "列表显示",
             rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 16, width: settingsCard.width - 32, height: 22),
             font: .systemFont(ofSize: 16, weight: .bold),
             color: .white
-        )
-        drawText(
-            "来源标签",
-            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 62, width: 180, height: 20),
-            font: .systemFont(ofSize: 13, weight: .semibold),
-            color: .white
-        )
-        drawText(
-            "在任务列表左侧显示 Codex / Claude，用于快速区分任务来源。",
-            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 104, width: settingsCard.width - 32, height: 18),
-            font: .systemFont(ofSize: 12, weight: .medium),
-            color: NSColor.white.withAlphaComponent(0.52)
         )
 
         let pillWidth: CGFloat = 112
         let pillHeight: CGFloat = 38
         let pillGap: CGFloat = 12
-        let pillY = settingsCard.minY + 54
-        let hideRect = NSRect(x: settingsCard.maxX - 16 - pillWidth, y: pillY, width: pillWidth, height: pillHeight)
-        let showRect = NSRect(x: hideRect.minX - pillGap - pillWidth, y: pillY, width: pillWidth, height: pillHeight)
+        let optionX = settingsCard.maxX - 16 - pillWidth * 2 - pillGap
+
+        let labelPillY = settingsCard.minY + 52
+        let showRect = NSRect(x: optionX, y: labelPillY, width: pillWidth, height: pillHeight)
+        let hideRect = NSRect(x: showRect.maxX + pillGap, y: labelPillY, width: pillWidth, height: pillHeight)
         platformOptionRects = [true: showRect, false: hideRect]
+        drawText(
+            "来源标签",
+            rect: NSRect(x: settingsCard.minX + 16, y: labelPillY + 8, width: optionX - settingsCard.minX - 32, height: 20),
+            font: .systemFont(ofSize: 13, weight: .semibold),
+            color: .white
+        )
         drawSelectablePill("显示", rect: showRect, selected: TaskBarSettings.showPlatformLabels)
         drawSelectablePill("隐藏", rect: hideRect, selected: !TaskBarSettings.showPlatformLabels)
+        drawText(
+            "在任务列表左侧显示 Codex / Claude，用于快速区分任务来源。",
+            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 94, width: settingsCard.width - 32, height: 18),
+            font: .systemFont(ofSize: 12, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.52)
+        )
 
-        let statusCard = NSRect(x: content.minX, y: settingsCard.maxY + 16, width: content.width, height: 132)
+        let dotPillY = settingsCard.minY + 120
+        let dotShowRect = NSRect(x: optionX, y: dotPillY, width: pillWidth, height: pillHeight)
+        let dotHideRect = NSRect(x: dotShowRect.maxX + pillGap, y: dotPillY, width: pillWidth, height: pillHeight)
+        statusDotOptionRects = [true: dotShowRect, false: dotHideRect]
+        drawText(
+            "状态圆点",
+            rect: NSRect(x: settingsCard.minX + 16, y: dotPillY + 8, width: optionX - settingsCard.minX - 32, height: 20),
+            font: .systemFont(ofSize: 13, weight: .semibold),
+            color: .white
+        )
+        drawSelectablePill("显示", rect: dotShowRect, selected: TaskBarSettings.showStatusDots)
+        drawSelectablePill("隐藏", rect: dotHideRect, selected: !TaskBarSettings.showStatusDots)
+        drawText(
+            "恢复每行左侧的彩色状态点；关闭时只保留状态文字。",
+            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 162, width: settingsCard.width - 32, height: 18),
+            font: .systemFont(ofSize: 12, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.52)
+        )
+
+        let statusCard = NSRect(x: content.minX, y: settingsCard.maxY + 16, width: content.width, height: 104)
         drawPanel(statusCard)
         drawText(
             "状态约定",
@@ -1549,15 +1583,6 @@ private final class TaskBarSettingsView: NSView {
             ],
             rect: NSRect(x: statusCard.minX + 16, y: statusCard.minY + 56, width: statusCard.width - 32, height: 42)
         )
-        drawText(
-            "主列表默认保留需要关注的任务；已完成任务弱化或从主列表移出。",
-            rect: NSRect(x: statusCard.minX + 16, y: statusCard.minY + 104, width: statusCard.width - 32, height: 18),
-            font: .systemFont(ofSize: 12, weight: .medium),
-            color: NSColor.white.withAlphaComponent(0.52)
-        )
-
-        closeButtonRect = NSRect(x: content.maxX - 112, y: content.maxY - 42, width: 112, height: 34)
-        drawSmallButton("完成", rect: closeButtonRect, emphasized: true)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -1569,8 +1594,11 @@ private final class TaskBarSettingsView: NSView {
             onSettingsChanged()
             return
         }
-        if closeButtonRect.contains(point) {
-            window?.close()
+        for (showDots, rect) in statusDotOptionRects where rect.contains(point) {
+            guard TaskBarSettings.showStatusDots != showDots else { return }
+            TaskBarSettings.showStatusDots = showDots
+            needsDisplay = true
+            onSettingsChanged()
             return
         }
         super.mouseDown(with: event)
@@ -1687,6 +1715,8 @@ final class ThreadRowView: NSView {
     private let item: CodexThreadItem
     private let onOpen: (String) -> Void
     private let showPlatformLabel: Bool
+    private let showStatusDot: Bool
+    private let statusDot = NSView()
     private let statusLabelView = NSTextField(labelWithString: "")
     private let statusElapsedLabel = NSTextField(labelWithString: "")
     private let platformLabelView = NSTextField(labelWithString: "")
@@ -1698,14 +1728,21 @@ final class ThreadRowView: NSView {
         didSet { needsDisplay = true }
     }
 
-    init(item: CodexThreadItem, showPlatformLabel: Bool, onOpen: @escaping (String) -> Void) {
+    init(item: CodexThreadItem, showPlatformLabel: Bool, showStatusDot: Bool, onOpen: @escaping (String) -> Void) {
         self.item = item
         self.showPlatformLabel = showPlatformLabel
+        self.showStatusDot = showStatusDot
         self.onOpen = onOpen
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 76))
         wantsLayer = true
         let tooltip = tooltipText(for: item)
         setAccessibilityHelp(tooltip)
+
+        statusDot.wantsLayer = true
+        statusDot.layer?.backgroundColor = statusColor(item.status).cgColor
+        statusDot.layer?.cornerRadius = 4
+        statusDot.isHidden = !showStatusDot
+        addSubview(statusDot)
 
         statusLabelView.stringValue = compactStatusLabel(item.status)
         statusLabelView.font = .systemFont(ofSize: 11, weight: .semibold)
@@ -1810,10 +1847,11 @@ final class ThreadRowView: NSView {
 
     override func layout() {
         super.layout()
-        let statusTextX: CGFloat = 18
-        let statusColumnWidth: CGFloat = 76
+        let statusTextX: CGFloat = showStatusDot ? 34 : 18
+        let statusColumnWidth: CGFloat = showStatusDot ? 62 : 76
         let contentX: CGFloat = 104
         let contentWidth = max(160, bounds.width - contentX - 16)
+        statusDot.frame = NSRect(x: 17, y: 54, width: 8, height: 8)
         statusLabelView.frame = NSRect(x: statusTextX, y: 48, width: statusColumnWidth, height: 18)
         statusElapsedLabel.frame = NSRect(x: statusTextX, y: 30, width: statusColumnWidth, height: 16)
         platformLabelView.frame = NSRect(x: statusTextX, y: 12, width: statusColumnWidth, height: 14)
@@ -2126,10 +2164,11 @@ private final class CommandButtonBarView: NSView {
 
     init(
         onRefresh: @escaping () -> Void,
+        onOpenDetails: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 44))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 56))
         wantsLayer = true
         layer?.backgroundColor = menuPanelBackground.cgColor
 
@@ -2139,6 +2178,7 @@ private final class CommandButtonBarView: NSView {
         addSubview(stackView)
 
         addButton(title: "刷新", symbolName: "arrow.clockwise", action: onRefresh)
+        addButton(title: "详情", symbolName: "chart.bar", action: onOpenDetails)
         addButton(title: "设置", symbolName: "gearshape", action: onOpenSettings)
         addButton(title: "退出", symbolName: "power", action: onQuit)
     }
@@ -2160,7 +2200,7 @@ private final class CommandButtonBarView: NSView {
         button.layer?.cornerRadius = 7
         button.layer?.backgroundColor = NSColor(calibratedWhite: 0.24, alpha: 1).cgColor
         button.layer?.borderWidth = 1
-        button.layer?.borderColor = (isActive ? NSColor.controlAccentColor.withAlphaComponent(0.55) : NSColor.white.withAlphaComponent(0.16)).cgColor
+        button.layer?.borderColor = (isActive ? NSColor.controlAccentColor.withAlphaComponent(0.55) : NSColor.white.withAlphaComponent(0.14)).cgColor
         button.imagePosition = .imageLeading
         button.imageScaling = .scaleProportionallyDown
         button.alignment = .center
@@ -2188,7 +2228,7 @@ private final class CommandButtonBarView: NSView {
 
     override func layout() {
         super.layout()
-        stackView.frame = bounds.insetBy(dx: 16, dy: 7)
+        stackView.frame = NSRect(x: 16, y: 8, width: bounds.width - 32, height: 40)
     }
 }
 
@@ -2261,8 +2301,10 @@ private final class TaskBarPopoverContentView: NSView {
         waitingCount: Int,
         unreadCount: Int,
         showPlatformLabels: Bool,
+        showStatusDots: Bool,
         onOpenThread: @escaping (String) -> Void,
         onRefresh: @escaping () -> Void,
+        onOpenDetails: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
@@ -2276,13 +2318,19 @@ private final class TaskBarPopoverContentView: NSView {
             rowViews = [EmptyStateView()]
         } else {
             rowViews = threads.map { thread in
-                ThreadRowView(item: thread, showPlatformLabel: showPlatformLabels, onOpen: onOpenThread)
+                ThreadRowView(
+                    item: thread,
+                    showPlatformLabel: showPlatformLabels,
+                    showStatusDot: showStatusDots,
+                    onOpen: onOpenThread
+                )
             }
         }
         rowsView = TaskBarRowsView(rowViews: rowViews)
         rowsContentHeight = rowsView.frame.height
         commandBar = CommandButtonBarView(
             onRefresh: onRefresh,
+            onOpenDetails: onOpenDetails,
             onOpenSettings: onOpenSettings,
             onQuit: onQuit
         )
@@ -2442,12 +2490,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             waitingCount: waitingCount,
             unreadCount: unreadCount,
             showPlatformLabels: TaskBarSettings.showPlatformLabels,
+            showStatusDots: TaskBarSettings.showStatusDots,
             onOpenThread: { [weak self] id in
                 self?.openThread(id: id)
             },
             onRefresh: { [weak self] in
                 ThreadHoverPanel.shared.hideAll()
                 self?.refresh()
+            },
+            onOpenDetails: { [weak self] in
+                self?.openTaskDetails()
             },
             onOpenSettings: { [weak self] in
                 self?.openSettingsWindow()
@@ -2463,6 +2515,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.preferredContentSize = content.frame.size
         popover.contentViewController = controller
         popover.contentSize = content.frame.size
+    }
+
+    private func openTaskDetails() {
+        popover.performClose(nil)
+        ThreadHoverPanel.shared.hideAll()
+        let codexURL = URL(fileURLWithPath: "/Applications/Codex.app")
+        if FileManager.default.fileExists(atPath: codexURL.path) {
+            NSWorkspace.shared.open(codexURL)
+        } else if let item = threads.first {
+            openThread(id: item.id)
+        }
     }
 
     private func openSettingsWindow() {
@@ -2549,7 +2612,7 @@ private func statusColor(_ status: ThreadRunStatus) -> NSColor {
     case .stale:
         return NSColor(calibratedRed: 0.82, green: 0.58, blue: 0.30, alpha: 1)
     case .waiting:
-        return NSColor(calibratedRed: 0.36, green: 0.62, blue: 0.91, alpha: 1)
+        return NSColor(calibratedRed: 0.91, green: 0.48, blue: 0.28, alpha: 1)
     case .unread:
         return NSColor(calibratedRed: 0.36, green: 0.62, blue: 0.91, alpha: 1)
     }
