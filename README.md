@@ -25,8 +25,8 @@
 
 | App | Version | Build | Bundle |
 | --- | --- | --- | --- |
-| AI Token Meter | `0.2.2` | `16` | `/Applications/AI Token Meter.app` |
-| Task Bar | `0.1.1` | `2` | `/Applications/Task Bar.app` |
+| AI Token Meter | `0.2.3` | `17` | `/Applications/AI Token Meter.app` |
+| Task Bar | `0.1.2` | `3` | `/Applications/Task Bar.app` |
 
 ## 数据来源
 
@@ -118,7 +118,7 @@ Task Bar 读取：
 输出：
 
 ```text
-dist/AI-Token-Meter-0.2.2.dmg
+dist/AI-Token-Meter-0.2.3.dmg
 ```
 
 打包 Task Bar：
@@ -130,7 +130,7 @@ dist/AI-Token-Meter-0.2.2.dmg
 输出：
 
 ```text
-dist/Task-Bar-0.1.1.dmg
+dist/Task-Bar-0.1.2.dmg
 ```
 
 ## 命令行检查
