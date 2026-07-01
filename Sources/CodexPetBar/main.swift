@@ -1321,7 +1321,7 @@ final class ReadStateStore {
 final class PetStatusIcon {
     private var frame = 0
 
-    func image(status: ThreadRunStatus?, count: Int) -> NSImage {
+    func image(status: ThreadRunStatus?, showsRedDot: Bool) -> NSImage {
         let size = NSSize(width: 18, height: 18)
         let image = NSImage(size: size)
         image.lockFocus()
@@ -1332,9 +1332,9 @@ final class PetStatusIcon {
         case .running:
             color = NSColor.systemGreen
         case .stale:
-            color = NSColor.systemOrange
+            color = NSColor.systemYellow
         case .waiting:
-            color = NSColor.systemOrange
+            color = NSColor.systemYellow
         case .unread:
             color = NSColor.systemBlue
         case nil:
@@ -1357,7 +1357,7 @@ final class PetStatusIcon {
         NSBezierPath(ovalIn: NSRect(x: 5, y: 8 + bob, width: 2.2, height: 2.2)).fill()
         NSBezierPath(ovalIn: NSRect(x: 10.8, y: 8 + bob, width: 2.2, height: 2.2)).fill()
 
-        if count > 0 {
+        if showsRedDot {
             NSColor.systemRed.setFill()
             NSBezierPath(ovalIn: NSRect(x: 11.5, y: 1.5, width: 6, height: 6)).fill()
         }
@@ -2886,11 +2886,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatusIcon() {
-        let primaryStatus = threads.map(\.status).sorted { statusDisplayRank($0) < statusDisplayRank($1) }.first
         let runningCount = threads.filter { $0.status == .running || $0.status == .stale }.count
-        let unreadCount = threads.filter { isReadDismissible($0.status) }.count
-        let totalCount = runningCount + unreadCount
-        statusItem.button?.image = icon.image(status: primaryStatus, count: totalCount)
+        let waitingCount = threads.filter { $0.status == .waiting }.count
+        let unreadCount = threads.filter { $0.status == .unread }.count
+        let actionNeededCount = waitingCount + unreadCount
+        let totalCount = runningCount + actionNeededCount
+        let statusIconStatus: ThreadRunStatus = waitingCount > 0 ? .waiting : (unreadCount > 0 ? .unread : .running)
+        statusItem.button?.image = icon.image(status: statusIconStatus, showsRedDot: actionNeededCount > 0)
         statusItem.button?.imagePosition = .imageLeading
         if totalCount > 0 {
             statusItem.button?.title = " \(totalCount)"
