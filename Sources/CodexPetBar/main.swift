@@ -2125,7 +2125,6 @@ private final class CommandButtonBarView: NSView {
     private var buttons: [NSButton] = []
 
     init(
-        onRefresh: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
@@ -2138,7 +2137,6 @@ private final class CommandButtonBarView: NSView {
         stackView.distribution = .fillEqually
         addSubview(stackView)
 
-        addButton(title: "刷新", symbolName: "arrow.clockwise", action: onRefresh)
         addButton(title: "设置", symbolName: "gearshape", action: onOpenSettings)
         addButton(title: "退出", symbolName: "power", action: onQuit)
     }
@@ -2188,7 +2186,17 @@ private final class CommandButtonBarView: NSView {
 
     override func layout() {
         super.layout()
-        stackView.frame = bounds.insetBy(dx: 16, dy: 7)
+        let buttonWidth: CGFloat = 174
+        let buttonHeight: CGFloat = 32
+        let maxWidth = max(0, bounds.width - 32)
+        let naturalWidth = buttonWidth * CGFloat(buttons.count) + stackView.spacing * CGFloat(max(buttons.count - 1, 0))
+        let width = min(naturalWidth, maxWidth)
+        stackView.frame = NSRect(
+            x: floor((bounds.width - width) / 2),
+            y: floor((bounds.height - buttonHeight) / 2),
+            width: width,
+            height: buttonHeight
+        )
     }
 }
 
@@ -2262,7 +2270,6 @@ private final class TaskBarPopoverContentView: NSView {
         unreadCount: Int,
         showPlatformLabels: Bool,
         onOpenThread: @escaping (String) -> Void,
-        onRefresh: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
@@ -2282,7 +2289,6 @@ private final class TaskBarPopoverContentView: NSView {
         rowsView = TaskBarRowsView(rowViews: rowViews)
         rowsContentHeight = rowsView.frame.height
         commandBar = CommandButtonBarView(
-            onRefresh: onRefresh,
             onOpenSettings: onOpenSettings,
             onQuit: onQuit
         )
@@ -2444,10 +2450,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showPlatformLabels: TaskBarSettings.showPlatformLabels,
             onOpenThread: { [weak self] id in
                 self?.openThread(id: id)
-            },
-            onRefresh: { [weak self] in
-                ThreadHoverPanel.shared.hideAll()
-                self?.refresh()
             },
             onOpenSettings: { [weak self] in
                 self?.openSettingsWindow()
