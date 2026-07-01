@@ -783,6 +783,8 @@ final class CodexActivityReader {
         var lastQueueOperation: String?
         var lastQueueAt: Date?
         var turns = 0
+        var model: String?
+        var tokens = TokenBreakdown()
 
         text.enumerateLines { line, _ in
             guard let data = line.data(using: .utf8),
@@ -828,18 +830,46 @@ final class CodexActivityReader {
                 if let timestamp {
                     latestUserAt = timestamp
                 }
-                latestUserIsToolResult = bool(object["toolUseResult"]) == true
+                let isToolResult = bool(object["toolUseResult"]) == true
                     || self.messageContentContainsType(message["content"], "tool_result")
+                latestUserIsToolResult = isToolResult
                 if let contentText {
                     firstUserText = firstUserText ?? contentText
                     latestUserText = contentText
                 }
-                turns += 1
+                // Only genuine human prompts count as turns. Tool results are
+                // role=user but automated; sidechain/meta messages are injected.
+                let isSidechain = (object["isSidechain"] as? Bool) ?? false
+                let isMeta = (object["isMeta"] as? Bool) ?? false
+                if !isToolResult, !isSidechain, !isMeta,
+                   let contentText, !contentText.isEmpty {
+                    turns += 1
+                }
             } else if role == "assistant" {
                 if let timestamp {
                     latestAssistantAt = timestamp
                 }
                 latestUserIsToolResult = false
+                if let value = string(message["model"]), !value.isEmpty {
+                    model = value
+                }
+                if let usage = message["usage"] as? [String: Any] {
+                    let input = intValue(usage["input_tokens"]) ?? 0
+                    let cacheRead = intValue(usage["cache_read_input_tokens"]) ?? 0
+                    let cacheCreate = intValue(usage["cache_creation_input_tokens"]) ?? 0
+                    let output = intValue(usage["output_tokens"]) ?? 0
+                    let totalInput = input + cacheRead + cacheCreate
+                    if totalInput + output > 0 {
+                        tokens.add(TokenBreakdown(
+                            input: totalInput,
+                            cachedInput: cacheRead,
+                            output: output,
+                            reasoningOutput: 0,
+                            total: totalInput + output,
+                            hasDetailedCounters: true
+                        ))
+                    }
+                }
                 let stopReason = string(message["stop_reason"] ?? message["stopReason"])?.lowercased()
                 latestAssistantIsRunning = stopReason == "tool_use"
                     || self.messageContentContainsType(message["content"], "tool_use")
@@ -895,9 +925,9 @@ final class CodexActivityReader {
             compressionCount: nil,
             source: "claude-code",
             isExplicitUnread: false,
-            tokensUsed: nil,
-            tokenBreakdown: TokenBreakdown(),
-            model: nil
+            tokensUsed: tokens.displayTotal,
+            tokenBreakdown: tokens,
+            model: model
         )
     }
 
@@ -3067,11 +3097,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ThreadHoverPanel.shared.hideAll()
 
         if let selectedItem, isClaudeThread(selectedItem) {
-            openClaudeApp(fallbackFolder: selectedItem.cwd)
+            openClaudeApp(sessionID: claudeSessionID(from: selectedItem.id), fallbackFolder: selectedItem.cwd)
             return
         }
         if id.hasPrefix("claude:") {
-            openClaudeApp(fallbackFolder: nil)
+            openClaudeApp(sessionID: claudeSessionID(from: id), fallbackFolder: nil)
             return
         }
 
@@ -3081,7 +3111,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(url)
     }
 
-    private func openClaudeApp(fallbackFolder: String?) {
+    private func claudeSessionID(from id: String) -> String? {
+        guard id.hasPrefix("claude:") else { return nil }
+        let raw = String(id.dropFirst("claude:".count))
+        // Claude Desktop's resume deep link only accepts canonical UUID session ids.
+        return UUID(uuidString: raw) != nil ? raw : nil
+    }
+
+    private func openClaudeApp(sessionID: String?, fallbackFolder: String?) {
+        // Claude Desktop resumes a specific CLI conversation via
+        // claude://resume?session=<uuid>, which imports it and navigates there.
+        if let sessionID,
+           var components = URLComponents(string: "claude://resume") {
+            components.queryItems = [URLQueryItem(name: "session", value: sessionID)]
+            if let deepLink = components.url {
+                NSWorkspace.shared.open(deepLink)
+                return
+            }
+        }
         let claudeURL = URL(fileURLWithPath: "/Applications/Claude.app")
         if FileManager.default.fileExists(atPath: claudeURL.path) {
             NSWorkspace.shared.open(claudeURL)
