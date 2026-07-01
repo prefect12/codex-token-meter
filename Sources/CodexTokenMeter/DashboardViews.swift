@@ -1569,7 +1569,7 @@ final class DashboardView: NSView {
         sessionsLabel.frame = NSRect(x: content.minX, y: dayChart.frame.maxY + 10, width: infoWidth, height: 18)
         costLabel.frame = NSRect(x: content.minX, y: sessionsLabel.frame.maxY + 6, width: infoWidth, height: 16)
         refreshLabel.frame = NSRect(x: content.minX, y: costLabel.frame.maxY + 6, width: infoWidth, height: 18)
-        buttonsStack.frame = NSRect(x: content.minX, y: refreshLabel.frame.maxY + 8, width: content.width, height: 32)
+        buttonsStack.frame = NSRect(x: content.minX, y: refreshLabel.frame.maxY + 8, width: content.width, height: 28)
         serviceStatusView.frame = .zero
         platformQuotaView.needsDisplay = true
     }
@@ -1600,7 +1600,7 @@ final class DashboardView: NSView {
         }
 
         let statsY = ringY + 154
-        buttonsStack.frame = NSRect(x: content.minX, y: content.maxY - 36, width: content.width, height: 32)
+        buttonsStack.frame = NSRect(x: content.minX, y: content.maxY - 36, width: content.width, height: 28)
         let showsStatus = AppSettings.showCodexStatusEnabled && state.selectedQuota != .claude
         let chipGap: CGFloat = 10
         let maxChipWidth = min(136, max(108, content.width * 0.36))
@@ -1717,39 +1717,28 @@ final class DashboardView: NSView {
 
     private func addButton(_ titleKey: L10nKey, action: Selector) {
         let button = NSButton(title: t(titleKey), target: self, action: action)
-        button.isBordered = false
-        button.wantsLayer = true
-        button.layer?.cornerRadius = 7
-        button.layer?.backgroundColor = NSColor(calibratedWhite: 0.24, alpha: 1).cgColor
-        button.layer?.borderWidth = 1
-        button.layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
+        button.bezelStyle = .rounded
         button.imagePosition = .imageLeading
-        button.imageScaling = .scaleProportionallyDown
-        button.alignment = .center
         styleActionButton(button, titleKey: titleKey)
         buttonsByKey[titleKey] = button
         buttonsStack.addArrangedSubview(button)
     }
 
     private func styleActionButton(_ button: NSButton, titleKey: L10nKey) {
-        let color = NSColor.white.withAlphaComponent(0.9)
-        let font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
+        let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let title = t(titleKey)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.white.withAlphaComponent(0.90)
+        ]
         button.font = font
-        button.contentTintColor = color
-        button.attributedTitle = NSAttributedString(string: t(titleKey), attributes: [
-            .font: font,
-            .foregroundColor: color,
-            .paragraphStyle: paragraph
-        ])
-        button.attributedAlternateTitle = NSAttributedString(string: t(titleKey), attributes: [
-            .font: font,
-            .foregroundColor: NSColor.white,
-            .paragraphStyle: paragraph
-        ])
+        button.title = title
+        button.attributedTitle = NSAttributedString(string: title, attributes: attributes)
+        button.attributedAlternateTitle = NSAttributedString(string: title, attributes: attributes)
         button.image = symbolImage(for: titleKey)
-        button.toolTip = t(titleKey)
+        button.bezelColor = NSColor.white.withAlphaComponent(0.16)
+        button.contentTintColor = NSColor.white.withAlphaComponent(0.90)
+        button.toolTip = title
     }
 
     private func symbolImage(for key: L10nKey) -> NSImage? {
