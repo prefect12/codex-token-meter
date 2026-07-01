@@ -1398,9 +1398,24 @@ final class EmptyStateView: NSView {
     }
 }
 
+private enum TaskTokenUnitStyle: String, CaseIterable {
+    case chinese
+    case english
+    case exact
+
+    var title: String {
+        switch self {
+        case .chinese: return "中文单位"
+        case .english: return "英文单位"
+        case .exact: return "具体值"
+        }
+    }
+}
+
 private enum TaskBarSettings {
     private static let showPlatformLabelsKey = "showPlatformLabels"
     private static let showStatusDotsKey = "showStatusDots"
+    private static let tokenUnitStyleKey = "tokenUnitStyle"
 
     static var showPlatformLabels: Bool {
         get {
@@ -1423,6 +1438,19 @@ private enum TaskBarSettings {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: showStatusDotsKey)
+        }
+    }
+
+    static var tokenUnitStyle: TaskTokenUnitStyle {
+        get {
+            guard let rawValue = UserDefaults.standard.string(forKey: tokenUnitStyleKey),
+                  let style = TaskTokenUnitStyle(rawValue: rawValue) else {
+                return .chinese
+            }
+            return style
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: tokenUnitStyleKey)
         }
     }
 }
@@ -1470,6 +1498,7 @@ private final class TaskBarSettingsView: NSView {
     private let onSettingsChanged: () -> Void
     private var platformOptionRects: [Bool: NSRect] = [:]
     private var statusDotOptionRects: [Bool: NSRect] = [:]
+    private var tokenUnitOptionRects: [TaskTokenUnitStyle: NSRect] = [:]
 
     init(onSettingsChanged: @escaping () -> Void) {
         self.onSettingsChanged = onSettingsChanged
@@ -1523,45 +1552,61 @@ private final class TaskBarSettingsView: NSView {
             color: .white
         )
 
-        let pillWidth: CGFloat = 112
-        let pillHeight: CGFloat = 38
-        let pillGap: CGFloat = 12
-        let optionX = settingsCard.maxX - 16 - pillWidth * 2 - pillGap
+        let pillHeight: CGFloat = 34
+        let pillGap: CGFloat = 8
+        let binaryPillWidth: CGFloat = 104
+        let binaryOptionX = settingsCard.maxX - 16 - binaryPillWidth * 2 - pillGap
 
-        let labelPillY = settingsCard.minY + 52
-        let showRect = NSRect(x: optionX, y: labelPillY, width: pillWidth, height: pillHeight)
-        let hideRect = NSRect(x: showRect.maxX + pillGap, y: labelPillY, width: pillWidth, height: pillHeight)
+        let labelPillY = settingsCard.minY + 48
+        let showRect = NSRect(x: binaryOptionX, y: labelPillY, width: binaryPillWidth, height: pillHeight)
+        let hideRect = NSRect(x: showRect.maxX + pillGap, y: labelPillY, width: binaryPillWidth, height: pillHeight)
         platformOptionRects = [true: showRect, false: hideRect]
         drawText(
             "来源标签",
-            rect: NSRect(x: settingsCard.minX + 16, y: labelPillY + 8, width: optionX - settingsCard.minX - 32, height: 20),
+            rect: NSRect(x: settingsCard.minX + 16, y: labelPillY + 7, width: binaryOptionX - settingsCard.minX - 32, height: 20),
             font: .systemFont(ofSize: 13, weight: .semibold),
             color: .white
         )
         drawSelectablePill("显示", rect: showRect, selected: TaskBarSettings.showPlatformLabels)
         drawSelectablePill("隐藏", rect: hideRect, selected: !TaskBarSettings.showPlatformLabels)
-        drawText(
-            "在任务列表左侧显示 Codex / Claude，用于快速区分任务来源。",
-            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 94, width: settingsCard.width - 32, height: 18),
-            font: .systemFont(ofSize: 12, weight: .medium),
-            color: NSColor.white.withAlphaComponent(0.52)
-        )
 
-        let dotPillY = settingsCard.minY + 120
-        let dotShowRect = NSRect(x: optionX, y: dotPillY, width: pillWidth, height: pillHeight)
-        let dotHideRect = NSRect(x: dotShowRect.maxX + pillGap, y: dotPillY, width: pillWidth, height: pillHeight)
+        let dotPillY = settingsCard.minY + 92
+        let dotShowRect = NSRect(x: binaryOptionX, y: dotPillY, width: binaryPillWidth, height: pillHeight)
+        let dotHideRect = NSRect(x: dotShowRect.maxX + pillGap, y: dotPillY, width: binaryPillWidth, height: pillHeight)
         statusDotOptionRects = [true: dotShowRect, false: dotHideRect]
         drawText(
             "状态圆点",
-            rect: NSRect(x: settingsCard.minX + 16, y: dotPillY + 8, width: optionX - settingsCard.minX - 32, height: 20),
+            rect: NSRect(x: settingsCard.minX + 16, y: dotPillY + 7, width: binaryOptionX - settingsCard.minX - 32, height: 20),
             font: .systemFont(ofSize: 13, weight: .semibold),
             color: .white
         )
         drawSelectablePill("显示", rect: dotShowRect, selected: TaskBarSettings.showStatusDots)
         drawSelectablePill("隐藏", rect: dotHideRect, selected: !TaskBarSettings.showStatusDots)
+
+        let unitPillWidth: CGFloat = 82
+        let unitStyles = TaskTokenUnitStyle.allCases
+        let unitOptionX = settingsCard.maxX - 16 - unitPillWidth * CGFloat(unitStyles.count) - pillGap * CGFloat(unitStyles.count - 1)
+        let unitPillY = settingsCard.minY + 136
+        tokenUnitOptionRects.removeAll(keepingCapacity: true)
         drawText(
-            "恢复每行左侧的彩色状态点；关闭时只保留状态文字。",
-            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 162, width: settingsCard.width - 32, height: 18),
+            "Token 单位",
+            rect: NSRect(x: settingsCard.minX + 16, y: unitPillY + 7, width: unitOptionX - settingsCard.minX - 32, height: 20),
+            font: .systemFont(ofSize: 13, weight: .semibold),
+            color: .white
+        )
+        for (index, style) in unitStyles.enumerated() {
+            let optionRect = NSRect(
+                x: unitOptionX + CGFloat(index) * (unitPillWidth + pillGap),
+                y: unitPillY,
+                width: unitPillWidth,
+                height: pillHeight
+            )
+            tokenUnitOptionRects[style] = optionRect
+            drawSelectablePill(style.title, rect: optionRect, selected: TaskBarSettings.tokenUnitStyle == style)
+        }
+        drawText(
+            "只影响 hover 中的输入 / 输出等 token 数字；缓存率和金额不变。",
+            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 180, width: settingsCard.width - 32, height: 18),
             font: .systemFont(ofSize: 12, weight: .medium),
             color: NSColor.white.withAlphaComponent(0.52)
         )
@@ -1597,6 +1642,13 @@ private final class TaskBarSettingsView: NSView {
         for (showDots, rect) in statusDotOptionRects where rect.contains(point) {
             guard TaskBarSettings.showStatusDots != showDots else { return }
             TaskBarSettings.showStatusDots = showDots
+            needsDisplay = true
+            onSettingsChanged()
+            return
+        }
+        for (style, rect) in tokenUnitOptionRects where rect.contains(point) {
+            guard TaskBarSettings.tokenUnitStyle != style else { return }
+            TaskBarSettings.tokenUnitStyle = style
             needsDisplay = true
             onSettingsChanged()
             return
@@ -3093,13 +3145,28 @@ private func formatInteger(_ value: Int) -> String {
 
 private func compactTokenCount(_ value: Int) -> String {
     let double = Double(value)
-    if value >= 100_000_000 {
-        return String(format: "%.2f亿", double / 100_000_000)
-    }
-    if value >= 10_000 {
-        return String(format: "%.1f万", double / 10_000)
-    }
-    if value >= 1_000 {
+    switch TaskBarSettings.tokenUnitStyle {
+    case .chinese:
+        if value >= 100_000_000 {
+            return String(format: "%.2f亿", double / 100_000_000)
+        }
+        if value >= 10_000 {
+            return String(format: "%.1f万", double / 10_000)
+        }
+        if value >= 1_000 {
+            return formatInteger(value)
+        }
+    case .english:
+        if value >= 1_000_000_000 {
+            return String(format: "%.2fB", double / 1_000_000_000)
+        }
+        if value >= 1_000_000 {
+            return String(format: "%.1fM", double / 1_000_000)
+        }
+        if value >= 1_000 {
+            return String(format: "%.1fK", double / 1_000)
+        }
+    case .exact:
         return formatInteger(value)
     }
     return "\(value)"
