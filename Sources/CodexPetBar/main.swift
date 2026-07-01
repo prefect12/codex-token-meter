@@ -775,8 +775,10 @@ final class CodexActivityReader {
         var lastPrompt: String?
         var aiTitle: String?
         var latestUserAt: Date?
+        var latestUserIsToolResult = false
         var latestAssistantAt: Date?
-        var latestAssistantNeedsAction = false
+        var latestAssistantIsRunning = false
+        var latestAssistantNeedsInput = false
         var lastActivity: Date?
         var lastQueueOperation: String?
         var lastQueueAt: Date?
@@ -826,6 +828,8 @@ final class CodexActivityReader {
                 if let timestamp {
                     latestUserAt = timestamp
                 }
+                latestUserIsToolResult = bool(object["toolUseResult"]) == true
+                    || self.messageContentContainsType(message["content"], "tool_result")
                 if let contentText {
                     firstUserText = firstUserText ?? contentText
                     latestUserText = contentText
@@ -835,10 +839,11 @@ final class CodexActivityReader {
                 if let timestamp {
                     latestAssistantAt = timestamp
                 }
+                latestUserIsToolResult = false
                 let stopReason = string(message["stop_reason"] ?? message["stopReason"])?.lowercased()
-                latestAssistantNeedsAction = stopReason == "tool_use"
-                    || stopReason == "pause_turn"
+                latestAssistantIsRunning = stopReason == "tool_use"
                     || self.messageContentContainsType(message["content"], "tool_use")
+                latestAssistantNeedsInput = stopReason == "pause_turn"
                 if let contentText {
                     latestAssistantText = contentText
                 }
@@ -854,9 +859,23 @@ final class CodexActivityReader {
         let pendingUserResponse = (latestUserAt ?? .distantPast) > (latestAssistantAt ?? .distantPast)
         let queuedAfterAssistant = lastQueueOperation == "enqueue"
             && (lastQueueAt ?? .distantPast) > (latestAssistantAt ?? .distantPast)
-        let assistantWaitingForAction = latestAssistantNeedsAction
+        let assistantWaitingForInput = latestAssistantNeedsInput
             && (latestAssistantAt ?? .distantPast) >= (latestUserAt ?? .distantPast)
-        let isWaitingForUser = pendingUserResponse || queuedAfterAssistant || assistantWaitingForAction
+        let assistantRunningTool = latestAssistantIsRunning
+            && (latestAssistantAt ?? .distantPast) >= (latestUserAt ?? .distantPast)
+        let userToolResultStillActive = latestUserIsToolResult
+            && (latestUserAt ?? .distantPast) >= (latestAssistantAt ?? .distantPast)
+        let isRunning = pendingUserResponse || queuedAfterAssistant || assistantRunningTool || userToolResultStillActive
+        let isWaitingForUser = !isRunning && assistantWaitingForInput
+        let status: ThreadRunStatus = isRunning ? .running : (isWaitingForUser ? .waiting : .unread)
+        let startedAt: Date?
+        if isRunning {
+            startedAt = latestUserAt ?? latestAssistantAt ?? lastQueueAt ?? activityDate
+        } else if isWaitingForUser {
+            startedAt = latestAssistantAt ?? activityDate
+        } else {
+            startedAt = nil
+        }
         let title = aiTitle
             ?? cleanTitle(lastPrompt)
             ?? cleanTitle(firstUserText)
@@ -869,9 +888,9 @@ final class CodexActivityReader {
             preview: preview,
             cwd: cwd,
             lastActivity: activityDate,
-            startedAt: isWaitingForUser ? (latestUserAt ?? lastQueueAt ?? activityDate) : nil,
+            startedAt: startedAt,
             externalReadAt: nil,
-            status: isWaitingForUser ? .waiting : .unread,
+            status: status,
             turns: turns,
             compressionCount: nil,
             source: "claude-code",
@@ -3257,9 +3276,9 @@ private func taskBarPopoverMaxResizableSize() -> NSSize {
 
 private func isReadDismissible(_ status: ThreadRunStatus) -> Bool {
     switch status {
-    case .waiting, .unread:
+    case .unread:
         return true
-    case .running, .stale:
+    case .running, .stale, .waiting:
         return false
     }
 }
