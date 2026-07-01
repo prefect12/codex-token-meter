@@ -1778,6 +1778,35 @@ private enum TaskBarSettings {
     private static let showPlatformLabelsKey = "showPlatformLabels"
     private static let showStatusDotsKey = "showStatusDots"
     private static let tokenUnitStyleKey = "tokenUnitStyle"
+    private static let popoverWidthKey = "popoverWidth"
+    private static let popoverHeightKey = "popoverHeight"
+
+    /// User-resized popover size, persisted across opens and launches. `nil` until first resize.
+    static var popoverSize: NSSize? {
+        get {
+            let defaults = UserDefaults.standard
+            guard defaults.object(forKey: popoverWidthKey) != nil,
+                  defaults.object(forKey: popoverHeightKey) != nil else {
+                return nil
+            }
+            let size = NSSize(
+                width: CGFloat(defaults.double(forKey: popoverWidthKey)),
+                height: CGFloat(defaults.double(forKey: popoverHeightKey))
+            )
+            guard size.width > 1, size.height > 1 else { return nil }
+            return size
+        }
+        set {
+            let defaults = UserDefaults.standard
+            if let newValue {
+                defaults.set(Double(newValue.width), forKey: popoverWidthKey)
+                defaults.set(Double(newValue.height), forKey: popoverHeightKey)
+            } else {
+                defaults.removeObject(forKey: popoverWidthKey)
+                defaults.removeObject(forKey: popoverHeightKey)
+            }
+        }
+    }
 
     static var showPlatformLabels: Bool {
         get {
@@ -2944,18 +2973,6 @@ private final class PopoverResizeHandleView: NSView {
         guard didDrag else { return }
         onResize?(lastSize, true)
     }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        NSColor.white.withAlphaComponent(0.34).setStroke()
-        let path = NSBezierPath()
-        path.lineWidth = 1.4
-        for offset in [CGFloat(0), CGFloat(5), CGFloat(10)] {
-            path.move(to: NSPoint(x: bounds.maxX - 4 - offset, y: bounds.maxY - 2))
-            path.line(to: NSPoint(x: bounds.maxX - 2, y: bounds.maxY - 4 - offset))
-        }
-        path.stroke()
-    }
 }
 
 private final class TaskBarPopoverContentView: NSView {
@@ -3150,7 +3167,8 @@ private final class TaskBarPopoverContentView: NSView {
             + taskCountHeight
             + bottomSeparator.frame.height
             + commandBar.frame.height
-        let rowsViewportHeight = max(taskBarEmptyStateHeight, bounds.height - fixedHeight)
+        let minRowsHeight = min(rowsContentHeight, taskBarEmptyStateHeight)
+        let rowsViewportHeight = max(minRowsHeight, bounds.height - fixedHeight)
         let rowsFrame = NSRect(x: 0, y: y, width: bounds.width, height: rowsViewportHeight)
         rowsScrollView.frame = rowsFrame
         rowsScrollView.hasVerticalScroller = rowsContentHeight > rowsViewportHeight + 0.5
@@ -3192,7 +3210,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var animationTimer: Timer?
     private var settingsWindowController: TaskBarSettingsWindowController?
     private var readInFlight = false
-    private var transientPopoverSize: NSSize?
     private var selectedTab: TaskBarTab = .all
     private var lastThreadsSignature = ""
 
@@ -3264,15 +3281,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
         if popover.isShown {
-            if transientPopoverSize != nil {
-                transientPopoverSize = nil
-                rebuildPopover()
-            } else {
-                popover.performClose(nil)
-            }
+            popover.performClose(nil)
             return
         }
-        transientPopoverSize = nil
         rebuildPopover()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
@@ -3309,11 +3320,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ThreadHoverPanel.shared.hideAll()
                 self?.quit()
             },
-            initialSize: transientPopoverSize,
-            onResize: { [weak self, weak controller] size, _ in
+            initialSize: TaskBarSettings.popoverSize,
+            onResize: { [weak self, weak controller] size, persist in
                 controller?.preferredContentSize = size
                 self?.popover.contentSize = size
-                self?.transientPopoverSize = size
+                if persist {
+                    TaskBarSettings.popoverSize = size
+                }
             }
         )
         controller.view = content
@@ -4225,7 +4238,11 @@ private func renderTaskBar(to path: String) {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
 
-    let mock = mockTaskBarThreads()
+    var mock = mockTaskBarThreads()
+    if let countArg = CommandLine.arguments.first(where: { $0.hasPrefix("--count=") }),
+       let count = Int(countArg.dropFirst("--count=".count)) {
+        mock = Array(mock.prefix(max(0, count)))
+    }
     let running = mock.filter { $0.status == .running || $0.status == .stale }.count
     let waiting = mock.filter { $0.status == .waiting }.count
     let unread = mock.filter { $0.status == .unread }.count
