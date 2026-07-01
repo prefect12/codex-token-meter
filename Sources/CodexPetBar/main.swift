@@ -8,35 +8,6 @@ enum ThreadRunStatus {
     case unread
 }
 
-private enum TaskFilter: Int, CaseIterable {
-    case all
-    case running
-    case waiting
-    case completed
-
-    var title: String {
-        switch self {
-        case .all: return "全部"
-        case .running: return "运行"
-        case .waiting: return "等待"
-        case .completed: return "完成"
-        }
-    }
-
-    func includes(_ item: CodexThreadItem) -> Bool {
-        switch self {
-        case .all:
-            return true
-        case .running:
-            return item.status == .running || item.status == .stale
-        case .waiting:
-            return item.status == .waiting
-        case .completed:
-            return item.status == .unread
-        }
-    }
-}
-
 struct CodexThreadItem {
     let id: String
     let title: String
@@ -1446,46 +1417,194 @@ final class PetStatusIcon {
     }
 }
 
+enum TaskBarTab: Int, CaseIterable {
+    case all
+    case running
+    case waiting
+    case done
+
+    var title: String {
+        switch self {
+        case .all: return "All"
+        case .running: return "Running"
+        case .waiting: return "Waiting"
+        case .done: return "Done"
+        }
+    }
+
+    func matches(_ status: ThreadRunStatus) -> Bool {
+        switch self {
+        case .all: return true
+        case .running: return status == .running || status == .stale
+        case .waiting: return status == .waiting
+        case .done: return status == .unread
+        }
+    }
+
+    var emptyMessage: String {
+        switch self {
+        case .all: return "No active Codex or Claude tasks"
+        case .running: return "Nothing running right now"
+        case .waiting: return "Nothing waiting on you"
+        case .done: return "No finished tasks to review"
+        }
+    }
+}
+
+/// App-style rounded icon drawn to echo a checklist, matching the Task Bar mark.
+final class TaskBarAppIconView: NSView {
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let rect = bounds
+        let radius = rect.width * 0.28
+        let background = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+        if let gradient = NSGradient(
+            starting: NSColor(calibratedWhite: 1.0, alpha: 1.0),
+            ending: NSColor(calibratedWhite: 0.85, alpha: 1.0)
+        ) {
+            gradient.draw(in: background, angle: 90)
+        } else {
+            NSColor.white.setFill()
+            background.fill()
+        }
+
+        let bulletColors = [
+            NSColor(calibratedRed: 0.96, green: 0.52, blue: 0.22, alpha: 1),
+            NSColor(calibratedRed: 0.29, green: 0.55, blue: 0.96, alpha: 1),
+            NSColor(calibratedRed: 0.96, green: 0.52, blue: 0.22, alpha: 1)
+        ]
+        let leftX = rect.width * 0.24
+        let lineX = rect.width * 0.44
+        let lineRight = rect.width * 0.76
+        let bulletSize = rect.width * 0.13
+        let lineHeight = rect.width * 0.085
+        let rowSpacing = rect.height * 0.21
+        let firstY = rect.height * 0.31
+        for index in 0..<3 {
+            let centerY = firstY + CGFloat(index) * rowSpacing
+            let bulletRect = NSRect(x: leftX, y: centerY - bulletSize / 2, width: bulletSize, height: bulletSize)
+            bulletColors[index].setFill()
+            NSBezierPath(roundedRect: bulletRect, xRadius: bulletSize * 0.3, yRadius: bulletSize * 0.3).fill()
+            let lineRect = NSRect(x: lineX, y: centerY - lineHeight / 2, width: lineRight - lineX, height: lineHeight)
+            NSColor(calibratedWhite: 0.52, alpha: 0.9).setFill()
+            NSBezierPath(roundedRect: lineRect, xRadius: lineHeight / 2, yRadius: lineHeight / 2).fill()
+        }
+    }
+}
+
+extension TaskBarTab {
+    var symbolName: String {
+        switch self {
+        case .all: return "list.bullet"
+        case .running: return "play.circle.fill"
+        case .waiting: return "clock.fill"
+        case .done: return "checkmark.circle.fill"
+        }
+    }
+
+    var tintColor: NSColor {
+        switch self {
+        case .all: return NSColor(calibratedWhite: 0.85, alpha: 1)
+        case .running: return statusAccentColor(.running)
+        case .waiting: return statusAccentColor(.waiting)
+        case .done: return statusAccentColor(.unread)
+        }
+    }
+}
+
+/// Compact header chip such as "Running 3": muted label + colored count, optional leading dot.
+final class CountChipView: NSView {
+    private let dotView = NSView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let countLabel = NSTextField(labelWithString: "")
+    private let showsDot: Bool
+
+    init(title: String, count: Int, color: NSColor, showsDot: Bool) {
+        self.showsDot = showsDot
+        super.init(frame: .zero)
+        wantsLayer = true
+
+        if showsDot {
+            dotView.wantsLayer = true
+            dotView.layer?.backgroundColor = color.cgColor
+            dotView.layer?.cornerRadius = 3
+            addSubview(dotView)
+        }
+
+        titleLabel.stringValue = title
+        titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        titleLabel.textColor = NSColor(calibratedWhite: 0.72, alpha: 1)
+        addSubview(titleLabel)
+
+        countLabel.stringValue = "\(count)"
+        countLabel.font = .systemFont(ofSize: 11.5, weight: .bold)
+        countLabel.textColor = count > 0 ? color : color.withAlphaComponent(0.45)
+        addSubview(countLabel)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func textWidth(_ field: NSTextField) -> CGFloat {
+        let font = field.font ?? NSFont.systemFont(ofSize: 12)
+        return ceil((field.stringValue as NSString).size(withAttributes: [.font: font]).width)
+    }
+
+    var preferredWidth: CGFloat {
+        let dotWidth: CGFloat = showsDot ? 6 + 6 : 0
+        return 11 + dotWidth + textWidth(titleLabel) + 6 + textWidth(countLabel) + 12
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: bounds.height / 2, yRadius: bounds.height / 2)
+        NSColor(calibratedWhite: 1.0, alpha: 0.05).setFill()
+        path.fill()
+        path.lineWidth = 1
+        NSColor(calibratedWhite: 1.0, alpha: 0.12).setStroke()
+        path.stroke()
+    }
+
+    override func layout() {
+        super.layout()
+        let midY = bounds.midY
+        var x: CGFloat = 11
+        if showsDot {
+            dotView.frame = NSRect(x: x, y: midY - 3, width: 6, height: 6)
+            x += 6 + 6
+        }
+        let titleW = textWidth(titleLabel)
+        titleLabel.frame = NSRect(x: x, y: midY - 8, width: titleW, height: 16)
+        x += titleW + 6
+        countLabel.frame = NSRect(x: x, y: midY - 8, width: textWidth(countLabel) + 2, height: 16)
+    }
+}
+
 final class PanelHeaderView: NSView {
-    private let logoView = NSImageView(frame: .zero)
+    private let iconView = TaskBarAppIconView()
     private let titleLabel = NSTextField(labelWithString: "Task Bar")
-    private let totalLabel = NSTextField(labelWithString: "")
-    private let statusSummaryLabel = NSTextField(labelWithString: "")
+    private var chips: [CountChipView] = []
 
     init(runningCount: Int, waitingCount: Int, unreadCount: Int) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 50))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 56))
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.02).cgColor
 
-        logoView.image = NSImage(named: "CodexBarLogo") ?? NSImage(named: NSImage.applicationIconName)
-        logoView.imageScaling = .scaleProportionallyUpOrDown
-        addSubview(logoView)
+        addSubview(iconView)
 
-        titleLabel.font = .systemFont(ofSize: 17, weight: .bold)
-        titleLabel.textColor = .labelColor
+        titleLabel.font = .systemFont(ofSize: 15, weight: .bold)
+        titleLabel.textColor = .white
         titleLabel.lineBreakMode = .byTruncatingTail
         addSubview(titleLabel)
 
-        totalLabel.stringValue = totalTaskSummaryText(
-            runningCount: runningCount,
-            waitingCount: waitingCount,
-            unreadCount: unreadCount
-        )
-        totalLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-        totalLabel.textColor = NSColor.white.withAlphaComponent(0.74)
-        totalLabel.alignment = .right
-        totalLabel.lineBreakMode = .byTruncatingTail
-        addSubview(totalLabel)
-
-        statusSummaryLabel.attributedStringValue = headerStatusSummaryText(
-            runningCount: runningCount,
-            waitingCount: waitingCount,
-            unreadCount: unreadCount
-        )
-        statusSummaryLabel.lineBreakMode = .byTruncatingTail
-        statusSummaryLabel.maximumNumberOfLines = 1
-        statusSummaryLabel.alignment = .right
-        addSubview(statusSummaryLabel)
+        chips = [
+            CountChipView(title: "Running", count: runningCount, color: statusAccentColor(.running), showsDot: true),
+            CountChipView(title: "Waiting", count: waitingCount, color: statusAccentColor(.waiting), showsDot: false),
+            CountChipView(title: "Done", count: unreadCount, color: statusAccentColor(.unread), showsDot: false)
+        ]
+        chips.forEach { addSubview($0) }
     }
 
     required init?(coder: NSCoder) {
@@ -1494,82 +1613,140 @@ final class PanelHeaderView: NSView {
 
     override func layout() {
         super.layout()
-        let horizontalPadding: CGFloat = 0
-        let logoSize: CGFloat = 22
-        let summaryWidth = min(210, max(160, bounds.width * 0.42))
-        logoView.frame = NSRect(x: horizontalPadding, y: 12, width: logoSize, height: logoSize)
-        totalLabel.frame = NSRect(
-            x: bounds.width - horizontalPadding - summaryWidth,
-            y: 10,
-            width: summaryWidth,
-            height: 15
-        )
-        statusSummaryLabel.frame = NSRect(
-            x: bounds.width - horizontalPadding - summaryWidth,
-            y: 29,
-            width: summaryWidth,
-            height: 16
-        )
-        titleLabel.frame = NSRect(
-            x: logoView.frame.maxX + 10,
-            y: 8,
-            width: max(80, statusSummaryLabel.frame.minX - logoView.frame.maxX - 22),
-            height: 24
-        )
-    }
-}
+        let iconSize: CGFloat = 26
+        iconView.frame = NSRect(x: 18, y: (bounds.height - iconSize) / 2, width: iconSize, height: iconSize)
 
-private func totalTaskSummaryText(runningCount: Int, waitingCount: Int, unreadCount: Int) -> String {
-    let total = runningCount + waitingCount + unreadCount
-    return total > 0 ? "共 \(total) 个任务" : "暂无任务"
-}
-
-private func headerStatusSummaryText(runningCount: Int, waitingCount: Int, unreadCount: Int) -> NSAttributedString {
-    let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
-    let paragraph = NSMutableParagraphStyle()
-    paragraph.alignment = .right
-    paragraph.lineBreakMode = .byTruncatingTail
-    let separatorAttributes: [NSAttributedString.Key: Any] = [
-        .font: font,
-        .foregroundColor: NSColor.white.withAlphaComponent(0.40),
-        .paragraphStyle: paragraph
-    ]
-
-    let result = NSMutableAttributedString()
-    func append(_ text: String, color: NSColor) {
-        if result.length > 0 {
-            result.append(NSAttributedString(string: "  ·  ", attributes: separatorAttributes))
+        let chipHeight: CGFloat = 24
+        let spacing: CGFloat = 7
+        var rightEdge = bounds.maxX - 18
+        for chip in chips.reversed() {
+            let width = chip.preferredWidth
+            chip.frame = NSRect(x: rightEdge - width, y: (bounds.height - chipHeight) / 2, width: width, height: chipHeight)
+            rightEdge -= (width + spacing)
         }
-        result.append(NSAttributedString(string: text, attributes: [
-            .font: font,
-            .foregroundColor: color,
-            .paragraphStyle: paragraph
-        ]))
+
+        let titleX = iconView.frame.maxX + 11
+        let chipsLeft = chips.first?.frame.minX ?? bounds.maxX
+        titleLabel.frame = NSRect(x: titleX, y: (bounds.height - 24) / 2, width: max(0, chipsLeft - 10 - titleX), height: 24)
+    }
+}
+
+/// Segmented control with icons (All / Running / Waiting / Done) for filtering tasks.
+final class TaskBarTabsView: NSView {
+    private let tabs: [TaskBarTab]
+    private var selectedIndex: Int
+    var onSelect: (TaskBarTab) -> Void
+    private var iconViews: [NSImageView] = []
+    private var labelViews: [NSTextField] = []
+
+    init(tabs: [TaskBarTab], selected: TaskBarTab, onSelect: @escaping (TaskBarTab) -> Void) {
+        self.tabs = tabs
+        self.selectedIndex = tabs.firstIndex(of: selected) ?? 0
+        self.onSelect = onSelect
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 42))
+        wantsLayer = true
+
+        for (index, tab) in tabs.enumerated() {
+            let isSelected = index == selectedIndex
+            let icon = NSImageView()
+            let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+            icon.image = NSImage(systemSymbolName: tab.symbolName, accessibilityDescription: tab.title)?
+                .withSymbolConfiguration(config)
+            icon.contentTintColor = tab.tintColor
+            icon.imageScaling = .scaleProportionallyDown
+            addSubview(icon)
+            iconViews.append(icon)
+
+            let label = NSTextField(labelWithString: tab.title)
+            label.font = .systemFont(ofSize: 11.5, weight: isSelected ? .semibold : .medium)
+            label.textColor = isSelected ? .white : NSColor(calibratedWhite: 0.6, alpha: 1)
+            label.lineBreakMode = .byClipping
+            addSubview(label)
+            labelViews.append(label)
+        }
     }
 
-    if runningCount > 0 {
-        append("\(runningCount) 运行中", color: statusColor(.running))
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
-    if waitingCount > 0 {
-        append("\(waitingCount) 等待", color: statusColor(.waiting))
+
+    private var containerRect: NSRect {
+        NSRect(x: 14, y: 6, width: bounds.width - 28, height: 30)
     }
-    if unreadCount > 0 {
-        append("\(unreadCount) 未读", color: statusColor(.unread))
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let container = containerRect
+        NSColor(calibratedWhite: 1.0, alpha: 0.08).setFill()
+        NSBezierPath(roundedRect: container, xRadius: 9, yRadius: 9).fill()
+
+        let segmentWidth = container.width / CGFloat(tabs.count)
+        let cell = NSRect(
+            x: container.minX + CGFloat(selectedIndex) * segmentWidth,
+            y: container.minY,
+            width: segmentWidth,
+            height: container.height
+        ).insetBy(dx: 3, dy: 3)
+        let selection = NSBezierPath(roundedRect: cell, xRadius: 7, yRadius: 7)
+        NSColor(calibratedWhite: 1.0, alpha: 0.16).setFill()
+        selection.fill()
+        selection.lineWidth = 1
+        NSColor(calibratedWhite: 1.0, alpha: 0.08).setStroke()
+        selection.stroke()
     }
-    if result.length == 0 {
-        append("已完成", color: NSColor.white.withAlphaComponent(0.58))
+
+    private func labelWidth(_ field: NSTextField) -> CGFloat {
+        let font = field.font ?? NSFont.systemFont(ofSize: 12.5)
+        return ceil((field.stringValue as NSString).size(withAttributes: [.font: font]).width)
     }
-    return result
+
+    override func layout() {
+        super.layout()
+        let container = containerRect
+        let segmentWidth = container.width / CGFloat(tabs.count)
+        let iconWidth: CGFloat = 14
+        let gap: CGFloat = 6
+        for index in tabs.indices {
+            let cell = NSRect(
+                x: container.minX + CGFloat(index) * segmentWidth,
+                y: container.minY,
+                width: segmentWidth,
+                height: container.height
+            )
+            let label = labelViews[index]
+            let icon = iconViews[index]
+            let width = labelWidth(label)
+            let groupWidth = iconWidth + gap + width
+            let startX = cell.midX - groupWidth / 2
+            icon.frame = NSRect(x: startX, y: cell.midY - 7, width: iconWidth, height: 14)
+            label.frame = NSRect(x: startX + iconWidth + gap, y: cell.midY - 8, width: width + 1, height: 16)
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let container = containerRect
+        guard container.insetBy(dx: 0, dy: -6).contains(point) else { return }
+        let segmentWidth = container.width / CGFloat(tabs.count)
+        let index = min(tabs.count - 1, max(0, Int((point.x - container.minX) / segmentWidth)))
+        guard index != selectedIndex else { return }
+        selectedIndex = index
+        needsDisplay = true
+        onSelect(tabs[index])
+    }
 }
 
 final class EmptyStateView: NSView {
-    private let label = NSTextField(labelWithString: "No running or unread Codex or Claude turns")
+    private let label = NSTextField(labelWithString: "")
 
-    init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 42))
-        label.font = .systemFont(ofSize: 13, weight: .medium)
-        label.textColor = .secondaryLabelColor
+    init(message: String = "") {
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: taskBarEmptyStateHeight))
+        label.stringValue = message
+        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.textColor = NSColor(calibratedWhite: 0.55, alpha: 1)
         label.alignment = .center
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 2
         addSubview(label)
     }
 
@@ -1579,7 +1756,7 @@ final class EmptyStateView: NSView {
 
     override func layout() {
         super.layout()
-        label.frame = NSRect(x: 16, y: 11, width: bounds.width - 32, height: 20)
+        label.frame = NSRect(x: 20, y: (bounds.height - 34) / 2, width: bounds.width - 40, height: 34)
     }
 }
 
@@ -1978,12 +2155,12 @@ final class ThreadRowView: NSView {
     private let onDismiss: (String) -> Void
     private let showPlatformLabel: Bool
     private let showStatusDot: Bool
-    private let statusDot = NSView()
-    private let statusLabelView = NSTextField(labelWithString: "")
-    private let statusElapsedLabel = NSTextField(labelWithString: "")
-    private let platformLabelView = NSTextField(labelWithString: "")
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
+    private let clockIconView = NSImageView()
+    private let durationLabel = NSTextField(labelWithString: "")
+    private let metaDotView = NSView()
+    private let metaStatusLabel = NSTextField(labelWithString: "")
     private var trackingAreaRef: NSTrackingArea?
     private var elapsedTimer: Timer?
     private var mouseDownPoint = NSPoint.zero
@@ -2008,53 +2185,53 @@ final class ThreadRowView: NSView {
         self.showStatusDot = showStatusDot
         self.onOpen = onOpen
         self.onDismiss = onDismiss
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 88))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: taskBarRowHeight))
         wantsLayer = true
         let tooltip = tooltipText(for: item)
         setAccessibilityHelp(tooltip)
 
-        statusDot.wantsLayer = true
-        statusDot.layer?.backgroundColor = statusColor(item.status).cgColor
-        statusDot.layer?.cornerRadius = 4
-        statusDot.isHidden = !showStatusDot
-        addSubview(statusDot)
-
-        statusLabelView.stringValue = compactStatusLabel(item.status)
-        statusLabelView.font = .systemFont(ofSize: 12, weight: .bold)
-        statusLabelView.textColor = statusColor(item.status)
-        statusLabelView.lineBreakMode = .byTruncatingTail
-        addSubview(statusLabelView)
-
-        statusElapsedLabel.font = .systemFont(ofSize: 10, weight: .semibold)
-        statusElapsedLabel.textColor = .secondaryLabelColor
-        statusElapsedLabel.lineBreakMode = .byTruncatingTail
-        statusElapsedLabel.maximumNumberOfLines = 1
-        addSubview(statusElapsedLabel)
-        updateElapsedLabel()
-
-        platformLabelView.stringValue = sourceLabel(item)
-        platformLabelView.font = .systemFont(ofSize: 9, weight: .semibold)
-        platformLabelView.textColor = sourceColor(item)
-        platformLabelView.lineBreakMode = .byTruncatingTail
-        platformLabelView.maximumNumberOfLines = 1
-        platformLabelView.isHidden = !showPlatformLabel
-        addSubview(platformLabelView)
+        let accent = statusAccentColor(item.status)
 
         titleLabel.stringValue = item.title
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        titleLabel.textColor = .labelColor
+        titleLabel.textColor = .white
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         addSubview(titleLabel)
 
         detailLabel.stringValue = item.preview ?? detailText(for: item)
-        detailLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        detailLabel.textColor = .secondaryLabelColor
-        detailLabel.maximumNumberOfLines = 3
+        detailLabel.font = .systemFont(ofSize: 11.5, weight: .regular)
+        detailLabel.textColor = NSColor(calibratedWhite: 0.62, alpha: 1)
+        detailLabel.maximumNumberOfLines = 2
         detailLabel.lineBreakMode = .byTruncatingTail
         detailLabel.cell?.wraps = true
         detailLabel.cell?.isScrollable = false
         addSubview(detailLabel)
+
+        let clockConfig = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+        clockIconView.image = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)?
+            .withSymbolConfiguration(clockConfig)
+        clockIconView.contentTintColor = NSColor(calibratedWhite: 0.5, alpha: 1)
+        clockIconView.imageScaling = .scaleProportionallyDown
+        addSubview(clockIconView)
+
+        durationLabel.font = .systemFont(ofSize: 10.5, weight: .medium)
+        durationLabel.textColor = NSColor(calibratedWhite: 0.5, alpha: 1)
+        durationLabel.lineBreakMode = .byClipping
+        addSubview(durationLabel)
+
+        metaDotView.wantsLayer = true
+        metaDotView.layer?.backgroundColor = accent.cgColor
+        metaDotView.layer?.cornerRadius = 2.5
+        addSubview(metaDotView)
+
+        metaStatusLabel.stringValue = rowStatusLabel(item.status)
+        metaStatusLabel.font = .systemFont(ofSize: 10.5, weight: .medium)
+        metaStatusLabel.textColor = accent
+        metaStatusLabel.lineBreakMode = .byTruncatingTail
+        addSubview(metaStatusLabel)
+
+        updateElapsedLabel()
     }
 
     required init?(coder: NSCoder) {
@@ -2190,38 +2367,48 @@ final class ThreadRowView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        NSColor.white.withAlphaComponent(0.08).setFill()
-        NSRect(x: 0, y: 0, width: bounds.width, height: 1).fill()
+
+        // Divider between rows.
+        NSColor(calibratedWhite: 1.0, alpha: 0.06).setFill()
+        NSRect(x: 20, y: 0, width: bounds.width - 40, height: 1).fill()
+
+        // Colored status accent bar at the leading edge.
+        if !isSwipeTracking || swipeOffset > -1 {
+            let barRect = NSRect(x: 8 + swipeOffset, y: 14, width: 3.5, height: bounds.height - 28)
+            statusAccentColor(item.status).setFill()
+            NSBezierPath(roundedRect: barRect, xRadius: 1.75, yRadius: 1.75).fill()
+        }
+
         if swipeOffset < -1, isReadDismissible(item.status) {
             let revealWidth = min(ThreadRowView.dismissRevealWidth, -swipeOffset + 16)
             let revealRect = NSRect(
                 x: bounds.maxX - revealWidth - 8,
-                y: 4,
+                y: 6,
                 width: revealWidth,
-                height: bounds.height - 8
+                height: bounds.height - 12
             )
             NSColor.systemRed.withAlphaComponent(0.82).setFill()
-            NSBezierPath(roundedRect: revealRect, xRadius: 8, yRadius: 8).fill()
+            NSBezierPath(roundedRect: revealRect, xRadius: 10, yRadius: 10).fill()
             drawDismissLabel(in: revealRect)
         }
         guard isHovering, !isSwipeTracking else { return }
-        NSColor(calibratedRed: 0.08, green: 0.20, blue: 0.34, alpha: 0.94).setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 0, dy: 6), xRadius: 8, yRadius: 8).fill()
+        NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 8, dy: 4), xRadius: 12, yRadius: 12).fill()
     }
 
     override func layout() {
         super.layout()
         let offset = swipeOffset
-        let statusTextX: CGFloat = showStatusDot ? 30 : 12
-        let statusColumnWidth: CGFloat = showStatusDot ? 70 : 88
-        let contentX: CGFloat = 112
-        let contentWidth = max(180, bounds.width - contentX - 12)
-        statusDot.frame = NSRect(x: 12 + offset, y: 67, width: 8, height: 8)
-        statusLabelView.frame = NSRect(x: statusTextX + offset, y: 62, width: statusColumnWidth, height: 20)
-        statusElapsedLabel.frame = NSRect(x: statusTextX + offset, y: 39, width: statusColumnWidth, height: 17)
-        platformLabelView.frame = NSRect(x: statusTextX + offset, y: 18, width: statusColumnWidth, height: 14)
-        titleLabel.frame = NSRect(x: contentX + offset, y: 60, width: contentWidth, height: 22)
-        detailLabel.frame = NSRect(x: contentX + offset, y: 18, width: contentWidth, height: 38)
+        let contentX: CGFloat = 26
+        let contentWidth = max(120, bounds.width - 18 - contentX)
+
+        titleLabel.frame = NSRect(x: contentX + offset, y: bounds.height - 32, width: contentWidth, height: 20)
+        detailLabel.frame = NSRect(x: contentX + offset, y: 28, width: contentWidth, height: 32)
+
+        clockIconView.frame = NSRect(x: contentX + offset, y: 11, width: 11, height: 11)
+        durationLabel.frame = NSRect(x: contentX + 16 + offset, y: 9, width: 58, height: 15)
+        metaDotView.frame = NSRect(x: contentX + 76 + offset, y: 14, width: 5, height: 5)
+        metaStatusLabel.frame = NSRect(x: contentX + 87 + offset, y: 9, width: max(0, contentWidth - 87), height: 15)
     }
 
     private func setSwipeOffset(_ offset: CGFloat, animated: Bool) {
@@ -2282,8 +2469,9 @@ final class ThreadRowView: NSView {
 
     private func updateElapsedLabel() {
         let text = statusElapsedText(for: item) ?? ""
-        statusElapsedLabel.stringValue = text
-        statusElapsedLabel.isHidden = text.isEmpty
+        durationLabel.stringValue = text
+        durationLabel.isHidden = text.isEmpty
+        clockIconView.isHidden = text.isEmpty
     }
 
     private static let dismissRevealWidth: CGFloat = 86
@@ -2471,7 +2659,7 @@ final class MenuSeparatorView: NSView {
         self.inset = inset
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 7))
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.backgroundColor = menuPanelBackground.cgColor
     }
 
     private let inset: CGFloat
@@ -2482,7 +2670,7 @@ final class MenuSeparatorView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        NSColor.white.withAlphaComponent(0.18).setFill()
+        NSColor(calibratedWhite: 0.33, alpha: 0.72).setFill()
         NSRect(x: inset, y: floor(bounds.height / 2), width: bounds.width - inset * 2, height: 1).fill()
     }
 }
@@ -2569,70 +2757,102 @@ final class CommandRowView: NSView {
 }
 
 private final class CommandButtonBarView: NSView {
-    private let stackView = NSStackView()
-    private var buttons: [NSButton] = []
+    private let settingsButton: TaskBarActionButton
+    private let quitButton: TaskBarActionButton
 
     init(
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 28))
+        settingsButton = CommandButtonBarView.makeButton(
+            title: "Settings",
+            symbolName: "gearshape",
+            tint: NSColor(calibratedWhite: 0.78, alpha: 1),
+            action: onOpenSettings
+        )
+        quitButton = CommandButtonBarView.makeButton(
+            title: "Quit",
+            symbolName: "power",
+            tint: NSColor(calibratedRed: 0.94, green: 0.36, blue: 0.34, alpha: 1),
+            action: onQuit
+        )
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 46))
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
-
-        stackView.orientation = .horizontal
-        stackView.spacing = 8
-        stackView.distribution = .fillEqually
-        addSubview(stackView)
-
-        addButton(title: "设置", symbolName: "gearshape", action: onOpenSettings)
-        addButton(title: "退出", symbolName: "power", action: onQuit)
+        layer?.backgroundColor = menuPanelBackground.cgColor
+        addSubview(settingsButton)
+        addSubview(quitButton)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func addButton(title: String, symbolName: String, action: @escaping () -> Void) {
+    private static func makeButton(
+        title: String,
+        symbolName: String,
+        tint: NSColor,
+        action: @escaping () -> Void
+    ) -> TaskBarActionButton {
         let button = TaskBarActionButton(title: title, action: action)
-        styleButton(button, title: title, symbolName: symbolName)
-        buttons.append(button)
-        stackView.addArrangedSubview(button)
-    }
-
-    private func styleButton(_ button: NSButton, title: String, symbolName: String) {
-        let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        let color = NSColor.white.withAlphaComponent(0.90)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: color
-        ]
-        button.bezelStyle = .rounded
+        button.isBordered = false
+        button.wantsLayer = true
         button.imagePosition = .imageLeading
-        button.font = font
-        button.title = title
-        button.attributedTitle = NSAttributedString(string: title, attributes: attributes)
-        button.attributedAlternateTitle = NSAttributedString(string: title, attributes: attributes)
+        button.imageHugsTitle = true
+        button.imageScaling = .scaleProportionallyDown
+        button.contentTintColor = tint
+        button.font = .systemFont(ofSize: 12, weight: .medium)
+        button.toolTip = title
+        button.attributedTitle = NSAttributedString(string: " " + title, attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: tint
+        ])
         let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
         image?.isTemplate = true
         button.image = image
-        button.bezelColor = NSColor.white.withAlphaComponent(0.16)
-        button.contentTintColor = color
-        button.toolTip = title
+        return button
     }
 
     override func layout() {
         super.layout()
-        let buttonWidth: CGFloat = 126
-        let buttonHeight: CGFloat = 28
-        let naturalWidth = buttonWidth * CGFloat(buttons.count) + stackView.spacing * CGFloat(max(buttons.count - 1, 0))
-        let width = min(naturalWidth, max(0, bounds.width - 32))
-        stackView.frame = NSRect(
-            x: floor((bounds.width - width) / 2),
-            y: floor((bounds.height - buttonHeight) / 2),
-            width: width,
-            height: buttonHeight
-        )
+        settingsButton.sizeToFit()
+        var settingsFrame = settingsButton.frame
+        settingsFrame.origin = NSPoint(x: 18, y: (bounds.height - settingsFrame.height) / 2)
+        settingsButton.frame = settingsFrame
+
+        quitButton.sizeToFit()
+        var quitFrame = quitButton.frame
+        quitFrame.origin = NSPoint(x: bounds.maxX - 18 - quitFrame.width, y: (bounds.height - quitFrame.height) / 2)
+        quitButton.frame = quitFrame
+    }
+}
+
+/// Centered "N of M tasks" summary strip below the list.
+private final class TaskCountView: NSView {
+    private let label = NSTextField(labelWithString: "")
+
+    init(shown: Int, total: Int) {
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 26))
+        wantsLayer = true
+        layer?.backgroundColor = menuPanelBackground.cgColor
+        label.font = .systemFont(ofSize: 10.5, weight: .medium)
+        label.textColor = NSColor(calibratedWhite: 0.5, alpha: 1)
+        label.alignment = .center
+        addSubview(label)
+        update(shown: shown, total: total)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(shown: Int, total: Int) {
+        let noun = total == 1 ? "task" : "tasks"
+        label.stringValue = "\(shown) of \(total) \(noun)"
+    }
+
+    override func layout() {
+        super.layout()
+        label.frame = NSRect(x: 16, y: (bounds.height - 16) / 2, width: bounds.width - 32, height: 16)
     }
 }
 
@@ -2666,7 +2886,7 @@ private final class TaskBarRowsView: NSView {
         let height = arrangedHeights.reduce(CGFloat(0), +)
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: height))
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.backgroundColor = menuPanelBackground.cgColor
         for view in rowViews {
             addSubview(view)
         }
@@ -2742,61 +2962,75 @@ private final class PopoverResizeHandleView: NSView {
 
 private final class TaskBarPopoverContentView: NSView {
     private let headerView: PanelHeaderView
+    private let tabsView: TaskBarTabsView
     private let topSeparator = MenuSeparatorView()
-    private let filterSegment = NSSegmentedControl(
-        labels: TaskFilter.allCases.map(\.title),
-        trackingMode: .selectOne,
-        target: nil,
-        action: nil
-    )
-    private let rowsView: TaskBarRowsView
+    private var rowsView: TaskBarRowsView
     private let rowsScrollView: NSScrollView
+    private let taskCountView: TaskCountView
+    private let taskCountHeight: CGFloat
     private let bottomSeparator = MenuSeparatorView()
     private let commandBar: CommandButtonBarView
     private let resizeHandle = PopoverResizeHandleView()
-    private let rowsContentHeight: CGFloat
-    private let selectedFilter: TaskFilter
-    private let onFilterChanged: (TaskFilter) -> Void
+    private var rowsContentHeight: CGFloat
     private let onResize: (NSSize, Bool) -> Void
+
+    // Retained so the tab filter can be re-applied in place, without a full rebuild.
+    private let allThreads: [CodexThreadItem]
+    private let totalCount: Int
+    private let showPlatformLabels: Bool
+    private let showStatusDots: Bool
+    private let onOpenThread: (String) -> Void
+    private let onDismissThread: (String) -> Void
+    private let externalSelectTab: (TaskBarTab) -> Void
+    private var selectedTab: TaskBarTab
 
     init(
         threads: [CodexThreadItem],
         runningCount: Int,
         waitingCount: Int,
         unreadCount: Int,
-        selectedFilter: TaskFilter,
+        selectedTab: TaskBarTab,
         showPlatformLabels: Bool,
         showStatusDots: Bool,
         onOpenThread: @escaping (String) -> Void,
         onDismissThread: @escaping (String) -> Void,
-        onFilterChanged: @escaping (TaskFilter) -> Void,
+        onSelectTab: @escaping (TaskBarTab) -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void,
         initialSize: NSSize?,
         onResize: @escaping (NSSize, Bool) -> Void
     ) {
-        self.selectedFilter = selectedFilter
-        self.onFilterChanged = onFilterChanged
         self.onResize = onResize
+        self.allThreads = threads
+        self.showPlatformLabels = showPlatformLabels
+        self.showStatusDots = showStatusDots
+        self.onOpenThread = onOpenThread
+        self.onDismissThread = onDismissThread
+        self.externalSelectTab = onSelectTab
+        self.selectedTab = selectedTab
+
         headerView = PanelHeaderView(
             runningCount: runningCount,
             waitingCount: waitingCount,
             unreadCount: unreadCount
         )
-        let rowViews: [NSView]
-        if threads.isEmpty {
-            rowViews = [EmptyStateView()]
-        } else {
-            rowViews = threads.map { thread in
-                ThreadRowView(
-                    item: thread,
-                    showPlatformLabel: showPlatformLabels,
-                    showStatusDot: showStatusDots,
-                    onOpen: onOpenThread,
-                    onDismiss: onDismissThread
-                )
-            }
-        }
+        tabsView = TaskBarTabsView(tabs: TaskBarTab.allCases, selected: selectedTab, onSelect: { _ in })
+
+        let total = runningCount + waitingCount + unreadCount
+        totalCount = total
+        let filtered = threads.filter { selectedTab.matches($0.status) }
+        taskCountView = TaskCountView(shown: filtered.count, total: total)
+        taskCountView.isHidden = total == 0
+        taskCountHeight = total == 0 ? 0 : taskCountView.frame.height
+
+        let rowViews = TaskBarPopoverContentView.makeRowViews(
+            filtered: filtered,
+            selectedTab: selectedTab,
+            showPlatformLabels: showPlatformLabels,
+            showStatusDots: showStatusDots,
+            onOpenThread: onOpenThread,
+            onDismissThread: onDismissThread
+        )
         rowsView = TaskBarRowsView(rowViews: rowViews)
         rowsContentHeight = rowsView.frame.height
         commandBar = CommandButtonBarView(
@@ -2804,8 +3038,13 @@ private final class TaskBarPopoverContentView: NSView {
             onQuit: onQuit
         )
 
-        let fixedHeight: CGFloat = 205
-        let maxRowsHeight = max(EmptyStateView().frame.height, taskBarPopoverMaxHeight() - fixedHeight)
+        let fixedHeight = headerView.frame.height
+            + tabsView.frame.height
+            + topSeparator.frame.height
+            + taskCountHeight
+            + bottomSeparator.frame.height
+            + commandBar.frame.height
+        let maxRowsHeight = max(taskBarEmptyStateHeight, taskBarPopoverMaxHeight() - fixedHeight)
         let naturalRowsHeight = min(rowsContentHeight, maxRowsHeight)
         let naturalHeight = fixedHeight + naturalRowsHeight
         let naturalSize = NSSize(width: menuPanelWidth, height: naturalHeight)
@@ -2822,22 +3061,69 @@ private final class TaskBarPopoverContentView: NSView {
 
         super.init(frame: NSRect(origin: .zero, size: initialSize))
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.backgroundColor = menuPanelBackground.cgColor
         appearance = NSAppearance(named: .darkAqua)
 
         addSubview(headerView)
+        addSubview(tabsView)
         addSubview(topSeparator)
-        filterSegment.target = self
-        filterSegment.action = #selector(filterSegmentChanged)
-        filterSegment.segmentStyle = .rounded
-        filterSegment.selectedSegment = selectedFilter.rawValue
-        addSubview(filterSegment)
         addSubview(rowsScrollView)
+        addSubview(taskCountView)
         addSubview(bottomSeparator)
         addSubview(commandBar)
         addSubview(resizeHandle)
         resizeHandle.onResize = { [weak self] size, persist in
             self?.applyResize(size, persist: persist)
+        }
+        tabsView.onSelect = { [weak self] tab in
+            self?.selectTab(tab)
+        }
+    }
+
+    /// Re-filter and swap the list rows in place, keeping the surrounding chrome
+    /// (header, tabs, footer) and the popover size stable so switching tabs never flashes.
+    private func selectTab(_ tab: TaskBarTab) {
+        guard tab != selectedTab else { return }
+        selectedTab = tab
+        externalSelectTab(tab)
+
+        let filtered = allThreads.filter { tab.matches($0.status) }
+        let rowViews = TaskBarPopoverContentView.makeRowViews(
+            filtered: filtered,
+            selectedTab: tab,
+            showPlatformLabels: showPlatformLabels,
+            showStatusDots: showStatusDots,
+            onOpenThread: onOpenThread,
+            onDismissThread: onDismissThread
+        )
+        let newRowsView = TaskBarRowsView(rowViews: rowViews)
+        rowsView = newRowsView
+        rowsContentHeight = newRowsView.frame.height
+        rowsScrollView.documentView = newRowsView
+        taskCountView.update(shown: filtered.count, total: totalCount)
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+    }
+
+    private static func makeRowViews(
+        filtered: [CodexThreadItem],
+        selectedTab: TaskBarTab,
+        showPlatformLabels: Bool,
+        showStatusDots: Bool,
+        onOpenThread: @escaping (String) -> Void,
+        onDismissThread: @escaping (String) -> Void
+    ) -> [NSView] {
+        if filtered.isEmpty {
+            return [EmptyStateView(message: selectedTab.emptyMessage)]
+        }
+        return filtered.map { thread in
+            ThreadRowView(
+                item: thread,
+                showPlatformLabel: showPlatformLabels,
+                showStatusDot: showStatusDots,
+                onOpen: onOpenThread,
+                onDismiss: onDismissThread
+            )
         }
     }
 
@@ -2847,48 +3133,26 @@ private final class TaskBarPopoverContentView: NSView {
 
     override var isFlipped: Bool { true }
 
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.clear.setFill()
-        dirtyRect.fill()
-
-        let card = bounds.insetBy(dx: 8, dy: 8)
-        menuPanelBackground.setFill()
-        NSBezierPath(roundedRect: card, xRadius: 26, yRadius: 26).fill()
-        NSColor.white.withAlphaComponent(0.09).setStroke()
-        let border = NSBezierPath(roundedRect: card.insetBy(dx: 0.5, dy: 0.5), xRadius: 26, yRadius: 26)
-        border.lineWidth = 1
-        border.stroke()
-    }
-
     override func layout() {
         super.layout()
-        let content = bounds.insetBy(dx: 28, dy: 18)
-        headerView.frame = NSRect(x: content.minX, y: content.minY, width: content.width, height: headerView.frame.height)
+        var y: CGFloat = 0
+        headerView.frame = NSRect(x: 0, y: y, width: bounds.width, height: headerView.frame.height)
+        y += headerView.frame.height
 
-        topSeparator.frame = NSRect(
-            x: content.minX,
-            y: headerView.frame.maxY + 8,
-            width: content.width,
-            height: topSeparator.frame.height
-        )
-        filterSegment.frame = NSRect(
-            x: content.minX,
-            y: topSeparator.frame.maxY + 10,
-            width: content.width,
-            height: 28
-        )
+        tabsView.frame = NSRect(x: 0, y: y, width: bounds.width, height: tabsView.frame.height)
+        y += tabsView.frame.height
 
-        let commandY = content.maxY - commandBar.frame.height
-        bottomSeparator.frame = NSRect(
-            x: content.minX,
-            y: commandY - 18,
-            width: content.width,
-            height: bottomSeparator.frame.height
-        )
+        topSeparator.frame = NSRect(x: 0, y: y, width: bounds.width, height: topSeparator.frame.height)
+        y += topSeparator.frame.height
 
-        let rowsY = filterSegment.frame.maxY + 12
-        let rowsViewportHeight = max(EmptyStateView().frame.height, bottomSeparator.frame.minY - rowsY)
-        let rowsFrame = NSRect(x: content.minX, y: rowsY, width: content.width, height: rowsViewportHeight)
+        let fixedHeight = headerView.frame.height
+            + tabsView.frame.height
+            + topSeparator.frame.height
+            + taskCountHeight
+            + bottomSeparator.frame.height
+            + commandBar.frame.height
+        let rowsViewportHeight = max(taskBarEmptyStateHeight, bounds.height - fixedHeight)
+        let rowsFrame = NSRect(x: 0, y: y, width: bounds.width, height: rowsViewportHeight)
         rowsScrollView.frame = rowsFrame
         rowsScrollView.hasVerticalScroller = rowsContentHeight > rowsViewportHeight + 0.5
         rowsView.frame = NSRect(
@@ -2897,17 +3161,17 @@ private final class TaskBarPopoverContentView: NSView {
             width: rowsScrollView.contentSize.width,
             height: max(rowsContentHeight, rowsViewportHeight)
         )
-        commandBar.frame = NSRect(x: content.minX, y: commandY, width: content.width, height: commandBar.frame.height)
+        y += rowsViewportHeight
+
+        taskCountView.frame = NSRect(x: 0, y: y, width: bounds.width, height: taskCountHeight)
+        y += taskCountHeight
+
+        bottomSeparator.frame = NSRect(x: 0, y: y, width: bounds.width, height: bottomSeparator.frame.height)
+        y += bottomSeparator.frame.height
+
+        commandBar.frame = NSRect(x: 0, y: y, width: bounds.width, height: commandBar.frame.height)
         resizeHandle.frame = NSRect(x: bounds.maxX - 18, y: bounds.maxY - 18, width: 18, height: 18)
         resizeHandle.needsDisplay = true
-    }
-
-    @objc private func filterSegmentChanged() {
-        let index = filterSegment.selectedSegment
-        guard TaskFilter.allCases.indices.contains(index) else { return }
-        let nextFilter = TaskFilter.allCases[index]
-        guard nextFilter != selectedFilter else { return }
-        onFilterChanged(nextFilter)
     }
 
     private func applyResize(_ size: NSSize, persist: Bool) {
@@ -2930,7 +3194,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindowController: TaskBarSettingsWindowController?
     private var readInFlight = false
     private var transientPopoverSize: NSSize?
-    private var selectedFilter: TaskFilter = .all
+    private var selectedTab: TaskBarTab = .all
+    private var lastThreadsSignature = ""
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -2955,13 +3220,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let visible = self.readState.visibleThreads(from: items)
             DispatchQueue.main.async {
                 self.readInFlight = false
+                let signature = self.threadsSignature(visible)
+                let changed = signature != self.lastThreadsSignature
                 self.threads = visible
+                self.lastThreadsSignature = signature
                 self.updateStatusIcon()
-                if self.popover.isShown {
+                // Only rebuild when the visible set actually changed; per-row timers keep
+                // elapsed times ticking, so a static list never needs to flash.
+                if changed, self.popover.isShown {
                     self.rebuildPopover()
                 }
             }
         }
+    }
+
+    private func threadsSignature(_ items: [CodexThreadItem]) -> String {
+        items.map { "\($0.id)|\(statusRank($0.status))|\($0.title)|\($0.preview ?? "")" }
+            .joined(separator: ";")
     }
 
     private func configureStatusButton() {
@@ -3009,14 +3284,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let active = threads.filter { $0.status == .running || $0.status == .stale }
         let waitingCount = threads.filter { $0.status == .waiting }.count
         let unreadCount = threads.filter { $0.status == .unread }.count
-        let displayedThreads = threads.filter { selectedFilter.includes($0) }
         let controller = NSViewController()
         let content = TaskBarPopoverContentView(
-            threads: displayedThreads,
+            threads: threads,
             runningCount: active.count,
             waitingCount: waitingCount,
             unreadCount: unreadCount,
-            selectedFilter: selectedFilter,
+            selectedTab: selectedTab,
             showPlatformLabels: TaskBarSettings.showPlatformLabels,
             showStatusDots: TaskBarSettings.showStatusDots,
             onOpenThread: { [weak self] id in
@@ -3025,9 +3299,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onDismissThread: { [weak self] id in
                 self?.dismissThread(id: id)
             },
-            onFilterChanged: { [weak self] filter in
-                self?.selectedFilter = filter
-                self?.rebuildPopover()
+            onSelectTab: { [weak self] tab in
+                self?.selectedTab = tab
             },
             onOpenSettings: { [weak self] in
                 self?.openSettingsWindow()
@@ -3074,6 +3347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             readState.markRead(threadID: id)
         }
         threads.removeAll { $0.id == id && isReadDismissible($0.status) }
+        lastThreadsSignature = threadsSignature(threads)
         updateStatusIcon()
         if popover.isShown {
             rebuildPopover()
@@ -3097,11 +3371,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ThreadHoverPanel.shared.hideAll()
 
         if let selectedItem, isClaudeThread(selectedItem) {
-            openClaudeApp(sessionID: claudeSessionID(from: selectedItem.id), fallbackFolder: selectedItem.cwd)
+            openClaudeApp(fallbackFolder: selectedItem.cwd)
             return
         }
         if id.hasPrefix("claude:") {
-            openClaudeApp(sessionID: claudeSessionID(from: id), fallbackFolder: nil)
+            openClaudeApp(fallbackFolder: nil)
             return
         }
 
@@ -3111,24 +3385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(url)
     }
 
-    private func claudeSessionID(from id: String) -> String? {
-        guard id.hasPrefix("claude:") else { return nil }
-        let raw = String(id.dropFirst("claude:".count))
-        // Claude Desktop's resume deep link only accepts canonical UUID session ids.
-        return UUID(uuidString: raw) != nil ? raw : nil
-    }
-
-    private func openClaudeApp(sessionID: String?, fallbackFolder: String?) {
-        // Claude Desktop resumes a specific CLI conversation via
-        // claude://resume?session=<uuid>, which imports it and navigates there.
-        if let sessionID,
-           var components = URLComponents(string: "claude://resume") {
-            components.queryItems = [URLQueryItem(name: "session", value: sessionID)]
-            if let deepLink = components.url {
-                NSWorkspace.shared.open(deepLink)
-                return
-            }
-        }
+    private func openClaudeApp(fallbackFolder: String?) {
         let claudeURL = URL(fileURLWithPath: "/Applications/Claude.app")
         if FileManager.default.fileExists(atPath: claudeURL.path) {
             NSWorkspace.shared.open(claudeURL)
@@ -3183,6 +3440,43 @@ private func compactStatusLabel(_ status: ThreadRunStatus) -> String {
     case .unread:
         return "UNREAD"
     }
+}
+
+/// Brighter, more saturated status colors used for icons, accents, and chips.
+private func statusAccentColor(_ status: ThreadRunStatus) -> NSColor {
+    switch status {
+    case .running:
+        return NSColor(calibratedRed: 0.30, green: 0.80, blue: 0.45, alpha: 1)
+    case .stale:
+        return NSColor(calibratedRed: 0.95, green: 0.70, blue: 0.30, alpha: 1)
+    case .waiting:
+        return NSColor(calibratedRed: 0.98, green: 0.68, blue: 0.20, alpha: 1)
+    case .unread:
+        return NSColor(calibratedRed: 0.36, green: 0.62, blue: 0.98, alpha: 1)
+    }
+}
+
+private func rowStatusLabel(_ status: ThreadRunStatus) -> String {
+    switch status {
+    case .running, .stale:
+        return "Running"
+    case .waiting:
+        return "Waiting"
+    case .unread:
+        return "Done"
+    }
+}
+
+/// Clock-style elapsed time: "MM:SS", or "HH:MM:SS" once past an hour.
+private func clockDuration(_ date: Date) -> String {
+    let total = max(0, Int(Date().timeIntervalSince(date)))
+    let hours = total / 3600
+    let minutes = (total % 3600) / 60
+    let seconds = total % 60
+    if hours > 0 {
+        return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+    }
+    return String(format: "%02d:%02d", minutes, seconds)
 }
 
 private func statusRank(_ status: ThreadRunStatus) -> Int {
@@ -3244,12 +3538,11 @@ private func detailText(for item: CodexThreadItem) -> String {
 private func statusElapsedText(for item: CodexThreadItem) -> String? {
     switch item.status {
     case .running, .stale:
-        guard let startedAt = item.startedAt else { return nil }
-        return compactDurationSinceChinese(startedAt)
+        return clockDuration(item.startedAt ?? item.lastActivity)
     case .waiting:
-        return compactDurationSinceChinese(item.lastActivity)
+        return clockDuration(item.lastActivity)
     case .unread:
-        return compactDurationSinceChinese(item.lastActivity)
+        return clockDuration(item.lastActivity)
     }
 }
 
@@ -3297,10 +3590,12 @@ private func tooltipStatusLabel(_ status: ThreadRunStatus) -> String {
     }
 }
 
-private let menuPanelWidth: CGFloat = 430
-private let taskBarPopoverMinWidth: CGFloat = 390
-private let taskBarPopoverMinHeight: CGFloat = 320
-private let menuPanelBackground = NSColor(calibratedWhite: 0.045, alpha: 0.98)
+private let menuPanelWidth: CGFloat = 420
+private let taskBarPopoverMinWidth: CGFloat = 340
+private let taskBarPopoverMinHeight: CGFloat = 200
+private let menuPanelBackground = NSColor(calibratedWhite: 0.105, alpha: 0.97)
+private let taskBarRowHeight: CGFloat = 92
+private let taskBarEmptyStateHeight: CGFloat = 120
 
 private func taskBarPopoverMaxHeight() -> CGFloat {
     let mouse = NSEvent.mouseLocation
@@ -3323,9 +3618,9 @@ private func taskBarPopoverMaxResizableSize() -> NSSize {
 
 private func isReadDismissible(_ status: ThreadRunStatus) -> Bool {
     switch status {
-    case .unread:
+    case .waiting, .unread:
         return true
-    case .running, .stale, .waiting:
+    case .running, .stale:
         return false
     }
 }
@@ -3879,8 +4174,100 @@ private func printThreads() {
     }
 }
 
+private func mockTaskBarThreads() -> [CodexThreadItem] {
+    func item(id: String, title: String, preview: String, status: ThreadRunStatus, ago: TimeInterval, source: String) -> CodexThreadItem {
+        CodexThreadItem(
+            id: id,
+            title: title,
+            preview: preview,
+            cwd: "/Users/demo/Projects/task-bar",
+            lastActivity: Date().addingTimeInterval(-ago),
+            startedAt: Date().addingTimeInterval(-ago),
+            externalReadAt: nil,
+            status: status,
+            turns: 12,
+            compressionCount: nil,
+            source: source,
+            isExplicitUnread: status == .unread,
+            tokensUsed: 128_000,
+            tokenBreakdown: TokenBreakdown(),
+            model: "gpt-5-codex"
+        )
+    }
+    return [
+        item(id: "codex:1", title: "Automation: 更新飞书 @ 我任务文档", preview: "脚本正在同步飞书，我等最终状态文件返回。", status: .running, ago: 47, source: "codex"),
+        item(id: "claude:2", title: "这个看起来不太对，帮忙看看呀 @ 杨工", preview: "已经跨过 18:54 的大批次，累计 23034 条，时间跳到现在。", status: .running, ago: 7333, source: "claude-code"),
+        item(id: "codex:3", title: "帮我安装最新的 main 的 codex bar", preview: "我会同时压三处：header 高度/字号、列表字号、底部按钮宽度。顶部间距也从上一版收紧。", status: .running, ago: 9201, source: "codex")
+    ]
+}
+
+private func renderTaskBar(to path: String) {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+
+    let mock = mockTaskBarThreads()
+    let running = mock.filter { $0.status == .running || $0.status == .stale }.count
+    let waiting = mock.filter { $0.status == .waiting }.count
+    let unread = mock.filter { $0.status == .unread }.count
+
+    let tabArg = CommandLine.arguments.first { $0.hasPrefix("--tab=") }.map { String($0.dropFirst(6)) }
+    let selectedTab: TaskBarTab
+    switch tabArg {
+    case "running": selectedTab = .running
+    case "waiting": selectedTab = .waiting
+    case "done": selectedTab = .done
+    default: selectedTab = .all
+    }
+    let content = TaskBarPopoverContentView(
+        threads: mock,
+        runningCount: running,
+        waitingCount: waiting,
+        unreadCount: unread,
+        selectedTab: selectedTab,
+        showPlatformLabels: true,
+        showStatusDots: true,
+        onOpenThread: { _ in },
+        onDismissThread: { _ in },
+        onSelectTab: { _ in },
+        onOpenSettings: {},
+        onQuit: {},
+        initialSize: nil,
+        onResize: { _, _ in }
+    )
+
+    let size = content.frame.size
+    let window = NSWindow(
+        contentRect: NSRect(origin: .zero, size: size),
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.appearance = NSAppearance(named: .darkAqua)
+    window.contentView = content
+    content.frame = NSRect(origin: .zero, size: size)
+    content.layoutSubtreeIfNeeded()
+
+    guard let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
+        print("render failed: no bitmap rep")
+        return
+    }
+    content.cacheDisplay(in: content.bounds, to: rep)
+    guard let data = rep.representation(using: .png, properties: [:]) else {
+        print("render failed: no png data")
+        return
+    }
+    do {
+        try data.write(to: URL(fileURLWithPath: path))
+        print("wrote \(path) (\(Int(size.width))x\(Int(size.height)))")
+    } catch {
+        print("render failed: \(error)")
+    }
+}
+
 if CommandLine.arguments.contains("--print") {
     printThreads()
+} else if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--render-taskbar=") }) {
+    renderTaskBar(to: String(arg.dropFirst("--render-taskbar=".count)))
 } else {
     let app = NSApplication.shared
     let delegate = AppDelegate()
