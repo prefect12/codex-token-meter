@@ -119,12 +119,16 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
     let liveLimits = combinedLiveLimits()
     let serviceStatus = CodexServiceStatusReader().read()
     let accountUsage = AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
-    let profileReport: TokenReport?
-    if quota.usesCodexProfileAPI, let accountUsage, accountUsage.hasData {
-        profileReport = profileReportWithLocalFallback(accountUsage.report(window: window), localReport: report)
-    } else {
-        profileReport = nil
-    }
+    let profileReport = AppSettings.profileAPITotalsEnabled
+        ? profileBackedReport(
+            window: window,
+            quota: quota,
+            accountUsage: accountUsage,
+            localReport: report,
+            localCodexReport: codexReport,
+            localClaudeReport: claudeReport
+        )
+        : nil
 
     let outputURL = arguments
         .compactMap { argument -> URL? in

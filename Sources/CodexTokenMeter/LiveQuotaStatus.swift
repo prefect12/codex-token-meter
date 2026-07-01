@@ -63,7 +63,7 @@ enum QuotaViewOption: String, CaseIterable {
     }
 
     var usesCodexProfileAPI: Bool {
-        self == .codex
+        self == .all || self == .codex
     }
 }
 

@@ -207,8 +207,7 @@ final class CodexActivityReader {
             .map { enrich($0, with: stateMetadata[$0.id]) }
             .map { enrichWithRolloutSummary($0, lookbackHours: max(lookbackHours, 72)) }
             .sorted(by: stableThreadOrder)
-            .prefix(limit)
-            .map { $0 }
+            .limitedForTaskBar(limit: limit)
     }
 
     private func enrich(_ item: CodexThreadItem, with metadata: ThreadStateMetadata?) -> CodexThreadItem {
@@ -384,7 +383,7 @@ final class CodexActivityReader {
                     model: string(dict["model"] ?? dict["modelName"])
                 ))
         }
-        return AppServerThreadSnapshot(items: Array(items.prefix(limit)), externalReadAtByID: externalReadAtByID)
+        return AppServerThreadSnapshot(items: items.limitedForTaskBar(limit: limit), externalReadAtByID: externalReadAtByID)
     }
 
     private func appServerExternalReadAt(from dict: [String: Any]) -> Date? {
@@ -1306,7 +1305,7 @@ final class PetStatusIcon {
         case .stale:
             color = NSColor.systemOrange
         case .waiting:
-            color = NSColor.systemBlue
+            color = NSColor.systemOrange
         case .unread:
             color = NSColor.systemBlue
         case nil:
@@ -1398,8 +1397,24 @@ final class EmptyStateView: NSView {
     }
 }
 
+private enum TaskTokenUnitStyle: String, CaseIterable {
+    case chinese
+    case english
+    case exact
+
+    var title: String {
+        switch self {
+        case .chinese: return "中文单位"
+        case .english: return "英文单位"
+        case .exact: return "具体值"
+        }
+    }
+}
+
 private enum TaskBarSettings {
     private static let showPlatformLabelsKey = "showPlatformLabels"
+    private static let showStatusDotsKey = "showStatusDots"
+    private static let tokenUnitStyleKey = "tokenUnitStyle"
 
     static var showPlatformLabels: Bool {
         get {
@@ -1411,6 +1426,39 @@ private enum TaskBarSettings {
         set {
             UserDefaults.standard.set(newValue, forKey: showPlatformLabelsKey)
         }
+    }
+
+    static var showStatusDots: Bool {
+        get {
+            guard UserDefaults.standard.object(forKey: showStatusDotsKey) != nil else {
+                return false
+            }
+            return UserDefaults.standard.bool(forKey: showStatusDotsKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: showStatusDotsKey)
+        }
+    }
+
+    static var tokenUnitStyle: TaskTokenUnitStyle {
+        get {
+            guard let rawValue = UserDefaults.standard.string(forKey: tokenUnitStyleKey),
+                  let style = TaskTokenUnitStyle(rawValue: rawValue) else {
+                return .chinese
+            }
+            return style
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: tokenUnitStyleKey)
+        }
+    }
+
+    static func clampedPopoverSize(_ size: NSSize) -> NSSize {
+        let maxSize = taskBarPopoverMaxResizableSize()
+        return NSSize(
+            width: min(max(size.width, taskBarPopoverMinWidth), maxSize.width),
+            height: min(max(size.height, taskBarPopoverMinHeight), maxSize.height)
+        )
     }
 }
 
@@ -1456,7 +1504,8 @@ private final class TaskBarSettingsView: NSView {
 
     private let onSettingsChanged: () -> Void
     private var platformOptionRects: [Bool: NSRect] = [:]
-    private var closeButtonRect: NSRect = .zero
+    private var statusDotOptionRects: [Bool: NSRect] = [:]
+    private var tokenUnitOptionRects: [TaskTokenUnitStyle: NSRect] = [:]
 
     init(onSettingsChanged: @escaping () -> Void) {
         self.onSettingsChanged = onSettingsChanged
@@ -1501,38 +1550,75 @@ private final class TaskBarSettingsView: NSView {
             color: NSColor.white.withAlphaComponent(0.56)
         )
 
-        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 152)
+        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 206)
         drawPanel(settingsCard)
         drawText(
-            "任务来源",
+            "列表显示",
             rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 16, width: settingsCard.width - 32, height: 22),
             font: .systemFont(ofSize: 16, weight: .bold),
             color: .white
         )
+
+        let pillHeight: CGFloat = 34
+        let pillGap: CGFloat = 8
+        let binaryPillWidth: CGFloat = 104
+        let binaryOptionX = settingsCard.maxX - 16 - binaryPillWidth * 2 - pillGap
+
+        let labelPillY = settingsCard.minY + 48
+        let showRect = NSRect(x: binaryOptionX, y: labelPillY, width: binaryPillWidth, height: pillHeight)
+        let hideRect = NSRect(x: showRect.maxX + pillGap, y: labelPillY, width: binaryPillWidth, height: pillHeight)
+        platformOptionRects = [true: showRect, false: hideRect]
         drawText(
             "来源标签",
-            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 62, width: 180, height: 20),
+            rect: NSRect(x: settingsCard.minX + 16, y: labelPillY + 7, width: binaryOptionX - settingsCard.minX - 32, height: 20),
             font: .systemFont(ofSize: 13, weight: .semibold),
             color: .white
         )
+        drawSelectablePill("显示", rect: showRect, selected: TaskBarSettings.showPlatformLabels)
+        drawSelectablePill("隐藏", rect: hideRect, selected: !TaskBarSettings.showPlatformLabels)
+
+        let dotPillY = settingsCard.minY + 92
+        let dotShowRect = NSRect(x: binaryOptionX, y: dotPillY, width: binaryPillWidth, height: pillHeight)
+        let dotHideRect = NSRect(x: dotShowRect.maxX + pillGap, y: dotPillY, width: binaryPillWidth, height: pillHeight)
+        statusDotOptionRects = [true: dotShowRect, false: dotHideRect]
         drawText(
-            "在任务列表左侧显示 Codex / Claude，用于快速区分任务来源。",
-            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 104, width: settingsCard.width - 32, height: 18),
+            "状态圆点",
+            rect: NSRect(x: settingsCard.minX + 16, y: dotPillY + 7, width: binaryOptionX - settingsCard.minX - 32, height: 20),
+            font: .systemFont(ofSize: 13, weight: .semibold),
+            color: .white
+        )
+        drawSelectablePill("显示", rect: dotShowRect, selected: TaskBarSettings.showStatusDots)
+        drawSelectablePill("隐藏", rect: dotHideRect, selected: !TaskBarSettings.showStatusDots)
+
+        let unitPillWidth: CGFloat = 82
+        let unitStyles = TaskTokenUnitStyle.allCases
+        let unitOptionX = settingsCard.maxX - 16 - unitPillWidth * CGFloat(unitStyles.count) - pillGap * CGFloat(unitStyles.count - 1)
+        let unitPillY = settingsCard.minY + 136
+        tokenUnitOptionRects.removeAll(keepingCapacity: true)
+        drawText(
+            "Token 单位",
+            rect: NSRect(x: settingsCard.minX + 16, y: unitPillY + 7, width: unitOptionX - settingsCard.minX - 32, height: 20),
+            font: .systemFont(ofSize: 13, weight: .semibold),
+            color: .white
+        )
+        for (index, style) in unitStyles.enumerated() {
+            let optionRect = NSRect(
+                x: unitOptionX + CGFloat(index) * (unitPillWidth + pillGap),
+                y: unitPillY,
+                width: unitPillWidth,
+                height: pillHeight
+            )
+            tokenUnitOptionRects[style] = optionRect
+            drawSelectablePill(style.title, rect: optionRect, selected: TaskBarSettings.tokenUnitStyle == style)
+        }
+        drawText(
+            "只影响 hover 中的输入 / 输出等 token 数字；缓存率和金额不变。",
+            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 180, width: settingsCard.width - 32, height: 18),
             font: .systemFont(ofSize: 12, weight: .medium),
             color: NSColor.white.withAlphaComponent(0.52)
         )
 
-        let pillWidth: CGFloat = 112
-        let pillHeight: CGFloat = 38
-        let pillGap: CGFloat = 12
-        let pillY = settingsCard.minY + 54
-        let hideRect = NSRect(x: settingsCard.maxX - 16 - pillWidth, y: pillY, width: pillWidth, height: pillHeight)
-        let showRect = NSRect(x: hideRect.minX - pillGap - pillWidth, y: pillY, width: pillWidth, height: pillHeight)
-        platformOptionRects = [true: showRect, false: hideRect]
-        drawSelectablePill("显示", rect: showRect, selected: TaskBarSettings.showPlatformLabels)
-        drawSelectablePill("隐藏", rect: hideRect, selected: !TaskBarSettings.showPlatformLabels)
-
-        let statusCard = NSRect(x: content.minX, y: settingsCard.maxY + 16, width: content.width, height: 132)
+        let statusCard = NSRect(x: content.minX, y: settingsCard.maxY + 16, width: content.width, height: 104)
         drawPanel(statusCard)
         drawText(
             "状态约定",
@@ -1549,15 +1635,6 @@ private final class TaskBarSettingsView: NSView {
             ],
             rect: NSRect(x: statusCard.minX + 16, y: statusCard.minY + 56, width: statusCard.width - 32, height: 42)
         )
-        drawText(
-            "主列表默认保留需要关注的任务；已完成任务弱化或从主列表移出。",
-            rect: NSRect(x: statusCard.minX + 16, y: statusCard.minY + 104, width: statusCard.width - 32, height: 18),
-            font: .systemFont(ofSize: 12, weight: .medium),
-            color: NSColor.white.withAlphaComponent(0.52)
-        )
-
-        closeButtonRect = NSRect(x: content.maxX - 112, y: content.maxY - 42, width: 112, height: 34)
-        drawSmallButton("完成", rect: closeButtonRect, emphasized: true)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -1569,8 +1646,18 @@ private final class TaskBarSettingsView: NSView {
             onSettingsChanged()
             return
         }
-        if closeButtonRect.contains(point) {
-            window?.close()
+        for (showDots, rect) in statusDotOptionRects where rect.contains(point) {
+            guard TaskBarSettings.showStatusDots != showDots else { return }
+            TaskBarSettings.showStatusDots = showDots
+            needsDisplay = true
+            onSettingsChanged()
+            return
+        }
+        for (style, rect) in tokenUnitOptionRects where rect.contains(point) {
+            guard TaskBarSettings.tokenUnitStyle != style else { return }
+            TaskBarSettings.tokenUnitStyle = style
+            needsDisplay = true
+            onSettingsChanged()
             return
         }
         super.mouseDown(with: event)
@@ -1679,14 +1766,33 @@ private final class TaskBarSettingsView: NSView {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineBreakMode = .byTruncatingTail
-        (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraph
+        ]
+        let textHeight = ceil((text as NSString).boundingRect(
+            with: NSSize(width: rect.width, height: 1000),
+            options: [.usesLineFragmentOrigin],
+            attributes: attributes
+        ).height)
+        let drawRect = NSRect(
+            x: rect.minX,
+            y: rect.minY + max(0, (rect.height - textHeight) / 2),
+            width: rect.width,
+            height: textHeight
+        )
+        (text as NSString).draw(in: drawRect, withAttributes: attributes)
     }
 }
 
 final class ThreadRowView: NSView {
     private let item: CodexThreadItem
     private let onOpen: (String) -> Void
+    private let onDismiss: (String) -> Void
     private let showPlatformLabel: Bool
+    private let showStatusDot: Bool
+    private let statusDot = NSView()
     private let statusLabelView = NSTextField(labelWithString: "")
     private let statusElapsedLabel = NSTextField(labelWithString: "")
     private let platformLabelView = NSTextField(labelWithString: "")
@@ -1694,18 +1800,38 @@ final class ThreadRowView: NSView {
     private let detailLabel = NSTextField(labelWithString: "")
     private var trackingAreaRef: NSTrackingArea?
     private var elapsedTimer: Timer?
+    private var mouseDownPoint = NSPoint.zero
+    private var dragStartOffset: CGFloat = 0
+    private var swipeOffset: CGFloat = 0
+    private var isSwipeTracking = false
+    private var scrollSwipeSettleTimer: Timer?
+    private var didDrag = false
     private var isHovering = false {
         didSet { needsDisplay = true }
     }
 
-    init(item: CodexThreadItem, showPlatformLabel: Bool, onOpen: @escaping (String) -> Void) {
+    init(
+        item: CodexThreadItem,
+        showPlatformLabel: Bool,
+        showStatusDot: Bool,
+        onOpen: @escaping (String) -> Void,
+        onDismiss: @escaping (String) -> Void
+    ) {
         self.item = item
         self.showPlatformLabel = showPlatformLabel
+        self.showStatusDot = showStatusDot
         self.onOpen = onOpen
+        self.onDismiss = onDismiss
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 76))
         wantsLayer = true
         let tooltip = tooltipText(for: item)
         setAccessibilityHelp(tooltip)
+
+        statusDot.wantsLayer = true
+        statusDot.layer?.backgroundColor = statusColor(item.status).cgColor
+        statusDot.layer?.cornerRadius = 4
+        statusDot.isHidden = !showStatusDot
+        addSubview(statusDot)
 
         statusLabelView.stringValue = compactStatusLabel(item.status)
         statusLabelView.font = .systemFont(ofSize: 11, weight: .semibold)
@@ -1774,9 +1900,83 @@ final class ThreadRowView: NSView {
         ThreadHoverPanel.shared.hide(owner: self)
     }
 
+    override func mouseDown(with event: NSEvent) {
+        mouseDownPoint = event.locationInWindow
+        dragStartOffset = swipeOffset
+        isSwipeTracking = false
+        didDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let point = event.locationInWindow
+        let deltaX = point.x - mouseDownPoint.x
+        let deltaY = point.y - mouseDownPoint.y
+        guard isReadDismissible(item.status) else {
+            didDrag = hypot(deltaX, deltaY) > 3
+            return
+        }
+
+        if !isSwipeTracking {
+            guard abs(deltaX) > 6 || abs(deltaY) > 6 else { return }
+            guard abs(deltaX) > abs(deltaY) * 1.2 else { return }
+            isSwipeTracking = true
+            ThreadHoverPanel.shared.hide(owner: self)
+        }
+
+        didDrag = true
+        setSwipeOffset(min(0, max(-ThreadRowView.dismissRevealWidth, dragStartOffset + deltaX)), animated: false)
+    }
+
     override func mouseUp(with event: NSEvent) {
         ThreadHoverPanel.shared.hide(owner: self)
+        if isSwipeTracking {
+            if swipeOffset <= -ThreadRowView.dismissThreshold {
+                onDismiss(item.id)
+            } else {
+                setSwipeOffset(0, animated: true)
+            }
+            isSwipeTracking = false
+            didDrag = false
+            return
+        }
+        guard !didDrag else {
+            didDrag = false
+            return
+        }
         onOpen(item.id)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard isReadDismissible(item.status), event.hasPreciseScrollingDeltas else {
+            super.scrollWheel(with: event)
+            return
+        }
+
+        let horizontal = event.scrollingDeltaX
+        let vertical = event.scrollingDeltaY
+        guard abs(horizontal) > 0.4, abs(horizontal) > abs(vertical) * 1.35 else {
+            super.scrollWheel(with: event)
+            return
+        }
+
+        ThreadHoverPanel.shared.hide(owner: self)
+        isSwipeTracking = true
+        scrollSwipeSettleTimer?.invalidate()
+
+        let revealDelta = event.isDirectionInvertedFromDevice ? horizontal : -horizontal
+        let nextOffset = min(0, max(-ThreadRowView.dismissRevealWidth, swipeOffset - revealDelta))
+        setSwipeOffset(nextOffset, animated: false)
+
+        switch event.phase {
+        case .ended, .cancelled:
+            settleScrollSwipe()
+        default:
+            let timer = Timer(timeInterval: 0.18, repeats: false) { [weak self] _ in
+                self?.settleScrollSwipe()
+            }
+            scrollSwipeSettleTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -1798,27 +1998,84 @@ final class ThreadRowView: NSView {
 
     deinit {
         stopElapsedTimer()
+        scrollSwipeSettleTimer?.invalidate()
         ThreadHoverPanel.shared.hide(owner: self)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard isHovering else { return }
+        if swipeOffset < -1, isReadDismissible(item.status) {
+            let revealWidth = min(ThreadRowView.dismissRevealWidth, -swipeOffset + 16)
+            let revealRect = NSRect(
+                x: bounds.maxX - revealWidth - 8,
+                y: 4,
+                width: revealWidth,
+                height: bounds.height - 8
+            )
+            NSColor.systemRed.withAlphaComponent(0.82).setFill()
+            NSBezierPath(roundedRect: revealRect, xRadius: 8, yRadius: 8).fill()
+            drawDismissLabel(in: revealRect)
+        }
+        guard isHovering, !isSwipeTracking else { return }
         NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 8, dy: 4), xRadius: 8, yRadius: 8).fill()
     }
 
     override func layout() {
         super.layout()
-        let statusTextX: CGFloat = 18
-        let statusColumnWidth: CGFloat = 76
+        let offset = swipeOffset
+        let statusTextX: CGFloat = showStatusDot ? 34 : 18
+        let statusColumnWidth: CGFloat = showStatusDot ? 62 : 76
         let contentX: CGFloat = 104
         let contentWidth = max(160, bounds.width - contentX - 16)
-        statusLabelView.frame = NSRect(x: statusTextX, y: 48, width: statusColumnWidth, height: 18)
-        statusElapsedLabel.frame = NSRect(x: statusTextX, y: 30, width: statusColumnWidth, height: 16)
-        platformLabelView.frame = NSRect(x: statusTextX, y: 12, width: statusColumnWidth, height: 14)
-        titleLabel.frame = NSRect(x: contentX, y: 49, width: contentWidth, height: 20)
-        detailLabel.frame = NSRect(x: contentX, y: 15, width: contentWidth, height: 34)
+        statusDot.frame = NSRect(x: 17 + offset, y: 54, width: 8, height: 8)
+        statusLabelView.frame = NSRect(x: statusTextX + offset, y: 48, width: statusColumnWidth, height: 18)
+        statusElapsedLabel.frame = NSRect(x: statusTextX + offset, y: 30, width: statusColumnWidth, height: 16)
+        platformLabelView.frame = NSRect(x: statusTextX + offset, y: 12, width: statusColumnWidth, height: 14)
+        titleLabel.frame = NSRect(x: contentX + offset, y: 49, width: contentWidth, height: 20)
+        detailLabel.frame = NSRect(x: contentX + offset, y: 15, width: contentWidth, height: 34)
+    }
+
+    private func setSwipeOffset(_ offset: CGFloat, animated: Bool) {
+        swipeOffset = offset
+        let updates = {
+            self.needsLayout = true
+            self.layoutSubtreeIfNeeded()
+            self.needsDisplay = true
+        }
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.14
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                updates()
+            }
+        } else {
+            updates()
+        }
+    }
+
+    private func drawDismissLabel(in rect: NSRect) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byTruncatingTail
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.white.withAlphaComponent(0.94),
+            .paragraphStyle: paragraph
+        ]
+        ("移除" as NSString).draw(in: rect.insetBy(dx: 10, dy: 22), withAttributes: attributes)
+    }
+
+    private func settleScrollSwipe() {
+        scrollSwipeSettleTimer?.invalidate()
+        scrollSwipeSettleTimer = nil
+        guard isSwipeTracking else { return }
+        isSwipeTracking = false
+        if swipeOffset <= -ThreadRowView.dismissThreshold {
+            onDismiss(item.id)
+        } else {
+            setSwipeOffset(0, animated: true)
+        }
     }
 
     private func startElapsedTimerIfNeeded() {
@@ -1840,6 +2097,9 @@ final class ThreadRowView: NSView {
         statusElapsedLabel.stringValue = text
         statusElapsedLabel.isHidden = text.isEmpty
     }
+
+    private static let dismissRevealWidth: CGFloat = 86
+    private static let dismissThreshold: CGFloat = 58
 }
 
 private struct ThreadTooltipRow {
@@ -2128,7 +2388,7 @@ private final class CommandButtonBarView: NSView {
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 44))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 56))
         wantsLayer = true
         layer?.backgroundColor = menuPanelBackground.cgColor
 
@@ -2145,43 +2405,32 @@ private final class CommandButtonBarView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func addButton(title: String, symbolName: String, isActive: Bool = false, action: @escaping () -> Void) {
+    private func addButton(title: String, symbolName: String, action: @escaping () -> Void) {
         let button = TaskBarActionButton(title: title, action: action)
-        styleButton(button, title: title, symbolName: symbolName, isActive: isActive)
+        styleButton(button, title: title, symbolName: symbolName)
         buttons.append(button)
         stackView.addArrangedSubview(button)
     }
 
-    private func styleButton(_ button: NSButton, title: String, symbolName: String, isActive: Bool) {
-        button.isBordered = false
-        button.wantsLayer = true
-        button.layer?.cornerRadius = 7
-        button.layer?.backgroundColor = NSColor(calibratedWhite: 0.24, alpha: 1).cgColor
-        button.layer?.borderWidth = 1
-        button.layer?.borderColor = (isActive ? NSColor.controlAccentColor.withAlphaComponent(0.55) : NSColor.white.withAlphaComponent(0.16)).cgColor
+    private func styleButton(_ button: NSButton, title: String, symbolName: String) {
+        let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let color = NSColor.white.withAlphaComponent(0.90)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: color
+        ]
+        button.bezelStyle = .rounded
         button.imagePosition = .imageLeading
-        button.imageScaling = .scaleProportionallyDown
-        button.alignment = .center
-        button.contentTintColor = isActive ? NSColor.controlAccentColor : NSColor.white.withAlphaComponent(0.9)
-        button.font = .systemFont(ofSize: 13, weight: .semibold)
-        button.toolTip = title
-
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        let color = NSColor.white.withAlphaComponent(0.9)
-        button.attributedTitle = NSAttributedString(string: title, attributes: [
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
-            .foregroundColor: color,
-            .paragraphStyle: paragraph
-        ])
-        button.attributedAlternateTitle = NSAttributedString(string: title, attributes: [
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
-            .foregroundColor: NSColor.white,
-            .paragraphStyle: paragraph
-        ])
+        button.font = font
+        button.title = title
+        button.attributedTitle = NSAttributedString(string: title, attributes: attributes)
+        button.attributedAlternateTitle = NSAttributedString(string: title, attributes: attributes)
         let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
         image?.isTemplate = true
         button.image = image
+        button.bezelColor = NSColor.white.withAlphaComponent(0.16)
+        button.contentTintColor = color
+        button.toolTip = title
     }
 
     override func layout() {
@@ -2253,15 +2502,67 @@ private final class TaskBarRowsView: NSView {
     }
 }
 
+private final class PopoverResizeHandleView: NSView {
+    var onResize: ((NSSize, Bool) -> Void)?
+
+    private var startMouse = NSPoint.zero
+    private var startSize = NSSize.zero
+    private var lastSize = NSSize.zero
+    private var didDrag = false
+
+    override var isFlipped: Bool { true }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        ThreadHoverPanel.shared.hideAll()
+        startMouse = NSEvent.mouseLocation
+        startSize = superview?.bounds.size ?? bounds.size
+        lastSize = startSize
+        didDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let currentMouse = NSEvent.mouseLocation
+        let nextSize = NSSize(
+            width: startSize.width + currentMouse.x - startMouse.x,
+            height: startSize.height + startMouse.y - currentMouse.y
+        )
+        lastSize = TaskBarSettings.clampedPopoverSize(nextSize)
+        didDrag = true
+        onResize?(lastSize, false)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard didDrag else { return }
+        onResize?(lastSize, true)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSColor.white.withAlphaComponent(0.34).setStroke()
+        let path = NSBezierPath()
+        path.lineWidth = 1.4
+        for offset in [CGFloat(0), CGFloat(5), CGFloat(10)] {
+            path.move(to: NSPoint(x: bounds.maxX - 4 - offset, y: bounds.maxY - 2))
+            path.line(to: NSPoint(x: bounds.maxX - 2, y: bounds.maxY - 4 - offset))
+        }
+        path.stroke()
+    }
+}
+
 private final class TaskBarPopoverContentView: NSView {
     private let headerView: PanelHeaderView
     private let topSeparator = MenuSeparatorView()
     private let rowsView: TaskBarRowsView
-    private let rowsScrollView: NSScrollView?
+    private let rowsScrollView: NSScrollView
     private let bottomSeparator = MenuSeparatorView()
     private let commandBar: CommandButtonBarView
-    private let rowsViewportHeight: CGFloat
+    private let resizeHandle = PopoverResizeHandleView()
     private let rowsContentHeight: CGFloat
+    private let onResize: (NSSize, Bool) -> Void
 
     init(
         threads: [CodexThreadItem],
@@ -2269,10 +2570,15 @@ private final class TaskBarPopoverContentView: NSView {
         waitingCount: Int,
         unreadCount: Int,
         showPlatformLabels: Bool,
+        showStatusDots: Bool,
         onOpenThread: @escaping (String) -> Void,
+        onDismissThread: @escaping (String) -> Void,
         onOpenSettings: @escaping () -> Void,
-        onQuit: @escaping () -> Void
+        onQuit: @escaping () -> Void,
+        initialSize: NSSize?,
+        onResize: @escaping (NSSize, Bool) -> Void
     ) {
+        self.onResize = onResize
         headerView = PanelHeaderView(
             runningCount: runningCount,
             waitingCount: waitingCount,
@@ -2283,7 +2589,13 @@ private final class TaskBarPopoverContentView: NSView {
             rowViews = [EmptyStateView()]
         } else {
             rowViews = threads.map { thread in
-                ThreadRowView(item: thread, showPlatformLabel: showPlatformLabels, onOpen: onOpenThread)
+                ThreadRowView(
+                    item: thread,
+                    showPlatformLabel: showPlatformLabels,
+                    showStatusDot: showStatusDots,
+                    onOpen: onOpenThread,
+                    onDismiss: onDismissThread
+                )
             }
         }
         rowsView = TaskBarRowsView(rowViews: rowViews)
@@ -2298,36 +2610,34 @@ private final class TaskBarPopoverContentView: NSView {
             + bottomSeparator.frame.height
             + commandBar.frame.height
         let maxRowsHeight = max(EmptyStateView().frame.height, taskBarPopoverMaxHeight() - fixedHeight)
-        rowsViewportHeight = min(rowsContentHeight, maxRowsHeight)
+        let naturalRowsHeight = min(rowsContentHeight, maxRowsHeight)
+        let naturalHeight = fixedHeight + naturalRowsHeight
+        let naturalSize = NSSize(width: menuPanelWidth, height: naturalHeight)
+        let initialSize = TaskBarSettings.clampedPopoverSize(initialSize ?? naturalSize)
 
-        if rowsContentHeight > rowsViewportHeight + 0.5 {
-            let scrollView = NSScrollView(frame: .zero)
-            scrollView.borderType = .noBorder
-            scrollView.drawsBackground = false
-            scrollView.hasVerticalScroller = true
-            scrollView.autohidesScrollers = true
-            scrollView.scrollerStyle = .overlay
-            scrollView.documentView = rowsView
-            rowsScrollView = scrollView
-        } else {
-            rowsScrollView = nil
-        }
+        let scrollView = NSScrollView(frame: .zero)
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.documentView = rowsView
+        rowsScrollView = scrollView
 
-        let totalHeight = fixedHeight + rowsViewportHeight
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: totalHeight))
+        super.init(frame: NSRect(origin: .zero, size: initialSize))
         wantsLayer = true
         layer?.backgroundColor = menuPanelBackground.cgColor
         appearance = NSAppearance(named: .darkAqua)
 
         addSubview(headerView)
         addSubview(topSeparator)
-        if let rowsScrollView {
-            addSubview(rowsScrollView)
-        } else {
-            addSubview(rowsView)
-        }
+        addSubview(rowsScrollView)
         addSubview(bottomSeparator)
         addSubview(commandBar)
+        addSubview(resizeHandle)
+        resizeHandle.onResize = { [weak self] size, persist in
+            self?.applyResize(size, persist: persist)
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -2345,19 +2655,35 @@ private final class TaskBarPopoverContentView: NSView {
         topSeparator.frame = NSRect(x: 0, y: y, width: bounds.width, height: topSeparator.frame.height)
         y += topSeparator.frame.height
 
+        let fixedHeight = headerView.frame.height
+            + topSeparator.frame.height
+            + bottomSeparator.frame.height
+            + commandBar.frame.height
+        let rowsViewportHeight = max(EmptyStateView().frame.height, bounds.height - fixedHeight)
         let rowsFrame = NSRect(x: 0, y: y, width: bounds.width, height: rowsViewportHeight)
-        if let rowsScrollView {
-            rowsScrollView.frame = rowsFrame
-            rowsView.frame = NSRect(x: 0, y: 0, width: rowsScrollView.contentSize.width, height: rowsContentHeight)
-        } else {
-            rowsView.frame = rowsFrame
-        }
+        rowsScrollView.frame = rowsFrame
+        rowsScrollView.hasVerticalScroller = rowsContentHeight > rowsViewportHeight + 0.5
+        rowsView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: rowsScrollView.contentSize.width,
+            height: max(rowsContentHeight, rowsViewportHeight)
+        )
         y += rowsViewportHeight
 
         bottomSeparator.frame = NSRect(x: 0, y: y, width: bounds.width, height: bottomSeparator.frame.height)
         y += bottomSeparator.frame.height
 
         commandBar.frame = NSRect(x: 0, y: y, width: bounds.width, height: commandBar.frame.height)
+        resizeHandle.frame = NSRect(x: bounds.maxX - 18, y: bounds.maxY - 18, width: 18, height: 18)
+        resizeHandle.needsDisplay = true
+    }
+
+    private func applyResize(_ size: NSSize, persist: Bool) {
+        let clamped = TaskBarSettings.clampedPopoverSize(size)
+        setFrameSize(clamped)
+        needsLayout = true
+        onResize(clamped, persist)
     }
 }
 
@@ -2372,6 +2698,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var animationTimer: Timer?
     private var settingsWindowController: TaskBarSettingsWindowController?
     private var readInFlight = false
+    private var transientPopoverSize: NSSize?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -2413,7 +2740,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatusIcon() {
-        let primaryStatus = threads.map(\.status).sorted { statusRank($0) < statusRank($1) }.first
+        let primaryStatus = threads.map(\.status).sorted { statusDisplayRank($0) < statusDisplayRank($1) }.first
         let runningCount = threads.filter { $0.status == .running || $0.status == .stale }.count
         let unreadCount = threads.filter { isReadDismissible($0.status) }.count
         let totalCount = runningCount + unreadCount
@@ -2429,9 +2756,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
         if popover.isShown {
-            popover.performClose(nil)
+            if transientPopoverSize != nil {
+                transientPopoverSize = nil
+                rebuildPopover()
+            } else {
+                popover.performClose(nil)
+            }
             return
         }
+        transientPopoverSize = nil
         rebuildPopover()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
@@ -2442,14 +2775,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let active = threads.filter { $0.status == .running || $0.status == .stale }
         let waitingCount = threads.filter { $0.status == .waiting }.count
         let unreadCount = threads.filter { $0.status == .unread }.count
+        let controller = NSViewController()
         let content = TaskBarPopoverContentView(
             threads: threads,
             runningCount: active.count,
             waitingCount: waitingCount,
             unreadCount: unreadCount,
             showPlatformLabels: TaskBarSettings.showPlatformLabels,
+            showStatusDots: TaskBarSettings.showStatusDots,
             onOpenThread: { [weak self] id in
                 self?.openThread(id: id)
+            },
+            onDismissThread: { [weak self] id in
+                self?.dismissThread(id: id)
             },
             onOpenSettings: { [weak self] in
                 self?.openSettingsWindow()
@@ -2458,9 +2796,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.popover.performClose(nil)
                 ThreadHoverPanel.shared.hideAll()
                 self?.quit()
+            },
+            initialSize: transientPopoverSize,
+            onResize: { [weak self, weak controller] size, _ in
+                controller?.preferredContentSize = size
+                self?.popover.contentSize = size
+                self?.transientPopoverSize = size
             }
         )
-        let controller = NSViewController()
         controller.view = content
         controller.preferredContentSize = content.frame.size
         popover.contentViewController = controller
@@ -2481,6 +2824,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindowController?.showWindow(nil)
         settingsWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func dismissThread(id: String) {
+        let selectedItem = threads.first(where: { $0.id == id })
+        if let item = selectedItem, isReadDismissible(item.status) {
+            readState.markRead(item)
+        } else {
+            readState.markRead(threadID: id)
+        }
+        threads.removeAll { $0.id == id && isReadDismissible($0.status) }
+        updateStatusIcon()
+        if popover.isShown {
+            rebuildPopover()
+        }
+        ThreadHoverPanel.shared.hideAll()
     }
 
     private func openThread(id: String) {
@@ -2551,7 +2909,7 @@ private func statusColor(_ status: ThreadRunStatus) -> NSColor {
     case .stale:
         return NSColor(calibratedRed: 0.82, green: 0.58, blue: 0.30, alpha: 1)
     case .waiting:
-        return NSColor(calibratedRed: 0.36, green: 0.62, blue: 0.91, alpha: 1)
+        return NSColor(calibratedRed: 0.91, green: 0.48, blue: 0.28, alpha: 1)
     case .unread:
         return NSColor(calibratedRed: 0.36, green: 0.62, blue: 0.91, alpha: 1)
     }
@@ -2579,9 +2937,18 @@ private func statusRank(_ status: ThreadRunStatus) -> Int {
     }
 }
 
+private func statusDisplayRank(_ status: ThreadRunStatus) -> Int {
+    switch status {
+    case .waiting: return 0
+    case .unread: return 1
+    case .stale: return 2
+    case .running: return 3
+    }
+}
+
 private func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -> Bool {
-    let lhsRank = statusRank(lhs.status)
-    let rhsRank = statusRank(rhs.status)
+    let lhsRank = statusDisplayRank(lhs.status)
+    let rhsRank = statusDisplayRank(rhs.status)
     if lhsRank != rhsRank { return lhsRank < rhsRank }
 
     let lhsID = lhs.id.lowercased()
@@ -2589,6 +2956,15 @@ private func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -
     if lhsID != rhsID { return lhsID > rhsID }
 
     return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+}
+
+private extension Array where Element == CodexThreadItem {
+    func limitedForTaskBar(limit: Int) -> [CodexThreadItem] {
+        let limit = Swift.max(1, limit)
+        let active = filter { $0.status == .running || $0.status == .stale || $0.status == .waiting }
+        let remaining = filter { $0.status == .unread }.prefix(Swift.max(0, limit - active.count))
+        return Array(active + remaining)
+    }
 }
 
 private func statusLabel(_ status: ThreadRunStatus) -> String {
@@ -2665,6 +3041,8 @@ private func tooltipStatusLabel(_ status: ThreadRunStatus) -> String {
 }
 
 private let menuPanelWidth: CGFloat = 390
+private let taskBarPopoverMinWidth: CGFloat = 320
+private let taskBarPopoverMinHeight: CGFloat = 180
 private let menuPanelBackground = NSColor(calibratedWhite: 0.105, alpha: 0.97)
 
 private func taskBarPopoverMaxHeight() -> CGFloat {
@@ -2673,6 +3051,17 @@ private func taskBarPopoverMaxHeight() -> CGFloat {
         ?? NSScreen.main?.visibleFrame.height
         ?? 900
     return min(440, max(320, screenHeight - 110))
+}
+
+private func taskBarPopoverMaxResizableSize() -> NSSize {
+    let mouse = NSEvent.mouseLocation
+    let visibleFrame = NSScreen.screens.first { $0.frame.contains(mouse) }?.visibleFrame
+        ?? NSScreen.main?.visibleFrame
+        ?? NSRect(x: 0, y: 0, width: 900, height: 900)
+    return NSSize(
+        width: max(taskBarPopoverMinWidth, min(760, visibleFrame.width - 48)),
+        height: max(taskBarPopoverMinHeight, visibleFrame.height - 110)
+    )
 }
 
 private func isReadDismissible(_ status: ThreadRunStatus) -> Bool {
@@ -3032,13 +3421,28 @@ private func formatInteger(_ value: Int) -> String {
 
 private func compactTokenCount(_ value: Int) -> String {
     let double = Double(value)
-    if value >= 100_000_000 {
-        return String(format: "%.2f亿", double / 100_000_000)
-    }
-    if value >= 10_000 {
-        return String(format: "%.1f万", double / 10_000)
-    }
-    if value >= 1_000 {
+    switch TaskBarSettings.tokenUnitStyle {
+    case .chinese:
+        if value >= 100_000_000 {
+            return String(format: "%.2f亿", double / 100_000_000)
+        }
+        if value >= 10_000 {
+            return String(format: "%.1f万", double / 10_000)
+        }
+        if value >= 1_000 {
+            return formatInteger(value)
+        }
+    case .english:
+        if value >= 1_000_000_000 {
+            return String(format: "%.2fB", double / 1_000_000_000)
+        }
+        if value >= 1_000_000 {
+            return String(format: "%.1fM", double / 1_000_000)
+        }
+        if value >= 1_000 {
+            return String(format: "%.1fK", double / 1_000)
+        }
+    case .exact:
         return formatInteger(value)
     }
     return "\(value)"
