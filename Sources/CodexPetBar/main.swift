@@ -1416,6 +1416,8 @@ private enum TaskBarSettings {
     private static let showPlatformLabelsKey = "showPlatformLabels"
     private static let showStatusDotsKey = "showStatusDots"
     private static let tokenUnitStyleKey = "tokenUnitStyle"
+    private static let popoverWidthKey = "popoverWidth"
+    private static let popoverHeightKey = "popoverHeight"
 
     static var showPlatformLabels: Bool {
         get {
@@ -1452,6 +1454,37 @@ private enum TaskBarSettings {
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: tokenUnitStyleKey)
         }
+    }
+
+    static func popoverSize(defaultHeight: CGFloat) -> NSSize {
+        let defaults = UserDefaults.standard
+        let width: CGFloat
+        if defaults.object(forKey: popoverWidthKey) == nil {
+            width = menuPanelWidth
+        } else {
+            width = CGFloat(defaults.double(forKey: popoverWidthKey))
+        }
+        let height: CGFloat
+        if defaults.object(forKey: popoverHeightKey) == nil {
+            height = defaultHeight
+        } else {
+            height = CGFloat(defaults.double(forKey: popoverHeightKey))
+        }
+        return clampedPopoverSize(NSSize(width: width, height: height))
+    }
+
+    static func setPopoverSize(_ size: NSSize) {
+        let clamped = clampedPopoverSize(size)
+        UserDefaults.standard.set(Double(clamped.width), forKey: popoverWidthKey)
+        UserDefaults.standard.set(Double(clamped.height), forKey: popoverHeightKey)
+    }
+
+    static func clampedPopoverSize(_ size: NSSize) -> NSSize {
+        let maxSize = taskBarPopoverMaxResizableSize()
+        return NSSize(
+            width: min(max(size.width, taskBarPopoverMinWidth), maxSize.width),
+            height: min(max(size.height, taskBarPopoverMinHeight), maxSize.height)
+        )
     }
 }
 
@@ -2349,15 +2382,67 @@ private final class TaskBarRowsView: NSView {
     }
 }
 
+private final class PopoverResizeHandleView: NSView {
+    var onResize: ((NSSize, Bool) -> Void)?
+
+    private var startMouse = NSPoint.zero
+    private var startSize = NSSize.zero
+    private var lastSize = NSSize.zero
+    private var didDrag = false
+
+    override var isFlipped: Bool { true }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        ThreadHoverPanel.shared.hideAll()
+        startMouse = NSEvent.mouseLocation
+        startSize = superview?.bounds.size ?? bounds.size
+        lastSize = startSize
+        didDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let currentMouse = NSEvent.mouseLocation
+        let nextSize = NSSize(
+            width: startSize.width + currentMouse.x - startMouse.x,
+            height: startSize.height + startMouse.y - currentMouse.y
+        )
+        lastSize = TaskBarSettings.clampedPopoverSize(nextSize)
+        didDrag = true
+        onResize?(lastSize, false)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard didDrag else { return }
+        onResize?(lastSize, true)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSColor.white.withAlphaComponent(0.34).setStroke()
+        let path = NSBezierPath()
+        path.lineWidth = 1.4
+        for offset in [CGFloat(0), CGFloat(5), CGFloat(10)] {
+            path.move(to: NSPoint(x: bounds.maxX - 4 - offset, y: bounds.maxY - 2))
+            path.line(to: NSPoint(x: bounds.maxX - 2, y: bounds.maxY - 4 - offset))
+        }
+        path.stroke()
+    }
+}
+
 private final class TaskBarPopoverContentView: NSView {
     private let headerView: PanelHeaderView
     private let topSeparator = MenuSeparatorView()
     private let rowsView: TaskBarRowsView
-    private let rowsScrollView: NSScrollView?
+    private let rowsScrollView: NSScrollView
     private let bottomSeparator = MenuSeparatorView()
     private let commandBar: CommandButtonBarView
-    private let rowsViewportHeight: CGFloat
+    private let resizeHandle = PopoverResizeHandleView()
     private let rowsContentHeight: CGFloat
+    private let onResize: (NSSize, Bool) -> Void
 
     init(
         threads: [CodexThreadItem],
@@ -2368,8 +2453,10 @@ private final class TaskBarPopoverContentView: NSView {
         showStatusDots: Bool,
         onOpenThread: @escaping (String) -> Void,
         onOpenSettings: @escaping () -> Void,
-        onQuit: @escaping () -> Void
+        onQuit: @escaping () -> Void,
+        onResize: @escaping (NSSize, Bool) -> Void
     ) {
+        self.onResize = onResize
         headerView = PanelHeaderView(
             runningCount: runningCount,
             waitingCount: waitingCount,
@@ -2400,36 +2487,33 @@ private final class TaskBarPopoverContentView: NSView {
             + bottomSeparator.frame.height
             + commandBar.frame.height
         let maxRowsHeight = max(EmptyStateView().frame.height, taskBarPopoverMaxHeight() - fixedHeight)
-        rowsViewportHeight = min(rowsContentHeight, maxRowsHeight)
+        let naturalRowsHeight = min(rowsContentHeight, maxRowsHeight)
+        let naturalHeight = fixedHeight + naturalRowsHeight
+        let initialSize = TaskBarSettings.popoverSize(defaultHeight: naturalHeight)
 
-        if rowsContentHeight > rowsViewportHeight + 0.5 {
-            let scrollView = NSScrollView(frame: .zero)
-            scrollView.borderType = .noBorder
-            scrollView.drawsBackground = false
-            scrollView.hasVerticalScroller = true
-            scrollView.autohidesScrollers = true
-            scrollView.scrollerStyle = .overlay
-            scrollView.documentView = rowsView
-            rowsScrollView = scrollView
-        } else {
-            rowsScrollView = nil
-        }
+        let scrollView = NSScrollView(frame: .zero)
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.documentView = rowsView
+        rowsScrollView = scrollView
 
-        let totalHeight = fixedHeight + rowsViewportHeight
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: totalHeight))
+        super.init(frame: NSRect(origin: .zero, size: initialSize))
         wantsLayer = true
         layer?.backgroundColor = menuPanelBackground.cgColor
         appearance = NSAppearance(named: .darkAqua)
 
         addSubview(headerView)
         addSubview(topSeparator)
-        if let rowsScrollView {
-            addSubview(rowsScrollView)
-        } else {
-            addSubview(rowsView)
-        }
+        addSubview(rowsScrollView)
         addSubview(bottomSeparator)
         addSubview(commandBar)
+        addSubview(resizeHandle)
+        resizeHandle.onResize = { [weak self] size, persist in
+            self?.applyResize(size, persist: persist)
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -2447,19 +2531,35 @@ private final class TaskBarPopoverContentView: NSView {
         topSeparator.frame = NSRect(x: 0, y: y, width: bounds.width, height: topSeparator.frame.height)
         y += topSeparator.frame.height
 
+        let fixedHeight = headerView.frame.height
+            + topSeparator.frame.height
+            + bottomSeparator.frame.height
+            + commandBar.frame.height
+        let rowsViewportHeight = max(EmptyStateView().frame.height, bounds.height - fixedHeight)
         let rowsFrame = NSRect(x: 0, y: y, width: bounds.width, height: rowsViewportHeight)
-        if let rowsScrollView {
-            rowsScrollView.frame = rowsFrame
-            rowsView.frame = NSRect(x: 0, y: 0, width: rowsScrollView.contentSize.width, height: rowsContentHeight)
-        } else {
-            rowsView.frame = rowsFrame
-        }
+        rowsScrollView.frame = rowsFrame
+        rowsScrollView.hasVerticalScroller = rowsContentHeight > rowsViewportHeight + 0.5
+        rowsView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: rowsScrollView.contentSize.width,
+            height: max(rowsContentHeight, rowsViewportHeight)
+        )
         y += rowsViewportHeight
 
         bottomSeparator.frame = NSRect(x: 0, y: y, width: bounds.width, height: bottomSeparator.frame.height)
         y += bottomSeparator.frame.height
 
         commandBar.frame = NSRect(x: 0, y: y, width: bounds.width, height: commandBar.frame.height)
+        resizeHandle.frame = NSRect(x: bounds.maxX - 18, y: bounds.maxY - 18, width: 18, height: 18)
+        resizeHandle.needsDisplay = true
+    }
+
+    private func applyResize(_ size: NSSize, persist: Bool) {
+        let clamped = TaskBarSettings.clampedPopoverSize(size)
+        setFrameSize(clamped)
+        needsLayout = true
+        onResize(clamped, persist)
     }
 }
 
@@ -2544,6 +2644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let active = threads.filter { $0.status == .running || $0.status == .stale }
         let waitingCount = threads.filter { $0.status == .waiting }.count
         let unreadCount = threads.filter { $0.status == .unread }.count
+        let controller = NSViewController()
         let content = TaskBarPopoverContentView(
             threads: threads,
             runningCount: active.count,
@@ -2561,9 +2662,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.popover.performClose(nil)
                 ThreadHoverPanel.shared.hideAll()
                 self?.quit()
+            },
+            onResize: { [weak self, weak controller] size, persist in
+                controller?.preferredContentSize = size
+                self?.popover.contentSize = size
+                if persist {
+                    TaskBarSettings.setPopoverSize(size)
+                }
             }
         )
-        let controller = NSViewController()
         controller.view = content
         controller.preferredContentSize = content.frame.size
         popover.contentViewController = controller
@@ -2777,6 +2884,8 @@ private func tooltipStatusLabel(_ status: ThreadRunStatus) -> String {
 }
 
 private let menuPanelWidth: CGFloat = 390
+private let taskBarPopoverMinWidth: CGFloat = 320
+private let taskBarPopoverMinHeight: CGFloat = 180
 private let menuPanelBackground = NSColor(calibratedWhite: 0.105, alpha: 0.97)
 
 private func taskBarPopoverMaxHeight() -> CGFloat {
@@ -2785,6 +2894,17 @@ private func taskBarPopoverMaxHeight() -> CGFloat {
         ?? NSScreen.main?.visibleFrame.height
         ?? 900
     return min(440, max(320, screenHeight - 110))
+}
+
+private func taskBarPopoverMaxResizableSize() -> NSSize {
+    let mouse = NSEvent.mouseLocation
+    let visibleFrame = NSScreen.screens.first { $0.frame.contains(mouse) }?.visibleFrame
+        ?? NSScreen.main?.visibleFrame
+        ?? NSRect(x: 0, y: 0, width: 900, height: 900)
+    return NSSize(
+        width: max(taskBarPopoverMinWidth, min(760, visibleFrame.width - 48)),
+        height: max(taskBarPopoverMinHeight, visibleFrame.height - 110)
+    )
 }
 
 private func isReadDismissible(_ status: ThreadRunStatus) -> Bool {
