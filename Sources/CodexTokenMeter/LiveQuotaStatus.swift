@@ -230,13 +230,12 @@ final class ClaudeStatuslineStore {
               let percent = cleanPercent(dict["used_percentage"]) else {
             return nil
         }
-        var usedPercent = percent
+        let usedPercent = percent
         var resetsAt = finiteDouble(dict["resets_at"]).map { Date(timeIntervalSince1970: $0) }
         if let resetDate = resetsAt, now >= resetDate, windowMinutes > 0 {
             let windowSeconds = TimeInterval(windowMinutes) * 60
             let elapsedWindows = floor(now.timeIntervalSince(resetDate) / windowSeconds) + 1
             resetsAt = resetDate.addingTimeInterval(elapsedWindows * windowSeconds)
-            usedPercent = 0
         }
         return ClaudeStatuslineWindow(usedPercent: usedPercent, resetsAt: resetsAt)
     }
