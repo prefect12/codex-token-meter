@@ -2225,9 +2225,7 @@ final class ThreadRowView: NSView {
         metaDotView.layer?.cornerRadius = 2.5
         addSubview(metaDotView)
 
-        metaStatusLabel.stringValue = rowStatusLabel(item.status)
-        metaStatusLabel.font = .systemFont(ofSize: 10.5, weight: .medium)
-        metaStatusLabel.textColor = accent
+        metaStatusLabel.attributedStringValue = rowMetadataAttributed(for: item, showSource: showPlatformLabel)
         metaStatusLabel.lineBreakMode = .byTruncatingTail
         addSubview(metaStatusLabel)
 
@@ -3466,6 +3464,27 @@ private func rowStatusLabel(_ status: ThreadRunStatus) -> String {
     case .unread:
         return "Done"
     }
+}
+
+/// Metadata trailing text: colored status word, optionally followed by the
+/// Codex / Claude source label in its accent color.
+private func rowMetadataAttributed(for item: CodexThreadItem, showSource: Bool) -> NSAttributedString {
+    let font = NSFont.systemFont(ofSize: 10.5, weight: .medium)
+    let result = NSMutableAttributedString(string: rowStatusLabel(item.status), attributes: [
+        .font: font,
+        .foregroundColor: statusAccentColor(item.status)
+    ])
+    if showSource {
+        result.append(NSAttributedString(string: "   ·  ", attributes: [
+            .font: font,
+            .foregroundColor: NSColor(calibratedWhite: 0.42, alpha: 1)
+        ]))
+        result.append(NSAttributedString(string: sourceLabel(item), attributes: [
+            .font: NSFont.systemFont(ofSize: 10.5, weight: .semibold),
+            .foregroundColor: sourceColor(item)
+        ]))
+    }
+    return result
 }
 
 /// Clock-style elapsed time: "MM:SS", or "HH:MM:SS" once past an hour.
