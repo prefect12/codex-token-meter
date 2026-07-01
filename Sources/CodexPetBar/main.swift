@@ -149,9 +149,13 @@ final class CodexActivityReader {
             if let existing = byID[logged.id] {
                 let preferLoggedStatus = statusRank(status) < statusRank(existing.status)
                 let tokenBreakdown = summary.tokenBreakdown.resolved(with: existing.tokenBreakdown)
+                let mergedTitle = cleanTitle(summary.title)
+                    ?? cleanTitle(existing.title)
+                    ?? summary.cwd.map(shortFolderName)
+                    ?? existing.title
                 byID[logged.id] = CodexThreadItem(
                     id: existing.id,
-                    title: existing.title,
+                    title: mergedTitle,
                     preview: summary.preview ?? existing.preview,
                     cwd: existing.cwd ?? summary.cwd,
                     lastActivity: maxDate(existing.lastActivity, activityDate),
@@ -235,9 +239,14 @@ final class CodexActivityReader {
         }
         let shouldUseSummaryTokens = !item.tokenBreakdown.hasDetailedCounters && summary.tokenBreakdown.hasDetailedCounters
         let compressionCount = mergedCompressionCount(item.compressionCount, summary.compressionCount)
+        let mergedTitle = cleanTitle(summary.title)
+            ?? cleanTitle(item.title)
+            ?? summary.cwd.map(shortFolderName)
+            ?? item.title
         guard shouldUseSummaryTokens
                 || compressionCount != item.compressionCount
-                || summary.turns > item.turns else {
+                || summary.turns > item.turns
+                || mergedTitle != item.title else {
             return item
         }
         let tokenBreakdown = shouldUseSummaryTokens
@@ -245,7 +254,7 @@ final class CodexActivityReader {
             : item.tokenBreakdown
         return CodexThreadItem(
             id: item.id,
-            title: item.title,
+            title: mergedTitle,
             preview: item.preview ?? summary.preview,
             cwd: item.cwd ?? summary.cwd,
             lastActivity: item.lastActivity,
@@ -344,7 +353,11 @@ final class CodexActivityReader {
             guard let id = string(dict["id"] ?? dict["threadId"] ?? dict["conversationId"]) else {
                 continue
             }
-                let title = cleanTitle(string(dict["title"] ?? dict["name"] ?? dict["preview"])) ?? String(id.prefix(8))
+                let title = cleanTitleCandidate(
+                    string(dict["title"]),
+                    string(dict["name"]),
+                    string(dict["preview"])
+                ) ?? String(id.prefix(8))
                 let cwd = string(dict["cwd"] ?? dict["workingDirectory"] ?? dict["path"])
                 let updatedSeconds = double(dict["updatedAt"] ?? dict["updated_at"] ?? dict["lastActivityAt"]) ?? Date().timeIntervalSince1970
                 let lastActivity = unixDate(seconds: updatedSeconds)
@@ -584,7 +597,10 @@ final class CodexActivityReader {
         """
         return runSQLiteJSON(databaseURL: db, sql: sql).compactMap { row in
             guard let id = string(row["id"]) else { return nil }
-            let title = cleanTitle(string(row["title"]) ?? string(row["preview"])) ?? String(id.prefix(8))
+            let title = cleanTitleCandidate(
+                string(row["title"]),
+                string(row["preview"])
+            ) ?? String(id.prefix(8))
             let updatedMS = double(row["updated_ms"]) ?? Date().timeIntervalSince1970 * 1000
             let lastActivity = unixDate(seconds: updatedMS)
             let externalReadAt = externalReadAtByID[id]
@@ -1396,12 +1412,274 @@ private enum TaskBarSettings {
             UserDefaults.standard.set(newValue, forKey: showPlatformLabelsKey)
         }
     }
+}
 
-    @discardableResult
-    static func togglePlatformLabels() -> Bool {
-        let newValue = !showPlatformLabels
-        showPlatformLabels = newValue
-        return newValue
+private final class TaskBarSettingsWindowController: NSWindowController {
+    private let settingsView: TaskBarSettingsView
+    private var hasCenteredWindow = false
+
+    init(onSettingsChanged: @escaping () -> Void) {
+        let contentView = TaskBarSettingsView(onSettingsChanged: onSettingsChanged)
+        settingsView = contentView
+        let window = NSWindow(
+            contentRect: contentView.frame,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Task Bar 设置"
+        window.contentMinSize = NSSize(width: 680, height: 420)
+        window.contentView = contentView
+        window.isReleasedWhenClosed = false
+        window.backgroundColor = NSColor(calibratedRed: 0.055, green: 0.066, blue: 0.086, alpha: 1.0)
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.collectionBehavior = [.moveToActiveSpace]
+        super.init(window: window)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func showWindow(_ sender: Any?) {
+        settingsView.reload()
+        if !hasCenteredWindow {
+            window?.center()
+            hasCenteredWindow = true
+        }
+        super.showWindow(sender)
+    }
+}
+
+private final class TaskBarSettingsView: NSView {
+    static let preferredSize = NSSize(width: 720, height: 460)
+
+    private let onSettingsChanged: () -> Void
+    private var platformOptionRects: [Bool: NSRect] = [:]
+    private var closeButtonRect: NSRect = .zero
+
+    init(onSettingsChanged: @escaping () -> Void) {
+        self.onSettingsChanged = onSettingsChanged
+        super.init(frame: NSRect(origin: .zero, size: Self.preferredSize))
+        wantsLayer = true
+        appearance = NSAppearance(named: .darkAqua)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func reload() {
+        needsDisplay = true
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        drawBackground()
+
+        let sidebarWidth = min(CGFloat(192), max(176, bounds.width * 0.26))
+        drawSidebar(width: sidebarWidth)
+
+        let content = NSRect(
+            x: sidebarWidth + 28,
+            y: 28,
+            width: bounds.width - sidebarWidth - 56,
+            height: bounds.height - 56
+        )
+        drawText(
+            "任务栏设置",
+            rect: NSRect(x: content.minX, y: content.minY, width: content.width, height: 34),
+            font: .systemFont(ofSize: 26, weight: .bold),
+            color: .white
+        )
+        drawText(
+            "任务来源和列表显示偏好",
+            rect: NSRect(x: content.minX, y: content.minY + 36, width: content.width, height: 20),
+            font: .systemFont(ofSize: 13, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.56)
+        )
+
+        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 152)
+        drawPanel(settingsCard)
+        drawText(
+            "任务来源",
+            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 16, width: settingsCard.width - 32, height: 22),
+            font: .systemFont(ofSize: 16, weight: .bold),
+            color: .white
+        )
+        drawText(
+            "来源标签",
+            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 62, width: 180, height: 20),
+            font: .systemFont(ofSize: 13, weight: .semibold),
+            color: .white
+        )
+        drawText(
+            "在任务列表左侧显示 Codex / Claude，用于快速区分任务来源。",
+            rect: NSRect(x: settingsCard.minX + 16, y: settingsCard.minY + 104, width: settingsCard.width - 32, height: 18),
+            font: .systemFont(ofSize: 12, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.52)
+        )
+
+        let pillWidth: CGFloat = 112
+        let pillHeight: CGFloat = 38
+        let pillGap: CGFloat = 12
+        let pillY = settingsCard.minY + 54
+        let hideRect = NSRect(x: settingsCard.maxX - 16 - pillWidth, y: pillY, width: pillWidth, height: pillHeight)
+        let showRect = NSRect(x: hideRect.minX - pillGap - pillWidth, y: pillY, width: pillWidth, height: pillHeight)
+        platformOptionRects = [true: showRect, false: hideRect]
+        drawSelectablePill("显示", rect: showRect, selected: TaskBarSettings.showPlatformLabels)
+        drawSelectablePill("隐藏", rect: hideRect, selected: !TaskBarSettings.showPlatformLabels)
+
+        let statusCard = NSRect(x: content.minX, y: settingsCard.maxY + 16, width: content.width, height: 132)
+        drawPanel(statusCard)
+        drawText(
+            "状态约定",
+            rect: NSRect(x: statusCard.minX + 16, y: statusCard.minY + 16, width: statusCard.width - 32, height: 22),
+            font: .systemFont(ofSize: 16, weight: .bold),
+            color: .white
+        )
+        drawStatusLegend(
+            items: [
+                ("RUN", "运行中", NSColor.systemGreen),
+                ("REVIEW", "待检查", NSColor.systemBlue),
+                ("INPUT", "待输入", NSColor.systemOrange),
+                ("DONE", "已完成", NSColor.white.withAlphaComponent(0.45))
+            ],
+            rect: NSRect(x: statusCard.minX + 16, y: statusCard.minY + 56, width: statusCard.width - 32, height: 42)
+        )
+        drawText(
+            "主列表默认保留需要关注的任务；已完成任务弱化或从主列表移出。",
+            rect: NSRect(x: statusCard.minX + 16, y: statusCard.minY + 104, width: statusCard.width - 32, height: 18),
+            font: .systemFont(ofSize: 12, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.52)
+        )
+
+        closeButtonRect = NSRect(x: content.maxX - 112, y: content.maxY - 42, width: 112, height: 34)
+        drawSmallButton("完成", rect: closeButtonRect, emphasized: true)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        for (showLabels, rect) in platformOptionRects where rect.contains(point) {
+            guard TaskBarSettings.showPlatformLabels != showLabels else { return }
+            TaskBarSettings.showPlatformLabels = showLabels
+            needsDisplay = true
+            onSettingsChanged()
+            return
+        }
+        if closeButtonRect.contains(point) {
+            window?.close()
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    private var appBackgroundTop: NSColor {
+        NSColor(calibratedRed: 0.055, green: 0.066, blue: 0.086, alpha: 1.0)
+    }
+
+    private var appBackgroundBottom: NSColor {
+        NSColor(calibratedRed: 0.075, green: 0.090, blue: 0.118, alpha: 1.0)
+    }
+
+    private var sidebarBackgroundColor: NSColor {
+        NSColor(calibratedRed: 0.046, green: 0.055, blue: 0.073, alpha: 1.0)
+    }
+
+    private var panelSurfaceColor: NSColor {
+        NSColor(calibratedRed: 0.126, green: 0.148, blue: 0.186, alpha: 0.98)
+    }
+
+    private var inputSurfaceColor: NSColor {
+        NSColor(calibratedRed: 0.088, green: 0.105, blue: 0.138, alpha: 1.0)
+    }
+
+    private var borderColor: NSColor {
+        NSColor.white.withAlphaComponent(0.075)
+    }
+
+    private var accentBlue: NSColor {
+        NSColor(calibratedRed: 0.365, green: 0.548, blue: 1.0, alpha: 1.0)
+    }
+
+    private var accentTeal: NSColor {
+        NSColor(calibratedRed: 0.279, green: 0.839, blue: 0.702, alpha: 1.0)
+    }
+
+    private func drawBackground() {
+        if let gradient = NSGradient(starting: appBackgroundTop, ending: appBackgroundBottom) {
+            gradient.draw(in: bounds, angle: -90)
+        } else {
+            appBackgroundTop.setFill()
+            bounds.fill()
+        }
+    }
+
+    private func drawSidebar(width: CGFloat) {
+        sidebarBackgroundColor.setFill()
+        NSRect(x: 0, y: 0, width: width, height: bounds.height).fill()
+        borderColor.setStroke()
+        NSBezierPath(rect: NSRect(x: width, y: 0, width: 1, height: bounds.height)).stroke()
+
+        drawText("Task Bar", rect: NSRect(x: 28, y: 28, width: width - 56, height: 28), font: .systemFont(ofSize: 20, weight: .bold), color: .white)
+        drawText("Codex + Claude", rect: NSRect(x: 28, y: 58, width: width - 56, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
+
+        let itemRect = NSRect(x: 18, y: 118, width: width - 36, height: 42)
+        accentBlue.withAlphaComponent(0.82).setFill()
+        NSBezierPath(roundedRect: itemRect, xRadius: 8, yRadius: 8).fill()
+        drawText("设置", rect: NSRect(x: itemRect.minX + 22, y: itemRect.minY + 10, width: itemRect.width - 44, height: 22), font: .systemFont(ofSize: 15, weight: .semibold), color: .white)
+    }
+
+    private func drawPanel(_ rect: NSRect) {
+        panelSurfaceColor.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(0.035).setFill()
+        NSBezierPath(roundedRect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: min(1.5, rect.height)), xRadius: 0, yRadius: 0).fill()
+        borderColor.setStroke()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+    }
+
+    private func drawSelectablePill(_ title: String, rect: NSRect, selected: Bool) {
+        (selected ? accentBlue.withAlphaComponent(0.72) : inputSurfaceColor.withAlphaComponent(0.82)).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+        (selected ? accentTeal.withAlphaComponent(0.38) : borderColor).setStroke()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+        drawCentered(title, rect: rect.insetBy(dx: 8, dy: 0), font: .systemFont(ofSize: 12, weight: .semibold), color: .white)
+    }
+
+    private func drawSmallButton(_ title: String, rect: NSRect, emphasized: Bool) {
+        (emphasized ? accentBlue.withAlphaComponent(0.72) : NSColor.white.withAlphaComponent(0.12)).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
+        (emphasized ? accentTeal.withAlphaComponent(0.34) : NSColor.white.withAlphaComponent(0.09)).setStroke()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7).stroke()
+        drawCentered(title, rect: rect.insetBy(dx: 6, dy: 0), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(emphasized ? 0.96 : 0.78))
+    }
+
+    private func drawStatusLegend(items: [(String, String, NSColor)], rect: NSRect) {
+        let gap: CGFloat = 10
+        let itemWidth = (rect.width - gap * CGFloat(items.count - 1)) / CGFloat(items.count)
+        for (index, item) in items.enumerated() {
+            let itemRect = NSRect(x: rect.minX + CGFloat(index) * (itemWidth + gap), y: rect.minY, width: itemWidth, height: rect.height)
+            inputSurfaceColor.withAlphaComponent(0.72).setFill()
+            NSBezierPath(roundedRect: itemRect, xRadius: 8, yRadius: 8).fill()
+            borderColor.setStroke()
+            NSBezierPath(roundedRect: itemRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+            drawText(item.0, rect: NSRect(x: itemRect.minX + 12, y: itemRect.minY + 6, width: itemRect.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: item.2)
+            drawText(item.1, rect: NSRect(x: itemRect.minX + 12, y: itemRect.minY + 22, width: itemRect.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62))
+        }
+    }
+
+    private func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+        (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color])
+    }
+
+    private func drawCentered(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byTruncatingTail
+        (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
     }
 }
 
@@ -1409,7 +1687,6 @@ final class ThreadRowView: NSView {
     private let item: CodexThreadItem
     private let onOpen: (String) -> Void
     private let showPlatformLabel: Bool
-    private let statusDot = NSView()
     private let statusLabelView = NSTextField(labelWithString: "")
     private let statusElapsedLabel = NSTextField(labelWithString: "")
     private let platformLabelView = NSTextField(labelWithString: "")
@@ -1425,15 +1702,10 @@ final class ThreadRowView: NSView {
         self.item = item
         self.showPlatformLabel = showPlatformLabel
         self.onOpen = onOpen
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 96))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 76))
         wantsLayer = true
         let tooltip = tooltipText(for: item)
         setAccessibilityHelp(tooltip)
-
-        statusDot.wantsLayer = true
-        statusDot.layer?.backgroundColor = statusColor(item.status).cgColor
-        statusDot.layer?.cornerRadius = 4
-        addSubview(statusDot)
 
         statusLabelView.stringValue = compactStatusLabel(item.status)
         statusLabelView.font = .systemFont(ofSize: 11, weight: .semibold)
@@ -1538,16 +1810,15 @@ final class ThreadRowView: NSView {
 
     override func layout() {
         super.layout()
-        let statusTextX: CGFloat = 34
-        let statusColumnWidth: CGFloat = 70
-        let contentX: CGFloat = 116
+        let statusTextX: CGFloat = 18
+        let statusColumnWidth: CGFloat = 76
+        let contentX: CGFloat = 104
         let contentWidth = max(160, bounds.width - contentX - 16)
-        statusDot.frame = NSRect(x: 17, y: 68, width: 8, height: 8)
-        statusLabelView.frame = NSRect(x: statusTextX, y: 62, width: statusColumnWidth, height: 18)
-        statusElapsedLabel.frame = NSRect(x: statusTextX, y: 43, width: statusColumnWidth, height: 16)
-        platformLabelView.frame = NSRect(x: statusTextX, y: 24, width: statusColumnWidth, height: 14)
-        titleLabel.frame = NSRect(x: contentX, y: 63, width: contentWidth, height: 20)
-        detailLabel.frame = NSRect(x: contentX, y: 15, width: contentWidth, height: 46)
+        statusLabelView.frame = NSRect(x: statusTextX, y: 48, width: statusColumnWidth, height: 18)
+        statusElapsedLabel.frame = NSRect(x: statusTextX, y: 30, width: statusColumnWidth, height: 16)
+        platformLabelView.frame = NSRect(x: statusTextX, y: 12, width: statusColumnWidth, height: 14)
+        titleLabel.frame = NSRect(x: contentX, y: 49, width: contentWidth, height: 20)
+        detailLabel.frame = NSRect(x: contentX, y: 15, width: contentWidth, height: 34)
     }
 
     private func startElapsedTimerIfNeeded() {
@@ -1854,9 +2125,8 @@ private final class CommandButtonBarView: NSView {
     private var buttons: [NSButton] = []
 
     init(
-        showPlatformLabels: Bool,
         onRefresh: @escaping () -> Void,
-        onTogglePlatformLabels: @escaping () -> Void,
+        onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 44))
@@ -1869,18 +2139,7 @@ private final class CommandButtonBarView: NSView {
         addSubview(stackView)
 
         addButton(title: "刷新", symbolName: "arrow.clockwise", action: onRefresh)
-        addButton(
-            title: showPlatformLabels ? "标签" : "标签",
-            symbolName: showPlatformLabels ? "tag.fill" : "tag",
-            isActive: showPlatformLabels,
-            action: onTogglePlatformLabels
-        )
-        addButton(
-            title: "设置",
-            symbolName: "gearshape",
-            isActive: showPlatformLabels,
-            action: onTogglePlatformLabels
-        )
+        addButton(title: "设置", symbolName: "gearshape", action: onOpenSettings)
         addButton(title: "退出", symbolName: "power", action: onQuit)
     }
 
@@ -2004,7 +2263,7 @@ private final class TaskBarPopoverContentView: NSView {
         showPlatformLabels: Bool,
         onOpenThread: @escaping (String) -> Void,
         onRefresh: @escaping () -> Void,
-        onTogglePlatformLabels: @escaping () -> Void,
+        onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         headerView = PanelHeaderView(
@@ -2023,9 +2282,8 @@ private final class TaskBarPopoverContentView: NSView {
         rowsView = TaskBarRowsView(rowViews: rowViews)
         rowsContentHeight = rowsView.frame.height
         commandBar = CommandButtonBarView(
-            showPlatformLabels: showPlatformLabels,
             onRefresh: onRefresh,
-            onTogglePlatformLabels: onTogglePlatformLabels,
+            onOpenSettings: onOpenSettings,
             onQuit: onQuit
         )
 
@@ -2106,6 +2364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var threads: [CodexThreadItem] = []
     private var refreshTimer: Timer?
     private var animationTimer: Timer?
+    private var settingsWindowController: TaskBarSettingsWindowController?
     private var readInFlight = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -2190,10 +2449,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ThreadHoverPanel.shared.hideAll()
                 self?.refresh()
             },
-            onTogglePlatformLabels: { [weak self] in
-                TaskBarSettings.togglePlatformLabels()
-                ThreadHoverPanel.shared.hideAll()
-                self?.rebuildPopover()
+            onOpenSettings: { [weak self] in
+                self?.openSettingsWindow()
             },
             onQuit: { [weak self] in
                 self?.popover.performClose(nil)
@@ -2206,6 +2463,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.preferredContentSize = content.frame.size
         popover.contentViewController = controller
         popover.contentSize = content.frame.size
+    }
+
+    private func openSettingsWindow() {
+        popover.performClose(nil)
+        ThreadHoverPanel.shared.hideAll()
+        if settingsWindowController == nil {
+            settingsWindowController = TaskBarSettingsWindowController { [weak self] in
+                ThreadHoverPanel.shared.hideAll()
+                if self?.popover.isShown == true {
+                    self?.rebuildPopover()
+                }
+            }
+        }
+        settingsWindowController?.showWindow(nil)
+        settingsWindowController?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func openThread(id: String) {
@@ -2389,7 +2662,7 @@ private func tooltipStatusLabel(_ status: ThreadRunStatus) -> String {
     }
 }
 
-private let menuPanelWidth: CGFloat = 520
+private let menuPanelWidth: CGFloat = 390
 private let menuPanelBackground = NSColor(calibratedWhite: 0.105, alpha: 0.97)
 
 private func taskBarPopoverMaxHeight() -> CGFloat {
@@ -2397,7 +2670,7 @@ private func taskBarPopoverMaxHeight() -> CGFloat {
     let screenHeight = NSScreen.screens.first { $0.frame.contains(mouse) }?.visibleFrame.height
         ?? NSScreen.main?.visibleFrame.height
         ?? 900
-    return min(620, max(360, screenHeight - 110))
+    return min(440, max(320, screenHeight - 110))
 }
 
 private func isReadDismissible(_ status: ThreadRunStatus) -> Bool {
@@ -2431,17 +2704,156 @@ private func mergedCompressionCount(_ existing: Int?, _ candidate: Int) -> Int? 
 
 private func cleanTitle(_ value: String?) -> String? {
     guard let value else { return nil }
-    let compact = removingPluginMarkdownLinks(from: value)
-        .replacingOccurrences(of: "\n", with: " ")
-        .replacingOccurrences(of: "\t", with: " ")
-        .split(separator: " ")
-        .joined(separator: " ")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let compact = normalizedTitleText(value)
     guard !compact.isEmpty else { return nil }
+    guard !isUninformativeTitle(compact) else { return nil }
     if compact.count <= 68 {
         return compact
     }
     return String(compact.prefix(65)) + "..."
+}
+
+private func cleanTitleCandidate(_ values: String?...) -> String? {
+    for value in values {
+        if let title = cleanTitle(value) {
+            return title
+        }
+    }
+    return nil
+}
+
+private func normalizedTitleText(_ value: String) -> String {
+    let withoutMarkup = removingBareURLs(
+        from: replacingMarkdownLinksWithLabels(
+            in: removingMediaMarkup(
+                from: removingPluginMarkdownLinks(from: value)
+            )
+        )
+    )
+    return withoutMarkup
+        .replacingOccurrences(of: "\n", with: " ")
+        .replacingOccurrences(of: "\t", with: " ")
+        .replacingOccurrences(of: "`", with: "")
+        .replacingOccurrences(of: "[", with: " ")
+        .replacingOccurrences(of: "]", with: " ")
+        .replacingOccurrences(of: "(", with: " ")
+        .replacingOccurrences(of: ")", with: " ")
+        .split(separator: " ")
+        .joined(separator: " ")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private func isUninformativeTitle(_ value: String) -> Bool {
+    let lower = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !lower.isEmpty else { return true }
+    if lower.hasPrefix("http://")
+        || lower.hasPrefix("https://")
+        || lower.hasPrefix("www.")
+        || lower.hasPrefix("plugin://")
+        || lower.hasPrefix("file://")
+        || lower.hasPrefix("/var/folders/")
+        || lower.hasPrefix("/tmp/")
+        || lower.hasPrefix("<image")
+        || lower.hasPrefix("image name=")
+        || lower.hasPrefix("# files mentioned")
+        || lower == "image"
+        || lower == "unknown" {
+        return true
+    }
+    if lower.contains("<image")
+        || lower.contains("</image>")
+        || lower.contains("codex-clipboard-")
+        || lower.contains("automation_id")
+        || lower.contains("<heartbeat") {
+        return true
+    }
+    let punctuation = CharacterSet(charactersIn: "[](){}<>`'\"·,.;:：/\\|-_ ")
+    let stripped = lower.trimmingCharacters(in: punctuation)
+    if stripped.isEmpty { return true }
+    if looksLikeURLHost(stripped) { return true }
+    return false
+}
+
+private func removingMediaMarkup(from value: String) -> String {
+    var result = value
+    result = result.replacingOccurrences(
+        of: #"!\[[^\]]*\]\([^\)]*\)"#,
+        with: " ",
+        options: .regularExpression
+    )
+    result = result.replacingOccurrences(
+        of: #"<image\b[^>]*>.*?</image>"#,
+        with: " ",
+        options: [.regularExpression, .caseInsensitive]
+    )
+    result = result.replacingOccurrences(
+        of: #"<image\b[^>]*>"#,
+        with: " ",
+        options: [.regularExpression, .caseInsensitive]
+    )
+    return result
+}
+
+private func replacingMarkdownLinksWithLabels(in value: String) -> String {
+    var result = ""
+    var index = value.startIndex
+
+    while index < value.endIndex {
+        if value[index] == "[",
+           let closeBracket = value[index...].firstIndex(of: "]") {
+            let openParen = value.index(after: closeBracket)
+            if openParen < value.endIndex,
+               value[openParen] == "(",
+               let closeParen = value[openParen...].firstIndex(of: ")") {
+                let label = String(value[value.index(after: index)..<closeBracket])
+                if !isUninformativeLinkLabel(label) {
+                    result.append(label)
+                }
+                result.append(" ")
+                index = value.index(after: closeParen)
+                continue
+            }
+        }
+
+        result.append(value[index])
+        index = value.index(after: index)
+    }
+
+    return result
+}
+
+private func removingBareURLs(from value: String) -> String {
+    value
+        .replacingOccurrences(
+            of: #"(?i)\b(?:https?://|www\.)\S+"#,
+            with: " ",
+            options: .regularExpression
+        )
+        .replacingOccurrences(
+            of: #"(?i)\b[a-z0-9.-]+\.(?:com|net|org|io|ai|cn|co|dev|app|site|xyz)(?:/\S*)?"#,
+            with: " ",
+            options: .regularExpression
+        )
+}
+
+private func isUninformativeLinkLabel(_ value: String) -> Bool {
+    let compact = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    if compact.isEmpty { return true }
+    let lower = compact.lowercased()
+    return lower.hasPrefix("http://")
+        || lower.hasPrefix("https://")
+        || lower.hasPrefix("www.")
+        || looksLikeURLHost(lower)
+}
+
+private func looksLikeURLHost(_ value: String) -> Bool {
+    guard value.contains(".") else { return false }
+    let lower = value.lowercased()
+    let hostSuffixes = [".com", ".net", ".org", ".io", ".ai", ".cn", ".co", ".dev", ".app", ".site", ".xyz"]
+    return hostSuffixes.contains { suffix in
+        lower == String(lower.prefix(max(0, lower.count - suffix.count))) + suffix
+            || lower.contains("\(suffix)/")
+    }
 }
 
 private func cleanPreview(_ value: String?) -> String? {

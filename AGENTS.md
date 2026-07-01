@@ -19,6 +19,10 @@
 
 `--print-live`, `--print-profile`, `--print-service-status`, and dashboard rendering can depend on Codex login state or network availability. Do not treat their unavailability as a compile regression unless the failure is caused by local code.
 
+## Git Workflow
+
+- Prefer merging changes through pull requests. Do not merge directly into `main` unless the user explicitly asks for it.
+
 ## Data Safety
 
 - The app reads local Codex logs from `~/.codex` and optional `CODEX_HOME` roots. Do not commit, paste, or store user rollout logs.
