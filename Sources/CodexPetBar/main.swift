@@ -1306,7 +1306,7 @@ final class PetStatusIcon {
         case .stale:
             color = NSColor.systemOrange
         case .waiting:
-            color = NSColor.systemBlue
+            color = NSColor.systemOrange
         case .unread:
             color = NSColor.systemBlue
         case nil:
@@ -2549,7 +2549,7 @@ private func statusColor(_ status: ThreadRunStatus) -> NSColor {
     case .stale:
         return NSColor(calibratedRed: 0.82, green: 0.58, blue: 0.30, alpha: 1)
     case .waiting:
-        return NSColor(calibratedRed: 0.36, green: 0.62, blue: 0.91, alpha: 1)
+        return NSColor(calibratedRed: 0.91, green: 0.48, blue: 0.28, alpha: 1)
     case .unread:
         return NSColor(calibratedRed: 0.36, green: 0.62, blue: 0.91, alpha: 1)
     }
