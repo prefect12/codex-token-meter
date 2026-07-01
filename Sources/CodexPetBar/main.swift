@@ -1759,7 +1759,23 @@ private final class TaskBarSettingsView: NSView {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineBreakMode = .byTruncatingTail
-        (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraph
+        ]
+        let textHeight = ceil((text as NSString).boundingRect(
+            with: NSSize(width: rect.width, height: 1000),
+            options: [.usesLineFragmentOrigin],
+            attributes: attributes
+        ).height)
+        let drawRect = NSRect(
+            x: rect.minX,
+            y: rect.minY + max(0, (rect.height - textHeight) / 2),
+            width: rect.width,
+            height: textHeight
+        )
+        (text as NSString).draw(in: drawRect, withAttributes: attributes)
     }
 }
 
