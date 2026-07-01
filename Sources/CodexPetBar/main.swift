@@ -1,4 +1,5 @@
 import Cocoa
+import CoreText
 import Foundation
 
 enum ThreadRunStatus {
@@ -11,6 +12,7 @@ enum ThreadRunStatus {
 struct CodexThreadItem {
     let id: String
     let title: String
+    let preview: String?
     let cwd: String?
     let lastActivity: Date
     let startedAt: Date?
@@ -31,6 +33,7 @@ private struct LoggedThread {
 
 private struct RolloutSummary {
     var title: String?
+    var preview: String?
     var cwd: String?
     var isRunning = false
     var turns = 0
@@ -50,10 +53,23 @@ final class CodexActivityReader {
         }
 
         for logged in recentLoggedThreads(limit: max(limit * 3, 18), lookbackHours: lookbackHours) {
-            guard byID[logged.id] == nil else { continue }
             let rollout = rolloutURL(threadID: logged.id, lastActivity: logged.lastActivity, lookbackHours: lookbackHours)
             let summary = rollout.flatMap(rolloutSummary)
             guard let summary, summary.turns > 0 else { continue }
+            if let existing = byID[logged.id] {
+                byID[logged.id] = CodexThreadItem(
+                    id: existing.id,
+                    title: existing.title,
+                    preview: summary.preview ?? existing.preview,
+                    cwd: existing.cwd ?? summary.cwd,
+                    lastActivity: maxDate(existing.lastActivity, summary.lastTaskEventAt),
+                    startedAt: existing.startedAt ?? (summary.isRunning ? summary.currentTurnStartedAt : nil),
+                    status: existing.status,
+                    turns: existing.turns > 0 ? existing.turns : summary.turns,
+                    source: existing.source
+                )
+                continue
+            }
             let activityDate = summary.isRunning
                 ? maxDate(logged.lastActivity, summary.lastTaskEventAt)
                 : summary.lastCompletionAt ?? summary.lastTaskEventAt ?? logged.lastActivity
@@ -72,13 +88,14 @@ final class CodexActivityReader {
             byID[logged.id] = CodexThreadItem(
                 id: logged.id,
                 title: title,
-                    cwd: summary.cwd,
-                    lastActivity: activityDate,
-                    startedAt: summary.isRunning ? summary.currentTurnStartedAt : nil,
-                    status: status,
-                    turns: summary.turns,
-                    source: "logs"
-                )
+                preview: summary.preview,
+                cwd: summary.cwd,
+                lastActivity: activityDate,
+                startedAt: summary.isRunning ? summary.currentTurnStartedAt : nil,
+                status: status,
+                turns: summary.turns,
+                source: "logs"
+            )
         }
 
         return Array(byID.values)
@@ -162,6 +179,7 @@ final class CodexActivityReader {
                 items.append(CodexThreadItem(
                     id: id,
                     title: title,
+                    preview: cleanPreview(string(dict["lastAgentMessage"] ?? dict["lastMessage"] ?? dict["subtitle"] ?? dict["summary"])),
                     cwd: cwd,
                     lastActivity: Date(timeIntervalSince1970: updatedSeconds > 10_000_000_000 ? updatedSeconds / 1000 : updatedSeconds),
                     startedAt: nil,
@@ -323,12 +341,21 @@ final class CodexActivityReader {
                 summary.cwd = cwd
             }
             if summary.title == nil,
+               line.contains(#""type":"response_item""#),
+               line.contains(#""payload":{"type":"message""#),
                line.contains(#""type":"message""#),
                line.contains(#""role":"user""#) {
                 if let candidate = self.userMessageText(from: line),
                    let title = self.displayTitleCandidate(candidate) {
                     summary.title = title
                 }
+            }
+            if line.contains(#""type":"response_item""#),
+               line.contains(#""payload":{"type":"message""#),
+               line.contains(#""role":"assistant""#),
+               let candidate = self.assistantMessageText(from: line),
+               let preview = cleanPreview(candidate) {
+                summary.preview = preview
             }
             guard line.contains(#""type":"event_msg""#) else { return }
             let eventDate = self.eventDate(from: line)
@@ -342,6 +369,10 @@ final class CodexActivityReader {
                 summary.lastTaskEventAt = eventDate ?? summary.lastTaskEventAt
                 summary.lastCompletionAt = eventDate ?? summary.lastCompletionAt
                 summary.currentTurnStartedAt = nil
+                if let candidate = self.completedAgentMessageText(from: line),
+                   let preview = cleanPreview(candidate) {
+                    summary.preview = preview
+                }
             }
         }
         return summary
@@ -376,6 +407,30 @@ final class CodexActivityReader {
             return text.isEmpty ? nil : text
         }
         return string(payload["text"])
+    }
+
+    private func assistantMessageText(from line: String) -> String? {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let payload = object["payload"] as? [String: Any],
+              payload["role"] as? String == "assistant" else {
+            return nil
+        }
+        if let content = payload["content"] as? [[String: Any]] {
+            let text = content.compactMap { string($0["text"] ?? $0["output_text"]) }.joined(separator: " ")
+            return text.isEmpty ? nil : text
+        }
+        return string(payload["text"])
+    }
+
+    private func completedAgentMessageText(from line: String) -> String? {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let payload = object["payload"] as? [String: Any],
+              payload["type"] as? String == "task_complete" else {
+            return nil
+        }
+        return string(payload["last_agent_message"])
     }
 
     private func displayTitleCandidate(_ value: String) -> String? {
@@ -616,17 +671,17 @@ final class PanelHeaderView: NSView {
     private let summaryLabel = NSTextField(labelWithString: "")
 
     init(runningCount: Int, unreadCount: Int) {
-        super.init(frame: NSRect(x: 0, y: 0, width: 420, height: 58))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 62))
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.18).cgColor
+        layer?.backgroundColor = menuPanelBackground.cgColor
 
-        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         addSubview(titleLabel)
 
         summaryLabel.stringValue = summaryText(runningCount: runningCount, unreadCount: unreadCount)
-        summaryLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        summaryLabel.font = .systemFont(ofSize: 11, weight: .medium)
         summaryLabel.textColor = .secondaryLabelColor
         summaryLabel.lineBreakMode = .byTruncatingTail
         addSubview(summaryLabel)
@@ -638,8 +693,8 @@ final class PanelHeaderView: NSView {
 
     override func layout() {
         super.layout()
-        titleLabel.frame = NSRect(x: 16, y: 30, width: bounds.width - 32, height: 20)
-        summaryLabel.frame = NSRect(x: 16, y: 12, width: bounds.width - 32, height: 17)
+        titleLabel.frame = NSRect(x: 16, y: 29, width: bounds.width - 32, height: 18)
+        summaryLabel.frame = NSRect(x: 16, y: 10, width: bounds.width - 32, height: 15)
     }
 }
 
@@ -647,8 +702,10 @@ final class EmptyStateView: NSView {
     private let label = NSTextField(labelWithString: "No running or unread Codex turns")
 
     init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: 420, height: 42))
-        label.font = .systemFont(ofSize: 13, weight: .medium)
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 40))
+        wantsLayer = true
+        layer?.backgroundColor = menuPanelBackground.cgColor
+        label.font = .systemFont(ofSize: 12, weight: .medium)
         label.textColor = .secondaryLabelColor
         label.alignment = .center
         addSubview(label)
@@ -660,7 +717,73 @@ final class EmptyStateView: NSView {
 
     override func layout() {
         super.layout()
-        label.frame = NSRect(x: 16, y: 11, width: bounds.width - 32, height: 20)
+        label.frame = NSRect(x: 16, y: 11, width: bounds.width - 32, height: 18)
+    }
+}
+
+final class StatusPillView: NSView {
+    var title: String {
+        didSet {
+            invalidateIntrinsicContentSize()
+            needsDisplay = true
+        }
+    }
+    var color: NSColor {
+        didSet { needsDisplay = true }
+    }
+
+    init(title: String, color: NSColor) {
+        self.title = title
+        self.color = color
+        super.init(frame: .zero)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let textSize = attributedTitle().size()
+        return NSSize(width: ceil(textSize.width) + 18, height: 19)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let pillRect = bounds.insetBy(dx: 0.5, dy: 0.5)
+        color.withAlphaComponent(0.13).setFill()
+        NSBezierPath(roundedRect: pillRect, xRadius: 6, yRadius: 6).fill()
+        color.withAlphaComponent(0.25).setStroke()
+        let border = NSBezierPath(roundedRect: pillRect, xRadius: 6, yRadius: 6)
+        border.lineWidth = 1
+        border.stroke()
+
+        let text = attributedTitle()
+        let line = CTLineCreateWithAttributedString(text)
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        var leading: CGFloat = 0
+        let width = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+        let lineHeight = ascent + descent
+        let x = floor((bounds.width - width) / 2)
+        let baselineY = floor((bounds.height - lineHeight) / 2 + descent)
+
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        context.textPosition = CGPoint(x: x, y: baselineY)
+        CTLineDraw(line, context)
+        context.restoreGState()
+    }
+
+    private func attributedTitle() -> NSAttributedString {
+        NSAttributedString(
+            string: title,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: color
+            ]
+        )
     }
 }
 
@@ -668,8 +791,9 @@ final class ThreadRowView: NSView {
     private let item: CodexThreadItem
     private let onOpen: (String) -> Void
     private let statusDot = NSView()
-    private let statusLabelView = NSTextField(labelWithString: "")
+    private let statusLabelView: StatusPillView
     private let titleLabel = NSTextField(labelWithString: "")
+    private let previewLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private var trackingAreaRef: NSTrackingArea?
     private var isHovering = false {
@@ -679,29 +803,37 @@ final class ThreadRowView: NSView {
     init(item: CodexThreadItem, onOpen: @escaping (String) -> Void) {
         self.item = item
         self.onOpen = onOpen
-        super.init(frame: NSRect(x: 0, y: 0, width: 420, height: 58))
+        self.statusLabelView = StatusPillView(title: statusLabel(item.status), color: statusColor(item.status))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 76))
         wantsLayer = true
+        layer?.backgroundColor = menuPanelBackground.cgColor
 
         statusDot.wantsLayer = true
-        statusDot.layer?.backgroundColor = statusColor(item.status).cgColor
+        statusDot.layer?.backgroundColor = statusColor(item.status).withAlphaComponent(0.92).cgColor
         statusDot.layer?.cornerRadius = 4
         addSubview(statusDot)
 
-        statusLabelView.stringValue = compactStatusLabel(item.status)
-        statusLabelView.font = .systemFont(ofSize: 11, weight: .semibold)
-        statusLabelView.textColor = statusColor(item.status)
-        statusLabelView.lineBreakMode = .byTruncatingTail
         addSubview(statusLabelView)
 
         titleLabel.stringValue = item.title
-        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         addSubview(titleLabel)
 
+        previewLabel.stringValue = item.preview ?? ""
+        previewLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        previewLabel.textColor = .labelColor.withAlphaComponent(0.82)
+        previewLabel.maximumNumberOfLines = 2
+        previewLabel.lineBreakMode = .byTruncatingTail
+        previewLabel.cell?.wraps = true
+        previewLabel.cell?.isScrollable = false
+        previewLabel.isHidden = item.preview == nil
+        addSubview(previewLabel)
+
         detailLabel.stringValue = detailText(for: item)
-        detailLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        detailLabel.font = .systemFont(ofSize: 10, weight: .medium)
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.lineBreakMode = .byTruncatingTail
         addSubview(detailLabel)
@@ -736,16 +868,125 @@ final class ThreadRowView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard isHovering else { return }
-        NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 8, dy: 4), xRadius: 8, yRadius: 8).fill()
+        NSColor.controlAccentColor.withAlphaComponent(0.13).setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 10, dy: 4), xRadius: 7, yRadius: 7).fill()
     }
 
     override func layout() {
         super.layout()
-        statusDot.frame = NSRect(x: 16, y: 33, width: 8, height: 8)
-        statusLabelView.frame = NSRect(x: 32, y: 27, width: 72, height: 18)
-        titleLabel.frame = NSRect(x: 104, y: 28, width: bounds.width - 120, height: 19)
-        detailLabel.frame = NSRect(x: 104, y: 11, width: bounds.width - 120, height: 17)
+        statusDot.frame = NSRect(x: 16, y: 57, width: 7, height: 7)
+        titleLabel.frame = NSRect(x: 42, y: 53, width: bounds.width - 58, height: 17)
+        if item.preview == nil {
+            previewLabel.frame = .zero
+            titleLabel.frame.origin.y = 40
+        } else {
+            previewLabel.frame = NSRect(x: 42, y: 21, width: bounds.width - 58, height: 30)
+        }
+        let pillWidth = max(58, min(86, statusLabelView.intrinsicContentSize.width))
+        statusLabelView.frame = NSRect(x: 42, y: 3, width: pillWidth, height: 19)
+        detailLabel.frame = NSRect(x: 42 + pillWidth + 10, y: 4, width: bounds.width - 42 - pillWidth - 26, height: 16)
+    }
+}
+
+final class MenuSeparatorView: NSView {
+    init(inset: CGFloat = 16) {
+        self.inset = inset
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 7))
+        wantsLayer = true
+        layer?.backgroundColor = menuPanelBackground.cgColor
+    }
+
+    private let inset: CGFloat
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSColor(calibratedWhite: 0.33, alpha: 0.72).setFill()
+        NSRect(x: inset, y: floor(bounds.height / 2), width: bounds.width - inset * 2, height: 1).fill()
+    }
+}
+
+final class CommandRowView: NSView {
+    private let iconView = NSImageView(frame: .zero)
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let shortcutLabel = NSTextField(labelWithString: "")
+    private let action: () -> Void
+    private var trackingAreaRef: NSTrackingArea?
+    private var isHovering = false {
+        didSet { needsDisplay = true }
+    }
+    private let enabled: Bool
+
+    init(title: String, symbolName: String, shortcut: String?, enabled: Bool = true, action: @escaping () -> Void) {
+        self.action = action
+        self.enabled = enabled
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 27))
+        wantsLayer = true
+        layer?.backgroundColor = menuPanelBackground.cgColor
+
+        let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+        iconView.image = symbol?.withSymbolConfiguration(config)
+        iconView.contentTintColor = enabled ? .labelColor : .disabledControlTextColor
+        iconView.imageScaling = .scaleProportionallyDown
+        addSubview(iconView)
+
+        titleLabel.stringValue = title
+        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        titleLabel.textColor = enabled ? .labelColor : .disabledControlTextColor
+        titleLabel.lineBreakMode = .byTruncatingTail
+        addSubview(titleLabel)
+
+        shortcutLabel.stringValue = shortcut ?? ""
+        shortcutLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        shortcutLabel.textColor = .secondaryLabelColor
+        shortcutLabel.alignment = .right
+        addSubview(shortcutLabel)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingAreaRef {
+            removeTrackingArea(trackingAreaRef)
+        }
+        let area = NSTrackingArea(rect: bounds, options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect], owner: self)
+        trackingAreaRef = area
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard enabled else { return }
+        isHovering = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovering = false
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard enabled else { return }
+        action()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard isHovering else { return }
+        NSColor.controlAccentColor.withAlphaComponent(0.14).setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 12, dy: 3), xRadius: 6, yRadius: 6).fill()
+    }
+
+    override func layout() {
+        super.layout()
+        iconView.frame = NSRect(x: 16, y: 6, width: 15, height: 15)
+        shortcutLabel.frame = NSRect(x: bounds.width - 58, y: 5, width: 42, height: 16)
+        titleLabel.frame = NSRect(x: 46, y: 4, width: bounds.width - 108, height: 18)
     }
 }
 
@@ -817,7 +1058,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let headerItem = NSMenuItem()
         headerItem.view = PanelHeaderView(runningCount: active.count, unreadCount: unreadCount)
         menu.addItem(headerItem)
-        menu.addItem(.separator())
+        menu.addItem(separatorItem())
 
         if threads.isEmpty {
             let emptyItem = NSMenuItem()
@@ -830,24 +1071,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self?.openThread(id: id)
                 }
                 menu.addItem(item)
+                if thread.id != threads.last?.id {
+                    menu.addItem(separatorItem())
+                }
             }
         }
 
-        menu.addItem(.separator())
-        let refreshItem = NSMenuItem(title: "Refresh", action: #selector(refreshFromMenu), keyEquivalent: "r")
-        refreshItem.target = self
-        menu.addItem(refreshItem)
-        let openCodex = NSMenuItem(title: "Open Codex", action: #selector(openCodexApp), keyEquivalent: "")
-        openCodex.target = self
-        menu.addItem(openCodex)
-        let markRead = NSMenuItem(title: "Mark unread as read", action: #selector(markWaitingAsRead), keyEquivalent: "")
-        markRead.target = self
-        markRead.isEnabled = threads.contains { isReadDismissible($0.status) }
-        menu.addItem(markRead)
-        menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Codex Bar", action: #selector(quit), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
+        menu.addItem(separatorItem())
+        menu.addItem(commandItem(title: "Open Codex", symbolName: "arrow.up.right.square", shortcut: "⌘O", selector: #selector(openCodexApp), keyEquivalent: "o") { [weak self] in
+            self?.menu.cancelTracking()
+            self?.openCodexApp()
+        })
+        menu.addItem(commandItem(title: "Refresh", symbolName: "arrow.clockwise", shortcut: "⌘R", selector: #selector(refreshFromMenu), keyEquivalent: "r") { [weak self] in
+            self?.menu.cancelTracking()
+            self?.refreshFromMenu()
+        })
+        menu.addItem(commandItem(title: "Mark all as read", symbolName: "tray", shortcut: nil, selector: #selector(markWaitingAsRead), keyEquivalent: "", enabled: threads.contains { isReadDismissible($0.status) }) { [weak self] in
+            self?.menu.cancelTracking()
+            self?.markWaitingAsRead()
+        })
+        menu.addItem(separatorItem())
+        menu.addItem(commandItem(title: "Quit Codex Bar", symbolName: "power", shortcut: "⌘Q", selector: #selector(quit), keyEquivalent: "q") { [weak self] in
+            self?.menu.cancelTracking()
+            self?.quit()
+        })
+    }
+
+    private func separatorItem() -> NSMenuItem {
+        let item = NSMenuItem()
+        item.view = MenuSeparatorView()
+        return item
+    }
+
+    private func commandItem(
+        title: String,
+        symbolName: String,
+        shortcut: String?,
+        selector: Selector,
+        keyEquivalent: String,
+        enabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: selector, keyEquivalent: keyEquivalent)
+        item.target = self
+        item.isEnabled = enabled
+        item.view = CommandRowView(title: title, symbolName: symbolName, shortcut: shortcut, enabled: enabled, action: action)
+        return item
     }
 
     private func tooltip(for thread: CodexThreadItem) -> String {
@@ -914,13 +1183,13 @@ private func summaryText(runningCount: Int, unreadCount: Int) -> String {
 private func statusColor(_ status: ThreadRunStatus) -> NSColor {
     switch status {
     case .running:
-        return .systemGreen
+        return NSColor(calibratedRed: 0.35, green: 0.74, blue: 0.38, alpha: 1)
     case .stale:
-        return .systemOrange
+        return NSColor(calibratedRed: 0.82, green: 0.58, blue: 0.30, alpha: 1)
     case .waiting:
-        return .systemBlue
+        return NSColor(calibratedRed: 0.36, green: 0.62, blue: 0.91, alpha: 1)
     case .unread:
-        return .systemBlue
+        return NSColor(calibratedRed: 0.36, green: 0.62, blue: 0.91, alpha: 1)
     }
 }
 
@@ -971,10 +1240,13 @@ private func detailText(for item: CodexThreadItem) -> String {
     let folder = shortFolderName(item.cwd)
     if (item.status == .running || item.status == .stale),
        let startedAt = item.startedAt {
-        return "已处理 \(durationSince(startedAt))  ·  \(folder)"
+        return "\(durationSince(startedAt))  ·  \(folder)"
     }
     return "\(folder)  ·  \(relative(item.lastActivity))"
 }
+
+private let menuPanelWidth: CGFloat = 390
+private let menuPanelBackground = NSColor(calibratedWhite: 0.105, alpha: 0.97)
 
 private func isReadDismissible(_ status: ThreadRunStatus) -> Bool {
     switch status {
@@ -998,6 +1270,21 @@ private func cleanTitle(_ value: String?) -> String? {
         return compact
     }
     return String(compact.prefix(65)) + "..."
+}
+
+private func cleanPreview(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let compact = value
+        .replacingOccurrences(of: "\n", with: " ")
+        .replacingOccurrences(of: "\t", with: " ")
+        .split(separator: " ")
+        .joined(separator: " ")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !compact.isEmpty else { return nil }
+    if compact.count <= 140 {
+        return compact
+    }
+    return String(compact.prefix(137)) + "..."
 }
 
 private func shortFolderName(_ value: String?) -> String {
@@ -1087,7 +1374,8 @@ private func printThreads() {
         let timing = (item.status == .running || item.status == .stale)
             ? item.startedAt.map { "elapsed \(durationSince($0))" } ?? relative(item.lastActivity)
             : relative(item.lastActivity)
-        print("\(statusLabel(item.status))\t\(timing)\t\(folder)\t\(item.title)\t\(item.id)\t\(item.source)")
+        let preview = item.preview.map { "\t\($0)" } ?? ""
+        print("\(statusLabel(item.status))\t\(timing)\t\(folder)\t\(item.title)\t\(item.id)\t\(item.source)\(preview)")
     }
 }
 
