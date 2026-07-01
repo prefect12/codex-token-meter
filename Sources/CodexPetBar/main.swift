@@ -2880,7 +2880,7 @@ final class ThreadRowView: NSView {
         // Clock symbol sits optically low inside its image box; keep it slightly lower
         // while nudging text down so the glyph centers align visually.
         clockIconView.frame = NSRect(x: contentX + offset, y: 13, width: 11, height: 11)
-        durationLabel.frame = NSRect(x: contentX + 16 + offset, y: 10.5, width: 58, height: 15)
+        durationLabel.frame = NSRect(x: contentX + 16 + offset, y: 9, width: 58, height: 15)
         metaDotView.frame = NSRect(x: contentX + 76 + offset, y: 14, width: 5, height: 5)
         metaStatusLabel.frame = NSRect(x: contentX + 87 + offset, y: 10.5, width: max(0, contentWidth - 87), height: 15)
     }
@@ -2907,7 +2907,7 @@ final class ThreadRowView: NSView {
         var lineY = bounds.height - (bounds.height - groupHeight) / 2 - lineHeight
 
         clockIconView.frame = NSRect(x: contentX + offset, y: lineY + 2, width: 11, height: 11)
-        durationLabel.frame = NSRect(x: contentX + 14 + offset, y: lineY + 1, width: railWidth - 14, height: lineHeight)
+        durationLabel.frame = NSRect(x: contentX + 14 + offset, y: lineY - 0.5, width: railWidth - 14, height: lineHeight)
         lineY -= lineHeight + lineGap
 
         metaDotView.frame = NSRect(x: contentX + 1 + offset, y: lineY + 5, width: 5, height: 5)
