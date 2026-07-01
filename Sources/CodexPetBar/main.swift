@@ -8,6 +8,35 @@ enum ThreadRunStatus {
     case unread
 }
 
+private enum TaskFilter: Int, CaseIterable {
+    case all
+    case running
+    case waiting
+    case completed
+
+    var title: String {
+        switch self {
+        case .all: return "全部"
+        case .running: return "运行"
+        case .waiting: return "等待"
+        case .completed: return "完成"
+        }
+    }
+
+    func includes(_ item: CodexThreadItem) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .running:
+            return item.status == .running || item.status == .stale
+        case .waiting:
+            return item.status == .waiting
+        case .completed:
+            return item.status == .unread
+        }
+    }
+}
+
 struct CodexThreadItem {
     let id: String
     let title: String
@@ -1343,10 +1372,11 @@ final class PetStatusIcon {
 final class PanelHeaderView: NSView {
     private let logoView = NSImageView(frame: .zero)
     private let titleLabel = NSTextField(labelWithString: "Task Bar")
+    private let totalLabel = NSTextField(labelWithString: "")
     private let statusSummaryLabel = NSTextField(labelWithString: "")
 
     init(runningCount: Int, waitingCount: Int, unreadCount: Int) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 70))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 64))
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.withAlphaComponent(0.02).cgColor
 
@@ -1358,6 +1388,17 @@ final class PanelHeaderView: NSView {
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         addSubview(titleLabel)
+
+        totalLabel.stringValue = totalTaskSummaryText(
+            runningCount: runningCount,
+            waitingCount: waitingCount,
+            unreadCount: unreadCount
+        )
+        totalLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        totalLabel.textColor = NSColor.white.withAlphaComponent(0.74)
+        totalLabel.alignment = .right
+        totalLabel.lineBreakMode = .byTruncatingTail
+        addSubview(totalLabel)
 
         statusSummaryLabel.attributedStringValue = headerStatusSummaryText(
             runningCount: runningCount,
@@ -1376,23 +1417,34 @@ final class PanelHeaderView: NSView {
 
     override func layout() {
         super.layout()
-        let horizontalPadding: CGFloat = 28
-        let logoSize: CGFloat = 24
-        let summaryWidth = min(190, max(150, bounds.width * 0.44))
-        logoView.frame = NSRect(x: horizontalPadding, y: 22, width: logoSize, height: logoSize)
+        let horizontalPadding: CGFloat = 0
+        let logoSize: CGFloat = 26
+        let summaryWidth = min(230, max(176, bounds.width * 0.46))
+        logoView.frame = NSRect(x: horizontalPadding, y: 5, width: logoSize, height: logoSize)
+        totalLabel.frame = NSRect(
+            x: bounds.width - horizontalPadding - summaryWidth,
+            y: 7,
+            width: summaryWidth,
+            height: 16
+        )
         statusSummaryLabel.frame = NSRect(
             x: bounds.width - horizontalPadding - summaryWidth,
-            y: 26,
+            y: 31,
             width: summaryWidth,
             height: 18
         )
         titleLabel.frame = NSRect(
             x: logoView.frame.maxX + 10,
-            y: 20,
+            y: 0,
             width: max(80, statusSummaryLabel.frame.minX - logoView.frame.maxX - 22),
             height: 28
         )
     }
+}
+
+private func totalTaskSummaryText(runningCount: Int, waitingCount: Int, unreadCount: Int) -> String {
+    let total = runningCount + waitingCount + unreadCount
+    return total > 0 ? "共 \(total) 个任务" : "暂无任务"
 }
 
 private func headerStatusSummaryText(runningCount: Int, waitingCount: Int, unreadCount: Int) -> NSAttributedString {
@@ -1879,7 +1931,7 @@ final class ThreadRowView: NSView {
         self.showStatusDot = showStatusDot
         self.onOpen = onOpen
         self.onDismiss = onDismiss
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 76))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 88))
         wantsLayer = true
         let tooltip = tooltipText(for: item)
         setAccessibilityHelp(tooltip)
@@ -1891,12 +1943,12 @@ final class ThreadRowView: NSView {
         addSubview(statusDot)
 
         statusLabelView.stringValue = compactStatusLabel(item.status)
-        statusLabelView.font = .systemFont(ofSize: 11, weight: .semibold)
+        statusLabelView.font = .systemFont(ofSize: 13, weight: .bold)
         statusLabelView.textColor = statusColor(item.status)
         statusLabelView.lineBreakMode = .byTruncatingTail
         addSubview(statusLabelView)
 
-        statusElapsedLabel.font = .systemFont(ofSize: 10, weight: .semibold)
+        statusElapsedLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         statusElapsedLabel.textColor = .secondaryLabelColor
         statusElapsedLabel.lineBreakMode = .byTruncatingTail
         statusElapsedLabel.maximumNumberOfLines = 1
@@ -1912,14 +1964,14 @@ final class ThreadRowView: NSView {
         addSubview(platformLabelView)
 
         titleLabel.stringValue = item.title
-        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         addSubview(titleLabel)
 
         detailLabel.stringValue = item.preview ?? detailText(for: item)
-        detailLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        detailLabel.font = .systemFont(ofSize: 13, weight: .medium)
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.maximumNumberOfLines = 3
         detailLabel.lineBreakMode = .byTruncatingTail
@@ -2061,6 +2113,8 @@ final class ThreadRowView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        NSColor.white.withAlphaComponent(0.08).setFill()
+        NSRect(x: 0, y: 0, width: bounds.width, height: 1).fill()
         if swipeOffset < -1, isReadDismissible(item.status) {
             let revealWidth = min(ThreadRowView.dismissRevealWidth, -swipeOffset + 16)
             let revealRect = NSRect(
@@ -2074,23 +2128,23 @@ final class ThreadRowView: NSView {
             drawDismissLabel(in: revealRect)
         }
         guard isHovering, !isSwipeTracking else { return }
-        NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 8, dy: 4), xRadius: 8, yRadius: 8).fill()
+        NSColor(calibratedRed: 0.08, green: 0.20, blue: 0.34, alpha: 0.94).setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 0, dy: 6), xRadius: 8, yRadius: 8).fill()
     }
 
     override func layout() {
         super.layout()
         let offset = swipeOffset
-        let statusTextX: CGFloat = showStatusDot ? 34 : 18
-        let statusColumnWidth: CGFloat = showStatusDot ? 62 : 76
-        let contentX: CGFloat = 104
-        let contentWidth = max(160, bounds.width - contentX - 16)
-        statusDot.frame = NSRect(x: 17 + offset, y: 54, width: 8, height: 8)
-        statusLabelView.frame = NSRect(x: statusTextX + offset, y: 48, width: statusColumnWidth, height: 18)
-        statusElapsedLabel.frame = NSRect(x: statusTextX + offset, y: 30, width: statusColumnWidth, height: 16)
-        platformLabelView.frame = NSRect(x: statusTextX + offset, y: 12, width: statusColumnWidth, height: 14)
-        titleLabel.frame = NSRect(x: contentX + offset, y: 49, width: contentWidth, height: 20)
-        detailLabel.frame = NSRect(x: contentX + offset, y: 15, width: contentWidth, height: 34)
+        let statusTextX: CGFloat = showStatusDot ? 30 : 12
+        let statusColumnWidth: CGFloat = showStatusDot ? 70 : 88
+        let contentX: CGFloat = 112
+        let contentWidth = max(180, bounds.width - contentX - 12)
+        statusDot.frame = NSRect(x: 12 + offset, y: 67, width: 8, height: 8)
+        statusLabelView.frame = NSRect(x: statusTextX + offset, y: 62, width: statusColumnWidth, height: 20)
+        statusElapsedLabel.frame = NSRect(x: statusTextX + offset, y: 39, width: statusColumnWidth, height: 17)
+        platformLabelView.frame = NSRect(x: statusTextX + offset, y: 18, width: statusColumnWidth, height: 14)
+        titleLabel.frame = NSRect(x: contentX + offset, y: 60, width: contentWidth, height: 22)
+        detailLabel.frame = NSRect(x: contentX + offset, y: 18, width: contentWidth, height: 38)
     }
 
     private func setSwipeOffset(_ offset: CGFloat, animated: Bool) {
@@ -2340,7 +2394,7 @@ final class MenuSeparatorView: NSView {
         self.inset = inset
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 7))
         wantsLayer = true
-        layer?.backgroundColor = menuPanelBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
     }
 
     private let inset: CGFloat
@@ -2445,9 +2499,9 @@ private final class CommandButtonBarView: NSView {
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 56))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 28))
         wantsLayer = true
-        layer?.backgroundColor = menuPanelBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
 
         stackView.orientation = .horizontal
         stackView.spacing = 8
@@ -2492,17 +2546,7 @@ private final class CommandButtonBarView: NSView {
 
     override func layout() {
         super.layout()
-        let buttonWidth: CGFloat = 174
-        let buttonHeight: CGFloat = 32
-        let maxWidth = max(0, bounds.width - 32)
-        let naturalWidth = buttonWidth * CGFloat(buttons.count) + stackView.spacing * CGFloat(max(buttons.count - 1, 0))
-        let width = min(naturalWidth, maxWidth)
-        stackView.frame = NSRect(
-            x: floor((bounds.width - width) / 2),
-            y: floor((bounds.height - buttonHeight) / 2),
-            width: width,
-            height: buttonHeight
-        )
+        stackView.frame = bounds
     }
 }
 
@@ -2536,7 +2580,7 @@ private final class TaskBarRowsView: NSView {
         let height = arrangedHeights.reduce(CGFloat(0), +)
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: height))
         wantsLayer = true
-        layer?.backgroundColor = menuPanelBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
         for view in rowViews {
             addSubview(view)
         }
@@ -2613,12 +2657,20 @@ private final class PopoverResizeHandleView: NSView {
 private final class TaskBarPopoverContentView: NSView {
     private let headerView: PanelHeaderView
     private let topSeparator = MenuSeparatorView()
+    private let filterSegment = NSSegmentedControl(
+        labels: TaskFilter.allCases.map(\.title),
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
     private let rowsView: TaskBarRowsView
     private let rowsScrollView: NSScrollView
     private let bottomSeparator = MenuSeparatorView()
     private let commandBar: CommandButtonBarView
     private let resizeHandle = PopoverResizeHandleView()
     private let rowsContentHeight: CGFloat
+    private let selectedFilter: TaskFilter
+    private let onFilterChanged: (TaskFilter) -> Void
     private let onResize: (NSSize, Bool) -> Void
 
     init(
@@ -2626,15 +2678,19 @@ private final class TaskBarPopoverContentView: NSView {
         runningCount: Int,
         waitingCount: Int,
         unreadCount: Int,
+        selectedFilter: TaskFilter,
         showPlatformLabels: Bool,
         showStatusDots: Bool,
         onOpenThread: @escaping (String) -> Void,
         onDismissThread: @escaping (String) -> Void,
+        onFilterChanged: @escaping (TaskFilter) -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void,
         initialSize: NSSize?,
         onResize: @escaping (NSSize, Bool) -> Void
     ) {
+        self.selectedFilter = selectedFilter
+        self.onFilterChanged = onFilterChanged
         self.onResize = onResize
         headerView = PanelHeaderView(
             runningCount: runningCount,
@@ -2662,10 +2718,7 @@ private final class TaskBarPopoverContentView: NSView {
             onQuit: onQuit
         )
 
-        let fixedHeight = headerView.frame.height
-            + topSeparator.frame.height
-            + bottomSeparator.frame.height
-            + commandBar.frame.height
+        let fixedHeight: CGFloat = 247
         let maxRowsHeight = max(EmptyStateView().frame.height, taskBarPopoverMaxHeight() - fixedHeight)
         let naturalRowsHeight = min(rowsContentHeight, maxRowsHeight)
         let naturalHeight = fixedHeight + naturalRowsHeight
@@ -2683,11 +2736,16 @@ private final class TaskBarPopoverContentView: NSView {
 
         super.init(frame: NSRect(origin: .zero, size: initialSize))
         wantsLayer = true
-        layer?.backgroundColor = menuPanelBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
         appearance = NSAppearance(named: .darkAqua)
 
         addSubview(headerView)
         addSubview(topSeparator)
+        filterSegment.target = self
+        filterSegment.action = #selector(filterSegmentChanged)
+        filterSegment.segmentStyle = .rounded
+        filterSegment.selectedSegment = selectedFilter.rawValue
+        addSubview(filterSegment)
         addSubview(rowsScrollView)
         addSubview(bottomSeparator)
         addSubview(commandBar)
@@ -2703,21 +2761,48 @@ private final class TaskBarPopoverContentView: NSView {
 
     override var isFlipped: Bool { true }
 
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.clear.setFill()
+        dirtyRect.fill()
+
+        let card = bounds.insetBy(dx: 8, dy: 8)
+        menuPanelBackground.setFill()
+        NSBezierPath(roundedRect: card, xRadius: 26, yRadius: 26).fill()
+        NSColor.white.withAlphaComponent(0.09).setStroke()
+        let border = NSBezierPath(roundedRect: card.insetBy(dx: 0.5, dy: 0.5), xRadius: 26, yRadius: 26)
+        border.lineWidth = 1
+        border.stroke()
+    }
+
     override func layout() {
         super.layout()
-        var y: CGFloat = 0
-        headerView.frame = NSRect(x: 0, y: y, width: bounds.width, height: headerView.frame.height)
-        y += headerView.frame.height
+        let content = bounds.insetBy(dx: 28, dy: 24)
+        headerView.frame = NSRect(x: content.minX, y: content.minY, width: content.width, height: headerView.frame.height)
 
-        topSeparator.frame = NSRect(x: 0, y: y, width: bounds.width, height: topSeparator.frame.height)
-        y += topSeparator.frame.height
+        topSeparator.frame = NSRect(
+            x: content.minX,
+            y: headerView.frame.maxY + 12,
+            width: content.width,
+            height: topSeparator.frame.height
+        )
+        filterSegment.frame = NSRect(
+            x: content.minX,
+            y: topSeparator.frame.maxY + 18,
+            width: content.width,
+            height: 30
+        )
 
-        let fixedHeight = headerView.frame.height
-            + topSeparator.frame.height
-            + bottomSeparator.frame.height
-            + commandBar.frame.height
-        let rowsViewportHeight = max(EmptyStateView().frame.height, bounds.height - fixedHeight)
-        let rowsFrame = NSRect(x: 0, y: y, width: bounds.width, height: rowsViewportHeight)
+        let commandY = content.maxY - commandBar.frame.height
+        bottomSeparator.frame = NSRect(
+            x: content.minX,
+            y: commandY - 24,
+            width: content.width,
+            height: bottomSeparator.frame.height
+        )
+
+        let rowsY = filterSegment.frame.maxY + 16
+        let rowsViewportHeight = max(EmptyStateView().frame.height, bottomSeparator.frame.minY - rowsY)
+        let rowsFrame = NSRect(x: content.minX, y: rowsY, width: content.width, height: rowsViewportHeight)
         rowsScrollView.frame = rowsFrame
         rowsScrollView.hasVerticalScroller = rowsContentHeight > rowsViewportHeight + 0.5
         rowsView.frame = NSRect(
@@ -2726,14 +2811,17 @@ private final class TaskBarPopoverContentView: NSView {
             width: rowsScrollView.contentSize.width,
             height: max(rowsContentHeight, rowsViewportHeight)
         )
-        y += rowsViewportHeight
-
-        bottomSeparator.frame = NSRect(x: 0, y: y, width: bounds.width, height: bottomSeparator.frame.height)
-        y += bottomSeparator.frame.height
-
-        commandBar.frame = NSRect(x: 0, y: y, width: bounds.width, height: commandBar.frame.height)
+        commandBar.frame = NSRect(x: content.minX, y: commandY, width: content.width, height: commandBar.frame.height)
         resizeHandle.frame = NSRect(x: bounds.maxX - 18, y: bounds.maxY - 18, width: 18, height: 18)
         resizeHandle.needsDisplay = true
+    }
+
+    @objc private func filterSegmentChanged() {
+        let index = filterSegment.selectedSegment
+        guard TaskFilter.allCases.indices.contains(index) else { return }
+        let nextFilter = TaskFilter.allCases[index]
+        guard nextFilter != selectedFilter else { return }
+        onFilterChanged(nextFilter)
     }
 
     private func applyResize(_ size: NSSize, persist: Bool) {
@@ -2756,6 +2844,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindowController: TaskBarSettingsWindowController?
     private var readInFlight = false
     private var transientPopoverSize: NSSize?
+    private var selectedFilter: TaskFilter = .all
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -2832,12 +2921,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let active = threads.filter { $0.status == .running || $0.status == .stale }
         let waitingCount = threads.filter { $0.status == .waiting }.count
         let unreadCount = threads.filter { $0.status == .unread }.count
+        let displayedThreads = threads.filter { selectedFilter.includes($0) }
         let controller = NSViewController()
         let content = TaskBarPopoverContentView(
-            threads: threads,
+            threads: displayedThreads,
             runningCount: active.count,
             waitingCount: waitingCount,
             unreadCount: unreadCount,
+            selectedFilter: selectedFilter,
             showPlatformLabels: TaskBarSettings.showPlatformLabels,
             showStatusDots: TaskBarSettings.showStatusDots,
             onOpenThread: { [weak self] id in
@@ -2845,6 +2936,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onDismissThread: { [weak self] id in
                 self?.dismissThread(id: id)
+            },
+            onFilterChanged: { [weak self] filter in
+                self?.selectedFilter = filter
+                self?.rebuildPopover()
             },
             onOpenSettings: { [weak self] in
                 self?.openSettingsWindow()
@@ -3097,9 +3192,9 @@ private func tooltipStatusLabel(_ status: ThreadRunStatus) -> String {
     }
 }
 
-private let menuPanelWidth: CGFloat = 390
-private let taskBarPopoverMinWidth: CGFloat = 320
-private let taskBarPopoverMinHeight: CGFloat = 180
+private let menuPanelWidth: CGFloat = 430
+private let taskBarPopoverMinWidth: CGFloat = 390
+private let taskBarPopoverMinHeight: CGFloat = 320
 private let menuPanelBackground = NSColor(calibratedWhite: 0.045, alpha: 0.98)
 
 private func taskBarPopoverMaxHeight() -> CGFloat {
@@ -3107,7 +3202,7 @@ private func taskBarPopoverMaxHeight() -> CGFloat {
     let screenHeight = NSScreen.screens.first { $0.frame.contains(mouse) }?.visibleFrame.height
         ?? NSScreen.main?.visibleFrame.height
         ?? 900
-    return min(440, max(320, screenHeight - 110))
+    return min(700, max(420, screenHeight - 110))
 }
 
 private func taskBarPopoverMaxResizableSize() -> NSSize {
