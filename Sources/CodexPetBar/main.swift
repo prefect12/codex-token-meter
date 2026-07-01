@@ -2215,8 +2215,6 @@ private final class CommandButtonBarView: NSView {
     private var buttons: [NSButton] = []
 
     init(
-        onRefresh: @escaping () -> Void,
-        onOpenDetails: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
@@ -2229,8 +2227,6 @@ private final class CommandButtonBarView: NSView {
         stackView.distribution = .fillEqually
         addSubview(stackView)
 
-        addButton(title: "刷新", symbolName: "arrow.clockwise", action: onRefresh)
-        addButton(title: "详情", symbolName: "chart.bar", action: onOpenDetails)
         addButton(title: "设置", symbolName: "gearshape", action: onOpenSettings)
         addButton(title: "退出", symbolName: "power", action: onQuit)
     }
@@ -2355,8 +2351,6 @@ private final class TaskBarPopoverContentView: NSView {
         showPlatformLabels: Bool,
         showStatusDots: Bool,
         onOpenThread: @escaping (String) -> Void,
-        onRefresh: @escaping () -> Void,
-        onOpenDetails: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
@@ -2381,8 +2375,6 @@ private final class TaskBarPopoverContentView: NSView {
         rowsView = TaskBarRowsView(rowViews: rowViews)
         rowsContentHeight = rowsView.frame.height
         commandBar = CommandButtonBarView(
-            onRefresh: onRefresh,
-            onOpenDetails: onOpenDetails,
             onOpenSettings: onOpenSettings,
             onQuit: onQuit
         )
@@ -2546,13 +2538,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onOpenThread: { [weak self] id in
                 self?.openThread(id: id)
             },
-            onRefresh: { [weak self] in
-                ThreadHoverPanel.shared.hideAll()
-                self?.refresh()
-            },
-            onOpenDetails: { [weak self] in
-                self?.openTaskDetails()
-            },
             onOpenSettings: { [weak self] in
                 self?.openSettingsWindow()
             },
@@ -2567,17 +2552,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.preferredContentSize = content.frame.size
         popover.contentViewController = controller
         popover.contentSize = content.frame.size
-    }
-
-    private func openTaskDetails() {
-        popover.performClose(nil)
-        ThreadHoverPanel.shared.hideAll()
-        let codexURL = URL(fileURLWithPath: "/Applications/Codex.app")
-        if FileManager.default.fileExists(atPath: codexURL.path) {
-            NSWorkspace.shared.open(codexURL)
-        } else if let item = threads.first {
-            openThread(id: item.id)
-        }
     }
 
     private func openSettingsWindow() {
