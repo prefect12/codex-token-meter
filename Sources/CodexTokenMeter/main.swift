@@ -69,7 +69,8 @@ if CommandLine.arguments.contains("--print-profile") {
 }
 
 if CommandLine.arguments.contains("--print-live") {
-    let limits = combinedLiveLimits()
+    let claudeStore = ClaudeStatuslineStore()
+    let limits = combinedLiveLimits(claudeStore: claudeStore)
     let codexLimits = codexTrackedLiveLimits(limits)
     AppSettings.learnModelLimit(from: codexLimits)
     CostHistoryStore.shared.record(limits: codexLimits)

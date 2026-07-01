@@ -1496,6 +1496,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     var onShowCodexStatusChanged: ((Bool) -> Void)?
     var onQuotaWarningsChanged: ((Bool) -> Void)?
     var onProfileAPITotalsChanged: ((Bool) -> Void)?
+    var onClaudeActiveQuotaRefreshChanged: ((Bool) -> Void)?
     var onPreferredHeightChanged: (() -> Void)?
     private var selectedSection: DetailsSection = .overview {
         didSet {
@@ -1600,6 +1601,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private let showCodexStatusSwitch = NSSwitch(frame: .zero)
     private let quotaWarningsSwitch = NSSwitch(frame: .zero)
     private let profileAPITotalsSwitch = NSSwitch(frame: .zero)
+    private let claudeActiveQuotaRefreshSwitch = NSSwitch(frame: .zero)
     private var isUpdatingCostControls = false
     private var detailsTrackingArea: NSTrackingArea?
 
@@ -1782,6 +1784,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         profileAPITotalsSwitch.action = #selector(profileAPITotalsChanged)
         addSubview(profileAPITotalsSwitch)
 
+        claudeActiveQuotaRefreshSwitch.controlSize = .small
+        claudeActiveQuotaRefreshSwitch.isHidden = true
+        claudeActiveQuotaRefreshSwitch.target = self
+        claudeActiveQuotaRefreshSwitch.action = #selector(claudeActiveQuotaRefreshChanged)
+        addSubview(claudeActiveQuotaRefreshSwitch)
+
         for popup in [paymentCurrencyPopup, displayCurrencyPopup, costYearPopup, languagePopup] {
             popup.controlSize = .regular
             popup.font = .systemFont(ofSize: 12, weight: .semibold)
@@ -1810,6 +1818,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         launchAtLoginSwitch.setAccessibilityLabel(t(.launchAtLogin))
         quotaWarningsSwitch.setAccessibilityLabel(t(.quotaWarnings))
         profileAPITotalsSwitch.setAccessibilityLabel(t(.profileAPITotals))
+        claudeActiveQuotaRefreshSwitch.setAccessibilityLabel(t(.claudeActiveRefresh))
         paymentCurrencyPopup.target = self
         paymentCurrencyPopup.action = #selector(paymentCurrencyPopupChanged)
         displayCurrencyPopup.target = self
@@ -1855,6 +1864,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         showCodexStatusSwitch.isHidden = !visible
         quotaWarningsSwitch.isHidden = !visible
         profileAPITotalsSwitch.isHidden = !visible
+        claudeActiveQuotaRefreshSwitch.isHidden = !visible
         guard visible else { return }
 
         let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
@@ -1864,9 +1874,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let leftSwitchX = rect.midX - 64
         let rightSwitchX = rect.maxX - 64
         showCodexStatusSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 624, width: 48, height: 24)
-        launchAtLoginSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 624, width: 48, height: 24)
-        quotaWarningsSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 652, width: 48, height: 24)
-        profileAPITotalsSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 652, width: 48, height: 24)
+        launchAtLoginSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 638, width: 48, height: 24)
+        quotaWarningsSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 666, width: 48, height: 24)
+        profileAPITotalsSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 666, width: 48, height: 24)
+        claudeActiveQuotaRefreshSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 420, width: 48, height: 24)
         updateLanguagePopupFromSettings()
         updateSettingsControlsFromSystem()
     }
@@ -1887,6 +1898,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         showCodexStatusSwitch.state = AppSettings.showCodexStatusEnabled ? .on : .off
         quotaWarningsSwitch.state = AppSettings.quotaWarningsEnabled ? .on : .off
         profileAPITotalsSwitch.state = AppSettings.profileAPITotalsEnabled ? .on : .off
+        claudeActiveQuotaRefreshSwitch.state = AppSettings.claudeActiveQuotaRefreshEnabled ? .on : .off
     }
 
     private func updateCostControlsFromSettings() {
@@ -2455,6 +2467,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     @objc private func profileAPITotalsChanged() {
         onProfileAPITotalsChanged?(profileAPITotalsSwitch.state == .on)
+        updateSettingsControlsFromSystem()
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    @objc private func claudeActiveQuotaRefreshChanged() {
+        onClaudeActiveQuotaRefreshChanged?(claudeActiveQuotaRefreshSwitch.state == .on)
         updateSettingsControlsFromSystem()
         needsDisplay = true
         needsLayout = true
@@ -3429,9 +3448,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             let sevenDay = claudeStatusline.sevenDay.map { "\(Int(round($0.usedPercent)))% 7d" } ?? "7d --"
             claudeStatuslineText = "\(fiveHour) / \(sevenDay)"
             claudeStatuslineColor = accentTeal
-        } else if claudeStatusline?.isStale == true {
-            claudeStatuslineText = "stale: \(shortenedPath(claudeStatuslineStore.path))"
-            claudeStatuslineColor = accentAmber
         } else {
             claudeStatuslineText = "not captured: \(shortenedPath(claudeStatuslineStore.path))"
             claudeStatuslineColor = accentAmber
@@ -3440,6 +3456,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             (t(.claudeLogs), AppSettings.claudeLogFolderDisplayPath, claudeRootExists ? accentTeal : accentAmber),
             (t(.recentRollouts), "\(claudeLogs) files / 14d", claudeLogs > 0 ? accentTeal : accentAmber),
             ("Claude statusline", claudeStatuslineText, claudeStatuslineColor),
+            (t(.claudeActiveRefresh), AppSettings.claudeActiveQuotaRefreshEnabled ? t(.enabled) : t(.disabled), AppSettings.claudeActiveQuotaRefreshEnabled ? accentTeal : accentAmber),
             (t(.cacheHit), String(format: "%.0f%%", snapshot.all.usage.cachePercent), accentTeal),
             (t(.models), "\(snapshot.all.modelBreakdown.count)", accentTeal),
             (t(.sessions), "\(snapshot.all.sessions)", accentTeal),
@@ -4192,10 +4209,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             statusQuotaSourceRects[source] = optionRect
             drawSelectablePill(source.shortTitle, rect: optionRect, selected: source == AppSettings.statusBarQuotaSource)
         }
-        drawText(t(.statusDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 422, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        drawText(t(.claudeActiveRefresh), rect: NSRect(x: rect.minX + 16, y: rect.minY + 422, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.claudeActiveRefreshHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 446, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
 
-        drawText(t(.quotaDisplayStyle), rect: NSRect(x: rect.minX + 16, y: rect.minY + 462, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let quotaStyleY = rect.minY + 458
+        drawText(t(.quotaDisplayStyle), rect: NSRect(x: rect.minX + 16, y: rect.minY + 476, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        let quotaStyleY = rect.minY + 472
         let quotaStyleGap: CGFloat = 10
         let quotaStyleW: CGFloat = 116
         let quotaStyleStartX = rect.maxX - 16 - quotaStyleW * CGFloat(QuotaDisplayStyle.allCases.count) - quotaStyleGap * CGFloat(QuotaDisplayStyle.allCases.count - 1)
@@ -4204,31 +4222,31 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             quotaDisplayStyleRects[style] = optionRect
             drawSelectablePill(style.title, rect: optionRect, selected: style == QuotaDisplayStyle.current)
         }
-        drawText(t(.quotaDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 504, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        drawText(t(.quotaDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 518, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.codexHomeRing), rect: NSRect(x: rect.minX + 16, y: rect.minY + 528, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.claudeHomeRing), rect: NSRect(x: rect.minX + 16, y: rect.minY + 566, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.codexHomeRing), rect: NSRect(x: rect.minX + 16, y: rect.minY + 542, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.claudeHomeRing), rect: NSRect(x: rect.minX + 16, y: rect.minY + 580, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         let homeMetricW: CGFloat = 116
         let homeMetricGap: CGFloat = 10
         let homeMetricStartX = rect.maxX - 16 - homeMetricW * CGFloat(HomeQuotaRingMetric.allCases.count) - homeMetricGap * CGFloat(HomeQuotaRingMetric.allCases.count - 1)
         for (index, metric) in HomeQuotaRingMetric.allCases.enumerated() {
-            let codexRect = NSRect(x: homeMetricStartX + CGFloat(index) * (homeMetricW + homeMetricGap), y: rect.minY + 524, width: homeMetricW, height: 36)
+            let codexRect = NSRect(x: homeMetricStartX + CGFloat(index) * (homeMetricW + homeMetricGap), y: rect.minY + 538, width: homeMetricW, height: 36)
             codexHomeRingMetricRects[metric] = codexRect
             drawSelectablePill(metric.title, rect: codexRect, selected: metric == AppSettings.codexHomeRingMetric)
 
-            let claudeRect = NSRect(x: homeMetricStartX + CGFloat(index) * (homeMetricW + homeMetricGap), y: rect.minY + 562, width: homeMetricW, height: 36)
+            let claudeRect = NSRect(x: homeMetricStartX + CGFloat(index) * (homeMetricW + homeMetricGap), y: rect.minY + 576, width: homeMetricW, height: 36)
             claudeHomeRingMetricRects[metric] = claudeRect
             drawSelectablePill(metric.title, rect: claudeRect, selected: metric == AppSettings.claudeHomeRingMetric)
         }
-        drawText(t(.quotaHomeRingHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 598, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
+        drawText(t(.quotaHomeRingHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 612, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
 
         let leftSwitchLabelW = max(120, showCodexStatusSwitch.frame.minX - rect.minX - 24)
         let rightSwitchLabelX = rect.midX + 18
         let rightSwitchLabelW = max(120, launchAtLoginSwitch.frame.minX - rightSwitchLabelX - 8)
-        drawText(t(.showCodexStatus), rect: NSRect(x: rect.minX + 16, y: rect.minY + 626, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.launchAtLogin), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 626, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 654, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.profileAPITotals), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 654, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.showCodexStatus), rect: NSRect(x: rect.minX + 16, y: rect.minY + 640, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.launchAtLogin), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 640, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 668, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawText(t(.profileAPITotals), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 668, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
     }
 
     private var costUsedColor: NSColor {

@@ -1163,7 +1163,8 @@ final class PlatformQuotaRingsOverviewView: NSView {
         statusHitRects[target] = statusRect
         statusColor.setFill()
         NSBezierPath(ovalIn: NSRect(x: statusRect.minX, y: y + 12, width: 8, height: 8)).fill()
-        drawText(limit == nil ? "--" : t(.codexStatusOperational), rect: NSRect(x: statusRect.minX + 14, y: y + 7, width: statusRect.width - 14, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: .white, alignment: .left)
+        let statusText = limit == nil ? "--" : t(.codexStatusOperational)
+        drawText(statusText, rect: NSRect(x: statusRect.minX + 14, y: y + 7, width: statusRect.width - 14, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: .white, alignment: .left)
     }
 
     private var platformHeader: String {
