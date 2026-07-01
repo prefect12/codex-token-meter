@@ -670,9 +670,11 @@ final class CodexActivityReader {
         var aiTitle: String?
         var latestUserAt: Date?
         var latestUserIsToolResult = false
+        var latestUserIsInteractiveToolResult = false
         var latestAssistantAt: Date?
         var latestAssistantIsRunning = false
         var latestAssistantNeedsInput = false
+        var latestAssistantInteractiveToolIDs = Set<String>()
         var lastActivity: Date?
         var lastQueueOperation: String?
         var lastQueueAt: Date?
@@ -726,7 +728,11 @@ final class CodexActivityReader {
                 }
                 let isToolResult = bool(object["toolUseResult"]) == true
                     || self.messageContentContainsType(message["content"], "tool_result")
+                let toolResultIDs = self.messageContentToolResultIDs(message["content"])
+                let isInteractiveToolResult = !toolResultIDs.isEmpty
+                    && !latestAssistantInteractiveToolIDs.isDisjoint(with: toolResultIDs)
                 latestUserIsToolResult = isToolResult
+                latestUserIsInteractiveToolResult = isInteractiveToolResult
                 if let contentText {
                     firstUserText = firstUserText ?? contentText
                     latestUserText = contentText
@@ -744,6 +750,7 @@ final class CodexActivityReader {
                     latestAssistantAt = timestamp
                 }
                 latestUserIsToolResult = false
+                latestUserIsInteractiveToolResult = false
                 if let value = string(message["model"]), !value.isEmpty {
                     model = value
                 }
@@ -765,9 +772,15 @@ final class CodexActivityReader {
                     }
                 }
                 let stopReason = string(message["stop_reason"] ?? message["stopReason"])?.lowercased()
-                latestAssistantIsRunning = stopReason == "tool_use"
-                    || self.messageContentContainsType(message["content"], "tool_use")
-                latestAssistantNeedsInput = stopReason == "pause_turn"
+                let interactiveToolIDs = self.messageContentToolUses(message["content"])
+                    .filter { self.isInteractiveUserInputTool($0.name) }
+                    .compactMap(\.id)
+                latestAssistantInteractiveToolIDs = Set(interactiveToolIDs)
+                let assistantRequestedUserInput = !latestAssistantInteractiveToolIDs.isEmpty
+                latestAssistantIsRunning = !assistantRequestedUserInput
+                    && (stopReason == "tool_use"
+                        || self.messageContentContainsType(message["content"], "tool_use"))
+                latestAssistantNeedsInput = stopReason == "pause_turn" || assistantRequestedUserInput
                 if let contentText {
                     latestAssistantText = contentText
                 }
@@ -780,17 +793,21 @@ final class CodexActivityReader {
             return nil
         }
 
-        let pendingUserResponse = (latestUserAt ?? .distantPast) > (latestAssistantAt ?? .distantPast)
+        let pendingUserResponse = !latestUserIsInteractiveToolResult
+            && (latestUserAt ?? .distantPast) > (latestAssistantAt ?? .distantPast)
         let queuedAfterAssistant = lastQueueOperation == "enqueue"
             && (lastQueueAt ?? .distantPast) > (latestAssistantAt ?? .distantPast)
         let assistantWaitingForInput = latestAssistantNeedsInput
             && (latestAssistantAt ?? .distantPast) >= (latestUserAt ?? .distantPast)
+        let interactiveToolResultWaiting = latestUserIsInteractiveToolResult
+            && (latestUserAt ?? .distantPast) >= (latestAssistantAt ?? .distantPast)
         let assistantRunningTool = latestAssistantIsRunning
             && (latestAssistantAt ?? .distantPast) >= (latestUserAt ?? .distantPast)
         let userToolResultStillActive = latestUserIsToolResult
+            && !latestUserIsInteractiveToolResult
             && (latestUserAt ?? .distantPast) >= (latestAssistantAt ?? .distantPast)
         let isRunning = pendingUserResponse || queuedAfterAssistant || assistantRunningTool || userToolResultStillActive
-        let isWaitingForUser = !isRunning && assistantWaitingForInput
+        let isWaitingForUser = !isRunning && (assistantWaitingForInput || interactiveToolResultWaiting)
         let status: ThreadRunStatus = isRunning ? .running : (isWaitingForUser ? .waiting : .unread)
         let startedAt: Date?
         if isRunning {
@@ -851,6 +868,50 @@ final class CodexActivityReader {
             return string(dict["type"]) == expectedType
         }
         return false
+    }
+
+    private func messageContentToolUses(_ raw: Any?) -> [(name: String, id: String?)] {
+        if let array = raw as? [[String: Any]] {
+            return array.compactMap { item in
+                guard string(item["type"]) == "tool_use",
+                      let name = string(item["name"]) else {
+                    return nil
+                }
+                return (name, string(item["id"]))
+            }
+        }
+        if let dict = raw as? [String: Any],
+           string(dict["type"]) == "tool_use",
+           let name = string(dict["name"]) {
+            return [(name, string(dict["id"]))]
+        }
+        return []
+    }
+
+    private func messageContentToolResultIDs(_ raw: Any?) -> Set<String> {
+        if let array = raw as? [[String: Any]] {
+            return Set(array.compactMap { item in
+                guard string(item["type"]) == "tool_result" else { return nil }
+                return string(item["tool_use_id"])
+            })
+        }
+        if let dict = raw as? [String: Any],
+           string(dict["type"]) == "tool_result",
+           let id = string(dict["tool_use_id"]) {
+            return [id]
+        }
+        return []
+    }
+
+    private func isInteractiveUserInputTool(_ name: String) -> Bool {
+        let normalized = name.lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        return normalized == "askuserquestion"
+            || normalized == "ask_user_question"
+            || normalized == "request_user_input"
+            || normalized.hasSuffix("__askuserquestion")
+            || normalized.hasSuffix("__ask_user_question")
+            || normalized.hasSuffix("__request_user_input")
     }
 
     private func candidateRolloutDirectories(root: URL, around date: Date) -> [URL] {
