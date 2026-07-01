@@ -2070,6 +2070,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
     private func usesProfileAPIReport(for snapshot: DetailsSnapshot) -> Bool {
         selectedDetailsSource == .codex
+            && selectedSection != .calendar
             && AppSettings.profileAPITotalsEnabled
             && snapshot.accountUsage?.hasData == true
     }

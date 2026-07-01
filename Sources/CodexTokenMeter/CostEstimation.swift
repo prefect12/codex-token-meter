@@ -310,20 +310,22 @@ func profileReportWithLocalFallback(_ profileReport: TokenReport, localReport: T
     }
 
     var merged = profileReport
-    var fallbackUsage = Usage()
+    var localReplacementUsage = Usage()
+    var replacedProfileTotal: Int64 = 0
     var fallbackTurns = 0
     var fallbackModels: [String: ModelUsage] = [:]
     var didFallback = false
 
     merged.byDay = profileReport.byDay.map { profileDay in
-        guard profileDay.usage.total == 0,
-              let localDay = localByDay[profileDay.day],
+        guard let localDay = localByDay[profileDay.day],
+              profileDay.usage.total < localDay.usage.total,
               localDay.usage.total > 0 else {
             return profileDay
         }
 
         didFallback = true
-        fallbackUsage.add(localDay.usage)
+        replacedProfileTotal += profileDay.usage.total
+        localReplacementUsage.add(localDay.usage)
         fallbackTurns += localDay.turns
         for model in localDay.modelBreakdown {
             var existing = fallbackModels[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
@@ -337,7 +339,8 @@ func profileReportWithLocalFallback(_ profileReport: TokenReport, localReport: T
 
     guard didFallback else { return profileReport }
 
-    merged.usage.add(fallbackUsage)
+    merged.usage.total = max(0, merged.usage.total - replacedProfileTotal)
+    merged.usage.add(localReplacementUsage)
     merged.turns += fallbackTurns
     if !fallbackModels.isEmpty {
         var modelsByName: [String: ModelUsage] = [:]
