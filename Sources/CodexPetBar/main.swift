@@ -207,8 +207,7 @@ final class CodexActivityReader {
             .map { enrich($0, with: stateMetadata[$0.id]) }
             .map { enrichWithRolloutSummary($0, lookbackHours: max(lookbackHours, 72)) }
             .sorted(by: stableThreadOrder)
-            .prefix(limit)
-            .map { $0 }
+            .limitedForTaskBar(limit: limit)
     }
 
     private func enrich(_ item: CodexThreadItem, with metadata: ThreadStateMetadata?) -> CodexThreadItem {
@@ -384,7 +383,7 @@ final class CodexActivityReader {
                     model: string(dict["model"] ?? dict["modelName"])
                 ))
         }
-        return AppServerThreadSnapshot(items: Array(items.prefix(limit)), externalReadAtByID: externalReadAtByID)
+        return AppServerThreadSnapshot(items: items.limitedForTaskBar(limit: limit), externalReadAtByID: externalReadAtByID)
     }
 
     private func appServerExternalReadAt(from dict: [String: Any]) -> Date? {
@@ -2967,6 +2966,15 @@ private func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -
     if lhsID != rhsID { return lhsID > rhsID }
 
     return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+}
+
+private extension Array where Element == CodexThreadItem {
+    func limitedForTaskBar(limit: Int) -> [CodexThreadItem] {
+        let limit = Swift.max(1, limit)
+        let active = filter { $0.status == .running || $0.status == .stale || $0.status == .waiting }
+        let remaining = filter { $0.status == .unread }.prefix(Swift.max(0, limit - active.count))
+        return Array(active + remaining)
+    }
 }
 
 private func statusLabel(_ status: ThreadRunStatus) -> String {
