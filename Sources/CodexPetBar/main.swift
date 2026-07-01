@@ -1306,6 +1306,22 @@ private func double(_ value: Any?) -> Double? {
     return nil
 }
 
+private func bool(_ value: Any?) -> Bool? {
+    if let value = value as? Bool { return value }
+    if let value = value as? Int { return value != 0 }
+    if let value = value as? String {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "true", "yes", "1":
+            return true
+        case "false", "no", "0":
+            return false
+        default:
+            return nil
+        }
+    }
+    return nil
+}
+
 private func relative(_ date: Date) -> String {
     let seconds = max(0, Int(Date().timeIntervalSince(date)))
     if seconds < 60 { return "\(seconds)s ago" }
