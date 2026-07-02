@@ -155,7 +155,7 @@ final class TaskBarSettingsWindowController: NSWindowController {
             defer: false
         )
         window.title = "Task Bar 设置"
-        window.contentMinSize = NSSize(width: 680, height: 690)
+        window.contentMinSize = NSSize(width: 680, height: 540)
         window.contentView = contentView
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor(calibratedRed: 0.055, green: 0.066, blue: 0.086, alpha: 1.0)
@@ -216,7 +216,7 @@ private enum TaskBarSettingsInfo: CaseIterable {
 }
 
 private final class TaskBarSettingsView: NSView {
-    static let preferredSize = NSSize(width: 720, height: 700)
+    static let preferredSize = NSSize(width: 720, height: 560)
 
     private let onSettingsChanged: () -> Void
     private var selectedSection: TaskBarSettingsSection = .settings
