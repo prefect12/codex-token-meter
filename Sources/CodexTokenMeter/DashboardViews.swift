@@ -1151,7 +1151,8 @@ final class PlatformQuotaRingsOverviewView: NSView {
 
     private func drawTableRow(table: NSRect, y: CGFloat, title: String, target: QuotaViewOption, limit: LiveRateLimit?, report: TokenReport?) {
         let primaryColor = colorForRemaining(percent: limit?.primary.remainingPercent ?? -1)
-        let statusColor = colorForRemaining(percent: min(limit?.primary.remainingPercent ?? -1, limit?.secondary.remainingPercent ?? -1))
+        let hasLiveLimit = limit != nil
+        let statusColor = hasLiveLimit ? NSColor.systemGreen : NSColor.white.withAlphaComponent(0.28)
         hoverRegions.append((
             rect: NSRect(x: table.minX, y: y - 4, width: table.width, height: 42),
             tooltip: rowTooltip(title: title, limit: limit, report: report)
@@ -1163,7 +1164,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
         statusHitRects[target] = statusRect
         statusColor.setFill()
         NSBezierPath(ovalIn: NSRect(x: statusRect.minX, y: y + 12, width: 8, height: 8)).fill()
-        let statusText = limit == nil ? "--" : t(.codexStatusOperational)
+        let statusText = hasLiveLimit ? t(.codexStatusOperational) : "--"
         drawText(statusText, rect: NSRect(x: statusRect.minX + 14, y: y + 7, width: statusRect.width - 14, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: .white, alignment: .left)
     }
 
