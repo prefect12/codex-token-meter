@@ -14,8 +14,9 @@ The split is intentionally conservative: code moved by section, with behavior pr
 - `Sources/CodexTokenMeter/CostEstimation.swift`: weekly reset observations, historical quota-value estimates, API-equivalent allocation helpers.
 - `Sources/CodexTokenMeter/ScannerReaders.swift`: rollout JSONL scanner/cache, `codex app-server` live quota reader, Profile API usage reader.
 - `Sources/CodexTokenMeter/ClaudeTokenScanner.swift`: Claude Code local JSONL scanner, usage aggregation, and repo-insight adapter.
+- `Sources/CodexTokenMeter/StorageScanner.swift`: read-only local disk usage scanner for `~/.codex` and `~/.claude`; categorizes files, assigns cleanup risk, buckets 90-day growth by file modification day, and attributes session-log bytes to projects by reading only the head of each session JSONL for its `cwd`. It never deletes anything. `StorageSnapshotCacheStore` persists the last snapshot so the storage page can show cached results instantly while a background rescan runs.
 - `Sources/CodexTokenMeter/DashboardViews.swift`: status item popover, rings, bullet quota display, charts, service-status chip.
-- `Sources/CodexTokenMeter/DetailsWindow.swift`: overview, model, calendar, cost, diagnostics, settings, and about pages.
+- `Sources/CodexTokenMeter/DetailsWindow.swift`: overview, model, calendar, cost, storage, diagnostics, settings, and about pages. The storage page scans lazily on first open via `AppDelegate` and only offers Reveal-in-Finder / copy-path actions, never deletion.
 - `Sources/CodexTokenMeter/AppDelegate.swift`: timers, background scan queues, live refresh orchestration, settings callbacks.
 - `Sources/CodexTokenMeter/FormattingCostHelpers.swift`: number formatting, date helpers, weekly/monthly cost rows.
 - `Sources/CodexTokenMeter/CLIHelpers.swift`: CLI argument parsing and dashboard snapshot rendering.
@@ -72,7 +73,10 @@ $CODEX_HOME/archived_sessions
 ~/Library/Application Support/Codex Token Meter/cost-history.json
 ~/Library/Application Support/Codex Token Meter/dashboard-report-cache.json
 ~/Library/Application Support/Codex Token Meter/details-snapshot-cache.json
+~/Library/Application Support/Codex Token Meter/storage-snapshot-cache.json
 ```
+
+`storage-snapshot-cache.json` stores the last local disk-usage snapshot, including category roots and per-project paths. Those local paths are the essential content of a disk-usage report, so this cache intentionally keeps them; it must never contain log file contents.
 
 The application support directory intentionally keeps the old `Codex Token Meter` folder name so existing settings, caches, and optional cost files survive the `AI Token Meter` rename. `ParsedRollouts` is a derived cache. `dashboard-report-cache.json` stores aggregate `24h / 7d / 30d` dashboard reports for `All / Codex / Claude`; it must not store raw log content or local session paths. `details-snapshot-cache.json` stores the aggregate details-window snapshot used by overview, calendar, cost, model, and repository-insight pages; it must strip top-session paths and real repository paths before writing. If the parsed-rollout cache schema changes, bump `DiskFileCache.version` and decide whether to support migration from the previous format.
 
@@ -122,6 +126,13 @@ For popover UI changes:
 
 ```bash
 "./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-dashboard=/tmp/ai-token-meter-dashboard.png
+```
+
+For storage page changes:
+
+```bash
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-details=/tmp/ai-token-meter-storage.png --section=storage
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-details=/tmp/ai-token-meter-storage-claude.png --section=storage --details-source=claude
 ```
 
 ## Refactor Guidance

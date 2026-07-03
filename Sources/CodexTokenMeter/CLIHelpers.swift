@@ -73,6 +73,7 @@ func requestedDetailsSection(from arguments: [String]) -> DetailsSection {
     case "insights": return .insights
     case "costs": return .costs
     case "models": return .models
+    case "storage": return .storage
     case "settings": return .settings
     case "diagnostics": return .diagnostics
     case "about": return .about
@@ -219,6 +220,12 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         .first ?? 90
     view.showSection(section, insightWindowDays: windowDays, source: source)
     view.snapshot = snapshot
+    if section == .storage {
+        view.storageSnapshot = StorageScanner.scan()
+        view.isStorageScanning = false
+        let height = view.preferredDocumentHeight(for: 1280)
+        view.frame = NSRect(x: 0, y: 0, width: 1280, height: height)
+    }
     view.isLoading = false
     view.layoutSubtreeIfNeeded()
     try writePNG(of: view, to: outputURL)
