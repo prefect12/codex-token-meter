@@ -405,6 +405,7 @@ private final class TaskBarSettingsView: NSView {
     private var tokenUnitOptionRects: [TaskTokenUnitStyle: NSRect] = [:]
     private var layoutOptionRects: [TaskRowLayoutStyle: NSRect] = [:]
     private var hoverEyeRects: [String: NSRect] = [:]
+    private var hoverDeleteSeparatorRects: [String: NSRect] = [:]
     private var hoverAddSeparatorRect: NSRect?
     private var hoverResetRect: NSRect?
     private var hoverListClipRect: NSRect = .zero
@@ -827,6 +828,23 @@ private final class TaskBarSettingsView: NSView {
             onSettingsChanged()
             return
         }
+        for (key, rect) in hoverDeleteSeparatorRects where hoverListClipRect.contains(point) && rect.contains(point) {
+            var layout = TaskBarSettings.hoverLayout
+            layout.removeAll { item in
+                if case .separator = item {
+                    return item.visibilityKey == key
+                }
+                return false
+            }
+            var hiddenItems = TaskBarSettings.hoverHiddenItemIDs
+            hiddenItems.remove(key)
+            TaskBarSettings.hoverLayout = layout
+            TaskBarSettings.hoverHiddenItemIDs = hiddenItems
+            hoverScrollOffset = min(hoverScrollOffset, maxHoverScrollOffset(layout: layout))
+            needsDisplay = true
+            onSettingsChanged()
+            return
+        }
         guard hoverListClipRect.contains(point) else { return }
         let layout = TaskBarSettings.hoverLayout
         for (index, rect) in hoverOrderRowRects.enumerated() where rect.contains(point) {
@@ -1130,6 +1148,7 @@ private final class TaskBarSettingsView: NSView {
 
     private func clearHoverHitRects() {
         hoverEyeRects.removeAll(keepingCapacity: true)
+        hoverDeleteSeparatorRects.removeAll(keepingCapacity: true)
         hoverOrderRowRects.removeAll(keepingCapacity: true)
         hoverAddSeparatorRect = nil
         hoverResetRect = nil
@@ -1167,13 +1186,38 @@ private final class TaskBarSettingsView: NSView {
                 color: titleColor
             )
             NSColor.white.withAlphaComponent(hidden ? 0.08 : 0.18).setFill()
-            NSRect(x: rect.minX + 96, y: rect.midY, width: rect.width - 176, height: 1).fill()
+            NSRect(x: rect.minX + 96, y: rect.midY, width: rect.width - 210, height: 1).fill()
+            let deleteRect = NSRect(x: rect.maxX - 108, y: rect.minY + 4, width: 28, height: rect.height - 8)
+            hoverDeleteSeparatorRects[item.visibilityKey] = deleteRect
+            drawDeleteIcon(in: deleteRect, highlighted: floating)
         }
 
         let eyeRect = NSRect(x: rect.maxX - 76, y: rect.minY + 4, width: 28, height: rect.height - 8)
         hoverEyeRects[item.visibilityKey] = eyeRect
         drawEyeIcon(in: eyeRect, visible: !hidden, highlighted: floating)
         drawDragHandle(in: NSRect(x: rect.maxX - 38, y: rect.minY, width: 38, height: rect.height))
+    }
+
+    private func drawDeleteIcon(in rect: NSRect, highlighted: Bool) {
+        let color = NSColor.white.withAlphaComponent(highlighted ? 0.84 : 0.48)
+        if let image = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 12.5, weight: .semibold)) {
+            image.isTemplate = true
+            color.set()
+            image.draw(in: rect.insetBy(dx: 6, dy: 4.5), from: .zero, operation: .sourceOver, fraction: 1)
+            return
+        }
+        color.setStroke()
+        let path = NSBezierPath()
+        let iconRect = rect.insetBy(dx: 8, dy: 6)
+        path.move(to: NSPoint(x: iconRect.minX, y: iconRect.minY + 3))
+        path.line(to: NSPoint(x: iconRect.maxX, y: iconRect.minY + 3))
+        path.move(to: NSPoint(x: iconRect.minX + 2, y: iconRect.minY + 4))
+        path.line(to: NSPoint(x: iconRect.minX + 3, y: iconRect.maxY))
+        path.line(to: NSPoint(x: iconRect.maxX - 3, y: iconRect.maxY))
+        path.line(to: NSPoint(x: iconRect.maxX - 2, y: iconRect.minY + 4))
+        path.lineWidth = 1.4
+        path.stroke()
     }
 
     private func drawEyeIcon(in rect: NSRect, visible: Bool, highlighted: Bool) {
