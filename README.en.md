@@ -42,12 +42,6 @@ When available, it also reads live quota data from the local Codex runtime, incl
   <img src="docs/images/en-details-calendar.png" alt="AI Token Meter activity calendar page" width="760">
 </p>
 
-### Cost And Budget Tracking
-
-<p align="center">
-  <img src="docs/images/en-details-costs.png" alt="AI Token Meter cost and budget page" width="760">
-</p>
-
 ### Diagnostics
 
 <p align="center">
@@ -81,12 +75,6 @@ When available, it also reads live quota data from the local Codex runtime, incl
   <img src="docs/images/zh-details-calendar.png" alt="AI Token Meter Chinese activity calendar page" width="760">
 </p>
 
-### 金额与预算
-
-<p align="center">
-  <img src="docs/images/zh-details-costs.png" alt="AI Token Meter Chinese cost and budget page" width="760">
-</p>
-
 ### 诊断
 
 <p align="center">
@@ -106,17 +94,16 @@ When available, it also reads live quota data from the local Codex runtime, incl
 - Cache hit-rate ring.
 - Compact Codex service-status chip sourced from `status.openai.com`, with a settings toggle to show or hide it.
 - Token breakdown for input, output, cached input, fresh input, and total tokens.
-- Details window with overview, insights, calendar, cost, model, settings, diagnostics, and about pages.
+- Details window with overview, insights, calendar, model, settings, diagnostics, and about pages.
 - The menu dashboard and details window cache aggregate snapshots, showing the last complete result first and refreshing in the background.
 - Insights page that groups local Codex and Claude Code conversations by repository or folder, highlights long-running threads, context-compaction pressure, active worktrees, and split-thread recommendations.
 - 365-day activity calendar with daily detail cards.
 - Model-level aggregation for long-term usage analysis.
-- Cost page for separate Codex / Claude monthly plan costs, payment currencies, display currencies, remaining budget, historical spend, estimated daily value, API-equivalent token cost, and optional external API cost. The All view shows the converted combined total.
 - Diagnostics page for Codex CLI/auth health, live quota availability, log coverage, optional API cost input, and other tool detection.
 - Default scan coverage for current sessions, archived sessions, and `CODEX_HOME` when that environment variable is set.
 - Localized UI for English, Simplified Chinese, Traditional Chinese, Japanese, French, German, Spanish, and Korean.
 - Language-aware number units: English uses `K / M / B`; Chinese uses `万 / 亿`.
-- Configurable Codex log folder, menu bar display mode, quota display style, Codex status chip, launch at login, low-quota notifications, payment currency, display currency, and payment start date.
+- Configurable Codex log folder, menu bar display mode, quota display style, Codex status chip, launch at login, and low-quota notifications.
 - Manual refresh, local log folder shortcut, and CLI inspection mode.
 
 ## Data And Calculation Model
