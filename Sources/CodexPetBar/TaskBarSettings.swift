@@ -1199,24 +1199,23 @@ private final class TaskBarSettingsView: NSView {
     }
 
     private func drawDeleteIcon(in rect: NSRect, highlighted: Bool) {
-        let color = NSColor.white.withAlphaComponent(highlighted ? 0.84 : 0.48)
-        if let image = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 12.5, weight: .semibold)) {
-            image.isTemplate = true
-            color.set()
-            image.draw(in: rect.insetBy(dx: 6, dy: 4.5), from: .zero, operation: .sourceOver, fraction: 1)
-            return
-        }
-        color.setStroke()
+        let buttonRect = rect.insetBy(dx: 4, dy: 3)
+        NSColor.white.withAlphaComponent(highlighted ? 0.24 : 0.16).setFill()
+        NSBezierPath(roundedRect: buttonRect, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(highlighted ? 0.46 : 0.30).setStroke()
+        let outline = NSBezierPath(roundedRect: buttonRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        outline.lineWidth = 1
+        outline.stroke()
+
+        NSColor.white.withAlphaComponent(highlighted ? 0.98 : 0.90).setStroke()
+        let iconRect = buttonRect.insetBy(dx: 6.5, dy: 5.5)
         let path = NSBezierPath()
-        let iconRect = rect.insetBy(dx: 8, dy: 6)
-        path.move(to: NSPoint(x: iconRect.minX, y: iconRect.minY + 3))
-        path.line(to: NSPoint(x: iconRect.maxX, y: iconRect.minY + 3))
-        path.move(to: NSPoint(x: iconRect.minX + 2, y: iconRect.minY + 4))
-        path.line(to: NSPoint(x: iconRect.minX + 3, y: iconRect.maxY))
-        path.line(to: NSPoint(x: iconRect.maxX - 3, y: iconRect.maxY))
-        path.line(to: NSPoint(x: iconRect.maxX - 2, y: iconRect.minY + 4))
-        path.lineWidth = 1.4
+        path.move(to: NSPoint(x: iconRect.minX, y: iconRect.minY))
+        path.line(to: NSPoint(x: iconRect.maxX, y: iconRect.maxY))
+        path.move(to: NSPoint(x: iconRect.maxX, y: iconRect.minY))
+        path.line(to: NSPoint(x: iconRect.minX, y: iconRect.maxY))
+        path.lineWidth = 2
+        path.lineCapStyle = .round
         path.stroke()
     }
 
