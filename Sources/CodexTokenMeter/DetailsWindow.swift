@@ -2534,12 +2534,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         guard visible else { return }
 
         let content = sectionContent(for: .settings, in: bounds, sidebarWidth: detailsSidebarWidth)
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(692, content.height - 78))
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(704, content.height - 78))
         let popupWidth = min(300, max(252, rect.width * 0.34))
         languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
         let leftSwitchX = rect.midX - 64
         let rightSwitchX = rect.maxX - 64
-        showCodexStatusSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 624, width: 48, height: 24)
+        showCodexStatusSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 638, width: 48, height: 24)
         launchAtLoginSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 638, width: 48, height: 24)
         quotaWarningsSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 666, width: 48, height: 24)
         profileAPITotalsSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 666, width: 48, height: 24)
@@ -5484,7 +5484,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func drawSettingsPage(content: NSRect) {
         codexHomeRingMetricRects.removeAll()
         claudeHomeRingMetricRects.removeAll()
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(692, content.height - 78))
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(704, content.height - 78))
         drawPanel(rect)
         drawText(t(.language), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.interfaceLanguage), rect: NSRect(x: rect.minX + 16, y: rect.minY + 56, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
@@ -6041,7 +6041,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func drawAboutPage(content: NSRect) {
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 276)
+        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 208)
         drawPanel(rect)
         drawText(t(.definitions), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         let rows = [
@@ -6056,7 +6056,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawText(row.1, rect: NSRect(x: rect.minX + 116, y: y, width: rect.width - 132, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.56))
         }
 
-        let sourceRect = NSRect(x: content.minX, y: content.minY + 374, width: content.width, height: 126)
+        let sourceRect = NSRect(x: content.minX, y: rect.maxY + 16, width: content.width, height: 126)
         drawPanel(sourceRect)
         drawText(t(.dataSource), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 16, width: sourceRect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.dataSourceLine1), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 52, width: sourceRect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.58))
@@ -7520,6 +7520,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func drawRight(_ text: String, rect: NSRect, color: NSColor, font: NSFont = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .right
+        paragraph.lineBreakMode = .byTruncatingTail
         (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
     }
 }
