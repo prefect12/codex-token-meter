@@ -207,37 +207,77 @@ func statusElapsedText(for item: CodexThreadItem) -> String? {
 
 func tooltipText(for item: CodexThreadItem) -> String {
     tooltipRows(for: item)
+        .filter { !$0.isSeparator }
         .map { "\($0.label): \($0.value)" }
         .joined(separator: "\n")
 }
 
 func tooltipRows(for item: CodexThreadItem) -> [ThreadTooltipRow] {
+    let hiddenItems = TaskBarSettings.hoverHiddenItemIDs
     var rows: [ThreadTooltipRow] = []
-    rows.append(ThreadTooltipRow("状态", tooltipStatusLabel(item.status), valueColor: statusColor(item.status), emphasized: true))
-    appendTokenBreakdownRows(to: &rows, item.tokenBreakdown)
-    rows.append(ThreadTooltipRow("对话轮次", item.turns > 0 ? "\(item.turns)" : "未知", gapBefore: item.tokenBreakdown.hasAny ? 2 : 0))
-    if let compressionCount = item.compressionCount {
-        rows.append(ThreadTooltipRow("压缩次数", "\(compressionCount)"))
+    for layoutItem in TaskBarSettings.hoverLayout {
+        guard !hiddenItems.contains(layoutItem.visibilityKey) else { continue }
+        switch layoutItem {
+        case .separator:
+            rows.append(.separator())
+        case .field(let field):
+            guard let row = tooltipRow(for: field, item: item) else { continue }
+            rows.append(row)
+        }
     }
-    if let model = item.model, !model.isEmpty {
-        rows.append(ThreadTooltipRow("模型", model))
-    }
-    return rows
+    return cleanedTooltipRows(rows)
 }
 
-func appendTokenBreakdownRows(to rows: inout [ThreadTooltipRow], _ breakdown: TokenBreakdown) {
-    if breakdown.hasDetailedCounters {
-        rows.append(ThreadTooltipRow("输入", compactTokenCount(breakdown.input), gapBefore: 2))
-        rows.append(ThreadTooltipRow("输出", compactTokenCount(breakdown.output)))
-        if let cacheRate = cacheRateText(for: breakdown) {
-            rows.append(ThreadTooltipRow("缓存率", cacheRate))
-        }
-        return
+func tooltipRow(for field: TaskHoverField, item: CodexThreadItem) -> ThreadTooltipRow? {
+    switch field {
+    case .status:
+        return ThreadTooltipRow("状态", tooltipStatusLabel(item.status), valueColor: statusColor(item.status), emphasized: true)
+    case .folder:
+        guard let cwd = item.cwd, !cwd.isEmpty else { return nil }
+        return ThreadTooltipRow("文件夹", cwd)
+    case .branch:
+        guard let branch = gitBranchName(for: item.cwd), !branch.isEmpty else { return nil }
+        return ThreadTooltipRow("分支", branch)
+    case .worktree:
+        guard let worktree = worktreeName(for: item.cwd), !worktree.isEmpty else { return nil }
+        return ThreadTooltipRow("Worktree", worktree)
+    case .input:
+        guard item.tokenBreakdown.hasDetailedCounters else { return nil }
+        return ThreadTooltipRow("输入", compactTokenCount(item.tokenBreakdown.input))
+    case .output:
+        guard item.tokenBreakdown.hasDetailedCounters else { return nil }
+        return ThreadTooltipRow("输出", compactTokenCount(item.tokenBreakdown.output))
+    case .cacheRate:
+        guard item.tokenBreakdown.hasDetailedCounters,
+              let cacheRate = cacheRateText(for: item.tokenBreakdown) else { return nil }
+        return ThreadTooltipRow("缓存率", cacheRate)
+    case .tokenTotal:
+        guard !item.tokenBreakdown.hasDetailedCounters,
+              let total = item.tokenBreakdown.displayTotal else { return nil }
+        return ThreadTooltipRow("Token 消耗", compactTokenCount(total))
+    case .turns:
+        return ThreadTooltipRow("对话轮次", item.turns > 0 ? "\(item.turns)" : "未知")
+    case .compression:
+        guard let compressionCount = item.compressionCount else { return nil }
+        return ThreadTooltipRow("压缩次数", "\(compressionCount)")
+    case .model:
+        guard let model = item.model, !model.isEmpty else { return nil }
+        return ThreadTooltipRow("模型", model)
     }
+}
 
-    if let total = breakdown.displayTotal {
-        rows.append(ThreadTooltipRow("Token 消耗", compactTokenCount(total), gapBefore: 2))
+func cleanedTooltipRows(_ rows: [ThreadTooltipRow]) -> [ThreadTooltipRow] {
+    var result: [ThreadTooltipRow] = []
+    for row in rows {
+        if row.isSeparator {
+            guard !result.isEmpty, result.last?.isSeparator != true else { continue }
+        }
+        result.append(row)
     }
+    while result.last?.isSeparator == true {
+        result.removeLast()
+    }
+    return result
 }
 
 func tooltipStatusLabel(_ status: ThreadRunStatus) -> String {
@@ -298,6 +338,66 @@ func sourceColor(_ item: CodexThreadItem) -> NSColor {
         return NSColor(calibratedRed: 0.91, green: 0.48, blue: 0.28, alpha: 1)
     }
     return NSColor(calibratedRed: 0.45, green: 0.58, blue: 1.0, alpha: 1)
+}
+
+func gitBranchName(for cwd: String?) -> String? {
+    guard let cwd, !cwd.isEmpty else { return nil }
+    let fileManager = FileManager.default
+    let folderURL = URL(fileURLWithPath: cwd, isDirectory: true)
+    let dotGitURL = folderURL.appendingPathComponent(".git")
+    var isDirectory: ObjCBool = false
+    var gitDirectoryURL: URL
+
+    if fileManager.fileExists(atPath: dotGitURL.path, isDirectory: &isDirectory), isDirectory.boolValue {
+        gitDirectoryURL = dotGitURL
+    } else if let gitFile = try? String(contentsOf: dotGitURL, encoding: .utf8),
+              let gitdirLine = gitFile.split(separator: "\n").first(where: { $0.lowercased().hasPrefix("gitdir:") }) {
+        let path = gitdirLine.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+        gitDirectoryURL = path.hasPrefix("/")
+            ? URL(fileURLWithPath: path, isDirectory: true)
+            : folderURL.appendingPathComponent(path, isDirectory: true).standardizedFileURL
+    } else {
+        return nil
+    }
+
+    guard let head = try? String(contentsOf: gitDirectoryURL.appendingPathComponent("HEAD"), encoding: .utf8)
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+          !head.isEmpty else {
+        return nil
+    }
+    if head.hasPrefix("ref: refs/heads/") {
+        return String(head.dropFirst("ref: refs/heads/".count))
+    }
+    if head.count >= 7 {
+        return String(head.prefix(7))
+    }
+    return head
+}
+
+func worktreeName(for cwd: String?) -> String? {
+    guard let cwd, !cwd.isEmpty else { return nil }
+    let normalized = URL(fileURLWithPath: cwd, isDirectory: true).standardizedFileURL.path
+    let components = normalized.split(separator: "/").map(String.init)
+    if let worktreesIndex = components.firstIndex(of: ".codex"),
+       components.indices.contains(worktreesIndex + 2),
+       components[worktreesIndex + 1] == "worktrees" {
+        let id = components[worktreesIndex + 2]
+        let folder = components.last ?? id
+        return id == folder ? id : "\(id) / \(folder)"
+    }
+
+    let dotGitURL = URL(fileURLWithPath: normalized, isDirectory: true).appendingPathComponent(".git")
+    guard let gitFile = try? String(contentsOf: dotGitURL, encoding: .utf8),
+          let gitdirLine = gitFile.split(separator: "\n").first(where: { $0.lowercased().hasPrefix("gitdir:") }) else {
+        return nil
+    }
+    let gitdir = String(gitdirLine.dropFirst("gitdir:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+    let gitComponents = gitdir.split(separator: "/").map(String.init)
+    guard let index = gitComponents.lastIndex(of: "worktrees"),
+          gitComponents.indices.contains(index + 1) else {
+        return nil
+    }
+    return gitComponents[index + 1]
 }
 
 func mergedCompressionCount(_ existing: Int?, _ candidate: Int) -> Int? {

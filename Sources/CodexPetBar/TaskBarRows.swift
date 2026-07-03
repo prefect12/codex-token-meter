@@ -438,6 +438,7 @@ struct ThreadTooltipRow {
     let valueColor: NSColor
     let gapBefore: CGFloat
     let emphasized: Bool
+    let isSeparator: Bool
 
     init(
         _ label: String,
@@ -451,6 +452,20 @@ struct ThreadTooltipRow {
         self.valueColor = valueColor
         self.gapBefore = gapBefore
         self.emphasized = emphasized
+        self.isSeparator = false
+    }
+
+    static func separator(gapBefore: CGFloat = 4) -> ThreadTooltipRow {
+        ThreadTooltipRow(label: "", value: "", gapBefore: gapBefore, isSeparator: true)
+    }
+
+    private init(label: String, value: String, gapBefore: CGFloat, isSeparator: Bool) {
+        self.label = label
+        self.value = value
+        self.valueColor = NSColor.white.withAlphaComponent(0.88)
+        self.gapBefore = gapBefore
+        self.emphasized = false
+        self.isSeparator = isSeparator
     }
 }
 
@@ -478,7 +493,12 @@ final class ThreadHoverPanel {
 
     func show(item: CodexThreadItem, from sourceView: NSView) {
         owner = sourceView
-        tooltipView.rows = tooltipRows(for: item)
+        let rows = tooltipRows(for: item)
+        guard !rows.isEmpty else {
+            panel.orderOut(nil)
+            return
+        }
+        tooltipView.rows = rows
         let size = tooltipView.preferredSize
         tooltipView.frame = NSRect(origin: .zero, size: size)
         panel.setFrame(NSRect(origin: origin(for: size), size: size), display: true)
@@ -527,6 +547,7 @@ private final class ThreadTooltipView: NSView {
     private let verticalPadding: CGFloat = 5
     private let labelValueGap: CGFloat = 16
     private let rowHeight: CGFloat = 16
+    private let separatorHeight: CGFloat = 9
     private let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
     private let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
     private let emphasizedValueFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
@@ -535,10 +556,13 @@ private final class ThreadTooltipView: NSView {
 
     var preferredSize: NSSize {
         let labelWidth = measuredLabelWidth
-        let valueWidth = min(max(measuredValueWidth, 86), 208)
+        let valueWidth = min(max(measuredValueWidth, 86), 360)
         let gaps = rows.reduce(CGFloat(0)) { $0 + $1.gapBefore }
+        let contentHeight = rows.reduce(CGFloat(0)) { total, row in
+            total + (row.isSeparator ? separatorHeight : rowHeight)
+        }
         let width = max(220, horizontalPadding * 2 + labelWidth + labelValueGap + valueWidth)
-        let height = verticalPadding * 2 + CGFloat(rows.count) * rowHeight + gaps
+        let height = verticalPadding * 2 + contentHeight + gaps
         return NSSize(width: ceil(width), height: ceil(height))
     }
 
@@ -560,6 +584,12 @@ private final class ThreadTooltipView: NSView {
 
         for row in rows {
             y += row.gapBefore
+            if row.isSeparator {
+                NSColor.white.withAlphaComponent(0.14).setFill()
+                NSRect(x: horizontalPadding, y: y + floor(separatorHeight / 2), width: bounds.width - horizontalPadding * 2, height: 1).fill()
+                y += separatorHeight
+                continue
+            }
             drawText(
                 row.label,
                 rect: NSRect(x: horizontalPadding, y: y, width: labelWidth, height: rowHeight),
@@ -578,6 +608,7 @@ private final class ThreadTooltipView: NSView {
 
     private var measuredLabelWidth: CGFloat {
         let width = rows
+            .filter { !$0.isSeparator }
             .map { textWidth($0.label, font: labelFont) }
             .max() ?? 0
         return min(max(ceil(width), 56), 78)
@@ -585,6 +616,7 @@ private final class ThreadTooltipView: NSView {
 
     private var measuredValueWidth: CGFloat {
         rows
+            .filter { !$0.isSeparator }
             .map { textWidth($0.value, font: $0.emphasized ? emphasizedValueFont : valueFont) }
             .max() ?? 0
     }
