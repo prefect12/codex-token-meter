@@ -2009,6 +2009,22 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         case usageTime
     }
 
+    private enum InsightStatusFilter: CaseIterable, Hashable {
+        case all
+        case frequentCompression
+        case longRunning
+        case good
+
+        func matches(_ risk: RepoInsightRisk) -> Bool {
+            switch self {
+            case .all: return true
+            case .frequentCompression: return risk == .frequentCompression
+            case .longRunning: return risk == .longRunning
+            case .good: return risk == .wellSplit || risk == .healthy
+            }
+        }
+    }
+
     var snapshot: DetailsSnapshot? {
         didSet {
             if let snapshot {
@@ -2101,7 +2117,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
     private var selectedInsightKey: String?
-    private var selectedInsightSort: InsightSortColumn = .compressions
+    private var selectedInsightSort: InsightSortColumn = .average
+    private var selectedInsightStatusFilter: InsightStatusFilter = .all
+    private var insightStatusFilterRects: [InsightStatusFilter: NSRect] = [:]
+    private var insightListContentHeight: CGFloat = 0
     private var isInsightSortAscending = false
     private var selectedInsightDetailMode: InsightDetailMode = .usageHabits
     private var insightHourRects: [Int: NSRect] = [:]
@@ -2922,14 +2941,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func scrollInsightListIfNeeded(with event: NSEvent) -> Bool {
         guard selectedSection == .insights,
               let viewport = insightListViewportRect,
-              let snapshot,
               viewport.contains(convert(event.locationInWindow, from: nil)) else {
             return false
         }
 
-        let rows = sortedInsightRows(insightReport(for: snapshot).rows)
-        let rowHeight: CGFloat = 42
-        let maxOffset = max(0, CGFloat(rows.count) * rowHeight - viewport.height)
+        let maxOffset = max(0, insightListContentHeight - viewport.height)
         guard maxOffset > 0 else { return false }
 
         let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 8
@@ -3045,6 +3061,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             return
         }
         if selectedSection == .insights {
+            for (filter, rect) in insightStatusFilterRects where rect.contains(point) {
+                selectedInsightStatusFilter = filter
+                insightListScrollOffset = 0
+                needsDisplay = true
+                return
+            }
             for (days, rect) in insightWindowRects where rect.contains(point) {
                 selectedInsightWindowDays = days
                 if let snapshot {
@@ -3305,6 +3327,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         insightHourBarRects.removeAll()
         insightPeriodRects.removeAll()
         insightSortRects.removeAll()
+        insightStatusFilterRects.removeAll()
         insightListViewportRect = nil
         numberUnitOptionRects.removeAll()
         statusOptionRects.removeAll()
@@ -3637,7 +3660,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let report = insightReport(for: snapshot)
         let rows = sortedInsightRows(report.rows)
         drawInsightControls(content: content)
-        let topY = content.minY + 154
+        let topY = content.minY + 112
 
         if selectedInsightDetailMode == .usageTime {
             let timeRect = NSRect(x: content.minX, y: topY, width: content.width, height: min(520, max(360, content.maxY - topY)))
@@ -3653,25 +3676,88 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             return
         }
 
+        drawInsightStatusChips(rows: rows, content: content, y: topY)
+        let filtered = rows.filter { selectedInsightStatusFilter.matches($0.risk) }
+        let panelTop = topY + 40
+        let grouped = selectedInsightStatusFilter == .all
+
+        if filtered.isEmpty {
+            let listRect = NSRect(x: content.minX, y: panelTop, width: content.width, height: 140)
+            drawPanel(listRect)
+            drawCentered(AppLanguage.current.insightCopy.projectCount(0), rect: NSRect(x: listRect.minX, y: listRect.midY - 9, width: listRect.width, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42))
+            return
+        }
+
+        let panelHeight: CGFloat = 384
         if content.width >= 940 {
             let gap: CGFloat = 16
-            let listWidth = min(CGFloat(430), content.width * 0.47)
-            let listRect = NSRect(x: content.minX, y: topY, width: listWidth, height: 444)
-            let detailRect = NSRect(x: listRect.maxX + gap, y: topY, width: content.width - listWidth - gap, height: 444)
-            let heatmapRect = NSRect(x: content.minX, y: topY + 444 + 16, width: content.width, height: 148)
-            drawInsightProjectList(rows: rows, rect: listRect)
-            let selected = selectedInsight(in: report, sortedRows: rows)
+            let listWidth = min(CGFloat(370), content.width * 0.40)
+            let listRect = NSRect(x: content.minX, y: panelTop, width: listWidth, height: panelHeight)
+            let detailRect = NSRect(x: listRect.maxX + gap, y: panelTop, width: content.width - listWidth - gap, height: panelHeight)
+            let heatmapRect = NSRect(x: content.minX, y: panelTop + panelHeight + 16, width: content.width, height: 148)
+            drawInsightProjectList(rows: filtered, grouped: grouped, rect: listRect)
+            let selected = selectedInsight(in: filtered)
             drawInsightDetail(selected, rect: detailRect)
             drawInsightHeatmap(row: selected, rect: heatmapRect)
         } else {
-            let selected = selectedInsight(in: report, sortedRows: rows)
-            let listRect = NSRect(x: content.minX, y: topY, width: content.width, height: 444)
-            let detailRect = NSRect(x: content.minX, y: listRect.maxY + 16, width: content.width, height: 430)
+            let selected = selectedInsight(in: filtered)
+            let listRect = NSRect(x: content.minX, y: panelTop, width: content.width, height: 384)
+            let detailRect = NSRect(x: content.minX, y: listRect.maxY + 16, width: content.width, height: panelHeight)
             let heatmapRect = NSRect(x: content.minX, y: detailRect.maxY + 16, width: content.width, height: 148)
-            drawInsightProjectList(rows: rows, rect: listRect)
+            drawInsightProjectList(rows: filtered, grouped: grouped, rect: listRect)
             drawInsightDetail(selected, rect: detailRect)
             drawInsightHeatmap(row: selected, rect: heatmapRect)
         }
+    }
+
+    private func drawInsightStatusChips(rows: [RepoInsight], content: NSRect, y: CGFloat) {
+        let copy = AppLanguage.current.insightCopy
+        let chipH: CGFloat = 28
+        let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let chips: [(InsightStatusFilter, String, NSColor?)] = [
+            (.all, localizedInsightFilterAll, nil),
+            (.frequentCompression, copy.riskLabel(.frequentCompression), accentRose),
+            (.longRunning, copy.riskLabel(.longRunning), accentAmber),
+            (.good, localizedInsightGoodStatus, accentTeal)
+        ]
+        var x = content.minX
+        for (filter, label, dotColor) in chips {
+            let count = rows.reduce(0) { $0 + (filter.matches($1.risk) ? 1 : 0) }
+            let text = "\(label) \(count)"
+            let textW = measuredTextWidth(text, font: font)
+            let dotW: CGFloat = dotColor == nil ? 0 : 13
+            let chipRect = NSRect(x: x, y: y, width: textW + dotW + 24, height: chipH)
+            insightStatusFilterRects[filter] = chipRect
+            let selected = selectedInsightStatusFilter == filter
+            (selected ? accentBlue.withAlphaComponent(0.74) : inputSurfaceColor.withAlphaComponent(0.30)).setFill()
+            NSBezierPath(roundedRect: chipRect, xRadius: chipH / 2, yRadius: chipH / 2).fill()
+            (selected ? accentTeal.withAlphaComponent(0.45) : borderColor.withAlphaComponent(0.8)).setStroke()
+            let outline = NSBezierPath(roundedRect: chipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: chipH / 2, yRadius: chipH / 2)
+            outline.lineWidth = 1
+            outline.stroke()
+            var textX = chipRect.minX + 12
+            if let dotColor {
+                dotColor.setFill()
+                NSBezierPath(ovalIn: NSRect(x: textX, y: chipRect.midY - 4, width: 8, height: 8)).fill()
+                textX += 13
+            }
+            drawText(text, rect: NSRect(x: textX, y: chipRect.minY + 7, width: textW + 4, height: 15), font: font, color: selected ? .white : NSColor.white.withAlphaComponent(0.75))
+            x += chipRect.width + 8
+        }
+        let totalConversations = rows.reduce(0) { $0 + $1.conversations }
+        let summary = "\(copy.windowLabel(days: selectedInsightWindowDays)) · \(totalConversations) \(copy.chatsMetric)"
+        if content.maxX - x > 200 {
+            drawRight(summary, rect: NSRect(x: content.maxX - 260, y: y + 7, width: 244, height: 15), color: NSColor.white.withAlphaComponent(0.42), font: font)
+        }
+    }
+
+    private func selectedInsight(in rows: [RepoInsight]) -> RepoInsight {
+        if let selectedInsightKey,
+           let row = rows.first(where: { $0.key == selectedInsightKey }) {
+            return row
+        }
+        selectedInsightKey = rows.first?.key
+        return rows[0]
     }
 
     private func insightReport(for snapshot: DetailsSnapshot) -> RepoInsightsReport {
@@ -3691,16 +3777,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             return
         }
         selectedInsightKey = sortedInsightRows(report.rows).first?.key
-    }
-
-    private func selectedInsight(in report: RepoInsightsReport, sortedRows: [RepoInsight]? = nil) -> RepoInsight {
-        if let selectedInsightKey,
-           let row = report.rows.first(where: { $0.key == selectedInsightKey }) {
-            return row
-        }
-        let rows = sortedRows ?? sortedInsightRows(report.rows)
-        selectedInsightKey = rows.first?.key
-        return rows[0]
     }
 
     private func sortedInsightRows(_ rows: [RepoInsight]) -> [RepoInsight] {
@@ -3768,70 +3844,54 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func drawInsightControls(content: NSRect) {
-        drawInsightModePills(content: content, y: content.minY + 64)
-        drawInsightConfigurationBar(content: content, y: content.minY + 108)
-    }
-
-    private func drawInsightModePills(content: NSRect, y: CGFloat) {
-        let pillW: CGFloat = 104
-        let pillH: CGFloat = 28
-        let gap: CGFloat = 8
+        let y = content.minY + 64
+        let rowH: CGFloat = 28
+        let modePillW: CGFloat = 104
+        let modeGap: CGFloat = 8
         let modes: [(InsightDetailMode, String)] = [
             (.usageHabits, localizedInsightDetailMode(.usageHabits)),
             (.usageTime, localizedInsightDetailMode(.usageTime))
         ]
         var x = content.minX
         for mode in modes {
-            let rect = NSRect(x: x, y: y, width: pillW, height: pillH)
+            let rect = NSRect(x: x, y: y, width: modePillW, height: rowH)
             insightDetailModeRects[mode.0] = rect
             drawSelectablePill(mode.1, rect: rect, selected: selectedInsightDetailMode == mode.0)
-            x += pillW + gap
+            x += modePillW + modeGap
         }
-    }
 
-    private func drawInsightConfigurationBar(content: NSRect, y: CGFloat) {
-        let barHeight: CGFloat = 34
-        let sourceW: CGFloat = 238
-        let windowW: CGFloat = 202
-        let gap: CGFloat = 12
-        let totalW = sourceW + windowW + gap
-        let barRect = NSRect(x: content.minX, y: y, width: min(totalW, content.width), height: barHeight)
-        inputSurfaceColor.withAlphaComponent(0.30).setFill()
-        NSBezierPath(roundedRect: barRect, xRadius: 7, yRadius: 7).fill()
-        drawText(localizedInsightFilterSourceTitle, rect: NSRect(x: barRect.minX + 12, y: barRect.minY + 9, width: 42, height: 16), font: .systemFont(ofSize: 10, weight: .bold), color: NSColor.white.withAlphaComponent(0.36))
-        drawText(localizedInsightFilterWindowTitle, rect: NSRect(x: barRect.minX + sourceW + gap + 10, y: barRect.minY + 9, width: 42, height: 16), font: .systemFont(ofSize: 10, weight: .bold), color: NSColor.white.withAlphaComponent(0.36))
-        drawInsightSourcePills(x: barRect.minX + 52, y: barRect.minY + 5)
-        drawInsightWindowPills(x: barRect.minX + sourceW + gap + 50, y: barRect.minY + 5)
-    }
+        x += 8
+        drawInsightControlSeparator(x: x, y: y, height: rowH)
+        x += 17
 
-    private func drawInsightSourcePills(x startX: CGFloat, y: CGFloat) {
-        let options: [QuotaViewOption] = [.all, .codex, .claude]
-        let pillW: CGFloat = 54
-        let pillH: CGFloat = 24
-        let gap: CGFloat = 5
-        var x = startX
-        for option in options {
-            let rect = NSRect(x: x, y: y, width: pillW, height: pillH)
+        let compactH: CGFloat = 24
+        let compactY = y + (rowH - compactH) / 2
+        let compactGap: CGFloat = 5
+        let sourceW: CGFloat = 54
+        for option in [QuotaViewOption.all, .codex, .claude] {
+            let rect = NSRect(x: x, y: compactY, width: sourceW, height: compactH)
             sourceOptionRects[option] = rect
             drawCompactInsightPill(detailsSourceTitle(option), rect: rect, selected: selectedDetailsSource == option)
-            x += pillW + gap
+            x += sourceW + compactGap
+        }
+
+        x += 12 - compactGap
+        drawInsightControlSeparator(x: x, y: y, height: rowH)
+        x += 17
+
+        let copy = AppLanguage.current.insightCopy
+        let windowW: CGFloat = 46
+        for days in insightWindowOptions {
+            let rect = NSRect(x: x, y: compactY, width: windowW, height: compactH)
+            insightWindowRects[days] = rect
+            drawCompactInsightPill(copy.windowLabel(days: days), rect: rect, selected: days == selectedInsightWindowDays)
+            x += windowW + compactGap
         }
     }
 
-    private func drawInsightWindowPills(x startX: CGFloat, y: CGFloat) {
-        let copy = AppLanguage.current.insightCopy
-        let labels = insightWindowOptions.map { copy.windowLabel(days: $0) }
-        let pillW: CGFloat = 46
-        let pillH: CGFloat = 24
-        let gap: CGFloat = 5
-        var x = startX
-        for (index, label) in labels.enumerated() {
-            let days = insightWindowOptions[index]
-            let rect = NSRect(x: x, y: y, width: pillW, height: pillH)
-            insightWindowRects[days] = rect
-            drawCompactInsightPill(label, rect: rect, selected: days == selectedInsightWindowDays)
-            x += pillW + gap
-        }
+    private func drawInsightControlSeparator(x: CGFloat, y: CGFloat, height: CGFloat) {
+        NSColor.white.withAlphaComponent(0.12).setFill()
+        NSBezierPath(rect: NSRect(x: x, y: y + 6, width: 1, height: height - 12)).fill()
     }
 
     private func drawCompactInsightPill(_ text: String, rect: NSRect, selected: Bool) {
@@ -3846,80 +3906,92 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawCentered(text, rect: rect.insetBy(dx: 4, dy: 0), font: .systemFont(ofSize: 10, weight: .bold), color: selected ? .white : NSColor.white.withAlphaComponent(0.72))
     }
 
-    private func drawInsightProjectList(rows: [RepoInsight], rect: NSRect) {
+    private func drawInsightProjectList(rows: [RepoInsight], grouped: Bool, rect: NSRect) {
         let copy = AppLanguage.current.insightCopy
         drawPanel(rect)
-        drawText(copy.project, rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
 
-        let headerY = rect.minY + 54
-        let statusW: CGFloat = 68
-        let avgW: CGFloat = 50
-        let compressW: CGFloat = 52
-        let conversationsW: CGFloat = 52
-        let statusX = rect.maxX - 16 - statusW
-        let avgX = statusX - 10 - avgW
-        let compressX = avgX - 10 - compressW
-        let conversationsX = compressX - 10 - conversationsW
-        let nameW = max(120, conversationsX - rect.minX - 32)
+        let headerY = rect.minY + 18
+        let avgW: CGFloat = 56
+        let conversationsW: CGFloat = 56
+        let avgX = rect.maxX - 16 - avgW
+        let conversationsX = avgX - 10 - conversationsW
+        let nameW = max(110, conversationsX - rect.minX - 34)
         let headerColor = NSColor.white.withAlphaComponent(0.42)
         let projectHeader = NSRect(x: rect.minX + 16, y: headerY, width: nameW, height: 16)
         let conversationsHeader = NSRect(x: conversationsX, y: headerY, width: conversationsW, height: 16)
-        let compressHeader = NSRect(x: compressX, y: headerY, width: compressW, height: 16)
         let avgHeader = NSRect(x: avgX, y: headerY, width: avgW, height: 16)
-        let statusHeader = NSRect(x: statusX, y: headerY, width: statusW, height: 16)
         insightSortRects[.project] = projectHeader
         insightSortRects[.conversations] = conversationsHeader
-        insightSortRects[.compressions] = compressHeader
         insightSortRects[.average] = avgHeader
-        insightSortRects[.status] = statusHeader
         drawInsightHeader(.project, rect: projectHeader, alignment: .left, color: headerColor)
         drawInsightHeader(.conversations, rect: conversationsHeader, alignment: .right, color: headerColor)
-        drawInsightHeader(.compressions, rect: compressHeader, alignment: .right, color: headerColor)
         drawInsightHeader(.average, rect: avgHeader, alignment: .right, color: headerColor)
-        drawInsightHeader(.status, rect: statusHeader, alignment: .center, color: headerColor)
 
-        let rowHeight: CGFloat = 42
-        let viewport = NSRect(x: rect.minX, y: rect.minY + 76, width: rect.width, height: max(0, rect.height - 118))
+        enum ListItem {
+            case group(String, Int)
+            case row(RepoInsight)
+        }
+        var items: [ListItem] = []
+        if grouped {
+            let attention = rows.filter { $0.risk == .frequentCompression || $0.risk == .longRunning }
+            let good = rows.filter { $0.risk == .wellSplit || $0.risk == .healthy }
+            if !attention.isEmpty {
+                items.append(.group(localizedInsightAttentionGroup, attention.count))
+                items.append(contentsOf: attention.map(ListItem.row))
+            }
+            if !good.isEmpty {
+                items.append(.group(localizedInsightGoodStatus, good.count))
+                items.append(contentsOf: good.map(ListItem.row))
+            }
+        } else {
+            items = rows.map(ListItem.row)
+        }
+
+        let rowHeight: CGFloat = 40
+        let groupHeight: CGFloat = 30
+        func itemHeight(_ item: ListItem) -> CGFloat {
+            if case .group = item { return groupHeight }
+            return rowHeight
+        }
+        let contentHeight = items.reduce(CGFloat(0)) { $0 + itemHeight($1) }
+        insightListContentHeight = contentHeight
+        let viewport = NSRect(x: rect.minX, y: rect.minY + 42, width: rect.width, height: max(0, rect.height - 84))
         insightListViewportRect = viewport
-        let maxOffset = max(0, CGFloat(rows.count) * rowHeight - viewport.height)
+        let maxOffset = max(0, contentHeight - viewport.height)
         insightListScrollOffset = min(max(0, insightListScrollOffset), maxOffset)
-        let firstVisibleIndex = max(0, Int(floor(insightListScrollOffset / rowHeight)))
-        let visibleCapacity = max(0, Int(ceil(viewport.height / rowHeight)) + 1)
-        let endIndex = min(rows.count, firstVisibleIndex + visibleCapacity)
 
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: viewport).addClip()
-        for index in firstVisibleIndex..<endIndex {
-            let row = rows[index]
-            let y = viewport.minY + CGFloat(index) * rowHeight - insightListScrollOffset
-            let rowRect = NSRect(x: rect.minX, y: y, width: rect.width, height: rowHeight)
-            insightRowRects[row.key] = rowRect
-            if row.key == selectedInsightKey {
-                accentBlue.withAlphaComponent(0.76).setFill()
-                NSBezierPath(roundedRect: rowRect.insetBy(dx: 0, dy: 2), xRadius: 7, yRadius: 7).fill()
-            } else if index > 0 {
-                NSColor.white.withAlphaComponent(0.045).setStroke()
-                NSBezierPath(rect: NSRect(x: rect.minX + 16, y: rowRect.minY, width: rect.width - 32, height: 1)).stroke()
+        var y = viewport.minY - insightListScrollOffset
+        for item in items {
+            let itemH = itemHeight(item)
+            defer { y += itemH }
+            guard y + itemH > viewport.minY, y < viewport.maxY else { continue }
+            switch item {
+            case .group(let title, let count):
+                drawText("\(title) · \(count)", rect: NSRect(x: rect.minX + 16, y: y + 11, width: rect.width - 32, height: 14), font: .systemFont(ofSize: 10, weight: .bold), color: NSColor.white.withAlphaComponent(0.38))
+            case .row(let row):
+                let rowRect = NSRect(x: rect.minX, y: y, width: rect.width, height: itemH)
+                insightRowRects[row.key] = rowRect
+                let riskColor = insightRiskColor(row.risk)
+                let isSelected = row.key == selectedInsightKey
+                if isSelected {
+                    accentBlue.withAlphaComponent(0.76).setFill()
+                    NSBezierPath(roundedRect: rowRect.insetBy(dx: 6, dy: 2), xRadius: 7, yRadius: 7).fill()
+                }
+                riskColor.withAlphaComponent(0.9).setFill()
+                NSBezierPath(roundedRect: NSRect(x: rect.minX + 10, y: y + 9, width: 3, height: itemH - 18), xRadius: 1.5, yRadius: 1.5).fill()
+                let textColor = isSelected ? NSColor.white : NSColor.white.withAlphaComponent(0.78)
+                drawTruncatedText(insightListDisplayName(for: row), rect: NSRect(x: rect.minX + 22, y: y + 11, width: nameW - 6, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: textColor)
+                drawRight("\(row.conversations)", rect: NSRect(x: conversationsX, y: y + 11, width: conversationsW, height: 18), color: isSelected ? .white : NSColor.white.withAlphaComponent(0.62))
+                drawRight(String(format: "%.2f", row.averageCompressionsPerConversation), rect: NSRect(x: avgX, y: y + 11, width: avgW, height: 18), color: isSelected ? .white : riskColor.withAlphaComponent(0.95))
             }
-            let textColor = row.key == selectedInsightKey ? NSColor.white : NSColor.white.withAlphaComponent(0.76)
-            drawTruncatedText("▱ \(insightListDisplayName(for: row))", rect: NSRect(x: rect.minX + 16, y: y + 12, width: nameW, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: textColor)
-            drawRight("\(row.conversations)", rect: NSRect(x: conversationsX, y: y + 12, width: conversationsW, height: 18), color: textColor)
-            drawRight("\(row.compressions)", rect: NSRect(x: compressX, y: y + 12, width: compressW, height: 18), color: textColor)
-            drawRight(String(format: "%.2f", row.averageCompressionsPerConversation), rect: NSRect(x: avgX, y: y + 12, width: avgW, height: 18), color: textColor)
-            drawInsightRiskPill(row.risk, rect: NSRect(x: statusX, y: y + 9, width: statusW, height: 24))
         }
         NSGraphicsContext.restoreGraphicsState()
 
-        drawInsightListScrollbar(viewport: viewport, rowCount: rows.count, rowHeight: rowHeight)
+        drawInsightListScrollbar(viewport: viewport, contentHeight: contentHeight)
 
-        let countText = copy.projectCount(rows.count)
-        drawText(countText, rect: NSRect(x: rect.minX + 16, y: rect.maxY - 30, width: 150, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
-        let visibleStart = rows.isEmpty ? 0 : firstVisibleIndex + 1
-        let visibleEnd = min(rows.count, max(visibleStart, endIndex))
-        let rangeText = rows.count > visibleCapacity
-            ? copy.visibleRange(start: visibleStart, end: visibleEnd)
-            : copy.allVisible
-        drawRight(rangeText, rect: NSRect(x: rect.maxX - 120, y: rect.maxY - 30, width: 104, height: 16), color: NSColor.white.withAlphaComponent(0.46), font: .systemFont(ofSize: 11, weight: .semibold))
+        drawText(copy.projectCount(rows.count), rect: NSRect(x: rect.minX + 16, y: rect.maxY - 30, width: 200, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
     }
 
     private enum InsightHeaderAlignment {
@@ -3957,8 +4029,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
-    private func drawInsightListScrollbar(viewport: NSRect, rowCount: Int, rowHeight: CGFloat) {
-        let contentHeight = CGFloat(rowCount) * rowHeight
+    private func drawInsightListScrollbar(viewport: NSRect, contentHeight: CGFloat) {
         guard contentHeight > viewport.height else { return }
         let track = NSRect(x: viewport.maxX - 7, y: viewport.minY + 4, width: 3, height: viewport.height - 8)
         NSColor.white.withAlphaComponent(0.08).setFill()
@@ -4013,36 +4084,115 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func drawInsightDetail(_ row: RepoInsight, rect: NSRect) {
         let copy = AppLanguage.current.insightCopy
         drawPanel(rect)
-        let titleWidth = rect.width > 560 ? rect.width - 360 : rect.width - 180
-        drawText(row.displayName, rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: titleWidth, height: 28), font: .systemFont(ofSize: 20, weight: .bold), color: .white)
-        drawInsightRiskPill(row.risk, rect: NSRect(x: rect.maxX - 112, y: rect.minY + 18, width: 88, height: 24))
+        drawText(row.displayName, rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 140, height: 24), font: .systemFont(ofSize: 17, weight: .bold), color: .white)
+        drawInsightRiskPill(row.risk, rect: NSRect(x: rect.maxX - 112, y: rect.minY + 16, width: 88, height: 24))
 
-        let metricGap: CGFloat = 8
-        let metricY = rect.minY + 64
-        let metricW = (rect.width - 32 - metricGap * 4) / 5
-        let metrics: [(String, String)] = [
-            (copy.chatsMetric, "\(row.conversations)"),
-            (copy.turnsMetric, "\(row.turns)"),
-            (copy.compactionsMetric, "\(row.compressions)"),
-            (copy.avgCompactionsMetric, String(format: "%.2f", row.averageCompressionsPerConversation)),
-            (copy.maxTurnsMetric, "\(row.longestTurns)")
+        drawText(insightDiagnosisText(for: row), rect: NSRect(x: rect.minX + 16, y: rect.minY + 46, width: rect.width - 32, height: 34), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.66))
+
+        let riskColor = insightRiskColor(row.risk)
+        let attention = row.risk == .frequentCompression || row.risk == .longRunning
+        let plain = NSColor.white.withAlphaComponent(0.94)
+        let metricY = rect.minY + 90
+        let metricW = (rect.width - 32) / 5
+        let metrics: [(String, String, NSColor)] = [
+            (copy.chatsMetric, "\(row.conversations)", plain),
+            (copy.turnsMetric, "\(row.turns)", plain),
+            (copy.compactionsMetric, "\(row.compressions)", attention ? riskColor : plain),
+            (copy.avgCompactionsMetric, String(format: "%.2f", row.averageCompressionsPerConversation), attention ? riskColor : plain),
+            (copy.maxTurnsMetric, "\(row.longestTurns)", plain)
         ]
         for (index, metric) in metrics.enumerated() {
-            let card = NSRect(x: rect.minX + 16 + CGFloat(index) * (metricW + metricGap), y: metricY, width: metricW, height: 64)
-            inputSurfaceColor.withAlphaComponent(0.86).setFill()
-            NSBezierPath(roundedRect: card, xRadius: 7, yRadius: 7).fill()
-            drawCentered(metric.1, rect: NSRect(x: card.minX + 6, y: card.minY + 12, width: card.width - 12, height: 24), font: .monospacedDigitSystemFont(ofSize: metricW < 86 ? 16 : 20, weight: .bold), color: accentBlue)
-            drawCentered(metric.0, rect: NSRect(x: card.minX + 6, y: card.minY + 38, width: card.width - 12, height: 16), font: .systemFont(ofSize: 10, weight: .bold), color: NSColor.white.withAlphaComponent(0.54))
+            let x = rect.minX + 16 + CGFloat(index) * metricW
+            drawTruncatedText(metric.0, rect: NSRect(x: x, y: metricY, width: metricW - 10, height: 14), font: .systemFont(ofSize: 10, weight: .bold), color: NSColor.white.withAlphaComponent(0.48))
+            drawText(metric.1, rect: NSRect(x: x, y: metricY + 16, width: metricW - 10, height: 24), font: .monospacedDigitSystemFont(ofSize: 19, weight: .bold), color: metric.2)
         }
 
-        let lengthRect = NSRect(x: rect.minX + 16, y: metricY + 78, width: rect.width - 32, height: 78)
-        drawInsightLengthDistribution(row, rect: lengthRect)
+        let sectionY = metricY + 52
+        let sectionH: CGFloat = 124
+        let sectionGap: CGFloat = 10
+        let sectionW = (rect.width - 32 - sectionGap) / 2
+        let lengthRect = NSRect(x: rect.minX + 16, y: sectionY, width: sectionW, height: sectionH)
+        drawInsightDonutSection(
+            title: copy.lengthDistributionTitle,
+            rightText: nil,
+            buckets: [
+                (copy.shortBucket, row.turnBuckets.short, accentTeal),
+                (copy.mediumBucket, row.turnBuckets.medium, accentBlue),
+                (copy.longBucket, row.turnBuckets.long, accentAmber),
+                (copy.extraLongBucket, row.turnBuckets.extraLong, accentRose)
+            ],
+            rect: lengthRect
+        )
 
-        let chartRect = NSRect(x: rect.minX + 16, y: lengthRect.maxY + 12, width: rect.width - 32, height: 102)
-        drawInsightCompressionHistogram(row, rect: chartRect)
+        let conversationTotal = max(1, row.conversations)
+        let compressedCount = max(0, conversationTotal - row.compressionBuckets.zero)
+        let compressedPercent = Int(round(Double(compressedCount) / Double(conversationTotal) * 100))
+        let compressionRect = NSRect(x: lengthRect.maxX + sectionGap, y: sectionY, width: sectionW, height: sectionH)
+        drawInsightDonutSection(
+            title: copy.compactionDistributionTitle,
+            rightText: copy.compactedPercent(compressedPercent),
+            buckets: [
+                (copy.zeroCompactions, row.compressionBuckets.zero, accentTeal),
+                (copy.oneCompaction, row.compressionBuckets.one, accentBlue),
+                (copy.twoCompactions, row.compressionBuckets.two, accentAmber),
+                (copy.threePlusCompactions, row.compressionBuckets.threePlus, accentRose)
+            ],
+            rect: compressionRect
+        )
 
-        let recommendationRect = NSRect(x: rect.minX + 16, y: chartRect.maxY + 12, width: rect.width - 32, height: max(84, rect.maxY - chartRect.maxY - 28))
+        let recommendationRect = NSRect(x: rect.minX + 16, y: compressionRect.maxY + 12, width: rect.width - 32, height: max(70, rect.maxY - compressionRect.maxY - 26))
         drawInsightRecommendations(row, rect: recommendationRect)
+    }
+
+    private func drawInsightDonutSection(title: String, rightText: String?, buckets: [(String, Int, NSColor)], rect: NSRect) {
+        inputSurfaceColor.withAlphaComponent(0.42).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
+        let rightW: CGFloat = rightText == nil ? 0 : 96
+        drawTruncatedText(title, rect: NSRect(x: rect.minX + 12, y: rect.minY + 9, width: rect.width - 24 - rightW, height: 16), font: .systemFont(ofSize: 12, weight: .bold), color: NSColor.white.withAlphaComponent(0.76))
+        if let rightText {
+            drawRight(rightText, rect: NSRect(x: rect.maxX - 12 - rightW, y: rect.minY + 10, width: rightW, height: 15), color: NSColor.white.withAlphaComponent(0.48), font: .systemFont(ofSize: 10, weight: .semibold))
+        }
+
+        let total = max(1, buckets.reduce(0) { $0 + $1.1 })
+        let bodyTop = rect.minY + 30
+        let bodyHeight = rect.height - 38
+        let radius: CGFloat = min(30, bodyHeight / 2 - 4)
+        let thickness: CGFloat = 11
+        let center = NSPoint(x: rect.minX + 14 + radius, y: bodyTop + bodyHeight / 2)
+
+        let track = NSBezierPath(ovalIn: NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+        track.lineWidth = thickness
+        NSColor.white.withAlphaComponent(0.06).setStroke()
+        track.stroke()
+
+        var angle: CGFloat = 90
+        for bucket in buckets where bucket.1 > 0 {
+            let sweep = 360 * CGFloat(bucket.1) / CGFloat(total)
+            let arc = NSBezierPath()
+            arc.appendArc(withCenter: center, radius: radius, startAngle: angle, endAngle: angle + sweep, clockwise: false)
+            arc.lineWidth = thickness
+            arc.lineCapStyle = .butt
+            bucket.2.withAlphaComponent(0.9).setStroke()
+            arc.stroke()
+            angle += sweep
+        }
+
+        if let dominant = buckets.max(by: { $0.1 < $1.1 }), dominant.1 > 0 {
+            let percent = Int(round(Double(dominant.1) / Double(total) * 100))
+            drawCentered("\(percent)%", rect: NSRect(x: center.x - radius + 4, y: center.y - 7, width: (radius - 4) * 2, height: 14), font: .monospacedDigitSystemFont(ofSize: 11, weight: .bold), color: dominant.2.withAlphaComponent(0.95))
+        }
+
+        let legendX = center.x + radius + 18
+        let rowH = bodyHeight / CGFloat(max(1, buckets.count))
+        for (index, bucket) in buckets.enumerated() {
+            let y = bodyTop + CGFloat(index) * rowH
+            bucket.2.setFill()
+            NSBezierPath(ovalIn: NSRect(x: legendX, y: y + rowH / 2 - 3.5, width: 7, height: 7)).fill()
+            let percent = Int(round(Double(bucket.1) / Double(total) * 100))
+            let valueW: CGFloat = 82
+            drawTruncatedText(bucket.0, rect: NSRect(x: legendX + 12, y: y + rowH / 2 - 7, width: max(30, rect.maxX - 12 - valueW - legendX - 18), height: 14), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.58))
+            drawRight("\(bucket.1) · \(percent)%", rect: NSRect(x: rect.maxX - 12 - valueW, y: y + rowH / 2 - 7, width: valueW, height: 14), color: NSColor.white.withAlphaComponent(0.72), font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
+        }
     }
 
     private func drawInsightUsageTimePage(report: RepoInsightsReport, rect: NSRect) {
@@ -4333,26 +4483,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
-    private var localizedInsightFilterSourceTitle: String {
-        switch AppLanguage.current {
-        case .chinese, .traditionalChinese: return "来源"
-        case .japanese: return "ソース"
-        case .polish: return "Zrodlo"
-        case .english: return "Source"
-        default: return "Source"
-        }
-    }
-
-    private var localizedInsightFilterWindowTitle: String {
-        switch AppLanguage.current {
-        case .chinese, .traditionalChinese: return "窗口"
-        case .japanese: return "期間"
-        case .polish: return "Okres"
-        case .english: return "Window"
-        default: return "Window"
-        }
-    }
-
     private var localizedInsightTooltipTurns: String {
         switch AppLanguage.current {
         case .chinese, .traditionalChinese: return "数量"
@@ -4497,122 +4627,30 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
-    private func drawInsightLengthDistribution(_ row: RepoInsight, rect: NSRect) {
-        let copy = AppLanguage.current.insightCopy
-        inputSurfaceColor.withAlphaComponent(0.42).setFill()
-        NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
-        let title = copy.lengthDistributionTitle
-        drawText(title, rect: NSRect(x: rect.minX + 12, y: rect.minY + 8, width: rect.width - 24, height: 16), font: .systemFont(ofSize: 12, weight: .bold), color: NSColor.white.withAlphaComponent(0.76))
-        let buckets: [(String, Int, NSColor)] = [
-            (copy.shortBucket, row.turnBuckets.short, accentTeal),
-            (copy.mediumBucket, row.turnBuckets.medium, accentBlue),
-            (copy.longBucket, row.turnBuckets.long, accentAmber),
-            (copy.extraLongBucket, row.turnBuckets.extraLong, accentRose)
-        ]
-        let total = max(1, buckets.reduce(0) { $0 + $1.1 })
-        let bar = NSRect(x: rect.minX + 12, y: rect.minY + 34, width: rect.width - 24, height: 18)
-        let positiveBuckets = buckets.filter { $0.1 > 0 }
-        let minimumSegmentWidth = positiveBuckets.isEmpty ? 0 : min(CGFloat(54), bar.width / CGFloat(max(1, positiveBuckets.count)))
-        let weightedTotal = positiveBuckets.reduce(CGFloat(0)) { partial, bucket in
-            partial + sqrt(CGFloat(bucket.1))
-        }
-        let fixedWidth = minimumSegmentWidth * CGFloat(positiveBuckets.count)
-        let flexibleWidth = max(0, bar.width - fixedWidth)
-        var x = bar.minX
-        for (index, bucket) in buckets.enumerated() {
-            let weight = bucket.1 > 0 && weightedTotal > 0 ? sqrt(CGFloat(bucket.1)) / weightedTotal : 0
-            var width = bucket.1 == 0 ? 0 : minimumSegmentWidth + flexibleWidth * weight
-            if index == buckets.count - 1 {
-                width = max(0, bar.maxX - x)
-            }
-            guard width > 0 else { continue }
-            bucket.2.withAlphaComponent(0.86).setFill()
-            NSBezierPath(roundedRect: NSRect(x: x, y: bar.minY, width: min(width, bar.maxX - x), height: bar.height), xRadius: 4, yRadius: 4).fill()
-            if width > 38 {
-                drawCentered("\(Int(round(Double(bucket.1) / Double(total) * 100)))%", rect: NSRect(x: x, y: bar.minY + 1, width: width, height: bar.height - 2), font: .systemFont(ofSize: 10, weight: .bold), color: .white)
-            }
-            x += width
-        }
-        let legendY = rect.minY + 56
-        var legendX = rect.minX + 12
-        for bucket in buckets {
-            bucket.2.setFill()
-            NSBezierPath(ovalIn: NSRect(x: legendX, y: legendY + 4, width: 7, height: 7)).fill()
-            drawText("\(bucket.0) \(bucket.1)", rect: NSRect(x: legendX + 11, y: legendY, width: 92, height: 15), font: .systemFont(ofSize: 9, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
-            legendX += min(104, rect.width / 4)
-        }
-    }
-
-    private func drawInsightCompressionHistogram(_ row: RepoInsight, rect: NSRect) {
-        let copy = AppLanguage.current.insightCopy
-        inputSurfaceColor.withAlphaComponent(0.42).setFill()
-        NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
-        let title = copy.compactionDistributionTitle
-        drawText(title, rect: NSRect(x: rect.minX + 12, y: rect.minY + 8, width: rect.width - 24, height: 16), font: .systemFont(ofSize: 12, weight: .bold), color: NSColor.white.withAlphaComponent(0.76))
-        let buckets: [(String, Int, NSColor)] = [
-            (copy.zeroCompactions, row.compressionBuckets.zero, accentTeal),
-            (copy.oneCompaction, row.compressionBuckets.one, accentBlue),
-            (copy.twoCompactions, row.compressionBuckets.two, accentAmber),
-            (copy.threePlusCompactions, row.compressionBuckets.threePlus, accentRose)
-        ]
-        let total = max(1, buckets.reduce(0) { $0 + $1.1 })
-        let compressedCount = max(0, total - row.compressionBuckets.zero)
-        let compressedPercent = Int(round(Double(compressedCount) / Double(total) * 100))
-        let compressedText = copy.compactedPercent(compressedPercent)
-        drawRight(compressedText, rect: NSRect(x: rect.maxX - 150, y: rect.minY + 9, width: 138, height: 15), color: NSColor.white.withAlphaComponent(0.48), font: .systemFont(ofSize: 10, weight: .semibold))
-
-        let track = NSRect(x: rect.minX + 12, y: rect.minY + 34, width: rect.width - 24, height: 12)
-        NSColor.white.withAlphaComponent(0.07).setFill()
-        NSBezierPath(roundedRect: track, xRadius: 6, yRadius: 6).fill()
-        var segmentX = track.minX
-        for (index, bucket) in buckets.enumerated() {
-            let isLast = index == buckets.count - 1
-            let width = isLast ? max(0, track.maxX - segmentX) : track.width * CGFloat(bucket.1) / CGFloat(total)
-            guard width > 0 else { continue }
-            bucket.2.withAlphaComponent(index == 0 ? 0.60 : 0.82).setFill()
-            NSBezierPath(roundedRect: NSRect(x: segmentX, y: track.minY, width: width, height: track.height), xRadius: 6, yRadius: 6).fill()
-            segmentX += width
-        }
-
-        let cardGap: CGFloat = 8
-        let cardY = rect.minY + 56
-        let cardW = (rect.width - 24 - cardGap * 3) / 4
-        for (index, bucket) in buckets.enumerated() {
-            let x = rect.minX + 12 + CGFloat(index) * (cardW + cardGap)
-            let card = NSRect(x: x, y: cardY, width: cardW, height: 34)
-            NSColor.white.withAlphaComponent(0.035).setFill()
-            NSBezierPath(roundedRect: card, xRadius: 6, yRadius: 6).fill()
-            bucket.2.withAlphaComponent(index == 0 ? 0.66 : 0.88).setFill()
-            NSBezierPath(roundedRect: NSRect(x: card.minX, y: card.minY, width: 3, height: card.height), xRadius: 1.5, yRadius: 1.5).fill()
-            drawText(bucket.0, rect: NSRect(x: card.minX + 10, y: card.minY + 6, width: card.width - 20, height: 12), font: .systemFont(ofSize: 9, weight: .bold), color: NSColor.white.withAlphaComponent(0.48))
-            drawText("\(bucket.1)", rect: NSRect(x: card.minX + 10, y: card.minY + 17, width: card.width * 0.48, height: 15), font: .monospacedDigitSystemFont(ofSize: 13, weight: .bold), color: bucket.2.withAlphaComponent(0.95))
-            let percent = Int(round(Double(bucket.1) / Double(total) * 100))
-            drawRight("\(percent)%", rect: NSRect(x: card.midX - 2, y: card.minY + 18, width: card.width / 2 - 8, height: 13), color: NSColor.white.withAlphaComponent(0.42), font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
-        }
-    }
-
     private func drawInsightRecommendations(_ row: RepoInsight, rect: NSRect) {
         let copy = AppLanguage.current.insightCopy
-        inputSurfaceColor.withAlphaComponent(0.42).setFill()
-        NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
-        drawText(copy.recommendationsTitle, rect: NSRect(x: rect.minX + 12, y: rect.minY + 10, width: rect.width - 24, height: 18), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
         let recommendations = insightRecommendations(for: row)
-        let rowHeight = min(CGFloat(28), (rect.height - 38) / CGFloat(max(1, recommendations.count)))
-        for (index, item) in recommendations.enumerated() {
-            let y = rect.minY + 36 + CGFloat(index) * rowHeight
-            guard y + rowHeight <= rect.maxY + 0.5 else { break }
-            NSColor.white.withAlphaComponent(0.035).setFill()
-            NSBezierPath(roundedRect: NSRect(x: rect.minX + 8, y: y - 2, width: rect.width - 16, height: rowHeight - 2), xRadius: 6, yRadius: 6).fill()
-            drawText(item.0, rect: NSRect(x: rect.minX + 18, y: y + 3, width: 118, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: item.2)
-            drawText(item.1, rect: NSRect(x: rect.minX + 136, y: y + 3, width: rect.width - 154, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.58))
+        guard let primary = recommendations.first else { return }
+        drawText(copy.recommendationsTitle, rect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: 16), font: .systemFont(ofSize: 12, weight: .bold), color: .white)
+        let card = NSRect(x: rect.minX, y: rect.minY + 22, width: rect.width, height: 38)
+        primary.2.withAlphaComponent(0.10).setFill()
+        NSBezierPath(roundedRect: card, xRadius: 7, yRadius: 7).fill()
+        primary.2.withAlphaComponent(0.34).setStroke()
+        let outline = NSBezierPath(roundedRect: card.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7)
+        outline.lineWidth = 1
+        outline.stroke()
+        drawTruncatedText(primary.0, rect: NSRect(x: card.minX + 12, y: card.minY + 4, width: card.width - 24, height: 14), font: .systemFont(ofSize: 11, weight: .bold), color: primary.2)
+        drawTruncatedText(primary.1, rect: NSRect(x: card.minX + 12, y: card.minY + 20, width: card.width - 24, height: 14), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.60))
+        let secondary = recommendations.dropFirst().map(\.0).joined(separator: "  ·  ")
+        if !secondary.isEmpty {
+            drawTruncatedText(secondary, rect: NSRect(x: rect.minX + 2, y: card.maxY + 7, width: rect.width - 4, height: 14), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42))
         }
     }
 
     private func drawInsightHeatmap(row: RepoInsight, rect: NSRect) {
         let copy = AppLanguage.current.insightCopy
         drawPanel(rect)
-        let title = copy.heatmapTitle
-        drawText(title, rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
+        drawText(copy.heatmapTitle, rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
         let days = recentInsightDays(count: 90)
         let dayMap = Dictionary(uniqueKeysWithValues: row.days.map { ($0.day, $0) })
         let cols = 30
@@ -4645,6 +4683,20 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
+    private func insightDayColor(_ day: RepoInsightDay?) -> NSColor {
+        guard let day, day.conversations > 0 else {
+            return NSColor.white.withAlphaComponent(0.08)
+        }
+        let rate = Double(day.compressions) / Double(max(1, day.conversations))
+        if rate > 1 {
+            return accentRose.withAlphaComponent(0.82)
+        }
+        if rate > 0.3 {
+            return accentAmber.withAlphaComponent(0.82)
+        }
+        return accentTeal.withAlphaComponent(0.72)
+    }
+
     private func insightRecommendations(for row: RepoInsight) -> [(String, String, NSColor)] {
         let colors: [NSColor]
         switch row.risk {
@@ -4662,20 +4714,100 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     private func drawInsightRiskPill(_ risk: RepoInsightRisk, rect: NSRect) {
         let label = AppLanguage.current.insightCopy.riskLabel(risk)
-        let color: NSColor
-        switch risk {
-        case .frequentCompression:
-            color = accentRose
-        case .longRunning:
-            color = accentAmber
-        case .wellSplit:
-            color = accentTeal
-        case .healthy:
-            color = NSColor.systemGreen
-        }
+        let color = insightRiskColor(risk)
         color.withAlphaComponent(0.42).setFill()
         NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
         drawCentered(label, rect: rect.insetBy(dx: 4, dy: 0), font: .systemFont(ofSize: 10, weight: .bold), color: color.withAlphaComponent(0.95))
+    }
+
+    private func insightRiskColor(_ risk: RepoInsightRisk) -> NSColor {
+        switch risk {
+        case .frequentCompression: return accentRose
+        case .longRunning: return accentAmber
+        case .wellSplit: return accentTeal
+        case .healthy: return NSColor.systemGreen
+        }
+    }
+
+    private var localizedInsightFilterAll: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "全部"
+        case .japanese: return "すべて"
+        case .polish: return "Wszystkie"
+        default: return "All"
+        }
+    }
+
+    private var localizedInsightGoodStatus: String {
+        switch AppLanguage.current {
+        case .chinese: return "状态良好"
+        case .traditionalChinese: return "狀態良好"
+        case .japanese: return "良好"
+        case .polish: return "W normie"
+        default: return "Doing fine"
+        }
+    }
+
+    private var localizedInsightAttentionGroup: String {
+        switch AppLanguage.current {
+        case .chinese: return "需要关注"
+        case .traditionalChinese: return "需要關注"
+        case .japanese: return "要注意"
+        case .polish: return "Wymaga uwagi"
+        default: return "Needs attention"
+        }
+    }
+
+    private func insightDiagnosisText(for row: RepoInsight) -> String {
+        let days = selectedInsightWindowDays
+        let avg = String(format: "%.2f", row.averageCompressionsPerConversation)
+        let percent = Int(round(row.compressionConversationRate * 100))
+        switch AppLanguage.current {
+        case .chinese:
+            switch row.risk {
+            case .frequentCompression:
+                return "\(days) 天内 \(row.conversations) 个对话共压缩 \(row.compressions) 次，平均 \(avg) 次/对话，明显偏高；\(percent)% 的对话发生过压缩，最长 \(row.longestTurns) turns。"
+            case .longRunning:
+                return "对话偏长：最长 \(row.longestTurns) turns，平均压缩 \(avg) 次/对话；建议阶段完成后开新窗口，避免触发压缩。"
+            case .wellSplit:
+                return "切分习惯良好：对话普遍较短，平均压缩 \(avg) 次/对话，上下文保持干净。"
+            case .healthy:
+                return "\(days) 天内 \(row.conversations) 个对话，平均压缩 \(avg) 次/对话，处于健康区间，保持当前节奏即可。"
+            }
+        case .traditionalChinese:
+            switch row.risk {
+            case .frequentCompression:
+                return "\(days) 天內 \(row.conversations) 個對話共壓縮 \(row.compressions) 次，平均 \(avg) 次/對話，明顯偏高；\(percent)% 的對話發生過壓縮，最長 \(row.longestTurns) turns。"
+            case .longRunning:
+                return "對話偏長：最長 \(row.longestTurns) turns，平均壓縮 \(avg) 次/對話；建議階段完成後開新視窗，避免觸發壓縮。"
+            case .wellSplit:
+                return "切分習慣良好：對話普遍較短，平均壓縮 \(avg) 次/對話，上下文保持乾淨。"
+            case .healthy:
+                return "\(days) 天內 \(row.conversations) 個對話，平均壓縮 \(avg) 次/對話，處於健康區間，保持目前節奏即可。"
+            }
+        case .japanese:
+            switch row.risk {
+            case .frequentCompression:
+                return "直近\(days)日で\(row.conversations)会話・圧縮\(row.compressions)回（平均\(avg)回/会話）と高水準。\(percent)%の会話で圧縮が発生、最長\(row.longestTurns) turns。"
+            case .longRunning:
+                return "会話が長め：最長\(row.longestTurns) turns、平均圧縮\(avg)回/会話。区切りごとに新しいウィンドウを開くのがおすすめ。"
+            case .wellSplit:
+                return "分割が良好：会話は短めで平均圧縮\(avg)回/会話。コンテキストはきれいに保たれています。"
+            case .healthy:
+                return "直近\(days)日で\(row.conversations)会話、平均圧縮\(avg)回/会話。健全な範囲です。"
+            }
+        default:
+            switch row.risk {
+            case .frequentCompression:
+                return "\(row.conversations) chats compacted \(row.compressions) times in \(days) days — \(avg) per chat, well above healthy; \(percent)% of chats hit compaction, longest \(row.longestTurns) turns."
+            case .longRunning:
+                return "Chats run long: up to \(row.longestTurns) turns, \(avg) compactions per chat. Start a fresh window after each milestone."
+            case .wellSplit:
+                return "Well split: chats stay short with \(avg) compactions per chat, keeping context clean."
+            case .healthy:
+                return "\(row.conversations) chats in \(days) days with \(avg) compactions per chat — comfortably in the healthy range."
+            }
+        }
     }
 
     private func recentInsightDays(count: Int) -> [String] {
@@ -4685,20 +4817,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         return (0..<count).reversed().compactMap { offset in
             calendar.date(byAdding: .day, value: -offset, to: today).map { formatter.string(from: $0) }
         }
-    }
-
-    private func insightDayColor(_ day: RepoInsightDay?) -> NSColor {
-        guard let day, day.conversations > 0 else {
-            return NSColor.white.withAlphaComponent(0.08)
-        }
-        let rate = Double(day.compressions) / Double(max(1, day.conversations))
-        if rate > 1 {
-            return accentRose.withAlphaComponent(0.82)
-        }
-        if rate > 0.3 {
-            return accentAmber.withAlphaComponent(0.82)
-        }
-        return accentTeal.withAlphaComponent(0.72)
     }
 
     private func drawDiagnosticsPage(snapshot: DetailsSnapshot, content: NSRect) {
