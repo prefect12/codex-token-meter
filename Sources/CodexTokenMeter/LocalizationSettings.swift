@@ -396,6 +396,7 @@ enum L10nKey {
     case settings
     case settingsSubtitle
     case sourceHealth
+    case sourceSplit
     case spark
     case sparkDescription
     case sparkModel
@@ -597,6 +598,7 @@ enum L10nKey {
         case .settings: return "Settings"
         case .settingsSubtitle: return "Language and display preferences"
         case .sourceHealth: return "Source health"
+        case .sourceSplit: return "Codex / Claude split"
         case .spark: return "Spark"
         case .sparkDescription: return "Events whose model is GPT-5.3-Codex-Spark."
         case .sparkModel: return "GPT-5.3-Codex-Spark model"
@@ -800,6 +802,7 @@ enum L10nKey {
         case .settings: return "设置"
         case .settingsSubtitle: return "语言和显示偏好"
         case .sourceHealth: return "数据源健康"
+        case .sourceSplit: return "Codex / Claude 占比"
         case .spark: return "Spark"
         case .sparkDescription: return "模型为 GPT-5.3-Codex-Spark 的事件。"
         case .sparkModel: return "GPT-5.3-Codex-Spark 模型"
@@ -1003,6 +1006,7 @@ enum L10nKey {
         case .settings: return "設定"
         case .settingsSubtitle: return "言語と表示設定"
         case .sourceHealth: return "ソース状態"
+        case .sourceSplit: return "Codex / Claude 比率"
         case .spark: return "Spark"
         case .sparkDescription: return "モデルが GPT-5.3-Codex-Spark のイベント。"
         case .sparkModel: return "GPT-5.3-Codex-Spark モデル"

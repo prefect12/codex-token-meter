@@ -2727,7 +2727,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let metricsBottom = 24 + CGFloat(metricRows) * metricH + CGFloat(max(0, metricRows - 1)) * 10
         let visibleModelRows = max(1, min(day.modelBreakdown.count, 5))
         let minimumModelHeight = 22 + CGFloat(visibleModelRows) * 22
-        let modelY = max(CGFloat(112), metricsBottom + 12)
+        let leftColumnBottom: CGFloat = daySourceSplit(snapshot: snapshot, day: day) != nil ? daySourceSplitPanelExtent : 112
+        let modelY = max(leftColumnBottom, metricsBottom + 12)
         let contentHeight = modelY + minimumModelHeight + 18
         return max(248, contentHeight)
     }
@@ -5428,9 +5429,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
         let metricRows = Int(ceil(Double(metrics.count) / Double(columns)))
         let metricsBottom = rect.minY + 24 + CGFloat(metricRows) * metricH + CGFloat(max(0, metricRows - 1)) * 10
+        var leftColumnBottom = rect.minY + 112
+        if let split = daySourceSplit(snapshot: snapshot, day: day) {
+            drawDaySourceSplit(split, rect: NSRect(x: rect.minX + 18, y: rect.minY + 114, width: 274, height: 90))
+            leftColumnBottom = rect.minY + daySourceSplitPanelExtent
+        }
         let visibleModelRows = max(1, min(day.modelBreakdown.count, 5))
         let minimumModelHeight = 22 + CGFloat(visibleModelRows) * 22
-        let modelY = max(rect.minY + 112, metricsBottom + 12)
+        let modelY = max(leftColumnBottom, metricsBottom + 12)
         let modelRect = NSRect(
             x: rect.minX + 18,
             y: modelY,
@@ -5438,6 +5444,63 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             height: max(minimumModelHeight, rect.maxY - modelY - 18)
         )
         drawSelectedDayModels(day.modelBreakdown, rect: modelRect)
+    }
+
+    private var daySourceSplitPanelExtent: CGFloat { 216 }
+
+    private func daySourceSplit(snapshot: DetailsSnapshot, day: DayUsage) -> (codex: Int64, claude: Int64)? {
+        guard selectedDetailsSource == .all else { return nil }
+        let codex = snapshot.codex.byDay.first { $0.day == day.day }?.usage.total ?? 0
+        let claude = snapshot.claude.byDay.first { $0.day == day.day }?.usage.total ?? 0
+        guard codex + claude > 0 else { return nil }
+        return (codex, claude)
+    }
+
+    private func drawDaySourceSplit(_ split: (codex: Int64, claude: Int64), rect: NSRect) {
+        let codexColor = accentTeal
+        let claudeColor = accentAmber
+        let total = Double(split.codex + split.claude)
+        let codexShare = CGFloat(Double(split.codex) / total)
+
+        drawText(t(.sourceSplit), rect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
+
+        let ringSize: CGFloat = 64
+        let lineWidth: CGFloat = 12
+        let ringRect = NSRect(x: rect.minX, y: rect.minY + 22, width: ringSize, height: ringSize)
+        let center = NSPoint(x: ringRect.midX, y: ringRect.midY)
+        let radius = ringSize / 2 - lineWidth / 2
+
+        if codexShare >= 1 || codexShare <= 0 {
+            let path = NSBezierPath(ovalIn: ringRect.insetBy(dx: lineWidth / 2, dy: lineWidth / 2))
+            path.lineWidth = lineWidth
+            (codexShare >= 1 ? codexColor : claudeColor).setStroke()
+            path.stroke()
+        } else {
+            let start: CGFloat = -90
+            let boundary = start + 360 * codexShare
+            for (from, to, color) in [(start, boundary, codexColor), (boundary, start + 360, claudeColor)] {
+                let path = NSBezierPath()
+                path.appendArc(withCenter: center, radius: radius, startAngle: from, endAngle: to, clockwise: false)
+                path.lineWidth = lineWidth
+                color.setStroke()
+                path.stroke()
+            }
+        }
+
+        let legendX = ringRect.maxX + 14
+        let legendW = max(0, rect.maxX - legendX)
+        let rows: [(name: String, value: Int64, share: CGFloat, color: NSColor)] = [
+            ("Codex", split.codex, codexShare, codexColor),
+            ("Claude", split.claude, 1 - codexShare, claudeColor)
+        ]
+        for (index, row) in rows.enumerated() {
+            let y = ringRect.minY + 8 + CGFloat(index) * 28
+            row.color.setFill()
+            NSBezierPath(ovalIn: NSRect(x: legendX, y: y + 4, width: 8, height: 8)).fill()
+            drawText(row.name, rect: NSRect(x: legendX + 14, y: y, width: 70, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.78))
+            let valueText = "\(compact(row.value)) · \(String(format: "%.1f%%", row.share * 100))"
+            drawRight(valueText, rect: NSRect(x: legendX + 84, y: y, width: max(0, legendW - 84), height: 16), color: row.color, font: .monospacedDigitSystemFont(ofSize: 11, weight: .bold))
+        }
     }
 
     private func drawSelectedDayModels(_ models: [ModelUsage], rect: NSRect) {
@@ -5449,15 +5512,17 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
         let visible = Array(models.prefix(5))
         let maxTotal = max(visible.map { $0.usage.total }.max() ?? 1, 1)
-        let totalX = rect.maxX - 82
-        let outputX = totalX - 90
-        let inputX = outputX - 96
+        let costX = rect.maxX - 92
+        let totalX = costX - 88
+        let outputX = totalX - 88
+        let inputX = outputX - 90
         let nameW = min(220, rect.width * 0.30)
         let barX = rect.minX + nameW + 18
         let barW = max(80, inputX - barX - 16)
         drawRight(t(.input), rect: NSRect(x: inputX, y: rect.minY, width: 80, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         drawRight(t(.output), rect: NSRect(x: outputX, y: rect.minY, width: 80, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         drawRight(t(.total), rect: NSRect(x: totalX, y: rect.minY, width: 82, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
+        drawRight(t(.apiEquivalent), rect: NSRect(x: costX, y: rect.minY, width: 92, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         for (index, model) in visible.enumerated() {
             let y = rect.minY + 22 + CGFloat(index) * 22
             guard y + 18 <= rect.maxY else { break }
@@ -5466,6 +5531,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawRight(compact(model.usage.input), rect: NSRect(x: inputX, y: y + 1, width: 80, height: 16), color: .systemGreen)
             drawRight(compact(model.usage.output), rect: NSRect(x: outputX, y: y + 1, width: 80, height: 16), color: .systemCyan)
             drawRight(compact(model.usage.total), rect: NSRect(x: totalX, y: y + 1, width: 82, height: 16), color: .white)
+            let modelCost = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
+            let costText = modelCost.hasPricedUsage ? compactDisplayAPIMoney(modelCost.usdValue) : "—"
+            drawRight(costText, rect: NSRect(x: costX, y: y + 1, width: 92, height: 16), color: modelCost.hasPricedUsage ? accentTeal : NSColor.white.withAlphaComponent(0.38))
 
             let bar = NSRect(x: barX, y: y + 6, width: barW, height: 6)
             NSColor.white.withAlphaComponent(0.07).setFill()
