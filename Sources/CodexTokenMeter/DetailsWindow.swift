@@ -1863,8 +1863,10 @@ enum DetailsSection: CaseIterable {
             return AppLanguage.current.insightCopy.headerTitle
         case .storage:
             return AppLanguage.current.storageCopy.headerTitle
-        default:
+        case .overview:
             return t(.usageDetails)
+        default:
+            return title
         }
     }
 
@@ -2235,12 +2237,26 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         selectedSection = .settings
     }
 
+    private let detailsSidebarWidth: CGFloat = 200
+
     private var showsDetailsSourceSelector: Bool {
         switch selectedSection {
         case .overview, .insights, .models, .calendar, .costs, .diagnostics, .storage:
             return true
         case .settings, .about:
             return false
+        }
+    }
+
+    /// Form-like pages cap their content width so labels on the left and
+    /// controls/values on the right stay visually paired in wide windows.
+    private func sectionContent(for section: DetailsSection, in bounds: NSRect, sidebarWidth: CGFloat) -> NSRect {
+        let full = NSRect(x: sidebarWidth + 28, y: 28, width: bounds.width - sidebarWidth - 56, height: bounds.height - 56)
+        switch section {
+        case .settings, .diagnostics, .about:
+            return NSRect(x: full.minX, y: full.minY, width: min(full.width, 920), height: full.height)
+        default:
+            return full
         }
     }
 
@@ -2469,17 +2485,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         showHistoricalEmptyWeeksToggleRect = nil
         guard visible else { return }
 
-        let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
-        let settingsRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 244)
+        let content = NSRect(x: detailsSidebarWidth + 28, y: 28, width: bounds.width - detailsSidebarWidth - 56, height: bounds.height - 56)
+        let summaryHeight: CGFloat = 168
+        let settingsRect = NSRect(x: content.minX, y: content.minY + 78 + summaryHeight + 16, width: content.width, height: 244)
         let controlWidth = min(300, max(252, settingsRect.width * 0.34))
         let controlX = settingsRect.maxX - controlWidth - 16
         costAmountField.frame = NSRect(x: controlX, y: settingsRect.minY + 28, width: controlWidth, height: 44)
         paymentStartDayField.frame = NSRect(x: controlX, y: settingsRect.minY + 82, width: controlWidth, height: 36)
         paymentCurrencyPopup.frame = NSRect(x: controlX, y: settingsRect.minY + 132, width: controlWidth, height: 36)
         displayCurrencyPopup.frame = NSRect(x: controlX, y: settingsRect.minY + 182, width: controlWidth, height: 36)
-        let summaryY = settingsRect.maxY + 16
-        let summaryHeight: CGFloat = 168
-        let chartY = summaryY + summaryHeight + 16
+        let chartY = settingsRect.maxY + 16
         let chartRect = NSRect(x: content.minX, y: chartY, width: content.width, height: 332)
         let headerLayout = costHistoryHeaderLayout(chartRect: chartRect)
         costYearPopup.frame = headerLayout.yearRect
@@ -2496,7 +2511,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         claudeActiveQuotaRefreshSwitch.isHidden = !visible
         guard visible else { return }
 
-        let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
+        let content = sectionContent(for: .settings, in: bounds, sidebarWidth: detailsSidebarWidth)
         let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(692, content.height - 78))
         let popupWidth = min(300, max(252, rect.width * 0.34))
         languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
@@ -2577,7 +2592,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     func preferredDocumentHeight(for width: CGFloat) -> CGFloat {
         let minHeight: CGFloat = selectedSection == .calendar ? 620 : 660
         let normalizedWidth = max(860, width)
-        let contentWidth = normalizedWidth - 220 - 56
+        let contentWidth = normalizedWidth - detailsSidebarWidth - 56
 
         let targetHeight: CGFloat
         switch selectedSection {
@@ -3209,7 +3224,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     override func draw(_ dirtyRect: NSRect) {
         NSGradient(starting: appBackgroundTop, ending: appBackgroundBottom)?.draw(in: bounds, angle: -90)
 
-        let sidebarWidth: CGFloat = 220
+        let sidebarWidth = detailsSidebarWidth
         sidebarBackgroundColor.setFill()
         NSRect(x: 0, y: 0, width: sidebarWidth, height: bounds.height).fill()
         borderColor.setStroke()
@@ -3217,7 +3232,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
         drawSidebar(width: sidebarWidth)
 
-        let content = NSRect(x: sidebarWidth + 28, y: 28, width: bounds.width - sidebarWidth - 56, height: bounds.height - 56)
+        let content = sectionContent(for: selectedSection, in: bounds, sidebarWidth: sidebarWidth)
         contributionDayRects.removeAll()
         contributionDaySummaries.removeAll()
         contributionWeekSummaries.removeAll()
@@ -3378,8 +3393,42 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
             }
             let textColor = section == selectedSection ? NSColor.white : NSColor.white.withAlphaComponent(0.82)
-            drawText(section.title, rect: NSRect(x: rect.minX + 22, y: rect.minY + 10, width: rect.width - 44, height: 22), font: .systemFont(ofSize: 15, weight: .semibold), color: textColor)
+            let iconRect = NSRect(x: rect.minX + 14, y: rect.minY + 12, width: 18, height: 18)
+            drawSymbolIcon(sidebarSymbolName(section), in: iconRect, color: textColor.withAlphaComponent(section == selectedSection ? 1.0 : 0.72))
+            drawText(section.title, rect: NSRect(x: rect.minX + 42, y: rect.minY + 10, width: rect.width - 56, height: 22), font: .systemFont(ofSize: 15, weight: .semibold), color: textColor)
         }
+    }
+
+    private func sidebarSymbolName(_ section: DetailsSection) -> String {
+        switch section {
+        case .overview: return "square.grid.2x2"
+        case .calendar: return "calendar"
+        case .insights: return "waveform.path.ecg"
+        case .costs: return "creditcard"
+        case .models: return "cpu"
+        case .storage: return "internaldrive"
+        case .settings: return "gearshape"
+        case .diagnostics: return "stethoscope"
+        case .about: return "info.circle"
+        }
+    }
+
+    private func drawSymbolIcon(_ name: String, in rect: NSRect, color: NSColor, pointSize: CGFloat = 13) {
+        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)) else { return }
+        let tinted = NSImage(size: base.size)
+        tinted.lockFocus()
+        base.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1.0)
+        color.set()
+        NSRect(origin: .zero, size: base.size).fill(using: .sourceAtop)
+        tinted.unlockFocus()
+        let target = NSRect(
+            x: rect.midX - base.size.width / 2,
+            y: rect.midY - base.size.height / 2,
+            width: base.size.width,
+            height: base.size.height
+        )
+        tinted.draw(in: target, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
     }
 
     private func drawOverview(snapshot: DetailsSnapshot, content: NSRect) {
@@ -4522,7 +4571,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let costData = costPageData(for: snapshot, limit: limit, year: selectedCostYear)
         let estimate = costData.estimate
 
-        let settingsRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 244)
+        let summaryRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 168)
+        let settingsRect = NSRect(x: content.minX, y: summaryRect.maxY + 16, width: content.width, height: 244)
         let controlWidth = min(300, max(252, settingsRect.width * 0.34))
         let controlX = settingsRect.maxX - controlWidth - 16
         let labelX = settingsRect.minX + 16
@@ -4531,6 +4581,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let centeredLabelY: (NSRect) -> CGFloat = { frame in
             frame.midY - 10
         }
+        drawCostOverviewPanel(estimate: estimate, apiEstimate: costData.apiEstimate, source: costSource, rect: summaryRect)
         drawPanel(settingsRect)
         let planTitle = costSource == .all ? "\(t(.planCost)) · \(t(.all))" : "\(t(.planCost)) · \(costSource.shortTitle)"
         drawText(planTitle, rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 14, width: 300, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
@@ -4544,12 +4595,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawInputFieldBackground(costAmountField.frame)
         drawInputFieldBackground(paymentStartDayField.frame)
 
-        let summaryY = settingsRect.maxY + 16
-        let summaryHeight: CGFloat = 168
-        let summaryRect = NSRect(x: content.minX, y: summaryY, width: content.width, height: summaryHeight)
-        drawCostOverviewPanel(estimate: estimate, apiEstimate: costData.apiEstimate, source: costSource, rect: summaryRect)
-
-        let chartY = summaryRect.maxY + 16
+        let chartY = settingsRect.maxY + 16
         let chartRect = NSRect(x: content.minX, y: chartY, width: content.width, height: 332)
         drawPanel(chartRect)
         let headerLayout = costHistoryHeaderLayout(chartRect: chartRect)
@@ -5422,14 +5468,39 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawText(t(.dataSourceLine2), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 78, width: sourceRect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
     }
 
+    /// Pads sparse "past year" day data to a full 53-week range ending at the
+    /// last data day, so the contribution grid keeps GitHub-style fixed-size
+    /// cells instead of stretching a handful of days across the panel.
+    private func paddedContributionDays(_ days: [DayUsage]) -> [DayUsage] {
+        let totalDays = 53 * 7
+        let formatter = dayFormatter()
+        guard days.count < totalDays,
+              let lastDay = days.last?.day,
+              let firstDay = days.first?.day,
+              let lastDate = formatter.date(from: lastDay),
+              let firstDate = formatter.date(from: firstDay),
+              let windowStart = appCalendar().date(byAdding: .day, value: -(totalDays - 1), to: lastDate),
+              firstDate >= windowStart else { return days }
+        var byKey: [String: DayUsage] = [:]
+        for day in days { byKey[day.day] = day }
+        var padded: [DayUsage] = []
+        padded.reserveCapacity(totalDays)
+        for offset in stride(from: totalDays - 1, through: 0, by: -1) {
+            guard let date = appCalendar().date(byAdding: .day, value: -offset, to: lastDate) else { continue }
+            let key = formatter.string(from: date)
+            padded.append(byKey[key] ?? DayUsage(day: key, usage: Usage(), turns: 0))
+        }
+        return padded
+    }
+
     private func drawContributionGrid(report: TokenReport, rect: NSRect, title: String, compact: Bool) {
         drawPanel(rect)
         drawText(title, rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
-        let days = report.byDay
-        guard !days.isEmpty else {
+        guard !report.byDay.isEmpty else {
             drawText(t(.noDailyTokenData), rect: NSRect(x: rect.minX + 16, y: rect.minY + 52, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
             return
         }
+        let days = paddedContributionDays(report.byDay)
 
         let maxTotal = max(days.map { $0.usage.total }.max() ?? 1, 1)
         let useCalendarGrid = !compact || days.count > 90
@@ -5444,7 +5515,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let bottom: CGFloat = compact ? 44 : 50
         let availableW = max(40, rect.width - left - right)
         let availableH = max(40, rect.height - top - bottom)
-        let square = floor(min((availableW - gap * CGFloat(max(columns - 1, 0))) / CGFloat(max(columns, 1)), (availableH - gap * CGFloat(max(rows - 1, 0))) / CGFloat(max(rows, 1))))
+        let square = min(
+            compact ? 16 : 18,
+            floor(min((availableW - gap * CGFloat(max(columns - 1, 0))) / CGFloat(max(columns, 1)), (availableH - gap * CGFloat(max(rows - 1, 0))) / CGFloat(max(rows, 1))))
+        )
         let gridH = CGFloat(rows) * square + CGFloat(max(rows - 1, 0)) * gap
         let startX = rect.minX + left
         let startY = rect.minY + top
@@ -5463,9 +5537,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             let row = useCalendarGrid ? index % 7 : index / columns
             let cell = NSRect(x: startX + CGFloat(col) * (square + gap), y: startY + CGFloat(row) * (square + gap), width: square, height: square)
             cells.append((day: day, rect: cell, column: col))
-            contributionDayRects[day.day] = cell
-            if enableDayHover {
-                contributionDaySummaries[day.day] = ContributionDaySummary(day: day, hitRect: cell)
+            if day.usage.total > 0 || day.turns > 0 {
+                contributionDayRects[day.day] = cell
+                if enableDayHover {
+                    contributionDaySummaries[day.day] = ContributionDaySummary(day: day, hitRect: cell)
+                }
             }
             if enableWeekHover {
                 weekCells[col, default: []].append(cell)
@@ -5489,7 +5565,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         if enableWeekHover {
             var summaries: [String: ContributionWeekSummary] = [:]
             for column in 0..<columns {
-                guard let rects = weekCells[column], !rects.isEmpty else { continue }
+                guard let rects = weekCells[column], !rects.isEmpty,
+                      (weekTotals[column] ?? 0) > 0 else { continue }
                 let key = "week-\(column)-\(weekStartDays[column] ?? "")"
                 let unionRect = rects.dropFirst().reduce(rects[0]) { partial, cell in
                     partial.union(cell)
@@ -5820,10 +5897,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func contributionGridPreferredHeight(report: TokenReport, width: CGFloat, compact: Bool) -> CGFloat {
-        let days = report.byDay
-        guard !days.isEmpty else {
+        guard !report.byDay.isEmpty else {
             return compact ? 112 : 128
         }
+        let days = paddedContributionDays(report.byDay)
         let useCalendarGrid = !compact || days.count > 90
         let columns = useCalendarGrid ? Int(ceil(Double(days.count) / 7.0)) : min(days.count, 15)
         let rows = useCalendarGrid ? 7 : Int(ceil(Double(days.count) / Double(max(columns, 1))))
@@ -5832,7 +5909,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let right: CGFloat = compact ? 18 : 26
         let top: CGFloat = compact ? 42 : 48
         let availableW = max(40, width - left - right)
-        let square = floor((availableW - gap * CGFloat(max(columns - 1, 0))) / CGFloat(max(columns, 1)))
+        let square = min(
+            compact ? 16 : 18,
+            floor((availableW - gap * CGFloat(max(columns - 1, 0))) / CGFloat(max(columns, 1)))
+        )
         let gridH = CGFloat(rows) * max(6, square) + CGFloat(max(rows - 1, 0)) * gap
         let labelAndHintHeight: CGFloat = compact ? 48 : 54
         return ceil(top + gridH + labelAndHintHeight)
@@ -6192,7 +6272,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         storageSortPopup.isHidden = !visible
         storageSearchField.isHidden = !visible
         guard visible else { return }
-        let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
+        let content = NSRect(x: detailsSidebarWidth + 28, y: 28, width: bounds.width - detailsSidebarWidth - 56, height: bounds.height - 56)
         let bar = storagePageLayout(content: content).toolbar
         let searchW = min(240, max(160, bar.width * 0.26))
         storageSearchField.frame = NSRect(x: bar.maxX - searchW, y: bar.minY + 1, width: searchW, height: 26)
