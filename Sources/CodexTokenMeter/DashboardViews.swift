@@ -1081,7 +1081,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
         drawText(resetSubtitle(window), rect: NSRect(x: center.x - 66, y: center.y + 86, width: 132, height: 15), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42), alignment: .center)
         hoverRegions.append((
             rect: NSRect(x: center.x - 62, y: center.y - 58, width: 124, height: 160),
-            tooltip: ringTooltip(title: title, window: window, metric: metric)
+            tooltip: ringTooltip(title: title, window: window, metric: metric, capturedAt: limit?.capturedAt)
         ))
     }
 
@@ -1228,7 +1228,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
         return "\(t(.reset)) \(compactResetRelative(window.resetsAt))"
     }
 
-    private func ringTooltip(title: String, window: RateWindow?, metric: HomeQuotaRingMetric) -> String {
+    private func ringTooltip(title: String, window: RateWindow?, metric: HomeQuotaRingMetric, capturedAt: Date?) -> String {
         guard let window else {
             return "\(title) \(metric.title)\n\(t(.liveLimitUnavailable))"
         }
@@ -1250,7 +1250,15 @@ final class PlatformQuotaRingsOverviewView: NSView {
         } else {
             lines.append("重置：--")
         }
+        lines.append("数据更新：\(dataUpdatedText(capturedAt))")
         return lines.joined(separator: "\n")
+    }
+
+    private func dataUpdatedText(_ capturedAt: Date?) -> String {
+        guard let capturedAt else { return "--" }
+        let seconds = -capturedAt.timeIntervalSinceNow
+        if seconds < 60 { return "刚刚" }
+        return "\(relative(capturedAt).replacingOccurrences(of: " ago", with: ""))前"
     }
 
     private func rowTooltip(title: String, limit: LiveRateLimit?, report: TokenReport?) -> String {

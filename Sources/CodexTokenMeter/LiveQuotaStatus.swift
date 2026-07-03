@@ -125,6 +125,7 @@ struct LiveRateLimit: Codable {
     let primary: RateWindow
     let secondary: RateWindow
     let planType: String?
+    let capturedAt: Date?
 }
 
 struct ClaudeStatuslineWindow {
@@ -149,7 +150,8 @@ struct ClaudeStatuslineSnapshot {
             name: "Claude Code",
             primary: RateWindow(usedPercent: fiveHour.usedPercent, windowMinutes: 5 * 60, resetsAt: fiveHour.resetsAt),
             secondary: RateWindow(usedPercent: sevenDay.usedPercent, windowMinutes: 7 * 24 * 60, resetsAt: sevenDay.resetsAt),
-            planType: isStale ? "official-statusline-stale" : "official-statusline"
+            planType: isStale ? "official-statusline-stale" : "official-statusline",
+            capturedAt: capturedAt
         )
     }
 }
