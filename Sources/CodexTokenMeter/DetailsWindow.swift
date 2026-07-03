@@ -1175,6 +1175,540 @@ private extension AppLanguage {
     }
 }
 
+private struct StorageCategoryCopy {
+    let name: String
+    let purpose: String
+    let impact: String
+    let advice: String
+}
+
+private struct StorageCopy {
+    let sidebarTitle: String
+    let headerTitle: String
+    let headerSubtitle: String
+    let totalCard: String
+    let bytesSuffix: String
+    let shareFormat: String
+    let fileCountCard: String
+    let fileCountHint: String
+    let recentCard: String
+    let filesFormat: String
+    let sourceTitle: String
+    let totalFormat: String
+    let projectsTitle: String
+    let colProject: String
+    let colApp: String
+    let colSize: String
+    let colTokens: String
+    let colTurns: String
+    let colAdvice: String
+    let adviceKeep: String
+    let adviceReview: String
+    let growthTitle: String
+    let otherSeries: String
+    let riskTitle: String
+    let riskSafe: String
+    let riskReview: String
+    let riskAvoid: String
+    let filterAll: String
+    let sortBySize: String
+    let sortByRecent: String
+    let sortByName: String
+    let searchPlaceholder: String
+    let caveat: String
+    let openInFinder: String
+    let exportReport: String
+    let refreshButton: String
+    let revealInFinder: String
+    let copyPath: String
+    let scanningLabel: String
+    let rescanBannerFormat: String
+    let scannedAtFormat: String
+    let totalLabel: String
+    let noProjectsHint: String
+    let emptyCategoriesHint: String
+    let categories: (StorageCategoryID) -> StorageCategoryCopy
+
+    func riskLabel(_ risk: StorageRisk) -> String {
+        switch risk {
+        case .safeToClear: return riskSafe
+        case .reviewFirst: return riskReview
+        case .doNotClean: return riskAvoid
+        }
+    }
+}
+
+private func chineseStorageCategoryCopy(_ id: StorageCategoryID) -> StorageCategoryCopy {
+    switch id {
+    case .codexSessions:
+        return StorageCategoryCopy(
+            name: "会话日志",
+            purpose: "包含 Codex 正在使用的对话日志源数据（sessions 与 archived_sessions），用于计算 token、会话、模型和项目级别的统计。",
+            impact: "删除后将丢失对应时间段的历史记录，影响日历、趋势、模型分布、会话排行和项目洞察等所有历史统计，无法从服务端恢复。",
+            advice: "仅建议清理非常旧的 archived 会话日志，并先确认不再需要历史统计。可按日期或会话文件逐步清理。"
+        )
+    case .codexWorktrees:
+        return StorageCategoryCopy(
+            name: "工作区",
+            purpose: "Codex 创建或使用的 Git 工作区副本，可能包含尚未合并的代码改动。",
+            impact: "直接删除可能丢失未提交或未合并的代码改动。",
+            advice: "建议通过 Codex 或 Git 工作流确认没有未合并改动后再清理，不要直接整目录删除。"
+        )
+    case .codexBackups:
+        return StorageCategoryCopy(
+            name: "备份恢复",
+            purpose: "备份、恢复或修复过程留下的数据（backup、recovery、log-backups 等目录）。",
+            impact: "删除后无法再从这些备份中恢复对应数据。",
+            advice: "先确认来源和时间。如果确定是一次性修复残留，可在 Finder 中人工确认后再删除。"
+        )
+    case .codexDatabase:
+        return StorageCategoryCopy(
+            name: "数据库",
+            purpose: "Codex 内部数据库和运行状态（SQLite / WAL 文件）。",
+            impact: "删除可能损坏 Codex 的内部状态，导致功能异常。",
+            advice: "不建议在此清理。如果异常增长，请通过 Codex 官方途径处理。"
+        )
+    case .codexImages:
+        return StorageCategoryCopy(
+            name: "生成图片",
+            purpose: "Codex 在本地生成的图片资产。",
+            impact: "删除后图片无法找回，可能是你仍需要的产物。",
+            advice: "先在 Finder 中浏览，确认不再需要后再删除。"
+        )
+    case .codexPlugins:
+        return StorageCategoryCopy(
+            name: "插件依赖",
+            purpose: "插件与运行依赖文件。",
+            impact: "删除可能破坏插件功能，需要重新安装。",
+            advice: "不建议手动清理，请通过插件管理卸载。"
+        )
+    case .codexOther:
+        return StorageCategoryCopy(
+            name: "Codex 其他",
+            purpose: "Codex 主目录下的其他配置与运行文件（如 auth、config、日志等）。",
+            impact: "删除可能导致 Codex 需要重新登录或重新配置。",
+            advice: "不建议清理。"
+        )
+    case .claudeProjects:
+        return StorageCategoryCopy(
+            name: "Claude 项目",
+            purpose: "Claude Code 会话日志（projects 目录），是 Claude token 统计的源数据。",
+            impact: "删除会丢失 Claude 历史统计和会话记录，无法从服务端恢复。",
+            advice: "仅建议清理很旧且确认不再需要的项目日志。"
+        )
+    case .claudeOther:
+        return StorageCategoryCopy(
+            name: "Claude 其他",
+            purpose: "Claude Code 的配置、插件、缓存等其他本地数据。",
+            impact: "删除可能影响 Claude Code 的设置和扩展功能。",
+            advice: "不建议在此清理。"
+        )
+    }
+}
+
+private func traditionalChineseStorageCategoryCopy(_ id: StorageCategoryID) -> StorageCategoryCopy {
+    switch id {
+    case .codexSessions:
+        return StorageCategoryCopy(
+            name: "會話日誌",
+            purpose: "包含 Codex 正在使用的對話日誌源資料（sessions 與 archived_sessions），用於計算 token、會話、模型和專案層級的統計。",
+            impact: "刪除後將遺失對應時間段的歷史記錄，影響日曆、趨勢、模型分佈、會話排行和專案洞察等所有歷史統計，無法從伺服器端還原。",
+            advice: "僅建議清理非常舊的 archived 會話日誌，並先確認不再需要歷史統計。可按日期或會話檔案逐步清理。"
+        )
+    case .codexWorktrees:
+        return StorageCategoryCopy(
+            name: "工作區",
+            purpose: "Codex 建立或使用的 Git 工作區副本，可能包含尚未合併的程式碼變更。",
+            impact: "直接刪除可能遺失未提交或未合併的程式碼變更。",
+            advice: "建議透過 Codex 或 Git 工作流程確認沒有未合併變更後再清理，不要直接刪除整個目錄。"
+        )
+    case .codexBackups:
+        return StorageCategoryCopy(
+            name: "備份還原",
+            purpose: "備份、還原或修復過程留下的資料（backup、recovery、log-backups 等目錄）。",
+            impact: "刪除後無法再從這些備份中還原對應資料。",
+            advice: "先確認來源和時間。如果確定是一次性修復殘留，可在 Finder 中人工確認後再刪除。"
+        )
+    case .codexDatabase:
+        return StorageCategoryCopy(
+            name: "資料庫",
+            purpose: "Codex 內部資料庫和執行狀態（SQLite / WAL 檔案）。",
+            impact: "刪除可能損壞 Codex 的內部狀態，導致功能異常。",
+            advice: "不建議在此清理。如果異常增長，請透過 Codex 官方途徑處理。"
+        )
+    case .codexImages:
+        return StorageCategoryCopy(
+            name: "生成圖片",
+            purpose: "Codex 在本地生成的圖片資產。",
+            impact: "刪除後圖片無法找回，可能是你仍需要的產物。",
+            advice: "先在 Finder 中瀏覽，確認不再需要後再刪除。"
+        )
+    case .codexPlugins:
+        return StorageCategoryCopy(
+            name: "外掛相依",
+            purpose: "外掛與執行相依檔案。",
+            impact: "刪除可能破壞外掛功能，需要重新安裝。",
+            advice: "不建議手動清理，請透過外掛管理移除。"
+        )
+    case .codexOther:
+        return StorageCategoryCopy(
+            name: "Codex 其他",
+            purpose: "Codex 主目錄下的其他設定與執行檔案（如 auth、config、日誌等）。",
+            impact: "刪除可能導致 Codex 需要重新登入或重新設定。",
+            advice: "不建議清理。"
+        )
+    case .claudeProjects:
+        return StorageCategoryCopy(
+            name: "Claude 專案",
+            purpose: "Claude Code 會話日誌（projects 目錄），是 Claude token 統計的源資料。",
+            impact: "刪除會遺失 Claude 歷史統計和會話記錄，無法從伺服器端還原。",
+            advice: "僅建議清理很舊且確認不再需要的專案日誌。"
+        )
+    case .claudeOther:
+        return StorageCategoryCopy(
+            name: "Claude 其他",
+            purpose: "Claude Code 的設定、外掛、快取等其他本地資料。",
+            impact: "刪除可能影響 Claude Code 的設定和擴充功能。",
+            advice: "不建議在此清理。"
+        )
+    }
+}
+
+private func japaneseStorageCategoryCopy(_ id: StorageCategoryID) -> StorageCategoryCopy {
+    switch id {
+    case .codexSessions:
+        return StorageCategoryCopy(
+            name: "セッションログ",
+            purpose: "Codex が使用中の会話ログの元データ（sessions と archived_sessions）。token・セッション・モデル・プロジェクト統計の計算に使われます。",
+            impact: "削除すると該当期間の履歴が失われ、カレンダー・トレンド・モデル分布などすべての履歴統計に影響します。サーバーからは復元できません。",
+            advice: "非常に古い archived ログのみ、履歴統計が不要と確認してから整理してください。"
+        )
+    case .codexWorktrees:
+        return StorageCategoryCopy(
+            name: "ワークツリー",
+            purpose: "Codex が作成・使用する Git ワークツリーのコピー。未マージの変更が含まれる可能性があります。",
+            impact: "直接削除すると未コミット・未マージの変更が失われる可能性があります。",
+            advice: "Codex または Git のワークフローで未マージ変更がないことを確認してから整理してください。"
+        )
+    case .codexBackups:
+        return StorageCategoryCopy(
+            name: "バックアップ",
+            purpose: "バックアップ・リカバリ・修復処理が残したデータ（backup、recovery、log-backups など）。",
+            impact: "削除するとこれらのバックアップから復元できなくなります。",
+            advice: "由来と日時を確認し、一時的な残骸と確信できる場合のみ Finder で確認して削除してください。"
+        )
+    case .codexDatabase:
+        return StorageCategoryCopy(
+            name: "データベース",
+            purpose: "Codex 内部のデータベースと実行状態（SQLite / WAL ファイル）。",
+            impact: "削除すると Codex の内部状態が壊れ、動作不良の原因になります。",
+            advice: "ここでは削除しないでください。異常に増加する場合は Codex 公式の手段で対処してください。"
+        )
+    case .codexImages:
+        return StorageCategoryCopy(
+            name: "生成画像",
+            purpose: "Codex がローカルに生成した画像アセット。",
+            impact: "削除すると画像は復元できません。まだ必要な成果物かもしれません。",
+            advice: "Finder で内容を確認し、不要と確認してから削除してください。"
+        )
+    case .codexPlugins:
+        return StorageCategoryCopy(
+            name: "プラグイン",
+            purpose: "プラグインと実行時依存ファイル。",
+            impact: "削除するとプラグインが壊れ、再インストールが必要になります。",
+            advice: "手動での削除は非推奨です。プラグイン管理からアンインストールしてください。"
+        )
+    case .codexOther:
+        return StorageCategoryCopy(
+            name: "Codex その他",
+            purpose: "Codex ホーム配下のその他の設定・実行ファイル（auth、config、ログなど）。",
+            impact: "削除すると再ログインや再設定が必要になる可能性があります。",
+            advice: "削除は推奨しません。"
+        )
+    case .claudeProjects:
+        return StorageCategoryCopy(
+            name: "Claude プロジェクト",
+            purpose: "Claude Code の会話ログ（projects ディレクトリ）。Claude token 統計の元データです。",
+            impact: "削除すると Claude の履歴統計と会話記録が失われます。サーバーからは復元できません。",
+            advice: "非常に古く、不要と確認できたログのみ整理してください。"
+        )
+    case .claudeOther:
+        return StorageCategoryCopy(
+            name: "Claude その他",
+            purpose: "Claude Code の設定・プラグイン・キャッシュなどのローカルデータ。",
+            impact: "削除すると Claude Code の設定や拡張機能に影響する可能性があります。",
+            advice: "ここでは削除しないでください。"
+        )
+    }
+}
+
+private func englishStorageCategoryCopy(_ id: StorageCategoryID) -> StorageCategoryCopy {
+    switch id {
+    case .codexSessions:
+        return StorageCategoryCopy(
+            name: "Session logs",
+            purpose: "Source conversation logs used by Codex (sessions and archived_sessions). They power token, session, model, and project statistics.",
+            impact: "Deleting removes history for that period and breaks calendar, trends, model breakdowns, and project insights. It cannot be restored from the server.",
+            advice: "Only clear very old archived session logs after confirming you no longer need the historical stats. Clean up gradually by date or file."
+        )
+    case .codexWorktrees:
+        return StorageCategoryCopy(
+            name: "Worktrees",
+            purpose: "Git worktree copies created or used by Codex. They may contain unmerged code changes.",
+            impact: "Deleting directly may lose uncommitted or unmerged changes.",
+            advice: "Verify there are no unmerged changes via Codex or Git before cleaning. Do not delete whole directories blindly."
+        )
+    case .codexBackups:
+        return StorageCategoryCopy(
+            name: "Backups & recovery",
+            purpose: "Data left by backup, recovery, or repair runs (backup, recovery, log-backups directories).",
+            impact: "After deletion the data can no longer be restored from these backups.",
+            advice: "Confirm the origin and date first. If it is a one-off repair leftover, review it in Finder before deleting."
+        )
+    case .codexDatabase:
+        return StorageCategoryCopy(
+            name: "Databases",
+            purpose: "Codex internal databases and runtime state (SQLite / WAL files).",
+            impact: "Deleting can corrupt Codex internal state and break functionality.",
+            advice: "Do not clean here. If it grows abnormally, resolve through official Codex channels."
+        )
+    case .codexImages:
+        return StorageCategoryCopy(
+            name: "Generated images",
+            purpose: "Image assets generated locally by Codex.",
+            impact: "Deleted images cannot be recovered and may be assets you still need.",
+            advice: "Browse them in Finder and confirm they are no longer needed before deleting."
+        )
+    case .codexPlugins:
+        return StorageCategoryCopy(
+            name: "Plugins & deps",
+            purpose: "Plugins and runtime dependency files.",
+            impact: "Deleting may break plugins and require reinstalling.",
+            advice: "Not recommended to clean manually; uninstall through plugin management."
+        )
+    case .codexOther:
+        return StorageCategoryCopy(
+            name: "Codex other",
+            purpose: "Other config and runtime files under the Codex home (auth, config, logs, etc.).",
+            impact: "Deleting may force Codex to re-login or be reconfigured.",
+            advice: "Cleaning is not recommended."
+        )
+    case .claudeProjects:
+        return StorageCategoryCopy(
+            name: "Claude projects",
+            purpose: "Claude Code session logs (projects directory). They are the source data for Claude token statistics.",
+            impact: "Deleting loses Claude history stats and conversation records. It cannot be restored from the server.",
+            advice: "Only clear very old project logs after confirming they are no longer needed."
+        )
+    case .claudeOther:
+        return StorageCategoryCopy(
+            name: "Claude other",
+            purpose: "Claude Code config, plugins, cache, and other local data.",
+            impact: "Deleting may affect Claude Code settings and extensions.",
+            advice: "Do not clean here."
+        )
+    }
+}
+
+private extension AppLanguage {
+    var storageCopy: StorageCopy {
+        switch self {
+        case .chinese:
+            return StorageCopy(
+                sidebarTitle: "空间",
+                headerTitle: "空间详情",
+                headerSubtitle: "按来源、项目和类型追踪本地占用",
+                totalCard: "总和",
+                bytesSuffix: "字节",
+                shareFormat: "占 %@",
+                fileCountCard: "文件数",
+                fileCountHint: "包含所有来源",
+                recentCard: "最近 14 天新增",
+                filesFormat: "%@ 个文件",
+                sourceTitle: "来源分布（按占用大小）",
+                totalFormat: "总计 %@",
+                projectsTitle: "最大项目（按占用）",
+                colProject: "项目",
+                colApp: "应用",
+                colSize: "占用",
+                colTokens: "Token",
+                colTurns: "回合",
+                colAdvice: "建议",
+                adviceKeep: "保留",
+                adviceReview: "谨慎清理",
+                growthTitle: "近 14 天增长（按实际磁盘占用）",
+                otherSeries: "其他",
+                riskTitle: "风险构成",
+                riskSafe: "可安全清理",
+                riskReview: "需确认",
+                riskAvoid: "不建议清理",
+                filterAll: "全部分类",
+                sortBySize: "按占用大小",
+                sortByRecent: "按最近活跃",
+                sortByName: "按名称",
+                searchPlaceholder: "筛选路径或项目",
+                caveat: "大小为实际磁盘占用，统计口径可能与应用用量不同。",
+                openInFinder: "在访达中打开",
+                exportReport: "导出报告…",
+                refreshButton: "刷新",
+                revealInFinder: "在 Finder 中显示",
+                copyPath: "复制路径",
+                scanningLabel: "正在扫描本地占用…",
+                rescanBannerFormat: "正在后台重新扫描… 当前显示 %@ 的结果",
+                scannedAtFormat: "扫描于 %@",
+                totalLabel: "合计",
+                noProjectsHint: "暂无可归因的项目数据。",
+                emptyCategoriesHint: "未找到本地数据目录。",
+                categories: chineseStorageCategoryCopy
+            )
+        case .traditionalChinese:
+            return StorageCopy(
+                sidebarTitle: "空間",
+                headerTitle: "空間詳情",
+                headerSubtitle: "按來源、專案和類型追蹤本地佔用",
+                totalCard: "總和",
+                bytesSuffix: "位元組",
+                shareFormat: "佔 %@",
+                fileCountCard: "檔案數",
+                fileCountHint: "包含所有來源",
+                recentCard: "最近 14 天新增",
+                filesFormat: "%@ 個檔案",
+                sourceTitle: "來源分佈（按佔用大小）",
+                totalFormat: "總計 %@",
+                projectsTitle: "最大專案（按佔用）",
+                colProject: "專案",
+                colApp: "應用",
+                colSize: "佔用",
+                colTokens: "Token",
+                colTurns: "回合",
+                colAdvice: "建議",
+                adviceKeep: "保留",
+                adviceReview: "謹慎清理",
+                growthTitle: "近 14 天增長（按實際磁碟佔用）",
+                otherSeries: "其他",
+                riskTitle: "風險構成",
+                riskSafe: "可安全清理",
+                riskReview: "需確認",
+                riskAvoid: "不建議清理",
+                filterAll: "全部分類",
+                sortBySize: "按佔用大小",
+                sortByRecent: "按最近活躍",
+                sortByName: "按名稱",
+                searchPlaceholder: "篩選路徑或專案",
+                caveat: "大小為實際磁碟佔用，統計口徑可能與應用用量不同。",
+                openInFinder: "在 Finder 中開啟",
+                exportReport: "匯出報告…",
+                refreshButton: "重新整理",
+                revealInFinder: "在 Finder 中顯示",
+                copyPath: "複製路徑",
+                scanningLabel: "正在掃描本地佔用…",
+                rescanBannerFormat: "正在背景重新掃描… 目前顯示 %@ 的結果",
+                scannedAtFormat: "掃描於 %@",
+                totalLabel: "合計",
+                noProjectsHint: "暫無可歸因的專案資料。",
+                emptyCategoriesHint: "未找到本地資料目錄。",
+                categories: traditionalChineseStorageCategoryCopy
+            )
+        case .japanese:
+            return StorageCopy(
+                sidebarTitle: "ストレージ",
+                headerTitle: "ストレージ詳細",
+                headerSubtitle: "ソース・プロジェクト・種類別のローカル使用量",
+                totalCard: "合計",
+                bytesSuffix: "バイト",
+                shareFormat: "%@ を占有",
+                fileCountCard: "ファイル数",
+                fileCountHint: "すべてのソースを含む",
+                recentCard: "直近 14 日の増加",
+                filesFormat: "%@ ファイル",
+                sourceTitle: "ソース分布（使用量順）",
+                totalFormat: "合計 %@",
+                projectsTitle: "上位プロジェクト（使用量順）",
+                colProject: "プロジェクト",
+                colApp: "アプリ",
+                colSize: "使用量",
+                colTokens: "Token",
+                colTurns: "ターン",
+                colAdvice: "推奨",
+                adviceKeep: "保持",
+                adviceReview: "要確認",
+                growthTitle: "直近 14 日の増加（実ディスク使用量）",
+                otherSeries: "その他",
+                riskTitle: "リスク構成",
+                riskSafe: "安全に削除可",
+                riskReview: "要確認",
+                riskAvoid: "削除非推奨",
+                filterAll: "すべての分類",
+                sortBySize: "使用量順",
+                sortByRecent: "最近の活動順",
+                sortByName: "名前順",
+                searchPlaceholder: "パスやプロジェクトを検索",
+                caveat: "サイズは実ディスク使用量です。アプリの使用量とは基準が異なる場合があります。",
+                openInFinder: "Finder で開く",
+                exportReport: "レポートを書き出す…",
+                refreshButton: "再スキャン",
+                revealInFinder: "Finder に表示",
+                copyPath: "パスをコピー",
+                scanningLabel: "ローカル使用量をスキャン中…",
+                rescanBannerFormat: "バックグラウンドで再スキャン中… %@ 時点の結果を表示",
+                scannedAtFormat: "スキャン: %@",
+                totalLabel: "合計",
+                noProjectsHint: "プロジェクトデータがありません。",
+                emptyCategoriesHint: "ローカルデータが見つかりません。",
+                categories: japaneseStorageCategoryCopy
+            )
+        default:
+            return StorageCopy(
+                sidebarTitle: "Storage",
+                headerTitle: "Storage Details",
+                headerSubtitle: "Track local usage by source, project, and type",
+                totalCard: "Total",
+                bytesSuffix: "bytes",
+                shareFormat: "%@ of total",
+                fileCountCard: "Files",
+                fileCountHint: "All sources included",
+                recentCard: "Added in last 14 days",
+                filesFormat: "%@ files",
+                sourceTitle: "Sources by size",
+                totalFormat: "Total %@",
+                projectsTitle: "Top projects by size",
+                colProject: "Project",
+                colApp: "App",
+                colSize: "Size",
+                colTokens: "Tokens",
+                colTurns: "Turns",
+                colAdvice: "Advice",
+                adviceKeep: "Keep",
+                adviceReview: "Review",
+                growthTitle: "Growth in last 14 days (disk usage)",
+                otherSeries: "Other",
+                riskTitle: "Risk breakdown",
+                riskSafe: "Safe to clear",
+                riskReview: "Review first",
+                riskAvoid: "Do not clean",
+                filterAll: "All categories",
+                sortBySize: "By size",
+                sortByRecent: "By recent activity",
+                sortByName: "By name",
+                searchPlaceholder: "Filter path or project",
+                caveat: "Sizes are actual disk usage and may differ from in-app usage metrics.",
+                openInFinder: "Open in Finder",
+                exportReport: "Export report…",
+                refreshButton: "Rescan",
+                revealInFinder: "Reveal in Finder",
+                copyPath: "Copy path",
+                scanningLabel: "Scanning local usage…",
+                rescanBannerFormat: "Rescanning in background… showing results from %@",
+                scannedAtFormat: "Scanned at %@",
+                totalLabel: "Total",
+                noProjectsHint: "No attributable project data yet.",
+                emptyCategoriesHint: "No local data directories found.",
+                categories: englishStorageCategoryCopy
+            )
+        }
+    }
+}
+
 final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
     let detailsView = UsageDetailsView(frame: NSRect(x: 0, y: 0, width: 900, height: 660))
     private let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 900, height: 660))
@@ -1290,6 +1824,7 @@ enum DetailsSection: CaseIterable {
     case insights
     case costs
     case models
+    case storage
     case settings
     case diagnostics
     case about
@@ -1301,6 +1836,7 @@ enum DetailsSection: CaseIterable {
         case .models: return t(.models)
         case .calendar: return t(.calendar)
         case .costs: return t(.costs)
+        case .storage: return AppLanguage.current.storageCopy.sidebarTitle
         case .settings: return t(.settings)
         case .diagnostics: return t(.diagnostics)
         case .about: return t(.about)
@@ -1314,6 +1850,7 @@ enum DetailsSection: CaseIterable {
         case .models: return t(.modelsSubtitle)
         case .calendar: return t(.calendarSubtitle)
         case .costs: return t(.costsSubtitle)
+        case .storage: return AppLanguage.current.storageCopy.headerSubtitle
         case .settings: return t(.settingsSubtitle)
         case .diagnostics: return t(.diagnosticsSubtitle)
         case .about: return t(.aboutSubtitle)
@@ -1324,14 +1861,18 @@ enum DetailsSection: CaseIterable {
         switch self {
         case .insights:
             return AppLanguage.current.insightCopy.headerTitle
-        default:
+        case .storage:
+            return AppLanguage.current.storageCopy.headerTitle
+        case .overview:
             return t(.usageDetails)
+        default:
+            return title
         }
     }
 
     var canRenderWithoutSnapshot: Bool {
         switch self {
-        case .settings, .about:
+        case .settings, .about, .storage:
             return true
         default:
             return false
@@ -1369,7 +1910,7 @@ final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
     }
 }
 
-final class UsageDetailsView: NSView, NSTextFieldDelegate {
+final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate {
     private struct CostRingCache {
         let key: String
         let image: NSImage
@@ -1522,6 +2063,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             if selectedSection != .overview {
                 hoveredContributionDay = nil
             }
+            if selectedSection != .storage {
+                hoveredStorageCellKey = nil
+                hoveredStorageSourceID = nil
+            }
+            if selectedSection == .storage {
+                requestStorageScanIfNeeded()
+            }
             onPreferredHeightChanged?()
             needsDisplay = true
             needsLayout = true
@@ -1608,6 +2156,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private let displayCurrencyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let costYearPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let languagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let storageFilterPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let storageSortPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let storageSearchField = NSSearchField()
     private let showHistoricalEmptyWeeksSwitch = NSSwitch(frame: .zero)
     private let launchAtLoginSwitch = NSSwitch(frame: .zero)
     private let showCodexStatusSwitch = NSSwitch(frame: .zero)
@@ -1616,6 +2167,61 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     private let claudeActiveQuotaRefreshSwitch = NSSwitch(frame: .zero)
     private var isUpdatingCostControls = false
     private var detailsTrackingArea: NSTrackingArea?
+
+    var storageSnapshot: StorageSnapshot? {
+        didSet {
+            if selectedStorageCategoryID == nil, let storageSnapshot {
+                selectedStorageCategoryID = storageSnapshot.categories
+                    .filter { $0.bytes > 0 }
+                    .max { $0.bytes < $1.bytes }?
+                    .id
+            }
+            onPreferredHeightChanged?()
+            needsDisplay = true
+            needsLayout = true
+        }
+    }
+    var isStorageScanning = false {
+        didSet {
+            onPreferredHeightChanged?()
+            needsDisplay = true
+            needsLayout = true
+        }
+    }
+    var onStorageScanRequested: (() -> Void)?
+
+    private enum StorageSortOption: CaseIterable {
+        case size
+        case recent
+        case name
+    }
+
+    private struct StorageGrowthCell {
+        let key: String
+        let rect: NSRect
+        let title: String
+        let rows: [(StorageCategoryID, Int64)]
+        let total: Int64
+    }
+
+    private var storageSortOption: StorageSortOption = .size
+    private var storageFilterCategory: StorageCategoryID?
+    private var storageSearchText = ""
+    private var selectedStorageCategoryID: StorageCategoryID?
+    private var hoveredStorageCellKey: String?
+    private var hoveredStorageSourceID: StorageCategoryID?
+    private var storageGrowthCells: [StorageGrowthCell] = []
+    private var storageSourceRowRects: [StorageCategoryID: NSRect] = [:]
+    private var storageSourceMenuRects: [StorageCategoryID: NSRect] = [:]
+    private var storageOpenFinderRect: NSRect?
+    private var storageExportRect: NSRect?
+    private var storageRefreshRect: NSRect?
+
+    private func requestStorageScanIfNeeded() {
+        guard storageSnapshot == nil, !isStorageScanning else { return }
+        isStorageScanning = true
+        onStorageScanRequested?()
+    }
 
     func showUsagePage() {
         selectedSection = .overview
@@ -1653,12 +2259,26 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         selectedSection = .settings
     }
 
+    private let detailsSidebarWidth: CGFloat = 200
+
     private var showsDetailsSourceSelector: Bool {
         switch selectedSection {
-        case .overview, .models, .calendar, .costs, .diagnostics:
+        case .overview, .models, .calendar, .costs, .diagnostics, .storage:
             return true
         case .insights, .settings, .about:
             return false
+        }
+    }
+
+    /// Form-like pages cap their content width so labels on the left and
+    /// controls/values on the right stay visually paired in wide windows.
+    private func sectionContent(for section: DetailsSection, in bounds: NSRect, sidebarWidth: CGFloat) -> NSRect {
+        let full = NSRect(x: sidebarWidth + 28, y: 28, width: bounds.width - sidebarWidth - 56, height: bounds.height - 56)
+        switch section {
+        case .settings, .diagnostics, .about:
+            return NSRect(x: full.minX, y: full.minY, width: min(full.width, 920), height: full.height)
+        default:
+            return full
         }
     }
 
@@ -1727,6 +2347,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         super.layout()
         layoutCostControls()
         layoutSettingsControls()
+        layoutStorageControls()
     }
 
     override func updateTrackingAreas() {
@@ -1849,6 +2470,30 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         costYearPopup.action = #selector(costYearPopupChanged)
         languagePopup.target = self
         languagePopup.action = #selector(languagePopupChanged)
+
+        for popup in [storageFilterPopup, storageSortPopup] {
+            popup.controlSize = .small
+            popup.font = .systemFont(ofSize: 11, weight: .semibold)
+            popup.isBordered = false
+            popup.isHidden = true
+            popup.wantsLayer = true
+            popup.layer?.cornerRadius = 7
+            popup.layer?.backgroundColor = inputSurfaceColor.cgColor
+            popup.appearance = NSAppearance(named: .darkAqua)
+            addSubview(popup)
+        }
+        storageFilterPopup.target = self
+        storageFilterPopup.action = #selector(storageFilterPopupChanged)
+        storageSortPopup.target = self
+        storageSortPopup.action = #selector(storageSortPopupChanged)
+        storageSearchField.controlSize = .small
+        storageSearchField.font = .systemFont(ofSize: 11)
+        storageSearchField.isHidden = true
+        storageSearchField.appearance = NSAppearance(named: .darkAqua)
+        storageSearchField.delegate = self
+        storageSearchField.sendsWholeSearchString = false
+        storageSearchField.sendsSearchStringImmediately = true
+        addSubview(storageSearchField)
     }
 
     private func layoutCostControls() {
@@ -1862,17 +2507,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         showHistoricalEmptyWeeksToggleRect = nil
         guard visible else { return }
 
-        let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
-        let settingsRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 244)
+        let content = NSRect(x: detailsSidebarWidth + 28, y: 28, width: bounds.width - detailsSidebarWidth - 56, height: bounds.height - 56)
+        let summaryHeight: CGFloat = 168
+        let settingsRect = NSRect(x: content.minX, y: content.minY + 78 + summaryHeight + 16, width: content.width, height: 244)
         let controlWidth = min(300, max(252, settingsRect.width * 0.34))
         let controlX = settingsRect.maxX - controlWidth - 16
         costAmountField.frame = NSRect(x: controlX, y: settingsRect.minY + 28, width: controlWidth, height: 44)
         paymentStartDayField.frame = NSRect(x: controlX, y: settingsRect.minY + 82, width: controlWidth, height: 36)
         paymentCurrencyPopup.frame = NSRect(x: controlX, y: settingsRect.minY + 132, width: controlWidth, height: 36)
         displayCurrencyPopup.frame = NSRect(x: controlX, y: settingsRect.minY + 182, width: controlWidth, height: 36)
-        let summaryY = settingsRect.maxY + 16
-        let summaryHeight: CGFloat = 168
-        let chartY = summaryY + summaryHeight + 16
+        let chartY = settingsRect.maxY + 16
         let chartRect = NSRect(x: content.minX, y: chartY, width: content.width, height: 332)
         let headerLayout = costHistoryHeaderLayout(chartRect: chartRect)
         costYearPopup.frame = headerLayout.yearRect
@@ -1889,7 +2533,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         claudeActiveQuotaRefreshSwitch.isHidden = !visible
         guard visible else { return }
 
-        let content = NSRect(x: 220 + 28, y: 28, width: bounds.width - 220 - 56, height: bounds.height - 56)
+        let content = sectionContent(for: .settings, in: bounds, sidebarWidth: detailsSidebarWidth)
         let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(692, content.height - 78))
         let popupWidth = min(300, max(252, rect.width * 0.34))
         languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
@@ -1970,7 +2614,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     func preferredDocumentHeight(for width: CGFloat) -> CGFloat {
         let minHeight: CGFloat = selectedSection == .calendar ? 620 : 660
         let normalizedWidth = max(860, width)
-        let contentWidth = normalizedWidth - 220 - 56
+        let contentWidth = normalizedWidth - detailsSidebarWidth - 56
 
         let targetHeight: CGFloat
         switch selectedSection {
@@ -2013,6 +2657,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             targetHeight = firstBlock + secondBlock + bottomPadding
         case .diagnostics:
             targetHeight = 714
+        case .storage:
+            if storageSnapshot != nil {
+                let content = NSRect(x: 0, y: 28, width: contentWidth, height: 0)
+                targetHeight = storagePageLayout(content: content).totalHeight
+            } else {
+                targetHeight = 660
+            }
         case .settings:
             targetHeight = 812
         case .about:
@@ -2174,6 +2825,32 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         updateContributionDayHover(at: point)
         updateContributionWeekHover(at: point)
         updateInsightUsageTimeHover(at: point)
+        updateStorageGrowthHover(at: point)
+    }
+
+    private func updateStorageGrowthHover(at point: CGPoint) {
+        guard selectedSection == .storage else {
+            if hoveredStorageCellKey != nil || hoveredStorageSourceID != nil {
+                hoveredStorageCellKey = nil
+                hoveredStorageSourceID = nil
+                needsDisplay = true
+            }
+            return
+        }
+        let match = storageGrowthCells.first { $0.rect.insetBy(dx: -2, dy: -2).contains(point) }
+        if hoveredStorageCellKey != match?.key {
+            hoveredStorageCellKey = match?.key
+            needsDisplay = true
+        }
+        let sourceMatch = storageSourceRowRects.first { entry in
+            var zone = entry.value
+            zone.size.width = max(0, zone.width - 130)
+            return zone.contains(point)
+        }?.key
+        if hoveredStorageSourceID != sourceMatch {
+            hoveredStorageSourceID = sourceMatch
+            needsDisplay = true
+        }
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -2183,6 +2860,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         hoveredContributionWeekKey = nil
         hoveredInsightHour = nil
         hoveredInsightPeriod = nil
+        hoveredStorageCellKey = nil
+        hoveredStorageSourceID = nil
         isHoveringDayValueInfo = false
         isHoveringProfileAPIInfo = false
         needsDisplay = true
@@ -2212,6 +2891,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         }
         if hoveredInsightPeriod != nil {
             hoveredInsightPeriod = nil
+            shouldRedraw = true
+        }
+        if hoveredStorageCellKey != nil {
+            hoveredStorageCellKey = nil
+            shouldRedraw = true
+        }
+        if hoveredStorageSourceID != nil {
+            hoveredStorageSourceID = nil
             shouldRedraw = true
         }
         if isHoveringDayValueInfo {
@@ -2387,6 +3074,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             for (key, rect) in insightRowRects where rect.contains(point) {
                 selectedInsightKey = key
                 needsDisplay = true
+                return
+            }
+        }
+        if selectedSection == .storage {
+            if handleStorageMouseDown(at: point) {
                 return
             }
         }
@@ -2588,7 +3280,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     override func draw(_ dirtyRect: NSRect) {
         NSGradient(starting: appBackgroundTop, ending: appBackgroundBottom)?.draw(in: bounds, angle: -90)
 
-        let sidebarWidth: CGFloat = 220
+        let sidebarWidth = detailsSidebarWidth
         sidebarBackgroundColor.setFill()
         NSRect(x: 0, y: 0, width: sidebarWidth, height: bounds.height).fill()
         borderColor.setStroke()
@@ -2596,7 +3288,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
 
         drawSidebar(width: sidebarWidth)
 
-        let content = NSRect(x: sidebarWidth + 28, y: 28, width: bounds.width - sidebarWidth - 56, height: bounds.height - 56)
+        let content = sectionContent(for: selectedSection, in: bounds, sidebarWidth: sidebarWidth)
         contributionDayRects.removeAll()
         contributionDaySummaries.removeAll()
         contributionWeekSummaries.removeAll()
@@ -2621,6 +3313,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         chooseLogFolderRect = nil
         resetLogFolderRect = nil
         openLogFolderRect = nil
+        storageGrowthCells.removeAll()
+        storageSourceRowRects.removeAll()
+        storageSourceMenuRects.removeAll()
+        storageOpenFinderRect = nil
+        storageExportRect = nil
+        storageRefreshRect = nil
 
         let sourceSelectorWidth: CGFloat = showsDetailsSourceSelector ? min(286, max(246, content.width * 0.31)) : 0
         let headerTextWidth = showsDetailsSourceSelector ? max(260, content.width - sourceSelectorWidth - 18) : content.width
@@ -2628,6 +3326,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawText(currentDetailsHeaderSubtitle, rect: NSRect(x: content.minX, y: content.minY + 36, width: headerTextWidth, height: 20), font: .systemFont(ofSize: 13, weight: .medium), color: NSColor.white.withAlphaComponent(0.56))
         if showsDetailsSourceSelector {
             drawDetailsSourceSelector(content: content, width: sourceSelectorWidth)
+        }
+
+        if selectedSection == .storage {
+            drawStoragePage(content: content)
+            drawStorageGrowthTooltip(container: content)
+            drawStorageSourceTooltip(container: content)
+            return
         }
 
         guard let snapshot else {
@@ -2658,6 +3363,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             drawSettingsPage(content: content)
         case .diagnostics:
             drawDiagnosticsPage(snapshot: snapshot, content: content)
+        case .storage:
+            break
         case .about:
             drawAboutPage(content: content)
         }
@@ -2762,8 +3469,42 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
                 NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
             }
             let textColor = section == selectedSection ? NSColor.white : NSColor.white.withAlphaComponent(0.82)
-            drawText(section.title, rect: NSRect(x: rect.minX + 22, y: rect.minY + 10, width: rect.width - 44, height: 22), font: .systemFont(ofSize: 15, weight: .semibold), color: textColor)
+            let iconRect = NSRect(x: rect.minX + 14, y: rect.minY + 12, width: 18, height: 18)
+            drawSymbolIcon(sidebarSymbolName(section), in: iconRect, color: textColor.withAlphaComponent(section == selectedSection ? 1.0 : 0.72))
+            drawText(section.title, rect: NSRect(x: rect.minX + 42, y: rect.minY + 10, width: rect.width - 56, height: 22), font: .systemFont(ofSize: 15, weight: .semibold), color: textColor)
         }
+    }
+
+    private func sidebarSymbolName(_ section: DetailsSection) -> String {
+        switch section {
+        case .overview: return "square.grid.2x2"
+        case .calendar: return "calendar"
+        case .insights: return "waveform.path.ecg"
+        case .costs: return "creditcard"
+        case .models: return "cpu"
+        case .storage: return "internaldrive"
+        case .settings: return "gearshape"
+        case .diagnostics: return "stethoscope"
+        case .about: return "info.circle"
+        }
+    }
+
+    private func drawSymbolIcon(_ name: String, in rect: NSRect, color: NSColor, pointSize: CGFloat = 13) {
+        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)) else { return }
+        let tinted = NSImage(size: base.size)
+        tinted.lockFocus()
+        base.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1.0)
+        color.set()
+        NSRect(origin: .zero, size: base.size).fill(using: .sourceAtop)
+        tinted.unlockFocus()
+        let target = NSRect(
+            x: rect.midX - base.size.width / 2,
+            y: rect.midY - base.size.height / 2,
+            width: base.size.width,
+            height: base.size.height
+        )
+        tinted.draw(in: target, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
     }
 
     private func drawOverview(snapshot: DetailsSnapshot, content: NSRect) {
@@ -4425,7 +5166,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let costData = costPageData(for: snapshot, limit: limit, year: selectedCostYear)
         let estimate = costData.estimate
 
-        let settingsRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 244)
+        let summaryRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 168)
+        let settingsRect = NSRect(x: content.minX, y: summaryRect.maxY + 16, width: content.width, height: 244)
         let controlWidth = min(300, max(252, settingsRect.width * 0.34))
         let controlX = settingsRect.maxX - controlWidth - 16
         let labelX = settingsRect.minX + 16
@@ -4434,6 +5176,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let centeredLabelY: (NSRect) -> CGFloat = { frame in
             frame.midY - 10
         }
+        drawCostOverviewPanel(estimate: estimate, apiEstimate: costData.apiEstimate, source: costSource, rect: summaryRect)
         drawPanel(settingsRect)
         let planTitle = costSource == .all ? "\(t(.planCost)) · \(t(.all))" : "\(t(.planCost)) · \(costSource.shortTitle)"
         drawText(planTitle, rect: NSRect(x: settingsRect.minX + 16, y: settingsRect.minY + 14, width: 300, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
@@ -4447,12 +5190,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawInputFieldBackground(costAmountField.frame)
         drawInputFieldBackground(paymentStartDayField.frame)
 
-        let summaryY = settingsRect.maxY + 16
-        let summaryHeight: CGFloat = 168
-        let summaryRect = NSRect(x: content.minX, y: summaryY, width: content.width, height: summaryHeight)
-        drawCostOverviewPanel(estimate: estimate, apiEstimate: costData.apiEstimate, source: costSource, rect: summaryRect)
-
-        let chartY = summaryRect.maxY + 16
+        let chartY = settingsRect.maxY + 16
         let chartRect = NSRect(x: content.minX, y: chartY, width: content.width, height: 332)
         drawPanel(chartRect)
         let headerLayout = costHistoryHeaderLayout(chartRect: chartRect)
@@ -5325,14 +6063,39 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         drawText(t(.dataSourceLine2), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 78, width: sourceRect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
     }
 
+    /// Pads sparse "past year" day data to a full 53-week range ending at the
+    /// last data day, so the contribution grid keeps GitHub-style fixed-size
+    /// cells instead of stretching a handful of days across the panel.
+    private func paddedContributionDays(_ days: [DayUsage]) -> [DayUsage] {
+        let totalDays = 53 * 7
+        let formatter = dayFormatter()
+        guard days.count < totalDays,
+              let lastDay = days.last?.day,
+              let firstDay = days.first?.day,
+              let lastDate = formatter.date(from: lastDay),
+              let firstDate = formatter.date(from: firstDay),
+              let windowStart = appCalendar().date(byAdding: .day, value: -(totalDays - 1), to: lastDate),
+              firstDate >= windowStart else { return days }
+        var byKey: [String: DayUsage] = [:]
+        for day in days { byKey[day.day] = day }
+        var padded: [DayUsage] = []
+        padded.reserveCapacity(totalDays)
+        for offset in stride(from: totalDays - 1, through: 0, by: -1) {
+            guard let date = appCalendar().date(byAdding: .day, value: -offset, to: lastDate) else { continue }
+            let key = formatter.string(from: date)
+            padded.append(byKey[key] ?? DayUsage(day: key, usage: Usage(), turns: 0))
+        }
+        return padded
+    }
+
     private func drawContributionGrid(report: TokenReport, rect: NSRect, title: String, compact: Bool) {
         drawPanel(rect)
         drawText(title, rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
-        let days = report.byDay
-        guard !days.isEmpty else {
+        guard !report.byDay.isEmpty else {
             drawText(t(.noDailyTokenData), rect: NSRect(x: rect.minX + 16, y: rect.minY + 52, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
             return
         }
+        let days = paddedContributionDays(report.byDay)
 
         let maxTotal = max(days.map { $0.usage.total }.max() ?? 1, 1)
         let useCalendarGrid = !compact || days.count > 90
@@ -5347,7 +6110,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let bottom: CGFloat = compact ? 44 : 50
         let availableW = max(40, rect.width - left - right)
         let availableH = max(40, rect.height - top - bottom)
-        let square = floor(min((availableW - gap * CGFloat(max(columns - 1, 0))) / CGFloat(max(columns, 1)), (availableH - gap * CGFloat(max(rows - 1, 0))) / CGFloat(max(rows, 1))))
+        let square = min(
+            compact ? 16 : 18,
+            floor(min((availableW - gap * CGFloat(max(columns - 1, 0))) / CGFloat(max(columns, 1)), (availableH - gap * CGFloat(max(rows - 1, 0))) / CGFloat(max(rows, 1))))
+        )
         let gridH = CGFloat(rows) * square + CGFloat(max(rows - 1, 0)) * gap
         let startX = rect.minX + left
         let startY = rect.minY + top
@@ -5366,9 +6132,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             let row = useCalendarGrid ? index % 7 : index / columns
             let cell = NSRect(x: startX + CGFloat(col) * (square + gap), y: startY + CGFloat(row) * (square + gap), width: square, height: square)
             cells.append((day: day, rect: cell, column: col))
-            contributionDayRects[day.day] = cell
-            if enableDayHover {
-                contributionDaySummaries[day.day] = ContributionDaySummary(day: day, hitRect: cell)
+            if day.usage.total > 0 || day.turns > 0 {
+                contributionDayRects[day.day] = cell
+                if enableDayHover {
+                    contributionDaySummaries[day.day] = ContributionDaySummary(day: day, hitRect: cell)
+                }
             }
             if enableWeekHover {
                 weekCells[col, default: []].append(cell)
@@ -5392,7 +6160,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         if enableWeekHover {
             var summaries: [String: ContributionWeekSummary] = [:]
             for column in 0..<columns {
-                guard let rects = weekCells[column], !rects.isEmpty else { continue }
+                guard let rects = weekCells[column], !rects.isEmpty,
+                      (weekTotals[column] ?? 0) > 0 else { continue }
                 let key = "week-\(column)-\(weekStartDays[column] ?? "")"
                 let unionRect = rects.dropFirst().reduce(rects[0]) { partial, cell in
                     partial.union(cell)
@@ -5723,10 +6492,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
     }
 
     private func contributionGridPreferredHeight(report: TokenReport, width: CGFloat, compact: Bool) -> CGFloat {
-        let days = report.byDay
-        guard !days.isEmpty else {
+        guard !report.byDay.isEmpty else {
             return compact ? 112 : 128
         }
+        let days = paddedContributionDays(report.byDay)
         let useCalendarGrid = !compact || days.count > 90
         let columns = useCalendarGrid ? Int(ceil(Double(days.count) / 7.0)) : min(days.count, 15)
         let rows = useCalendarGrid ? 7 : Int(ceil(Double(days.count) / Double(max(columns, 1))))
@@ -5735,7 +6504,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
         let right: CGFloat = compact ? 18 : 26
         let top: CGFloat = compact ? 42 : 48
         let availableW = max(40, width - left - right)
-        let square = floor((availableW - gap * CGFloat(max(columns - 1, 0))) / CGFloat(max(columns, 1)))
+        let square = min(
+            compact ? 16 : 18,
+            floor((availableW - gap * CGFloat(max(columns - 1, 0))) / CGFloat(max(columns, 1)))
+        )
         let gridH = CGFloat(rows) * max(6, square) + CGFloat(max(rows - 1, 0)) * gap
         let labelAndHintHeight: CGFloat = compact ? 48 : 54
         return ceil(top + gridH + labelAndHintHeight)
@@ -5779,6 +6551,858 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate {
             formatter.dateFormat = "MMM"
         }
         return formatter.string(from: date)
+    }
+
+    // MARK: - Storage page
+
+    private struct StoragePageLayout {
+        var banner: NSRect?
+        var toolbar: NSRect
+        var cards: NSRect
+        var source: NSRect
+        var projects: NSRect
+        var growth: NSRect
+        var risk: NSRect
+        var footer: NSRect
+        var totalHeight: CGFloat
+    }
+
+    private func storagePageLayout(content: NSRect) -> StoragePageLayout {
+        let wide = content.width >= 900
+        var y = content.minY + 78
+        var banner: NSRect?
+        if isStorageScanning, storageSnapshot != nil {
+            banner = NSRect(x: content.minX, y: y, width: content.width, height: 34)
+            y += 44
+        }
+        let toolbar = NSRect(x: content.minX, y: y, width: content.width, height: 28)
+        y = toolbar.maxY + 12
+        let cards = NSRect(x: content.minX, y: y, width: content.width, height: 84)
+        y = cards.maxY + 14
+
+        let sourceRows = CGFloat(max(1, storageVisibleCategories().count))
+        let sourceHeight = 46 + sourceRows * 52 + 14
+        let source: NSRect
+        let projects: NSRect
+        if wide {
+            let sourceW = floor((content.width - 16) * 0.52)
+            let middleH = max(sourceHeight, 420)
+            source = NSRect(x: content.minX, y: y, width: sourceW, height: middleH)
+            projects = NSRect(x: source.maxX + 16, y: y, width: content.width - sourceW - 16, height: middleH)
+            y = source.maxY + 16
+        } else {
+            source = NSRect(x: content.minX, y: y, width: content.width, height: sourceHeight)
+            projects = NSRect(x: content.minX, y: source.maxY + 16, width: content.width, height: 420)
+            y = projects.maxY + 16
+        }
+
+        let growth: NSRect
+        let risk: NSRect
+        if wide {
+            let growthW = floor((content.width - 16) * 0.62)
+            growth = NSRect(x: content.minX, y: y, width: growthW, height: 244)
+            risk = NSRect(x: growth.maxX + 16, y: y, width: content.width - growthW - 16, height: 244)
+            y = growth.maxY + 16
+        } else {
+            growth = NSRect(x: content.minX, y: y, width: content.width, height: 244)
+            risk = NSRect(x: content.minX, y: growth.maxY + 16, width: content.width, height: 230)
+            y = risk.maxY + 16
+        }
+        let footer = NSRect(x: content.minX, y: y, width: content.width, height: 36)
+        return StoragePageLayout(
+            banner: banner,
+            toolbar: toolbar,
+            cards: cards,
+            source: source,
+            projects: projects,
+            growth: growth,
+            risk: risk,
+            footer: footer,
+            totalHeight: footer.maxY + 44
+        )
+    }
+
+    private func storagePlatformCategories() -> [StorageCategoryUsage] {
+        guard let snap = storageSnapshot else { return [] }
+        return snap.categories
+            .filter { category in
+                (selectedDetailsSource == .all || category.id.platform == selectedDetailsSource)
+                    && (category.bytes > 0 || category.fileCount > 0)
+            }
+            .sorted { $0.bytes > $1.bytes }
+    }
+
+    private func storageVisibleCategories() -> [StorageCategoryUsage] {
+        let base = storagePlatformCategories()
+        guard let filter = storageFilterCategory, base.contains(where: { $0.id == filter }) else { return base }
+        return base.filter { $0.id == filter }
+    }
+
+    private func selectedStorageUsage() -> StorageCategoryUsage? {
+        let visible = storagePlatformCategories()
+        if let id = selectedStorageCategoryID, let match = visible.first(where: { $0.id == id }) {
+            return match
+        }
+        return visible.first
+    }
+
+    private func storageDayTotal(_ day: String, snap: StorageSnapshot) -> Int64 {
+        let ids = Set(storageVisibleCategories().map { $0.id.rawValue })
+        guard let perCategory = snap.dailyGrowth[day] else { return 0 }
+        return perCategory.reduce(Int64(0)) { partial, entry in
+            ids.contains(entry.key) ? partial + entry.value : partial
+        }
+    }
+
+    private func storageGrowthBreakdown(days: [String], snap: StorageSnapshot) -> [(StorageCategoryID, Int64)] {
+        let ids = Set(storageVisibleCategories().map { $0.id })
+        var totals: [StorageCategoryID: Int64] = [:]
+        for day in days {
+            guard let perCategory = snap.dailyGrowth[day] else { continue }
+            for (raw, bytes) in perCategory {
+                guard let id = StorageCategoryID(rawValue: raw), ids.contains(id) else { continue }
+                totals[id, default: 0] += bytes
+            }
+        }
+        return totals.sorted { $0.value > $1.value }
+    }
+
+    private func storageFilteredProjects() -> [StorageProjectUsage] {
+        guard let snap = storageSnapshot else { return [] }
+        var rows = snap.projects.filter { project in
+            selectedDetailsSource == .all || project.platform == selectedDetailsSource
+        }
+        let query = storageSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            rows = rows.filter {
+                $0.name.localizedCaseInsensitiveContains(query) || $0.path.localizedCaseInsensitiveContains(query)
+            }
+        }
+        switch storageSortOption {
+        case .size:
+            rows.sort { $0.bytes > $1.bytes }
+        case .recent:
+            rows.sort { ($0.newestModified ?? .distantPast) > ($1.newestModified ?? .distantPast) }
+        case .name:
+            rows.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+        return rows
+    }
+
+    private func storageInsight(for project: StorageProjectUsage) -> RepoInsight? {
+        guard let snapshot else { return nil }
+        let report: RepoInsightsReport
+        switch project.platform {
+        case .claude:
+            report = snapshot.claudeRepoInsights
+        case .codex:
+            report = snapshot.codexRepoInsights
+        case .all:
+            report = snapshot.repoInsights
+        }
+        return report.rows.first { $0.folders.contains(project.path) }
+            ?? report.rows.first { $0.primaryFolder == project.path }
+            ?? report.rows.first { $0.displayName.caseInsensitiveCompare(project.name) == .orderedSame }
+    }
+
+    private func storageProjectNeedsReview(_ project: StorageProjectUsage) -> Bool {
+        guard project.bytes > 300 * 1_048_576 else { return false }
+        guard let newest = project.newestModified else { return true }
+        return newest < Date().addingTimeInterval(-30 * 86_400)
+    }
+
+    private func storageCategoryColor(_ id: StorageCategoryID) -> NSColor {
+        switch id {
+        case .codexSessions: return .systemGreen
+        case .codexWorktrees: return accentBlue
+        case .codexBackups: return accentAmber
+        case .codexDatabase: return .systemPurple
+        case .codexImages: return .systemPink
+        case .codexPlugins: return .systemTeal
+        case .codexOther: return .systemGray
+        case .claudeProjects: return .systemOrange
+        case .claudeOther: return .systemBrown
+        }
+    }
+
+    private func storageRiskColor(_ risk: StorageRisk) -> NSColor {
+        switch risk {
+        case .safeToClear: return accentTeal
+        case .reviewFirst: return accentAmber
+        case .doNotClean: return accentRose
+        }
+    }
+
+    private func storageSymbolName(_ id: StorageCategoryID) -> String {
+        switch id {
+        case .codexSessions: return "doc.text"
+        case .codexWorktrees: return "folder"
+        case .codexBackups: return "archivebox"
+        case .codexDatabase: return "externaldrive"
+        case .codexImages: return "photo"
+        case .codexPlugins: return "puzzlepiece"
+        case .codexOther: return "shippingbox"
+        case .claudeProjects: return "cube"
+        case .claudeOther: return "tray.full"
+        }
+    }
+
+    private func drawStorageIcon(_ id: StorageCategoryID, in rect: NSRect) {
+        let color = storageCategoryColor(id)
+        color.withAlphaComponent(0.16).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
+        if let base = NSImage(systemSymbolName: storageSymbolName(id), accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)) {
+            let tinted = NSImage(size: base.size)
+            tinted.lockFocus()
+            base.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1.0)
+            color.set()
+            NSRect(origin: .zero, size: base.size).fill(using: .sourceAtop)
+            tinted.unlockFocus()
+            let target = NSRect(
+                x: rect.midX - base.size.width / 2,
+                y: rect.midY - base.size.height / 2,
+                width: base.size.width,
+                height: base.size.height
+            )
+            tinted.draw(in: target, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
+        } else {
+            color.setFill()
+            NSBezierPath(ovalIn: NSRect(x: rect.midX - 4, y: rect.midY - 4, width: 8, height: 8)).fill()
+        }
+    }
+
+    private func handleStorageMouseDown(at point: CGPoint) -> Bool {
+        if let rect = storageRefreshRect, rect.contains(point) {
+            if !isStorageScanning {
+                isStorageScanning = true
+                onStorageScanRequested?()
+            }
+            return true
+        }
+        if let rect = storageExportRect, rect.contains(point) {
+            exportStorageReport()
+            return true
+        }
+        if let rect = storageOpenFinderRect, rect.contains(point) {
+            if let path = selectedStorageUsage()?.roots.first {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+            }
+            return true
+        }
+        for (id, rect) in storageSourceMenuRects where rect.insetBy(dx: -4, dy: -4).contains(point) {
+            showStorageCategoryMenu(id, at: point)
+            return true
+        }
+        for (id, rect) in storageSourceRowRects where rect.contains(point) {
+            selectedStorageCategoryID = id
+            needsDisplay = true
+            return true
+        }
+        return false
+    }
+
+    private func showStorageCategoryMenu(_ id: StorageCategoryID, at point: CGPoint) {
+        let copy = AppLanguage.current.storageCopy
+        let menu = NSMenu()
+        let reveal = NSMenuItem(title: copy.revealInFinder, action: #selector(storageMenuReveal(_:)), keyEquivalent: "")
+        reveal.target = self
+        reveal.representedObject = id.rawValue
+        menu.addItem(reveal)
+        let copyItem = NSMenuItem(title: copy.copyPath, action: #selector(storageMenuCopyPath(_:)), keyEquivalent: "")
+        copyItem.target = self
+        copyItem.representedObject = id.rawValue
+        menu.addItem(copyItem)
+        menu.popUp(positioning: nil, at: point, in: self)
+    }
+
+    private func storageMenuCategory(_ sender: NSMenuItem) -> StorageCategoryUsage? {
+        guard let raw = sender.representedObject as? String,
+              let id = StorageCategoryID(rawValue: raw) else { return nil }
+        return storageSnapshot?.category(id)
+    }
+
+    @objc private func storageMenuReveal(_ sender: NSMenuItem) {
+        guard let path = storageMenuCategory(sender)?.roots.first else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    @objc private func storageMenuCopyPath(_ sender: NSMenuItem) {
+        guard let usage = storageMenuCategory(sender), !usage.roots.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(usage.roots.joined(separator: "\n"), forType: .string)
+    }
+
+    @objc private func storageFilterPopupChanged() {
+        let index = storageFilterPopup.indexOfSelectedItem
+        let cats = storagePlatformCategories()
+        if index <= 0 || index > cats.count {
+            storageFilterCategory = nil
+        } else {
+            storageFilterCategory = cats[index - 1].id
+        }
+        onPreferredHeightChanged?()
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    @objc private func storageSortPopupChanged() {
+        let options: [StorageSortOption] = [.size, .recent, .name]
+        let index = storageSortPopup.indexOfSelectedItem
+        if index >= 0 && index < options.count {
+            storageSortOption = options[index]
+        }
+        needsDisplay = true
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        guard let field = obj.object as? NSSearchField, field === storageSearchField else { return }
+        storageSearchText = field.stringValue
+        needsDisplay = true
+    }
+
+    private func layoutStorageControls() {
+        let visible = selectedSection == .storage && storageSnapshot != nil
+        storageFilterPopup.isHidden = !visible
+        storageSortPopup.isHidden = !visible
+        storageSearchField.isHidden = !visible
+        guard visible else { return }
+        let content = NSRect(x: detailsSidebarWidth + 28, y: 28, width: bounds.width - detailsSidebarWidth - 56, height: bounds.height - 56)
+        let bar = storagePageLayout(content: content).toolbar
+        let searchW = min(240, max(160, bar.width * 0.26))
+        storageSearchField.frame = NSRect(x: bar.maxX - searchW, y: bar.minY + 1, width: searchW, height: 26)
+        let sortW: CGFloat = 148
+        storageSortPopup.frame = NSRect(x: storageSearchField.frame.minX - 10 - sortW, y: bar.minY, width: sortW, height: 28)
+        let filterW: CGFloat = 148
+        storageFilterPopup.frame = NSRect(x: storageSortPopup.frame.minX - 10 - filterW, y: bar.minY, width: filterW, height: 28)
+        updateStoragePopupItems()
+    }
+
+    private func updateStoragePopupItems() {
+        let copy = AppLanguage.current.storageCopy
+        let cats = storagePlatformCategories()
+        let filterTitles = [copy.filterAll] + cats.map { copy.categories($0.id).name }
+        if storageFilterPopup.itemArray.map(\.title) != filterTitles {
+            storageFilterPopup.removeAllItems()
+            storageFilterPopup.addItems(withTitles: filterTitles)
+        }
+        let filterIndex = storageFilterCategory.flatMap { id in cats.firstIndex { $0.id == id }.map { $0 + 1 } } ?? 0
+        if storageFilterPopup.indexOfSelectedItem != filterIndex, filterIndex < storageFilterPopup.numberOfItems {
+            storageFilterPopup.selectItem(at: filterIndex)
+        }
+        let sortTitles = [copy.sortBySize, copy.sortByRecent, copy.sortByName]
+        if storageSortPopup.itemArray.map(\.title) != sortTitles {
+            storageSortPopup.removeAllItems()
+            storageSortPopup.addItems(withTitles: sortTitles)
+        }
+        let sortIndex = [StorageSortOption.size, .recent, .name].firstIndex(of: storageSortOption) ?? 0
+        if storageSortPopup.indexOfSelectedItem != sortIndex {
+            storageSortPopup.selectItem(at: sortIndex)
+        }
+        if storageSearchField.placeholderString != copy.searchPlaceholder {
+            storageSearchField.placeholderString = copy.searchPlaceholder
+        }
+    }
+
+    private func exportStorageReport() {
+        guard let snap = storageSnapshot, let window else { return }
+        let copy = AppLanguage.current.storageCopy
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "ai-token-meter-storage-report.md"
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            var lines: [String] = []
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyy-MM-dd HH:mm"
+            lines.append("# AI Token Meter · \(copy.headerTitle)")
+            lines.append("")
+            lines.append(String(format: copy.scannedAtFormat, formatter.string(from: snap.scannedAt)))
+            lines.append("")
+            lines.append("| \(copy.sourceTitle) | \(copy.colSize) | \(copy.colAdvice) |")
+            lines.append("| --- | ---: | --- |")
+            for usage in snap.categories.sorted(by: { $0.bytes > $1.bytes }) where usage.bytes > 0 {
+                let name = copy.categories(usage.id).name
+                lines.append("| \(name) (\(usage.roots.joined(separator: ", "))) | \(storageByteText(usage.bytes)) | \(copy.riskLabel(usage.id.risk)) |")
+            }
+            lines.append("")
+            lines.append("| \(copy.colProject) | \(copy.colApp) | \(copy.colSize) |")
+            lines.append("| --- | --- | ---: |")
+            for project in snap.projects.prefix(20) {
+                lines.append("| \(project.path) | \(project.platform == .claude ? "Claude" : "Codex") | \(storageByteText(project.bytes)) |")
+            }
+            lines.append("")
+            lines.append("> \(copy.caveat)")
+            do {
+                try lines.joined(separator: "\n").data(using: .utf8)?.write(to: url, options: [.atomic])
+                NSWorkspace.shared.open(url)
+            } catch {
+                NSSound.beep()
+            }
+        }
+    }
+
+    private func drawStoragePage(content: NSRect) {
+        let copy = AppLanguage.current.storageCopy
+        guard let snap = storageSnapshot else {
+            drawText(copy.scanningLabel, rect: NSRect(x: content.minX, y: content.minY + 92, width: content.width, height: 24), font: .systemFont(ofSize: 15, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
+            return
+        }
+        let layout = storagePageLayout(content: content)
+        if let banner = layout.banner {
+            drawStorageBanner(snap: snap, copy: copy, rect: banner)
+        }
+        drawStorageStatCards(snap: snap, copy: copy, rect: layout.cards)
+        drawStorageSourcePanel(snap: snap, copy: copy, rect: layout.source)
+        drawStorageProjectsPanel(snap: snap, copy: copy, rect: layout.projects)
+        drawStorageGrowthChart(snap: snap, copy: copy, rect: layout.growth)
+        drawStorageRiskPanel(snap: snap, copy: copy, rect: layout.risk)
+        drawStorageFooter(snap: snap, copy: copy, rect: layout.footer)
+    }
+
+    private func drawStorageBanner(snap: StorageSnapshot, copy: StorageCopy, rect: NSRect) {
+        accentBlue.withAlphaComponent(0.10).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+        accentBlue.withAlphaComponent(0.32).setStroke()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+        let dot = NSRect(x: rect.minX + 14, y: rect.midY - 4, width: 8, height: 8)
+        accentBlue.setFill()
+        NSBezierPath(ovalIn: dot).fill()
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        let text = String(format: copy.rescanBannerFormat, formatter.string(from: snap.scannedAt))
+        drawText(text, rect: NSRect(x: rect.minX + 32, y: rect.midY - 8, width: rect.width - 48, height: 16), font: .systemFont(ofSize: 11.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.78))
+    }
+
+    private func drawStorageStatCards(snap: StorageSnapshot, copy: StorageCopy, rect: NSRect) {
+        let totalBytes = snap.totalBytes(platform: .all)
+        let codexBytes = snap.totalBytes(platform: .codex)
+        let claudeBytes = snap.totalBytes(platform: .claude)
+        let fileCount = snap.totalFileCount(platform: selectedDetailsSource)
+        let recentBytes = snap.recentGrowthBytes(platform: selectedDetailsSource)
+        func share(_ value: Int64) -> String {
+            guard totalBytes > 0 else { return "--" }
+            return String(format: copy.shareFormat, String(format: "%.1f%%", Double(value) / Double(totalBytes) * 100))
+        }
+        let cards: [(String, String, String, NSColor)] = [
+            (copy.totalCard, storageByteText(totalBytes), "\(format(totalBytes)) \(copy.bytesSuffix)", .systemGreen),
+            ("Codex", storageByteText(codexBytes), share(codexBytes), .systemCyan),
+            ("Claude", storageByteText(claudeBytes), share(claudeBytes), .systemOrange),
+            (copy.fileCountCard, format(Int64(fileCount)), copy.fileCountHint, NSColor.white.withAlphaComponent(0.92)),
+            (copy.recentCard, storageGrowthText(recentBytes), String(format: copy.filesFormat, format(Int64(snap.recentGrowthFiles(platform: selectedDetailsSource)))), accentTeal)
+        ]
+        let gap: CGFloat = 12
+        let cardW = (rect.width - gap * CGFloat(cards.count - 1)) / CGFloat(cards.count)
+        let valueFontSize: CGFloat = cardW < 158 ? 15 : (cardW < 200 ? 17 : 19)
+        for (index, card) in cards.enumerated() {
+            let cardRect = NSRect(x: rect.minX + CGFloat(index) * (cardW + gap), y: rect.minY, width: cardW, height: rect.height)
+            drawPanel(cardRect)
+            drawTruncatedText(card.0, rect: NSRect(x: cardRect.minX + 14, y: cardRect.minY + 11, width: cardRect.width - 28, height: 15), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.5))
+            drawTruncatedText(card.1, rect: NSRect(x: cardRect.minX + 14, y: cardRect.minY + 29, width: cardRect.width - 28, height: 24), font: .monospacedDigitSystemFont(ofSize: valueFontSize, weight: .bold), color: card.3)
+            drawTruncatedText(card.2, rect: NSRect(x: cardRect.minX + 14, y: cardRect.minY + 58, width: cardRect.width - 28, height: 14), font: .systemFont(ofSize: 9.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.4))
+        }
+    }
+
+    private func drawStorageSourcePanel(snap: StorageSnapshot, copy: StorageCopy, rect: NSRect) {
+        drawPanel(rect)
+        drawText(copy.sourceTitle, rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: rect.width - 170, height: 18), font: .systemFont(ofSize: 13.5, weight: .bold), color: .white)
+        let visible = storageVisibleCategories()
+        let visibleTotal = visible.reduce(Int64(0)) { $0 + $1.bytes }
+        drawRight(String(format: copy.totalFormat, storageByteText(visibleTotal)), rect: NSRect(x: rect.maxX - 166, y: rect.minY + 16, width: 150, height: 15), color: NSColor.white.withAlphaComponent(0.44), font: .systemFont(ofSize: 10.5, weight: .semibold))
+
+        guard !visible.isEmpty else {
+            drawText(copy.emptyCategoriesHint, rect: NSRect(x: rect.minX + 16, y: rect.minY + 52, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        let maxBytes = max(visible.map { $0.bytes }.max() ?? 1, 1)
+        let selectedUsage = selectedStorageUsage()
+        let rowH: CGFloat = 52
+        let maxRows = max(1, Int((rect.height - 46 - 12) / rowH))
+        for (index, usage) in visible.prefix(maxRows).enumerated() {
+            let row = NSRect(x: rect.minX + 10, y: rect.minY + 46 + CGFloat(index) * rowH, width: rect.width - 20, height: rowH - 4)
+            storageSourceRowRects[usage.id] = row
+            if usage.id == selectedUsage?.id {
+                accentBlue.withAlphaComponent(0.14).setFill()
+                NSBezierPath(roundedRect: row, xRadius: 7, yRadius: 7).fill()
+            } else if usage.id == hoveredStorageSourceID {
+                NSColor.white.withAlphaComponent(0.05).setFill()
+                NSBezierPath(roundedRect: row, xRadius: 7, yRadius: 7).fill()
+            }
+            drawStorageIcon(usage.id, in: NSRect(x: row.minX + 8, y: row.minY + 8, width: 32, height: 32))
+
+            let nameX = row.minX + 52
+            let sizeX = row.maxX - 128
+            let name = copy.categories(usage.id).name
+            let nameFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
+            let nameW = min(measuredTextWidth(name, font: nameFont), sizeX - nameX - 92)
+            drawTruncatedText(name, rect: NSRect(x: nameX, y: row.minY + 6, width: nameW + 4, height: 17), font: nameFont, color: .white)
+            let chipText = copy.riskLabel(usage.id.risk)
+            let chipW = measuredTextWidth(chipText, font: .systemFont(ofSize: 8.5, weight: .semibold)) + 14
+            drawStorageRiskChip(chipText, color: storageRiskColor(usage.id.risk), rect: NSRect(x: nameX + nameW + 10, y: row.minY + 8, width: chipW, height: 15), fontSize: 8.5)
+
+            let home = NSHomeDirectory()
+            let pathText = usage.roots
+                .map { $0.hasPrefix(home) ? "~" + $0.dropFirst(home.count) : $0 }
+                .joined(separator: ", ")
+            drawTruncatedText(pathText, rect: NSRect(x: nameX, y: row.minY + 26, width: max(40, sizeX - nameX - 10), height: 13), font: .systemFont(ofSize: 9.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.4))
+
+            drawRight(storageByteText(usage.bytes), rect: NSRect(x: sizeX, y: row.minY + 7, width: 86, height: 16), color: .white, font: .monospacedDigitSystemFont(ofSize: 12.5, weight: .bold))
+            let pct = visibleTotal > 0 ? Double(usage.bytes) / Double(visibleTotal) * 100 : 0
+            drawRight(String(format: "%.1f%%", pct), rect: NSRect(x: sizeX, y: row.minY + 26, width: 86, height: 13), color: NSColor.white.withAlphaComponent(0.45), font: .monospacedDigitSystemFont(ofSize: 9.5, weight: .semibold))
+
+            let menuRect = NSRect(x: row.maxX - 30, y: row.minY + 14, width: 22, height: 20)
+            storageSourceMenuRects[usage.id] = menuRect
+            NSColor.white.withAlphaComponent(0.08).setFill()
+            NSBezierPath(roundedRect: menuRect, xRadius: 5, yRadius: 5).fill()
+            drawCentered("⋯", rect: menuRect, font: .systemFont(ofSize: 12, weight: .bold), color: NSColor.white.withAlphaComponent(0.6))
+
+            let barTrack = NSRect(x: nameX, y: row.minY + 42, width: max(30, sizeX - nameX - 10), height: 3)
+            NSColor.white.withAlphaComponent(0.07).setFill()
+            NSBezierPath(roundedRect: barTrack, xRadius: 1.5, yRadius: 1.5).fill()
+            let fraction = CGFloat(Double(usage.bytes) / Double(maxBytes))
+            let fill = NSRect(x: barTrack.minX, y: barTrack.minY, width: max(2, barTrack.width * fraction), height: barTrack.height)
+            storageCategoryColor(usage.id).withAlphaComponent(0.8).setFill()
+            NSBezierPath(roundedRect: fill, xRadius: 1.5, yRadius: 1.5).fill()
+        }
+    }
+
+    private func drawStorageProjectsPanel(snap: StorageSnapshot, copy: StorageCopy, rect: NSRect) {
+        drawPanel(rect)
+        drawText(copy.projectsTitle, rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 13.5, weight: .bold), color: .white)
+
+        let rows = storageFilteredProjects()
+        guard !rows.isEmpty else {
+            drawText(copy.noProjectsHint, rect: NSRect(x: rect.minX + 16, y: rect.minY + 52, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        let compactColumns = rect.width < 470
+        let adviceW: CGFloat = 58
+        let turnsW: CGFloat = compactColumns ? 0 : 46
+        let tokensW: CGFloat = compactColumns ? 0 : 62
+        let sizeW: CGFloat = 74
+        let appW: CGFloat = compactColumns ? 0 : 52
+        let gap: CGFloat = 10
+        let adviceX = rect.maxX - 14 - adviceW
+        let turnsX = adviceX - (turnsW > 0 ? gap + turnsW : 0)
+        let tokensX = turnsX - (tokensW > 0 ? gap + tokensW : 0)
+        let sizeX = tokensX - gap - sizeW
+        let appX = sizeX - (appW > 0 ? gap + appW : 0)
+        let nameMaxX = (appW > 0 ? appX : sizeX) - 12
+
+        let headerFont = NSFont.systemFont(ofSize: 9.5, weight: .bold)
+        let headerColor = NSColor.white.withAlphaComponent(0.38)
+        let headerY = rect.minY + 42
+        drawText(copy.colProject, rect: NSRect(x: rect.minX + 16, y: headerY, width: nameMaxX - rect.minX - 16, height: 13), font: headerFont, color: headerColor)
+        if appW > 0 {
+            drawRight(copy.colApp, rect: NSRect(x: appX, y: headerY, width: appW, height: 13), color: headerColor, font: headerFont)
+        }
+        drawRight(copy.colSize, rect: NSRect(x: sizeX, y: headerY, width: sizeW, height: 13), color: headerColor, font: headerFont)
+        if tokensW > 0 {
+            drawRight(copy.colTokens, rect: NSRect(x: tokensX, y: headerY, width: tokensW, height: 13), color: headerColor, font: headerFont)
+        }
+        if turnsW > 0 {
+            drawRight(copy.colTurns, rect: NSRect(x: turnsX, y: headerY, width: turnsW, height: 13), color: headerColor, font: headerFont)
+        }
+        drawRight(copy.colAdvice, rect: NSRect(x: adviceX, y: headerY, width: adviceW, height: 13), color: headerColor, font: headerFont)
+
+        let rowH: CGFloat = 44
+        let maxRows = max(1, Int((rect.height - 62 - 8) / rowH))
+        let home = NSHomeDirectory()
+        for (index, project) in rows.prefix(maxRows).enumerated() {
+            let y = rect.minY + 60 + CGFloat(index) * rowH
+            if index > 0 {
+                NSColor.white.withAlphaComponent(0.045).setFill()
+                NSRect(x: rect.minX + 16, y: y - 2, width: rect.width - 32, height: 1).fill()
+            }
+            drawTruncatedText(project.name, rect: NSRect(x: rect.minX + 16, y: y + 4, width: max(40, nameMaxX - rect.minX - 16), height: 16), font: .systemFont(ofSize: 12, weight: .bold), color: .white)
+            let displayPath = project.path.hasPrefix(home) ? "~" + project.path.dropFirst(home.count) : project.path
+            drawTruncatedText(displayPath, rect: NSRect(x: rect.minX + 16, y: y + 22, width: max(40, nameMaxX - rect.minX - 16), height: 13), font: .systemFont(ofSize: 9, weight: .medium), color: NSColor.white.withAlphaComponent(0.38))
+            if appW > 0 {
+                drawRight(project.platform == .claude ? "Claude" : "Codex", rect: NSRect(x: appX, y: y + 6, width: appW, height: 15), color: NSColor.white.withAlphaComponent(0.6), font: .systemFont(ofSize: 10.5, weight: .semibold))
+            }
+            drawRight(storageByteText(project.bytes), rect: NSRect(x: sizeX, y: y + 6, width: sizeW, height: 15), color: .white, font: .monospacedDigitSystemFont(ofSize: 11.5, weight: .bold))
+            let insight = storageInsight(for: project)
+            if tokensW > 0 {
+                drawRight(insight.map { compact($0.tokens) } ?? "—", rect: NSRect(x: tokensX, y: y + 6, width: tokensW, height: 15), color: NSColor.white.withAlphaComponent(0.62), font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold))
+            }
+            if turnsW > 0 {
+                drawRight(insight.map { format(Int64($0.turns)) } ?? "—", rect: NSRect(x: turnsX, y: y + 6, width: turnsW, height: 15), color: NSColor.white.withAlphaComponent(0.62), font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold))
+            }
+            let needsReview = storageProjectNeedsReview(project)
+            drawRight(needsReview ? copy.adviceReview : copy.adviceKeep, rect: NSRect(x: adviceX, y: y + 6, width: adviceW, height: 15), color: needsReview ? accentAmber : accentTeal, font: .systemFont(ofSize: 10.5, weight: .bold))
+        }
+    }
+
+    private func drawStorageGrowthChart(snap: StorageSnapshot, copy: StorageCopy, rect: NSRect) {
+        drawPanel(rect)
+        drawText(copy.growthTitle, rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 13.5, weight: .bold), color: .white)
+
+        let days = snap.recentDays
+        guard !days.isEmpty else { return }
+        let visible = storageVisibleCategories()
+        let recentTotals = storageGrowthBreakdown(days: days, snap: snap)
+        let topIDs = Array(recentTotals.prefix(3).map { $0.0 })
+        var series: [(String, NSColor, StorageCategoryID?)] = topIDs.map {
+            (copy.categories($0).name, storageCategoryColor($0), $0)
+        }
+        let hasOther = visible.count > topIDs.count
+        if hasOther {
+            series.append((copy.otherSeries, NSColor.systemGray, nil))
+        }
+
+        var legendX = rect.maxX - 16
+        let legendFont = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
+        for entry in series.reversed() {
+            let labelW = measuredTextWidth(entry.0, font: legendFont)
+            legendX -= labelW
+            drawText(entry.0, rect: NSRect(x: legendX, y: rect.minY + 17, width: labelW + 4, height: 13), font: legendFont, color: NSColor.white.withAlphaComponent(0.55))
+            legendX -= 12
+            entry.1.withAlphaComponent(0.9).setFill()
+            NSBezierPath(ovalIn: NSRect(x: legendX, y: rect.minY + 20, width: 7, height: 7)).fill()
+            legendX -= 14
+        }
+
+        let plot = NSRect(x: rect.minX + 58, y: rect.minY + 46, width: rect.width - 58 - 18, height: rect.height - 46 - 34)
+        let dayTotals = days.map { storageDayTotal($0, snap: snap) }
+        let maxTotal = max(dayTotals.max() ?? 1, 1)
+
+        let axisFont = NSFont.monospacedDigitSystemFont(ofSize: 8.5, weight: .medium)
+        let axisColor = NSColor.white.withAlphaComponent(0.35)
+        for step in 0...2 {
+            let value = Int64(Double(maxTotal) * Double(step) / 2.0)
+            let y = plot.maxY - plot.height * CGFloat(step) / 2
+            NSColor.white.withAlphaComponent(step == 0 ? 0.12 : 0.05).setFill()
+            NSRect(x: plot.minX, y: y - 0.5, width: plot.width, height: 1).fill()
+            drawRight(storageByteText(value), rect: NSRect(x: rect.minX + 8, y: y - 6, width: 46, height: 12), color: axisColor, font: axisFont)
+        }
+
+        let slotW = plot.width / CGFloat(days.count)
+        let barW = max(6, slotW * 0.52)
+        let enabledIDs = Set(visible.map { $0.id })
+        for (index, day) in days.enumerated() {
+            let total = dayTotals[index]
+            let slotX = plot.minX + CGFloat(index) * slotW
+            let barX = slotX + (slotW - barW) / 2
+            var stackY = plot.maxY
+            if total > 0 {
+                let perCategory = snap.dailyGrowth[day] ?? [:]
+                var seriesValues: [(NSColor, Int64)] = []
+                var accounted: Int64 = 0
+                for id in topIDs {
+                    let value = perCategory[id.rawValue] ?? 0
+                    accounted += value
+                    if value > 0 {
+                        seriesValues.append((storageCategoryColor(id), value))
+                    }
+                }
+                if hasOther {
+                    let otherValue = perCategory.reduce(Int64(0)) { partial, entry in
+                        guard let id = StorageCategoryID(rawValue: entry.key), enabledIDs.contains(id), !topIDs.contains(id) else { return partial }
+                        return partial + entry.value
+                    }
+                    if otherValue > 0 {
+                        seriesValues.append((NSColor.systemGray, otherValue))
+                    }
+                }
+                let totalHeight = max(3, plot.height * CGFloat(Double(total) / Double(maxTotal)))
+                for (color, value) in seriesValues {
+                    let segment = max(1.5, totalHeight * CGFloat(Double(value) / Double(total)))
+                    let segmentRect = NSRect(x: barX, y: stackY - segment, width: barW, height: segment)
+                    let hovered = hoveredStorageCellKey == "day-\(day)"
+                    color.withAlphaComponent(hovered ? 1.0 : 0.82).setFill()
+                    NSBezierPath(roundedRect: segmentRect, xRadius: 1.5, yRadius: 1.5).fill()
+                    stackY -= segment
+                }
+                storageGrowthCells.append(StorageGrowthCell(
+                    key: "day-\(day)",
+                    rect: NSRect(x: slotX, y: plot.minY, width: slotW, height: plot.height),
+                    title: localizedContributionDate(day),
+                    rows: storageGrowthBreakdown(days: [day], snap: snap),
+                    total: total
+                ))
+            } else {
+                NSColor.white.withAlphaComponent(0.06).setFill()
+                NSBezierPath(roundedRect: NSRect(x: barX, y: plot.maxY - 2, width: barW, height: 2), xRadius: 1, yRadius: 1).fill()
+            }
+            if index % 2 == days.count % 2 {
+                let parts = day.split(separator: "-")
+                let label = parts.count == 3 ? "\(Int(parts[1]) ?? 0)/\(Int(parts[2]) ?? 0)" : String(day.suffix(5))
+                drawCentered(label, rect: NSRect(x: slotX - 6, y: plot.maxY + 6, width: slotW + 12, height: 12), font: .monospacedDigitSystemFont(ofSize: 8.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.4))
+            }
+        }
+    }
+
+    private func drawStorageRiskPanel(snap: StorageSnapshot, copy: StorageCopy, rect: NSRect) {
+        drawPanel(rect)
+        drawText(copy.riskTitle, rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 13.5, weight: .bold), color: .white)
+        let categories = storagePlatformCategories()
+        let totalBytes = categories.reduce(Int64(0)) { $0 + $1.bytes }
+        let riskOrder: [StorageRisk] = [.safeToClear, .reviewFirst, .doNotClean]
+        let riskTotals = riskOrder.map { risk in
+            (risk, categories.filter { $0.id.risk == risk }.reduce(Int64(0)) { $0 + $1.bytes })
+        }
+
+        let diameter = min(rect.height - 76, 136)
+        let thickness = max(13, diameter * 0.13)
+        let center = CGPoint(x: rect.minX + 26 + diameter / 2, y: rect.minY + 42 + (rect.height - 58) / 2)
+        let outerRect = NSRect(x: center.x - diameter / 2, y: center.y - diameter / 2, width: diameter, height: diameter)
+        if totalBytes <= 0 {
+            fillDonut(in: outerRect, thickness: thickness, color: NSColor.white.withAlphaComponent(0.1))
+        } else {
+            var angle = -CGFloat.pi / 2
+            for (risk, bytes) in riskTotals where bytes > 0 {
+                let sweep = CGFloat(Double(bytes) / Double(totalBytes)) * .pi * 2
+                fillDonutSegment(center: center, outerRadius: diameter / 2, thickness: thickness, startAngle: angle, endAngle: angle + sweep, color: storageRiskColor(risk).withAlphaComponent(0.92))
+                angle += sweep
+            }
+        }
+        drawCentered(storageByteText(totalBytes), rect: NSRect(x: outerRect.minX + 6, y: center.y - 14, width: outerRect.width - 12, height: 17), font: .monospacedDigitSystemFont(ofSize: 13.5, weight: .bold), color: .white)
+        drawCentered(detailsSourceTitle(selectedDetailsSource), rect: NSRect(x: outerRect.minX + 6, y: center.y + 4, width: outerRect.width - 12, height: 13), font: .systemFont(ofSize: 9.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
+
+        let legendX = outerRect.maxX + 20
+        for (index, entry) in riskTotals.enumerated() {
+            let y = center.y - 44 + CGFloat(index) * 30
+            let dimmed = entry.1 <= 0
+            let dot = NSRect(x: legendX, y: y + 4, width: 9, height: 9)
+            storageRiskColor(entry.0).withAlphaComponent(dimmed ? 0.32 : 1.0).setFill()
+            NSBezierPath(ovalIn: dot).fill()
+            drawText(copy.riskLabel(entry.0), rect: NSRect(x: legendX + 16, y: y, width: max(40, rect.maxX - legendX - 110), height: 16), font: .systemFont(ofSize: 11.5, weight: .semibold), color: NSColor.white.withAlphaComponent(dimmed ? 0.3 : 0.85))
+            let pct = totalBytes > 0 ? Double(entry.1) / Double(totalBytes) * 100 : 0
+            let valueText = dimmed ? storageByteText(entry.1) : "\(storageByteText(entry.1)) (\(String(format: "%.1f%%", pct)))"
+            drawRight(valueText, rect: NSRect(x: rect.maxX - 16 - 132, y: y, width: 132, height: 16), color: NSColor.white.withAlphaComponent(dimmed ? 0.3 : 0.92), font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold))
+        }
+    }
+
+    private func drawStorageFooter(snap: StorageSnapshot, copy: StorageCopy, rect: NSRect) {
+        let buttonFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        var x = rect.maxX
+        func placeButton(_ title: String, emphasized: Bool = false) -> NSRect {
+            let width = max(72, measuredTextWidth(title, font: buttonFont) + 26)
+            x -= width
+            let buttonRect = NSRect(x: x, y: rect.minY + 4, width: width, height: 28)
+            drawSmallButton(title, rect: buttonRect, emphasized: emphasized)
+            x -= 10
+            return buttonRect
+        }
+        storageRefreshRect = placeButton(copy.refreshButton)
+        storageExportRect = placeButton(copy.exportReport)
+        storageOpenFinderRect = placeButton(copy.openInFinder, emphasized: true)
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        let status = isStorageScanning
+            ? copy.scanningLabel
+            : String(format: copy.scannedAtFormat, formatter.string(from: snap.scannedAt))
+        let caveatText = "⚠︎ \(copy.caveat)  ·  \(status)"
+        drawTruncatedText(caveatText, rect: NSRect(x: rect.minX, y: rect.minY + 10, width: max(60, x - rect.minX - 12), height: 16), font: .systemFont(ofSize: 10.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+    }
+
+    private func drawStorageRiskChip(_ title: String, color: NSColor, rect: NSRect, fontSize: CGFloat = 10, dimmed: Bool = false) {
+        let alpha: CGFloat = dimmed ? 0.4 : 1.0
+        color.withAlphaComponent(0.14 * alpha).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
+        color.withAlphaComponent(0.55 * alpha).setStroke()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4).stroke()
+        drawCentered(title, rect: rect.insetBy(dx: 2, dy: 0), font: .systemFont(ofSize: fontSize, weight: .semibold), color: color.withAlphaComponent(alpha))
+    }
+
+    private func measuredTextHeight(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
+        let bounding = (text as NSString).boundingRect(
+            with: NSSize(width: width, height: 600),
+            options: [.usesLineFragmentOrigin],
+            attributes: [.font: font]
+        )
+        return ceil(bounding.height)
+    }
+
+    private func drawStorageSourceTooltip(container: NSRect) {
+        guard let hoveredStorageSourceID,
+              let row = storageSourceRowRects[hoveredStorageSourceID] else {
+            return
+        }
+        let copy = AppLanguage.current.storageCopy
+        let categoryCopy = copy.categories(hoveredStorageSourceID)
+        let width: CGFloat = 270
+        let bodyFont = NSFont.systemFont(ofSize: 10.5, weight: .medium)
+        let body = categoryCopy.purpose
+        let impact = categoryCopy.impact
+        let bodyH = measuredTextHeight(body, font: bodyFont, width: width - 24)
+        let impactH = measuredTextHeight(impact, font: bodyFont, width: width - 24)
+        let height = 12 + 18 + 6 + bodyH + 8 + impactH + 12
+        var origin = CGPoint(x: row.maxX - width - 40, y: row.maxY + 8)
+        if origin.y + height > container.maxY - 8 {
+            origin.y = row.minY - height - 8
+        }
+        origin.x = max(container.minX + 12, min(origin.x, container.maxX - width - 12))
+        origin.y = max(container.minY + 10, origin.y)
+        let tooltipRect = NSRect(origin: origin, size: NSSize(width: width, height: height))
+
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: tooltipRect, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+
+        drawText(categoryCopy.name, rect: NSRect(x: tooltipRect.minX + 12, y: tooltipRect.minY + 10, width: width - 24, height: 15), font: .systemFont(ofSize: 11, weight: .bold), color: NSColor.white.withAlphaComponent(0.92))
+        drawMultilineText(body, rect: NSRect(x: tooltipRect.minX + 12, y: tooltipRect.minY + 34, width: width - 24, height: bodyH + 2), font: bodyFont, color: NSColor.white.withAlphaComponent(0.78))
+        drawMultilineText(impact, rect: NSRect(x: tooltipRect.minX + 12, y: tooltipRect.minY + 34 + bodyH + 8, width: width - 24, height: impactH + 2), font: bodyFont, color: NSColor.white.withAlphaComponent(0.5))
+    }
+
+    private func drawStorageGrowthTooltip(container: NSRect) {
+        guard let hoveredStorageCellKey,
+              let cell = storageGrowthCells.first(where: { $0.key == hoveredStorageCellKey }) else {
+            return
+        }
+        let copy = AppLanguage.current.storageCopy
+        let labelFont = NSFont.systemFont(ofSize: 10, weight: .medium)
+        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
+        let titleFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        let rows: [(NSColor, String, Int64)] = cell.rows.prefix(5).map {
+            (storageCategoryColor($0.0), copy.categories($0.0).name, $0.1)
+        }
+        let labelWidth = min(130, max(60, (rows.map { measuredTextWidth($0.1, font: labelFont) }.max() ?? 0) + 16))
+        let valueWidth = max(70, (rows.map { measuredTextWidth(storageGrowthText($0.2), font: valueFont) }.max() ?? 0) + 4)
+        let titleWidth = measuredTextWidth(cell.title, font: titleFont) + 24
+        let width = min(max(max(titleWidth, labelWidth + valueWidth + 56), 200), 320)
+        let height = CGFloat(34 + rows.count * 16 + 24)
+        let anchor = cell.rect
+        let gap: CGFloat = 12
+        var origin = CGPoint(x: anchor.maxX + gap, y: anchor.midY - height / 2)
+        if origin.x + width > container.maxX - 12 {
+            origin.x = anchor.minX - gap - width
+        }
+        if origin.x < container.minX + 12 {
+            origin.x = anchor.midX - width / 2
+            origin.y = anchor.minY - height - gap
+        }
+        origin.x = max(container.minX + 12, min(origin.x, container.maxX - width - 12))
+        origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
+        let tooltipRect = NSRect(origin: origin, size: NSSize(width: width, height: height))
+
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: tooltipRect, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        let border = NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        border.lineWidth = 1
+        border.stroke()
+
+        drawText(cell.title, rect: NSRect(x: tooltipRect.minX + 12, y: tooltipRect.minY + 8, width: tooltipRect.width - 24, height: 14), font: titleFont, color: NSColor.white.withAlphaComponent(0.82))
+        for (index, row) in rows.enumerated() {
+            let y = tooltipRect.minY + 28 + CGFloat(index) * 16
+            let dot = NSRect(x: tooltipRect.minX + 12, y: y + 3, width: 7, height: 7)
+            row.0.setFill()
+            NSBezierPath(ovalIn: dot).fill()
+            drawText(row.1, rect: NSRect(x: tooltipRect.minX + 25, y: y, width: labelWidth + 20, height: 14), font: labelFont, color: NSColor.white.withAlphaComponent(0.62))
+            drawRight(storageGrowthText(row.2), rect: NSRect(x: tooltipRect.maxX - 12 - valueWidth - 20, y: y - 1, width: valueWidth + 20, height: 15), color: NSColor.white.withAlphaComponent(0.88), font: valueFont)
+        }
+        let separatorY = tooltipRect.minY + 28 + CGFloat(rows.count) * 16 + 3
+        NSColor.white.withAlphaComponent(0.10).setFill()
+        NSRect(x: tooltipRect.minX + 12, y: separatorY, width: tooltipRect.width - 24, height: 1).fill()
+        drawText(copy.totalLabel, rect: NSRect(x: tooltipRect.minX + 12, y: separatorY + 6, width: labelWidth + 20, height: 14), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.78))
+        drawRight(storageGrowthText(cell.total), rect: NSRect(x: tooltipRect.maxX - 12 - valueWidth - 20, y: separatorY + 5, width: valueWidth + 20, height: 15), color: .white, font: .monospacedDigitSystemFont(ofSize: 10, weight: .bold))
     }
 
     private func drawPanel(_ rect: NSRect) {

@@ -1293,6 +1293,11 @@ final class ReadStateStore {
                 visible.append(item)
             case .unread:
                 if item.isExplicitUnread {
+                    let timestamp = readThroughTime(for: item)
+                    if (current.openedAt[item.id] ?? 0) < timestamp {
+                        current.openedAt[item.id] = timestamp
+                        didChange = true
+                    }
                     visible.append(item)
                     continue
                 }

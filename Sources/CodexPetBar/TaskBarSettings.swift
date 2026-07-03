@@ -155,7 +155,7 @@ final class TaskBarSettingsWindowController: NSWindowController {
             defer: false
         )
         window.title = "Task Bar 设置"
-        window.contentMinSize = NSSize(width: 680, height: 690)
+        window.contentMinSize = NSSize(width: 680, height: 540)
         window.contentView = contentView
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor(calibratedRed: 0.055, green: 0.066, blue: 0.086, alpha: 1.0)
@@ -216,7 +216,7 @@ private enum TaskBarSettingsInfo: CaseIterable {
 }
 
 private final class TaskBarSettingsView: NSView {
-    static let preferredSize = NSSize(width: 720, height: 700)
+    static let preferredSize = NSSize(width: 720, height: 560)
 
     private let onSettingsChanged: () -> Void
     private var selectedSection: TaskBarSettingsSection = .settings
@@ -375,6 +375,10 @@ private final class TaskBarSettingsView: NSView {
 
         let orderCard = NSRect(x: content.minX, y: settingsCard.maxY + 16, width: content.width, height: 208)
         drawStatusOrderCard(orderCard)
+
+        if let hoveredInfo {
+            drawInfoHoverCard(hoveredInfo)
+        }
     }
 
     private func drawAboutPage(content: NSRect) {
@@ -488,12 +492,14 @@ private final class TaskBarSettingsView: NSView {
         guard nextInfo != hoveredInfo else { return }
         hoveredInfo = nextInfo
         toolTip = nextInfo?.tooltip
+        (nextInfo == nil ? NSCursor.arrow : NSCursor.pointingHand).set()
         needsDisplay = true
     }
 
     override func mouseExited(with event: NSEvent) {
         hoveredInfo = nil
         toolTip = nil
+        NSCursor.arrow.set()
         needsDisplay = true
     }
 
@@ -641,6 +647,57 @@ private final class TaskBarSettingsView: NSView {
         )
     }
 
+    private func drawInfoHoverCard(_ info: TaskBarSettingsInfo) {
+        guard let sourceRect = infoMarkRects[info] else { return }
+        let cardWidth = min(CGFloat(308), bounds.width - 44)
+        let textWidth = cardWidth - 28
+        let titleFont = NSFont.systemFont(ofSize: 12.5, weight: .bold)
+        let bodyFont = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        let bodyHeight = measuredWrappedTextHeight(info.body, width: textWidth, font: bodyFont)
+        let cardHeight = max(CGFloat(78), 14 + 16 + 6 + bodyHeight + 14)
+
+        var cardX = sourceRect.maxX + 12
+        if cardX + cardWidth > bounds.maxX - 18 {
+            cardX = sourceRect.minX - cardWidth - 12
+        }
+        cardX = min(max(cardX, bounds.minX + 18), bounds.maxX - cardWidth - 18)
+
+        var cardY = sourceRect.minY - 18
+        if cardY + cardHeight > bounds.maxY - 18 {
+            cardY = bounds.maxY - cardHeight - 18
+        }
+        cardY = max(cardY, bounds.minY + 18)
+
+        let card = NSRect(x: cardX, y: cardY, width: cardWidth, height: cardHeight)
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.34)
+        shadow.shadowBlurRadius = 18
+        shadow.shadowOffset = NSSize(width: 0, height: -5)
+        shadow.set()
+        NSColor(calibratedRed: 0.070, green: 0.085, blue: 0.112, alpha: 0.98).setFill()
+        NSBezierPath(roundedRect: card, xRadius: 8, yRadius: 8).fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        accentTeal.withAlphaComponent(0.30).setStroke()
+        NSBezierPath(roundedRect: card.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+        accentTeal.withAlphaComponent(0.85).setFill()
+        NSBezierPath(roundedRect: NSRect(x: card.minX, y: card.minY + 12, width: 3, height: card.height - 24), xRadius: 1.5, yRadius: 1.5).fill()
+
+        drawText(
+            info.title,
+            rect: NSRect(x: card.minX + 14, y: card.minY + 12, width: textWidth, height: 16),
+            font: titleFont,
+            color: .white
+        )
+        drawWrappedText(
+            info.body,
+            rect: NSRect(x: card.minX + 14, y: card.minY + 34, width: textWidth, height: bodyHeight),
+            font: bodyFont,
+            color: NSColor.white.withAlphaComponent(0.68)
+        )
+    }
+
     private func drawSmallButton(_ title: String, rect: NSRect, emphasized: Bool) {
         (emphasized ? accentBlue.withAlphaComponent(0.72) : NSColor.white.withAlphaComponent(0.12)).setFill()
         NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
@@ -771,6 +828,30 @@ private final class TaskBarSettingsView: NSView {
 
     private func measuredTextWidth(_ text: String, font: NSFont) -> CGFloat {
         ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
+
+    private func measuredWrappedTextHeight(_ text: String, width: CGFloat, font: NSFont) -> CGFloat {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        return ceil((text as NSString).boundingRect(
+            with: NSSize(width: width, height: 1000),
+            options: [.usesLineFragmentOrigin],
+            attributes: [.font: font, .paragraphStyle: paragraph]
+        ).height)
+    }
+
+    private func drawWrappedText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineSpacing = 2
+        (text as NSString).draw(
+            in: rect,
+            withAttributes: [
+                .font: font,
+                .foregroundColor: color,
+                .paragraphStyle: paragraph
+            ]
+        )
     }
 
     private func drawCentered(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {

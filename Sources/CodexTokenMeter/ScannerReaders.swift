@@ -1414,7 +1414,8 @@ final class LiveRateLimitReader {
             name: name,
             primary: window(from: primaryDict),
             secondary: window(from: secondaryDict),
-            planType: dict["planType"] as? String ?? dict["plan_type"] as? String
+            planType: dict["planType"] as? String ?? dict["plan_type"] as? String,
+            capturedAt: Date()
         )
     }
 

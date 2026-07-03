@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let localFormatter = DateFormatter()
     private let scanQueue = DispatchQueue(label: "local.codex-token-meter.scan", qos: .utility)
     private let liveQueue = DispatchQueue(label: "local.codex-token-meter.live", qos: .utility)
+    private let storageScanQueue = DispatchQueue(label: "local.codex-token-meter.storage-scan", qos: .userInitiated)
     private var selectedWindow: WindowOption = .week
     private var selectedQuota: QuotaViewOption = .all
     private var latestState = DashboardState()
@@ -111,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onQuotaWarningsChanged = { [weak self] isOn in self?.changeQuotaWarnings(isOn) }
         detailsController.detailsView.onProfileAPITotalsChanged = { [weak self] isOn in self?.changeProfileAPITotals(isOn) }
         detailsController.detailsView.onClaudeActiveQuotaRefreshChanged = { [weak self] isOn in self?.changeClaudeActiveQuotaRefresh(isOn) }
+        detailsController.detailsView.onStorageScanRequested = { [weak self] in self?.refreshStorageSnapshot() }
         applyLanguage()
         QuotaWarningManager.shared.requestAuthorization()
 
@@ -124,6 +126,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.refreshLiveLimits()
         }
         scheduleClaudeActiveRefreshIfNeeded()
+    }
+
+    private func refreshStorageSnapshot() {
+        if detailsController.detailsView.storageSnapshot == nil,
+           let cached = StorageSnapshotCacheStore.read() {
+            detailsController.detailsView.storageSnapshot = cached
+        }
+        storageScanQueue.async { [weak self] in
+            let snapshot = StorageScanner.scan()
+            StorageSnapshotCacheStore.write(snapshot)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.detailsController.detailsView.isStorageScanning = false
+                self.detailsController.detailsView.storageSnapshot = snapshot
+            }
+        }
     }
 
     private func resizeDashboardPopover(to size: NSSize) {
