@@ -265,6 +265,7 @@ func mergedRepoInsightsReport(_ reports: [RepoInsightsReport], scannedAt: Date =
                 existing.compressionBuckets.two += row.compressionBuckets.two
                 existing.compressionBuckets.threePlus += row.compressionBuckets.threePlus
                 existing.days = mergedRepoInsightDays(existing.days + row.days)
+                existing.hours = mergedRepoInsightHours(existing.hours + row.hours)
                 buckets[row.key] = existing
             } else {
                 buckets[row.key] = row
@@ -297,6 +298,18 @@ private func mergedRepoInsightDays(_ days: [RepoInsightDay]) -> [RepoInsightDay]
         buckets[day.day] = existing
     }
     return buckets.values.sorted { $0.day < $1.day }
+}
+
+private func mergedRepoInsightHours(_ hours: [RepoInsightHour]) -> [RepoInsightHour] {
+    var buckets: [Int: RepoInsightHour] = [:]
+    for hour in hours {
+        var existing = buckets[hour.hour] ?? RepoInsightHour(hour: hour.hour, conversations: 0, turns: 0, tokens: 0)
+        existing.conversations += hour.conversations
+        existing.turns += hour.turns
+        existing.tokens += hour.tokens
+        buckets[hour.hour] = existing
+    }
+    return buckets.values.sorted { $0.hour < $1.hour }
 }
 
 func profileReportWithLocalFallback(_ profileReport: TokenReport, localReport: TokenReport?) -> TokenReport {
@@ -619,7 +632,7 @@ struct CostEstimator {
     func monthlyUsedValues() -> [String: Double] {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.timeZone = appTimeZone()
         formatter.dateFormat = "yyyy-MM"
 
         var values: [String: Double] = [:]

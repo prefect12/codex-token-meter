@@ -2004,6 +2004,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
+    private enum InsightDetailMode: CaseIterable {
+        case usageHabits
+        case usageTime
+    }
+
     var snapshot: DetailsSnapshot? {
         didSet {
             if let snapshot {
@@ -2073,6 +2078,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var sidebarItemRects: [DetailsSection: NSRect] = [:]
     private var insightRowRects: [String: NSRect] = [:]
     private var insightWindowRects: [Int: NSRect] = [:]
+    private var insightDetailModeRects: [InsightDetailMode: NSRect] = [:]
     private var insightSortRects: [InsightSortColumn: NSRect] = [:]
     private var sourceOptionRects: [QuotaViewOption: NSRect] = [:]
     private var insightListViewportRect: NSRect?
@@ -2097,6 +2103,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var selectedInsightKey: String?
     private var selectedInsightSort: InsightSortColumn = .compressions
     private var isInsightSortAscending = false
+    private var selectedInsightDetailMode: InsightDetailMode = .usageHabits
+    private var insightHourRects: [Int: NSRect] = [:]
+    private var insightHourBarRects: [Int: NSRect] = [:]
+    private var insightPeriodRects: [String: NSRect] = [:]
+    private var hoveredInsightHour: Int?
+    private var hoveredInsightPeriod: String?
     private var insightListScrollOffset: CGFloat = 0
     private var numberUnitOptionRects: [NumberUnitStyle: NSRect] = [:]
     private var statusOptionRects: [StatusDisplayOption: NSRect] = [:]
@@ -2215,19 +2227,29 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         selectedSection = .overview
     }
 
-    func showInsightsPage(windowDays: Int = 90) {
+    func showInsightsPage(windowDays: Int = 90, insightMode: String? = nil) {
         if insightWindowOptions.contains(windowDays) {
             selectedInsightWindowDays = windowDays
+        }
+        if let insightMode {
+            switch insightMode.lowercased() {
+            case "time", "usage-time", "usage_time":
+                selectedInsightDetailMode = .usageTime
+            case "habits", "usage-habits", "usage_habits":
+                selectedInsightDetailMode = .usageHabits
+            default:
+                break
+            }
         }
         selectedSection = .insights
     }
 
-    func showSection(_ section: DetailsSection, insightWindowDays: Int = 90, source: QuotaViewOption? = nil) {
+    func showSection(_ section: DetailsSection, insightWindowDays: Int = 90, source: QuotaViewOption? = nil, insightMode: String? = nil) {
         if let source {
             selectedDetailsSource = source
         }
         if section == .insights {
-            showInsightsPage(windowDays: insightWindowDays)
+            showInsightsPage(windowDays: insightWindowDays, insightMode: insightMode)
         } else {
             selectedSection = section
         }
@@ -2241,9 +2263,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     private var showsDetailsSourceSelector: Bool {
         switch selectedSection {
-        case .overview, .insights, .models, .calendar, .costs, .diagnostics, .storage:
+        case .overview, .models, .calendar, .costs, .diagnostics, .storage:
             return true
-        case .settings, .about:
+        case .insights, .settings, .about:
             return false
         }
     }
@@ -2802,6 +2824,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         updateProfileAPIInfoHover(at: point)
         updateContributionDayHover(at: point)
         updateContributionWeekHover(at: point)
+        updateInsightUsageTimeHover(at: point)
         updateStorageGrowthHover(at: point)
     }
 
@@ -2835,6 +2858,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hoveredCostOverviewInfo = nil
         hoveredContributionDay = nil
         hoveredContributionWeekKey = nil
+        hoveredInsightHour = nil
+        hoveredInsightPeriod = nil
         hoveredStorageCellKey = nil
         hoveredStorageSourceID = nil
         isHoveringDayValueInfo = false
@@ -2858,6 +2883,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         if hoveredContributionWeekKey != nil {
             hoveredContributionWeekKey = nil
+            shouldRedraw = true
+        }
+        if hoveredInsightHour != nil {
+            hoveredInsightHour = nil
+            shouldRedraw = true
+        }
+        if hoveredInsightPeriod != nil {
+            hoveredInsightPeriod = nil
             shouldRedraw = true
         }
         if hoveredStorageCellKey != nil {
@@ -2958,6 +2991,24 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
+    private func updateInsightUsageTimeHover(at point: CGPoint) {
+        guard selectedSection == .insights, selectedInsightDetailMode == .usageTime else {
+            if hoveredInsightHour != nil || hoveredInsightPeriod != nil {
+                hoveredInsightHour = nil
+                hoveredInsightPeriod = nil
+                needsDisplay = true
+            }
+            return
+        }
+        let newHour = insightHourRects.first { $0.value.insetBy(dx: -3, dy: -3).contains(point) }?.key
+        let newPeriod = newHour == nil ? insightPeriodRects.first { $0.value.insetBy(dx: -3, dy: -3).contains(point) }?.key : nil
+        if hoveredInsightHour != newHour || hoveredInsightPeriod != newPeriod {
+            hoveredInsightHour = newHour
+            hoveredInsightPeriod = newPeriod
+            needsDisplay = true
+        }
+    }
+
     private func updateDayValueInfoHover(at point: CGPoint) {
         let hovering = selectedSection == .calendar && (dayValueInfoRect?.contains(point) == true)
         if hovering != isHoveringDayValueInfo {
@@ -2998,6 +3049,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 if let snapshot {
                     normalizeSelectedInsight(for: insightReport(for: snapshot))
                 }
+                needsDisplay = true
+                return
+            }
+            for (mode, rect) in insightDetailModeRects where rect.contains(point) {
+                selectedInsightDetailMode = mode
                 needsDisplay = true
                 return
             }
@@ -3243,6 +3299,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         profileAPIInfoRect = nil
         insightRowRects.removeAll()
         insightWindowRects.removeAll()
+        insightDetailModeRects.removeAll()
+        insightHourRects.removeAll()
+        insightHourBarRects.removeAll()
+        insightPeriodRects.removeAll()
         insightSortRects.removeAll()
         insightListViewportRect = nil
         numberUnitOptionRects.removeAll()
@@ -3262,8 +3322,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
         let sourceSelectorWidth: CGFloat = showsDetailsSourceSelector ? min(286, max(246, content.width * 0.31)) : 0
         let headerTextWidth = showsDetailsSourceSelector ? max(260, content.width - sourceSelectorWidth - 18) : content.width
-        drawText(selectedSection.headerTitle, rect: NSRect(x: content.minX, y: content.minY, width: headerTextWidth, height: 34), font: .systemFont(ofSize: 26, weight: .bold), color: .white)
-        drawText(selectedSection.subtitle, rect: NSRect(x: content.minX, y: content.minY + 36, width: headerTextWidth, height: 20), font: .systemFont(ofSize: 13, weight: .medium), color: NSColor.white.withAlphaComponent(0.56))
+        drawText(currentDetailsHeaderTitle, rect: NSRect(x: content.minX, y: content.minY, width: headerTextWidth, height: 34), font: .systemFont(ofSize: 26, weight: .bold), color: .white)
+        drawText(currentDetailsHeaderSubtitle, rect: NSRect(x: content.minX, y: content.minY + 36, width: headerTextWidth, height: 20), font: .systemFont(ofSize: 13, weight: .medium), color: NSColor.white.withAlphaComponent(0.56))
         if showsDetailsSourceSelector {
             drawDetailsSourceSelector(content: content, width: sourceSelectorWidth)
         }
@@ -3315,6 +3375,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         } else if selectedSection == .calendar {
             drawDayValueInfoTooltip()
             drawProfileAPIInfoTooltip()
+        } else if selectedSection == .insights {
+            drawInsightUsageTimeTooltip()
         }
     }
 
@@ -3335,6 +3397,20 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             sourceOptionRects[option] = optionRect
             drawSelectablePill(detailsSourceTitle(option), rect: optionRect, selected: option == selectedOption)
         }
+    }
+
+    private var currentDetailsHeaderTitle: String {
+        if selectedSection == .insights, selectedInsightDetailMode == .usageTime {
+            return localizedInsightUsageTimePageTitle
+        }
+        return selectedSection.headerTitle
+    }
+
+    private var currentDetailsHeaderSubtitle: String {
+        if selectedSection == .insights, selectedInsightDetailMode == .usageTime {
+            return localizedInsightUsageTimePageSubtitle
+        }
+        return selectedSection.subtitle
     }
 
     private func detailsSourceTitle(_ option: QuotaViewOption) -> String {
@@ -3559,16 +3635,22 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func drawInsightsPage(snapshot: DetailsSnapshot, content: NSRect) {
         let report = insightReport(for: snapshot)
         let rows = sortedInsightRows(report.rows)
+        drawInsightControls(content: content)
+        let topY = content.minY + 154
+
+        if selectedInsightDetailMode == .usageTime {
+            let timeRect = NSRect(x: content.minX, y: topY, width: content.width, height: min(520, max(360, content.maxY - topY)))
+            drawInsightUsageTimePage(report: report, rect: timeRect)
+            return
+        }
+
         if rows.isEmpty {
-            let emptyRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 180)
+            let emptyRect = NSRect(x: content.minX, y: topY, width: content.width, height: 180)
             drawPanel(emptyRect)
             drawText(insightEmptyTitle, rect: NSRect(x: emptyRect.minX + 18, y: emptyRect.minY + 22, width: emptyRect.width - 36, height: 24), font: .systemFont(ofSize: 17, weight: .bold), color: .white)
             drawText(insightEmptyDescription, rect: NSRect(x: emptyRect.minX + 18, y: emptyRect.minY + 56, width: emptyRect.width - 36, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.54))
             return
         }
-
-        let topY = content.minY + 78
-        drawInsightWindowPills(content: content)
 
         if content.width >= 940 {
             let gap: CGFloat = 16
@@ -3684,23 +3766,83 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         AppLanguage.current.insightCopy.emptyDescription
     }
 
-    private func drawInsightWindowPills(content: NSRect) {
+    private func drawInsightControls(content: NSRect) {
+        drawInsightModePills(content: content, y: content.minY + 64)
+        drawInsightConfigurationBar(content: content, y: content.minY + 108)
+    }
+
+    private func drawInsightModePills(content: NSRect, y: CGFloat) {
+        let pillW: CGFloat = 104
+        let pillH: CGFloat = 28
+        let gap: CGFloat = 8
+        let modes: [(InsightDetailMode, String)] = [
+            (.usageHabits, localizedInsightDetailMode(.usageHabits)),
+            (.usageTime, localizedInsightDetailMode(.usageTime))
+        ]
+        var x = content.minX
+        for mode in modes {
+            let rect = NSRect(x: x, y: y, width: pillW, height: pillH)
+            insightDetailModeRects[mode.0] = rect
+            drawSelectablePill(mode.1, rect: rect, selected: selectedInsightDetailMode == mode.0)
+            x += pillW + gap
+        }
+    }
+
+    private func drawInsightConfigurationBar(content: NSRect, y: CGFloat) {
+        let barHeight: CGFloat = 34
+        let sourceW: CGFloat = 238
+        let windowW: CGFloat = 202
+        let gap: CGFloat = 12
+        let totalW = sourceW + windowW + gap
+        let barRect = NSRect(x: content.minX, y: y, width: min(totalW, content.width), height: barHeight)
+        inputSurfaceColor.withAlphaComponent(0.30).setFill()
+        NSBezierPath(roundedRect: barRect, xRadius: 7, yRadius: 7).fill()
+        drawText(localizedInsightFilterSourceTitle, rect: NSRect(x: barRect.minX + 12, y: barRect.minY + 9, width: 42, height: 16), font: .systemFont(ofSize: 10, weight: .bold), color: NSColor.white.withAlphaComponent(0.36))
+        drawText(localizedInsightFilterWindowTitle, rect: NSRect(x: barRect.minX + sourceW + gap + 10, y: barRect.minY + 9, width: 42, height: 16), font: .systemFont(ofSize: 10, weight: .bold), color: NSColor.white.withAlphaComponent(0.36))
+        drawInsightSourcePills(x: barRect.minX + 52, y: barRect.minY + 5)
+        drawInsightWindowPills(x: barRect.minX + sourceW + gap + 50, y: barRect.minY + 5)
+    }
+
+    private func drawInsightSourcePills(x startX: CGFloat, y: CGFloat) {
+        let options: [QuotaViewOption] = [.all, .codex, .claude]
+        let pillW: CGFloat = 54
+        let pillH: CGFloat = 24
+        let gap: CGFloat = 5
+        var x = startX
+        for option in options {
+            let rect = NSRect(x: x, y: y, width: pillW, height: pillH)
+            sourceOptionRects[option] = rect
+            drawCompactInsightPill(detailsSourceTitle(option), rect: rect, selected: selectedDetailsSource == option)
+            x += pillW + gap
+        }
+    }
+
+    private func drawInsightWindowPills(x startX: CGFloat, y: CGFloat) {
         let copy = AppLanguage.current.insightCopy
         let labels = insightWindowOptions.map { copy.windowLabel(days: $0) }
-        let pillW: CGFloat = 62
-        let pillH: CGFloat = 26
-        let gap: CGFloat = 8
-        let totalW = CGFloat(labels.count) * pillW + CGFloat(labels.count - 1) * gap
-        let y = content.minY + 44
-        var x = content.maxX - totalW
-        guard x > content.minX + 240 else { return }
+        let pillW: CGFloat = 46
+        let pillH: CGFloat = 24
+        let gap: CGFloat = 5
+        var x = startX
         for (index, label) in labels.enumerated() {
             let days = insightWindowOptions[index]
             let rect = NSRect(x: x, y: y, width: pillW, height: pillH)
             insightWindowRects[days] = rect
-            drawSelectablePill(label, rect: rect, selected: days == selectedInsightWindowDays)
+            drawCompactInsightPill(label, rect: rect, selected: days == selectedInsightWindowDays)
             x += pillW + gap
         }
+    }
+
+    private func drawCompactInsightPill(_ text: String, rect: NSRect, selected: Bool) {
+        let fill = selected ? accentBlue.withAlphaComponent(0.74) : inputSurfaceColor.withAlphaComponent(0.30)
+        let stroke = selected ? accentTeal.withAlphaComponent(0.50) : borderColor.withAlphaComponent(0.80)
+        fill.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+        stroke.setStroke()
+        let outline = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
+        outline.lineWidth = 1
+        outline.stroke()
+        drawCentered(text, rect: rect.insetBy(dx: 4, dy: 0), font: .systemFont(ofSize: 10, weight: .bold), color: selected ? .white : NSColor.white.withAlphaComponent(0.72))
     }
 
     private func drawInsightProjectList(rows: [RepoInsight], rect: NSRect) {
@@ -3870,7 +4012,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func drawInsightDetail(_ row: RepoInsight, rect: NSRect) {
         let copy = AppLanguage.current.insightCopy
         drawPanel(rect)
-        drawText(row.displayName, rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 180, height: 28), font: .systemFont(ofSize: 20, weight: .bold), color: .white)
+        let titleWidth = rect.width > 560 ? rect.width - 360 : rect.width - 180
+        drawText(row.displayName, rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: titleWidth, height: 28), font: .systemFont(ofSize: 20, weight: .bold), color: .white)
         drawInsightRiskPill(row.risk, rect: NSRect(x: rect.maxX - 112, y: rect.minY + 18, width: 88, height: 24))
 
         let metricGap: CGFloat = 8
@@ -3899,6 +4042,458 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
         let recommendationRect = NSRect(x: rect.minX + 16, y: chartRect.maxY + 12, width: rect.width - 32, height: max(84, rect.maxY - chartRect.maxY - 28))
         drawInsightRecommendations(row, rect: recommendationRect)
+    }
+
+    private func drawInsightUsageTimePage(report: RepoInsightsReport, rect: NSRect) {
+        drawPanel(rect)
+        let hours = aggregateInsightHours(report)
+        let windowLabel = AppLanguage.current.insightCopy.windowLabel(days: selectedInsightWindowDays)
+        let title = "\(localizedInsightUsageTimeTitle) · \(detailsSourceTitle(selectedDetailsSource)) · \(windowLabel)"
+        drawText(title, rect: NSRect(x: rect.minX + 18, y: rect.minY + 16, width: rect.width - 36, height: 24), font: .systemFont(ofSize: 17, weight: .bold), color: .white)
+        drawText(insightUsageTimeSummary(hours), rect: NSRect(x: rect.minX + 18, y: rect.minY + 44, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
+
+        let summaryRect = NSRect(x: rect.minX + 18, y: rect.minY + 78, width: rect.width - 36, height: 74)
+        drawInsightTimePeriodCards(hours: hours, rect: summaryRect)
+
+        let chartPanel = NSRect(x: rect.minX + 18, y: summaryRect.maxY + 16, width: rect.width - 36, height: max(210, rect.maxY - summaryRect.maxY - 40))
+        inputSurfaceColor.withAlphaComponent(0.42).setFill()
+        NSBezierPath(roundedRect: chartPanel, xRadius: 7, yRadius: 7).fill()
+        drawText(localizedInsightHourlyCallsTitle, rect: NSRect(x: chartPanel.minX + 14, y: chartPanel.minY + 12, width: chartPanel.width - 28, height: 18), font: .systemFont(ofSize: 13, weight: .bold), color: NSColor.white.withAlphaComponent(0.76))
+
+        let hoursByHour = Dictionary(uniqueKeysWithValues: hours.map { ($0.hour, $0) })
+        let maxTurns = max(1, hours.map(\.turns).max() ?? 0)
+        let axisWidth: CGFloat = 44
+        let chart = NSRect(x: chartPanel.minX + 18 + axisWidth, y: chartPanel.minY + 48, width: chartPanel.width - 36 - axisWidth, height: chartPanel.height - 94)
+        let tickValues = insightAxisTickValues(maxValue: maxTurns)
+        let axisMax = max(1, tickValues.last ?? maxTurns)
+        for tick in tickValues {
+            let ratio = CGFloat(tick) / CGFloat(axisMax)
+            let y = chart.maxY - chart.height * ratio
+            let tickColor = NSColor.white.withAlphaComponent(tick == 0 ? 0.30 : 0.12)
+            tickColor.setStroke()
+            let grid = NSBezierPath()
+            grid.move(to: NSPoint(x: chart.minX - 5, y: y))
+            grid.line(to: NSPoint(x: chart.maxX, y: y))
+            grid.lineWidth = tick == 0 ? 1.1 : 0.8
+            grid.stroke()
+            drawRight(compact(Int64(tick)), rect: NSRect(x: chartPanel.minX + 12, y: y - 7, width: axisWidth - 12, height: 14), color: NSColor.white.withAlphaComponent(0.46), font: .monospacedDigitSystemFont(ofSize: 9, weight: .semibold))
+        }
+        NSColor.white.withAlphaComponent(0.20).setStroke()
+        let axis = NSBezierPath()
+        axis.move(to: NSPoint(x: chart.minX - 5, y: chart.minY))
+        axis.line(to: NSPoint(x: chart.minX - 5, y: chart.maxY))
+        axis.lineWidth = 1
+        axis.stroke()
+        drawRight("turns", rect: NSRect(x: chartPanel.minX + 12, y: chart.minY - 18, width: axisWidth - 12, height: 12), color: NSColor.white.withAlphaComponent(0.36), font: .systemFont(ofSize: 8, weight: .bold))
+        let gap: CGFloat = 4
+        let barWidth = max(CGFloat(6), (chart.width - CGFloat(23) * gap) / 24)
+        for hour in 0..<24 {
+            let turns = hoursByHour[hour]?.turns ?? 0
+            let ratio = CGFloat(turns) / CGFloat(axisMax)
+            let height = turns > 0 ? max(CGFloat(5), chart.height * ratio) : 2
+            let x = chart.minX + CGFloat(hour) * (barWidth + gap)
+            let bar = NSRect(x: x, y: chart.maxY - height, width: barWidth, height: height)
+            insightHourRects[hour] = NSRect(x: x - max(2, gap / 2), y: chart.minY, width: barWidth + max(4, gap), height: chart.height)
+            insightHourBarRects[hour] = bar
+            insightHourColor(hour).withAlphaComponent(turns > 0 ? 0.86 : 0.16).setFill()
+            NSBezierPath(roundedRect: bar, xRadius: 3, yRadius: 3).fill()
+            if hoveredInsightHour == hour {
+                NSColor.white.withAlphaComponent(0.34).setStroke()
+                let focus = NSBezierPath(roundedRect: bar.insetBy(dx: -3, dy: -3), xRadius: 5, yRadius: 5)
+                focus.lineWidth = 1.4
+                focus.stroke()
+            }
+            if [0, 6, 12, 18, 23].contains(hour) {
+                drawCentered(String(format: "%02d", hour), rect: NSRect(x: x - 6, y: chart.maxY + 6, width: barWidth + 12, height: 14), font: .monospacedDigitSystemFont(ofSize: 9, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42))
+            }
+        }
+
+        let legendY = chartPanel.maxY - 30
+        let legend: [(String, NSColor)] = [
+            (localizedInsightMorning, accentTeal),
+            (localizedInsightAfternoon, accentBlue),
+            (localizedInsightEvening, accentAmber),
+            (localizedInsightLateNight, accentRose)
+        ]
+        var legendX = chartPanel.minX + 14
+        for item in legend {
+            item.1.setFill()
+            NSBezierPath(ovalIn: NSRect(x: legendX, y: legendY + 4, width: 7, height: 7)).fill()
+            drawText(item.0, rect: NSRect(x: legendX + 11, y: legendY, width: 78, height: 15), font: .systemFont(ofSize: 9, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
+            legendX += min(92, chartPanel.width / 4)
+        }
+    }
+
+    private func aggregateInsightHours(_ report: RepoInsightsReport) -> [RepoInsightHour] {
+        var buckets: [Int: RepoInsightHour] = [:]
+        for row in report.rows {
+            for hour in row.hours {
+                var bucket = buckets[hour.hour] ?? RepoInsightHour(hour: hour.hour, conversations: 0, turns: 0, tokens: 0)
+                bucket.conversations += hour.conversations
+                bucket.turns += hour.turns
+                bucket.tokens += hour.tokens
+                buckets[hour.hour] = bucket
+            }
+        }
+        return buckets.values.sorted { $0.hour < $1.hour }
+    }
+
+    private func insightAxisTickValues(maxValue: Int) -> [Int] {
+        guard maxValue > 0 else { return [0, 1] }
+        if maxValue <= 4 {
+            return Array(0...maxValue)
+        }
+        let roughStep = Double(maxValue) / 4.0
+        let magnitude = pow(10.0, floor(log10(roughStep)))
+        let normalized = roughStep / magnitude
+        let multiplier: Double
+        if normalized <= 1 {
+            multiplier = 1
+        } else if normalized <= 2 {
+            multiplier = 2
+        } else if normalized <= 5 {
+            multiplier = 5
+        } else {
+            multiplier = 10
+        }
+        let step = max(1, Int(multiplier * magnitude))
+        let top = Int(ceil(Double(maxValue) / Double(step))) * step
+        return stride(from: 0, through: top, by: step).map { $0 }
+    }
+
+    private func drawInsightTimePeriodCards(hours: [RepoInsightHour], rect: NSRect) {
+        let groups = insightPeriodDefinitions()
+        let totals = groups.map { item in
+            (item.0, hours.filter { item.1.contains($0.hour) }.reduce(0) { $0 + $1.turns }, item.2)
+        }
+        let totalTurns = max(1, totals.reduce(0) { $0 + $1.1 })
+        let gap: CGFloat = 10
+        let cardW = (rect.width - gap * CGFloat(max(0, totals.count - 1))) / CGFloat(max(1, totals.count))
+        for (index, item) in totals.enumerated() {
+            let card = NSRect(x: rect.minX + CGFloat(index) * (cardW + gap), y: rect.minY, width: cardW, height: rect.height)
+            insightPeriodRects[item.0] = card
+            inputSurfaceColor.withAlphaComponent(0.62).setFill()
+            NSBezierPath(roundedRect: card, xRadius: 7, yRadius: 7).fill()
+            item.2.withAlphaComponent(0.80).setFill()
+            NSBezierPath(roundedRect: NSRect(x: card.minX, y: card.minY, width: 4, height: card.height), xRadius: 2, yRadius: 2).fill()
+            if hoveredInsightPeriod == item.0 {
+                NSColor.white.withAlphaComponent(0.22).setStroke()
+                let focus = NSBezierPath(roundedRect: card.insetBy(dx: -2, dy: -2), xRadius: 8, yRadius: 8)
+                focus.lineWidth = 1.3
+                focus.stroke()
+            }
+            drawText(item.0, rect: NSRect(x: card.minX + 14, y: card.minY + 10, width: card.width - 28, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: NSColor.white.withAlphaComponent(0.58))
+            drawText("\(item.1)", rect: NSRect(x: card.minX + 14, y: card.minY + 30, width: card.width * 0.55, height: 24), font: .monospacedDigitSystemFont(ofSize: 18, weight: .bold), color: item.2.withAlphaComponent(0.96))
+            let percent = Int(round(Double(item.1) / Double(totalTurns) * 100))
+            drawRight("\(percent)%", rect: NSRect(x: card.midX, y: card.minY + 34, width: card.width / 2 - 14, height: 18), color: NSColor.white.withAlphaComponent(0.44), font: .monospacedDigitSystemFont(ofSize: 12, weight: .semibold))
+        }
+    }
+
+    private func drawInsightUsageTimeTooltip() {
+        guard selectedSection == .insights,
+              selectedInsightDetailMode == .usageTime,
+              let snapshot else {
+            return
+        }
+        let report = insightReport(for: snapshot)
+        let hours = aggregateInsightHours(report)
+        let totalTurns = max(1, hours.reduce(0) { $0 + $1.turns })
+
+        let title: String
+        let color: NSColor
+        let anchorRect: NSRect
+        let lines: [(String, String)]
+
+        if let hoveredInsightHour,
+           let rect = insightHourBarRects[hoveredInsightHour] ?? insightHourRects[hoveredInsightHour] {
+            let turns = hours.first(where: { $0.hour == hoveredInsightHour })?.turns ?? 0
+            title = String(format: "%02d:00-%02d:00", hoveredInsightHour, (hoveredInsightHour + 1) % 24)
+            color = insightHourColor(hoveredInsightHour)
+            anchorRect = rect
+            lines = [
+                (localizedInsightTooltipTurns, "\(turns) turns"),
+                (localizedInsightTooltipShare, "\(Int(round(Double(turns) / Double(totalTurns) * 100)))%"),
+                (localizedInsightTooltipDailyAverage, String(format: "%.1f turns", Double(turns) / Double(max(1, selectedInsightWindowDays)))),
+                (localizedInsightTooltipPeriod, localizedInsightDayPart(for: hoveredInsightHour))
+            ]
+        } else if let hoveredInsightPeriod,
+                  let rect = insightPeriodRects[hoveredInsightPeriod],
+                  let period = insightPeriodDefinitions().first(where: { $0.0 == hoveredInsightPeriod }) {
+            let periodHours = hours.filter { period.1.contains($0.hour) }
+            let turns = periodHours.reduce(0) { $0 + $1.turns }
+            let peak = periodHours.max { $0.turns < $1.turns }
+            title = hoveredInsightPeriod
+            color = period.2
+            anchorRect = rect
+            lines = [
+                (localizedInsightTooltipTurns, "\(turns) turns"),
+                (localizedInsightTooltipShare, "\(Int(round(Double(turns) / Double(totalTurns) * 100)))%"),
+                (localizedInsightTooltipDailyAverage, String(format: "%.1f turns", Double(turns) / Double(max(1, selectedInsightWindowDays)))),
+                (localizedInsightTooltipHourlyAverage, String(format: "%.1f turns", Double(turns) / 6.0)),
+                (localizedInsightTooltipPeakHour, peak.map { String(format: "%02d:00 · %d", $0.hour, $0.turns) } ?? "--")
+            ]
+        } else {
+            return
+        }
+
+        let width: CGFloat = 236
+        let rowHeight: CGFloat = 20
+        let height: CGFloat = 42 + CGFloat(lines.count) * rowHeight
+        var origin = CGPoint(x: anchorRect.midX - width / 2, y: anchorRect.minY - height - 10)
+        if origin.y < bounds.minY + 12 {
+            origin.y = anchorRect.maxY + 10
+        }
+        origin.x = max(bounds.minX + 12, min(origin.x, bounds.maxX - width - 12))
+        origin.y = max(bounds.minY + 12, min(origin.y, bounds.maxY - height - 12))
+        let rect = NSRect(origin: origin, size: CGSize(width: width, height: height))
+
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 9, yRadius: 9).fill()
+        color.withAlphaComponent(0.55).setStroke()
+        let border = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
+        border.lineWidth = 1
+        border.stroke()
+        drawText(title, rect: NSRect(x: rect.minX + 12, y: rect.minY + 10, width: rect.width - 24, height: 18), font: .systemFont(ofSize: 12, weight: .bold), color: .white)
+
+        for (index, line) in lines.enumerated() {
+            let y = rect.minY + 34 + CGFloat(index) * rowHeight
+            drawText(line.0, rect: NSRect(x: rect.minX + 12, y: y, width: 104, height: 16), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.58))
+            drawRight(line.1, rect: NSRect(x: rect.minX + 118, y: y, width: rect.width - 130, height: 16), color: color.withAlphaComponent(0.96), font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
+        }
+    }
+
+    private func insightPeriodDefinitions() -> [(String, Range<Int>, NSColor)] {
+        [
+            (localizedInsightMorning, 6..<12, accentTeal),
+            (localizedInsightAfternoon, 12..<18, accentBlue),
+            (localizedInsightEvening, 18..<24, accentAmber),
+            (localizedInsightLateNight, 0..<6, accentRose)
+        ]
+    }
+
+    private func insightUsageTimeSummary(_ hours: [RepoInsightHour]) -> String {
+        guard let peak = hours.max(by: { $0.turns < $1.turns }), peak.turns > 0 else {
+            return localizedInsightNoUsageTime
+        }
+        return localizedInsightPeakSummary(range: localizedInsightDayPart(for: peak.hour), hour: peak.hour, turns: peak.turns)
+    }
+
+    private func insightHourColor(_ hour: Int) -> NSColor {
+        switch hour {
+        case 6..<12: return accentTeal
+        case 12..<18: return accentBlue
+        case 18..<24: return accentAmber
+        default: return accentRose
+        }
+    }
+
+    private func localizedInsightDetailMode(_ mode: InsightDetailMode) -> String {
+        switch (mode, AppLanguage.current) {
+        case (.usageHabits, .chinese), (.usageHabits, .traditionalChinese): return "使用习惯"
+        case (.usageHabits, .japanese): return "使い方"
+        case (.usageHabits, .polish): return "Nawyki"
+        case (.usageHabits, .english): return "Habits"
+        case (.usageHabits, _): return "Habits"
+        case (.usageTime, .chinese), (.usageTime, .traditionalChinese): return "使用时间"
+        case (.usageTime, .japanese): return "時間帯"
+        case (.usageTime, .polish): return "Godziny"
+        case (.usageTime, .english): return "Time"
+        case (.usageTime, _): return "Time"
+        }
+    }
+
+    private var localizedInsightUsageTimeTitle: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "调用时间分布（按小时）"
+        case .japanese: return "利用時間の分布（時間別）"
+        case .polish: return "Rozkład użycia według godzin"
+        case .english: return "Usage time distribution by hour"
+        default: return "Usage time distribution by hour"
+        }
+    }
+
+    private var localizedInsightUsageTimePageTitle: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "使用时间"
+        case .japanese: return "利用時間"
+        case .polish: return "Godziny uzycia"
+        case .english: return "Usage Time"
+        default: return "Usage Time"
+        }
+    }
+
+    private var localizedInsightUsageTimePageSubtitle: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "按来源和时间窗口查看高峰调用时段"
+        case .japanese: return "ソースと期間ごとの利用ピークを確認"
+        case .polish: return "Pory szczytu wedlug zrodla i zakresu"
+        case .english: return "Find peak usage periods by source and window"
+        default: return "Find peak usage periods by source and window"
+        }
+    }
+
+    private var localizedInsightFilterSourceTitle: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "来源"
+        case .japanese: return "ソース"
+        case .polish: return "Zrodlo"
+        case .english: return "Source"
+        default: return "Source"
+        }
+    }
+
+    private var localizedInsightFilterWindowTitle: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "窗口"
+        case .japanese: return "期間"
+        case .polish: return "Okres"
+        case .english: return "Window"
+        default: return "Window"
+        }
+    }
+
+    private var localizedInsightTooltipTurns: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "数量"
+        case .japanese: return "回数"
+        case .polish: return "Liczba"
+        case .english: return "Count"
+        default: return "Count"
+        }
+    }
+
+    private var localizedInsightTooltipShare: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "占比"
+        case .japanese: return "割合"
+        case .polish: return "Udzial"
+        case .english: return "Share"
+        default: return "Share"
+        }
+    }
+
+    private var localizedInsightTooltipDailyAverage: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "日均"
+        case .japanese: return "日平均"
+        case .polish: return "Dziennie"
+        case .english: return "Daily avg"
+        default: return "Daily avg"
+        }
+    }
+
+    private var localizedInsightTooltipHourlyAverage: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "小时均值"
+        case .japanese: return "時間平均"
+        case .polish: return "Na godz."
+        case .english: return "Hourly avg"
+        default: return "Hourly avg"
+        }
+    }
+
+    private var localizedInsightTooltipPeriod: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "时段"
+        case .japanese: return "時間帯"
+        case .polish: return "Pora"
+        case .english: return "Period"
+        default: return "Period"
+        }
+    }
+
+    private var localizedInsightTooltipPeakHour: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "峰值小时"
+        case .japanese: return "ピーク時間"
+        case .polish: return "Szczyt"
+        case .english: return "Peak hour"
+        default: return "Peak hour"
+        }
+    }
+
+    private var localizedInsightHourlyCallsTitle: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "24 小时调用柱状图"
+        case .japanese: return "24時間の利用バー"
+        case .polish: return "Godzinowy wykres uzycia"
+        case .english: return "24-hour usage bars"
+        default: return "24-hour usage bars"
+        }
+    }
+
+    private var localizedInsightNoUsageTime: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "这个窗口内还没有可展示的调用时间。"
+        case .japanese: return "この期間には表示できる利用時間がありません。"
+        case .polish: return "Brak godzin użycia w tym zakresie."
+        case .english: return "No usage time is available for this window."
+        default: return "No usage time is available for this window."
+        }
+    }
+
+    private var localizedInsightMorning: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "早上"
+        case .japanese: return "朝"
+        case .polish: return "Rano"
+        case .english: return "Morning"
+        default: return "Morning"
+        }
+    }
+
+    private var localizedInsightAfternoon: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "下午"
+        case .japanese: return "午後"
+        case .polish: return "Popoludnie"
+        case .english: return "Afternoon"
+        default: return "Afternoon"
+        }
+    }
+
+    private var localizedInsightEvening: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "晚上"
+        case .japanese: return "夜"
+        case .polish: return "Wieczor"
+        case .english: return "Evening"
+        default: return "Evening"
+        }
+    }
+
+    private var localizedInsightLateNight: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "深夜"
+        case .japanese: return "深夜"
+        case .polish: return "Noc"
+        case .english: return "Late night"
+        default: return "Late night"
+        }
+    }
+
+    private func localizedInsightDayPart(for hour: Int) -> String {
+        switch hour {
+        case 6..<12: return localizedInsightMorning
+        case 12..<18: return localizedInsightAfternoon
+        case 18..<24: return localizedInsightEvening
+        default: return localizedInsightLateNight
+        }
+    }
+
+    private func localizedInsightPeakSummary(range: String, hour: Int, turns: Int) -> String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese:
+            return "高峰在\(range)，\(String(format: "%02d:00", hour)) 附近最多（\(turns) turns）。"
+        case .japanese:
+            return "ピークは\(range)、\(String(format: "%02d:00", hour)) 頃が最多（\(turns) turns）。"
+        case .polish:
+            return "Szczyt: \(range), okolo \(String(format: "%02d:00", hour)) (\(turns) turns)."
+        case .english:
+            return "Peak usage is in the \(range.lowercased()), highest around \(String(format: "%02d:00", hour)) (\(turns) turns)."
+        default:
+            return "Peak usage is in the \(range.lowercased()), highest around \(String(format: "%02d:00", hour)) (\(turns) turns)."
+        }
     }
 
     private func drawInsightLengthDistribution(_ row: RepoInsight, rect: NSRect) {
@@ -5881,7 +6476,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func localizedContributionDate(_ day: String) -> String {
         guard let date = dayFormatter().date(from: day) else { return day }
         let formatter = DateFormatter()
-        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.timeZone = appTimeZone()
         switch AppLanguage.current {
         case .chinese, .traditionalChinese:
             formatter.locale = Locale(identifier: "zh_Hans_CN")
@@ -5940,7 +6535,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             return String(day.dropFirst(5).prefix(2))
         }
         let formatter = DateFormatter()
-        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.timeZone = appTimeZone()
         switch AppLanguage.current {
         case .english:
             formatter.locale = Locale(identifier: "en_US_POSIX")

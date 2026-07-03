@@ -33,9 +33,17 @@ final class CodexTokenScanner {
         var completedTurns: Int
     }
 
+    private struct FileRepoInsightHourAggregate: Codable {
+        let day: String
+        let hour: Int
+        var turns: Int
+        var tokens: Int64
+    }
+
     private struct FileRepoInsightAggregate: Codable {
         var cwd: String?
         var days: [FileRepoInsightDayAggregate]
+        var hours: [FileRepoInsightHourAggregate]
     }
 
     private struct FileCache {
@@ -56,6 +64,7 @@ final class CodexTokenScanner {
         var completedTurns = 0
         var activeDays: Set<String> = []
         var days: [FileRepoInsightDayAggregate] = []
+        var hours: [FileRepoInsightHourAggregate] = []
         var lastEvent: Date?
     }
 
@@ -78,6 +87,7 @@ final class CodexTokenScanner {
         var turnBuckets = RepoInsightTurnBuckets()
         var compressionBuckets = RepoInsightCompressionBuckets()
         var dayBuckets: [String: RepoInsightDay] = [:]
+        var hourBuckets: [Int: RepoInsightHour] = [:]
 
         mutating func add(_ conversation: RepoInsightConversation) {
             conversations += 1
@@ -132,6 +142,14 @@ final class CodexTokenScanner {
                 bucket.compressions += day.compressions
                 dayBuckets[day.day] = bucket
             }
+
+            for hour in conversation.hours where hour.turns > 0 || hour.tokens > 0 {
+                var bucket = hourBuckets[hour.hour] ?? RepoInsightHour(hour: hour.hour, conversations: 0, turns: 0, tokens: 0)
+                bucket.conversations += 1
+                bucket.turns += hour.turns
+                bucket.tokens += hour.tokens
+                hourBuckets[hour.hour] = bucket
+            }
         }
 
         func repoInsight() -> RepoInsight {
@@ -153,7 +171,8 @@ final class CodexTokenScanner {
                 activeDays: activeDays,
                 turnBuckets: turnBuckets,
                 compressionBuckets: compressionBuckets,
-                days: dayBuckets.values.sorted { $0.day < $1.day }
+                days: dayBuckets.values.sorted { $0.day < $1.day },
+                hours: hourBuckets.values.sorted { $0.hour < $1.hour }
             )
         }
     }
@@ -163,10 +182,28 @@ final class CodexTokenScanner {
         let path: String
         let size: Int64
         let modifiedAt: Double
+        let timeZoneIdentifier: String
         let events: [TokenEvent]
         let turns: [Date]
         let days: [FileDayAggregate]
         let repoInsight: FileRepoInsightAggregate
+    }
+
+    private struct LegacyV4FileRepoInsightAggregate: Codable {
+        var cwd: String?
+        var days: [FileRepoInsightDayAggregate]
+    }
+
+    private struct LegacyV4DiskFileCache: Codable {
+        let version: Int
+        let path: String
+        let size: Int64
+        let modifiedAt: Double
+        let timeZoneIdentifier: String?
+        let events: [TokenEvent]
+        let turns: [Date]
+        let days: [FileDayAggregate]
+        let repoInsight: LegacyV4FileRepoInsightAggregate
     }
 
     private struct LegacyV3DiskFileCache: Codable {
@@ -230,10 +267,10 @@ final class CodexTokenScanner {
         self.isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         self.dayFormatter = DateFormatter()
         self.dayFormatter.locale = Locale(identifier: "en_US_POSIX")
-        self.dayFormatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        self.dayFormatter.timeZone = appTimeZone()
         self.dayFormatter.dateFormat = "yyyy-MM-dd"
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+        calendar.timeZone = appTimeZone()
         self.calendar = calendar
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }
@@ -345,10 +382,12 @@ final class CodexTokenScanner {
         let startDay = dayFormatter.string(from: start)
         let endDay = dayFormatter.string(from: now)
         let days = aggregate.days.filter { $0.day >= startDay && $0.day <= endDay }
+        let activeDaySet = Set(days.map(\.day))
         var conversation = RepoInsightConversation()
         conversation.cwd = aggregate.cwd
         conversation.days = days
-        conversation.activeDays = Set(days.map(\.day))
+        conversation.activeDays = activeDaySet
+        conversation.hours = aggregate.hours.filter { activeDaySet.contains($0.day) && ($0.turns > 0 || $0.tokens > 0) }
         for day in days {
             conversation.turns += day.turns
             conversation.compressions += day.compressions
@@ -749,12 +788,49 @@ final class CodexTokenScanner {
             return nil
         }
 
+        let timeZoneIdentifier = appTimeZone().identifier
         if let disk = try? jsonDecoder.decode(DiskFileCache.self, from: data),
-              disk.version == 4,
+              disk.version == 6,
               disk.path == fileURL.path,
               disk.size == size,
+              disk.timeZoneIdentifier == timeZoneIdentifier,
               abs(disk.modifiedAt - modifiedAt.timeIntervalSinceReferenceDate) < 0.001 {
             return FileCache(size: disk.size, modifiedAt: modifiedAt, events: disk.events, turns: disk.turns, days: disk.days, repoInsight: disk.repoInsight)
+        }
+
+        if let legacy = try? jsonDecoder.decode(LegacyV4DiskFileCache.self, from: data),
+           legacy.version == 5,
+           legacy.path == fileURL.path,
+           legacy.size == size,
+           legacy.timeZoneIdentifier == timeZoneIdentifier,
+           abs(legacy.modifiedAt - modifiedAt.timeIntervalSinceReferenceDate) < 0.001 {
+            let file = FileCache(
+                size: legacy.size,
+                modifiedAt: modifiedAt,
+                events: legacy.events,
+                turns: legacy.turns,
+                days: legacy.days,
+                repoInsight: repoInsightAggregate(fileURL: fileURL)
+            )
+            writeDiskCache(file, fileURL: fileURL)
+            return file
+        }
+
+        if let legacy = try? jsonDecoder.decode(LegacyV4DiskFileCache.self, from: data),
+           legacy.version == 4,
+           legacy.path == fileURL.path,
+           legacy.size == size,
+           abs(legacy.modifiedAt - modifiedAt.timeIntervalSinceReferenceDate) < 0.001 {
+            let file = FileCache(
+                size: legacy.size,
+                modifiedAt: modifiedAt,
+                events: legacy.events,
+                turns: legacy.turns,
+                days: legacy.days,
+                repoInsight: repoInsightAggregate(fileURL: fileURL)
+            )
+            writeDiskCache(file, fileURL: fileURL)
+            return file
         }
 
         if let legacy = try? jsonDecoder.decode(LegacyV3DiskFileCache.self, from: data),
@@ -796,10 +872,11 @@ final class CodexTokenScanner {
 
     private func writeDiskCache(_ file: FileCache, fileURL: URL) {
         let disk = DiskFileCache(
-            version: 4,
+            version: 6,
             path: fileURL.path,
             size: file.size,
             modifiedAt: file.modifiedAt.timeIntervalSinceReferenceDate,
+            timeZoneIdentifier: appTimeZone().identifier,
             events: file.events,
             turns: file.turns,
             days: file.days,
@@ -812,17 +889,26 @@ final class CodexTokenScanner {
 
     private func repoInsightAggregate(fileURL: URL) -> FileRepoInsightAggregate {
         guard let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]) else {
-            return FileRepoInsightAggregate(cwd: nil, days: [])
+            return FileRepoInsightAggregate(cwd: nil, days: [], hours: [])
         }
 
         var previousTotal = Usage()
         var dayBuckets: [String: FileRepoInsightDayAggregate] = [:]
+        var hourBuckets: [String: FileRepoInsightHourAggregate] = [:]
         var cwdCounts: [String: Int] = [:]
 
         func updateDay(_ day: String, apply: (inout FileRepoInsightDayAggregate) -> Void) {
             var bucket = dayBuckets[day] ?? FileRepoInsightDayAggregate(day: day, turns: 0, compressions: 0, tokens: 0, abortedTurns: 0, completedTurns: 0)
             apply(&bucket)
             dayBuckets[day] = bucket
+        }
+
+        func updateHour(_ timestamp: Date, day: String, apply: (inout FileRepoInsightHourAggregate) -> Void) {
+            let hour = self.calendar.component(.hour, from: timestamp)
+            let key = "\(day)|\(hour)"
+            var bucket = hourBuckets[key] ?? FileRepoInsightHourAggregate(day: day, hour: hour, turns: 0, tokens: 0)
+            apply(&bucket)
+            hourBuckets[key] = bucket
         }
 
         data.withUnsafeBytes { rawBuffer in
@@ -857,6 +943,7 @@ final class CodexTokenScanner {
                     let delta = Usage.delta(from: previousTotal, to: currentTotal)
                     previousTotal = currentTotal
                     updateDay(day) { $0.tokens += delta.total }
+                    updateHour(timestamp, day: day) { $0.tokens += delta.total }
                 }
 
                 guard self.contains(base, range: range, pattern: self.eventMsgPattern) else {
@@ -865,6 +952,7 @@ final class CodexTokenScanner {
 
                 if self.contains(base, range: range, pattern: self.taskStartedPattern) {
                     updateDay(day) { $0.turns += 1 }
+                    updateHour(timestamp, day: day) { $0.turns += 1 }
                 } else if self.contains(base, range: range, pattern: self.contextCompactedPattern) {
                     updateDay(day) { $0.compressions += 1 }
                 } else if self.contains(base, range: range, pattern: self.turnAbortedPattern) {
@@ -889,7 +977,14 @@ final class CodexTokenScanner {
             if $0.value != $1.value { return $0.value < $1.value }
             return $0.key > $1.key
         }?.key
-        return FileRepoInsightAggregate(cwd: cwd, days: dayBuckets.values.sorted { $0.day < $1.day })
+        return FileRepoInsightAggregate(
+            cwd: cwd,
+            days: dayBuckets.values.sorted { $0.day < $1.day },
+            hours: hourBuckets.values.sorted {
+                if $0.day != $1.day { return $0.day < $1.day }
+                return $0.hour < $1.hour
+            }
+        )
     }
 
     private func dayAggregates(events: [TokenEvent], turns: [Date]) -> [FileDayAggregate] {

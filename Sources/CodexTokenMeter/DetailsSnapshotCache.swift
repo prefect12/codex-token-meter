@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Details Snapshot Cache
 
 enum DetailsSnapshotCacheStore {
-    private static let version = 1
+    private static let version = 3
 
     private struct Payload: Codable {
         let version: Int

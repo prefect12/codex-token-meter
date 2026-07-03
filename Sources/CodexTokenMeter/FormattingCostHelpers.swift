@@ -148,14 +148,18 @@ func compactDisplayAPIMoney(_ usdValue: Double) -> String {
 func todayKey() -> String {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+    formatter.timeZone = appTimeZone()
     formatter.dateFormat = "yyyy-MM-dd"
     return formatter.string(from: Date())
 }
 
+func appTimeZone() -> TimeZone {
+    TimeZone.autoupdatingCurrent
+}
+
 func appCalendar() -> Calendar {
     var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+    calendar.timeZone = appTimeZone()
     calendar.locale = Locale(identifier: "en_US_POSIX")
     calendar.firstWeekday = 2
     return calendar
@@ -164,7 +168,7 @@ func appCalendar() -> Calendar {
 func dayFormatter() -> DateFormatter {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+    formatter.timeZone = appTimeZone()
     formatter.dateFormat = "yyyy-MM-dd"
     return formatter
 }
@@ -172,7 +176,7 @@ func dayFormatter() -> DateFormatter {
 func shortMonthDayFormatter() -> DateFormatter {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+    formatter.timeZone = appTimeZone()
     formatter.dateFormat = "MM-dd"
     return formatter
 }
@@ -180,7 +184,7 @@ func shortMonthDayFormatter() -> DateFormatter {
 func shortMonthDayTimeFormatter() -> DateFormatter {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+    formatter.timeZone = appTimeZone()
     formatter.dateFormat = "MM-dd HH:mm"
     return formatter
 }

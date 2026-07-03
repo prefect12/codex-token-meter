@@ -307,6 +307,13 @@ struct RepoInsightCompressionBuckets: Codable {
     var threePlus: Int = 0
 }
 
+struct RepoInsightHour: Codable {
+    let hour: Int
+    var conversations: Int
+    var turns: Int
+    var tokens: Int64
+}
+
 struct RepoInsight: Codable {
     var key: String
     var displayName: String
@@ -326,6 +333,7 @@ struct RepoInsight: Codable {
     var turnBuckets: RepoInsightTurnBuckets
     var compressionBuckets: RepoInsightCompressionBuckets
     var days: [RepoInsightDay]
+    var hours: [RepoInsightHour]
 
     var averageTurnsPerConversation: Double {
         conversations == 0 ? 0 : Double(turns) / Double(conversations)
