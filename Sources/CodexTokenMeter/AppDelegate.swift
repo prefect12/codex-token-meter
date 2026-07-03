@@ -419,6 +419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentLimits = liveLimits
         liveQueue.async {
             let claudeStore = ClaudeStatuslineStore()
+            _ = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: claudeStore)
             if allowClaudeActiveRefresh {
                 _ = ClaudeActiveQuotaRefresher.shared.refreshIfNeeded(snapshot: claudeStore.read())
             }

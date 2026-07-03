@@ -1,5 +1,6 @@
 import Cocoa
 import Foundation
+import Security
 import ServiceManagement
 import UserNotifications
 
@@ -181,6 +182,25 @@ final class ClaudeStatuslineStore {
     func capture(stdinData: Data, now: Date = Date()) throws -> ClaudeStatuslineSnapshot? {
         let object = try JSONSerialization.jsonObject(with: stdinData) as? [String: Any] ?? [:]
         let rateLimits = object["rate_limits"] as? [String: Any]
+        return try writeCapture(rateLimits: rateLimits, now: now)
+    }
+
+    func captureUsageWindows(fiveHour: ClaudeStatuslineWindow, sevenDay: ClaudeStatuslineWindow, now: Date = Date()) throws -> ClaudeStatuslineSnapshot? {
+        func windowDict(_ window: ClaudeStatuslineWindow) -> [String: Any] {
+            var dict: [String: Any] = ["used_percentage": window.usedPercent]
+            if let resetsAt = window.resetsAt {
+                dict["resets_at"] = Int(resetsAt.timeIntervalSince1970)
+            }
+            return dict
+        }
+        let rateLimits: [String: Any] = [
+            "five_hour": windowDict(fiveHour),
+            "seven_day": windowDict(sevenDay)
+        ]
+        return try writeCapture(rateLimits: rateLimits, now: now)
+    }
+
+    private func writeCapture(rateLimits: [String: Any]?, now: Date) throws -> ClaudeStatuslineSnapshot? {
         let capture: [String: Any] = [
             "captured_at_epoch": Int(now.timeIntervalSince1970),
             "rate_limits": rateLimits as Any
@@ -270,6 +290,318 @@ final class ClaudeStatuslineStore {
         }
         guard let value, value.isFinite else { return nil }
         return value
+    }
+}
+
+/// Refreshes Claude quota by querying the same server endpoint Claude Code's
+/// `/usage` panel uses. Reads the OAuth token Claude Code already stores
+/// locally; the query itself consumes no model quota.
+final class ClaudeOAuthUsageRefresher {
+    static let shared = ClaudeOAuthUsageRefresher()
+
+    private static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
+    private let lock = NSLock()
+    private var nextAttemptAt = Date.distantPast
+    private let attemptInterval: TimeInterval = 60
+    private let failureBackoff: TimeInterval = 15 * 60
+    private let credentialFailureBackoff: TimeInterval = 30 * 60
+    private let session: URLSession
+
+    private init() {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 15
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        self.session = URLSession(configuration: configuration)
+    }
+
+    @discardableResult
+    func refreshIfNeeded(store: ClaudeStatuslineStore, now: Date = Date()) -> Bool {
+        if let snapshot = store.read(now: now), !snapshot.isStale {
+            return false
+        }
+        guard shouldAttempt(now: now) else { return false }
+        guard let token = oauthAccessToken(now: now) else {
+            postpone(now: now, interval: credentialFailureBackoff)
+            return false
+        }
+        guard let (fiveHour, sevenDay) = fetchUsageWindows(token: token, now: now) else {
+            postpone(now: now, interval: failureBackoff)
+            return false
+        }
+        do {
+            _ = try store.captureUsageWindows(fiveHour: fiveHour, sevenDay: sevenDay, now: now)
+            return true
+        } catch {
+            NSLog("AI Token Meter Claude OAuth usage write failed: \(error.localizedDescription)")
+            postpone(now: now, interval: failureBackoff)
+            return false
+        }
+    }
+
+    private func shouldAttempt(now: Date) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard now >= nextAttemptAt else { return false }
+        nextAttemptAt = now.addingTimeInterval(attemptInterval)
+        return true
+    }
+
+    private func postpone(now: Date, interval: TimeInterval) {
+        lock.lock()
+        nextAttemptAt = now.addingTimeInterval(interval)
+        lock.unlock()
+    }
+
+    // MARK: Credentials
+
+    /// OAuth client id of Claude Code itself; the refresh-token flow must use
+    /// the same client the tokens were issued to.
+    private static let oauthClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+    private static let tokenURL = URL(string: "https://console.anthropic.com/v1/oauth/token")!
+    private static let keychainService = "Claude Code-credentials"
+
+    private enum CredentialSource {
+        case file(URL)
+        case keychain
+    }
+
+    private struct StoredCredentials {
+        var root: [String: Any]
+        var oauth: [String: Any]
+        let source: CredentialSource
+    }
+
+    private var cachedToken: (token: String, validUntil: Date)?
+
+    private func oauthAccessToken(now: Date) -> String? {
+        lock.lock()
+        if let cachedToken, cachedToken.validUntil > now {
+            let token = cachedToken.token
+            lock.unlock()
+            return token
+        }
+        lock.unlock()
+
+        guard let credentials = storedCredentials() else { return nil }
+        let expiresAt = (credentials.oauth["expiresAt"] as? Double)
+            .map { Date(timeIntervalSince1970: $0 / 1000) }
+        if let token = credentials.oauth["accessToken"] as? String,
+           !token.isEmpty,
+           let expiresAt,
+           expiresAt > now.addingTimeInterval(60) {
+            cacheToken(token, validUntil: expiresAt.addingTimeInterval(-60))
+            return token
+        }
+        return refreshAccessToken(credentials: credentials, now: now)
+    }
+
+    private func cacheToken(_ token: String, validUntil: Date) {
+        lock.lock()
+        cachedToken = (token, validUntil)
+        lock.unlock()
+    }
+
+    private func storedCredentials() -> StoredCredentials? {
+        let fileURL = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".claude/.credentials.json")
+        if let credentials = parseCredentials(data: try? Data(contentsOf: fileURL), source: .file(fileURL)) {
+            return credentials
+        }
+        return parseCredentials(data: keychainCredentialsData(), source: .keychain)
+    }
+
+    private func keychainCredentialsData() -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess else {
+            if status != errSecItemNotFound {
+                NSLog("AI Token Meter Claude OAuth keychain read failed: \(status)")
+            }
+            return nil
+        }
+        return item as? Data
+    }
+
+    private func parseCredentials(data: Data?, source: CredentialSource) -> StoredCredentials? {
+        guard let data,
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let oauth = root["claudeAiOauth"] as? [String: Any],
+              oauth["accessToken"] is String || oauth["refreshToken"] is String else {
+            return nil
+        }
+        return StoredCredentials(root: root, oauth: oauth, source: source)
+    }
+
+    /// Exchanges the stored refresh token for a fresh access token and writes
+    /// the rotated credentials back where they came from, mirroring what
+    /// Claude Code itself does so the CLI login stays valid.
+    private func refreshAccessToken(credentials: StoredCredentials, now: Date) -> String? {
+        guard let refreshToken = credentials.oauth["refreshToken"] as? String, !refreshToken.isEmpty else {
+            NSLog("AI Token Meter Claude OAuth: access token expired and no refresh token available")
+            return nil
+        }
+        var request = URLRequest(url: Self.tokenURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "grant_type": "refresh_token",
+            "refresh_token": refreshToken,
+            "client_id": Self.oauthClientID
+        ])
+
+        guard let result = performRequest(request), let data = result.data else {
+            NSLog("AI Token Meter Claude OAuth token refresh failed")
+            return nil
+        }
+        let status = result.status
+        guard (200..<300).contains(status),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let accessToken = object["access_token"] as? String,
+              !accessToken.isEmpty else {
+            NSLog("AI Token Meter Claude OAuth token refresh rejected with status \(status)")
+            return nil
+        }
+
+        var updatedOAuth = credentials.oauth
+        updatedOAuth["accessToken"] = accessToken
+        if let rotated = object["refresh_token"] as? String, !rotated.isEmpty {
+            updatedOAuth["refreshToken"] = rotated
+        }
+        var expiresAt = now.addingTimeInterval(8 * 60 * 60)
+        if let expiresIn = object["expires_in"] as? Double, expiresIn > 0 {
+            expiresAt = now.addingTimeInterval(expiresIn)
+        }
+        updatedOAuth["expiresAt"] = expiresAt.timeIntervalSince1970 * 1000
+        var updatedRoot = credentials.root
+        updatedRoot["claudeAiOauth"] = updatedOAuth
+        writeBackCredentials(root: updatedRoot, source: credentials.source)
+
+        cacheToken(accessToken, validUntil: expiresAt.addingTimeInterval(-60))
+        return accessToken
+    }
+
+    private func writeBackCredentials(root: [String: Any], source: CredentialSource) {
+        guard let data = try? JSONSerialization.data(withJSONObject: root) else { return }
+        switch source {
+        case .file(let url):
+            do {
+                try data.write(to: url, options: [.atomic])
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            } catch {
+                NSLog("AI Token Meter Claude OAuth: failed to write credentials file: \(error.localizedDescription)")
+            }
+        case .keychain:
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: Self.keychainService
+            ]
+            let update: [String: Any] = [kSecValueData as String: data]
+            let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+            if status != errSecSuccess {
+                NSLog("AI Token Meter Claude OAuth: keychain write-back failed: \(status)")
+            }
+        }
+    }
+
+    // MARK: Fetch
+
+    private func performRequest(_ request: URLRequest) -> (data: Data?, status: Int)? {
+        let semaphore = DispatchSemaphore(value: 0)
+        let resultLock = NSLock()
+        var responseData: Data?
+        var statusCode: Int?
+
+        let task = session.dataTask(with: request) { data, response, error in
+            defer { semaphore.signal() }
+            guard error == nil, let http = response as? HTTPURLResponse else { return }
+            resultLock.lock()
+            statusCode = http.statusCode
+            responseData = data
+            resultLock.unlock()
+        }
+        task.resume()
+        if semaphore.wait(timeout: .now() + 16) == .timedOut {
+            task.cancel()
+            return nil
+        }
+
+        resultLock.lock()
+        defer { resultLock.unlock() }
+        guard let statusCode else { return nil }
+        return (responseData, statusCode)
+    }
+
+    private func fetchUsageWindows(token: String, now: Date) -> (ClaudeStatuslineWindow, ClaudeStatuslineWindow)? {
+        var request = URLRequest(url: Self.usageURL)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        guard let result = performRequest(request) else {
+            NSLog("AI Token Meter Claude OAuth usage fetch failed")
+            return nil
+        }
+        guard (200..<300).contains(result.status), let data = result.data else {
+            NSLog("AI Token Meter Claude OAuth usage fetch failed with status \(result.status)")
+            return nil
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let fiveHour = parseUsageWindow(object["five_hour"], now: now),
+              let sevenDay = parseUsageWindow(object["seven_day"], now: now) else {
+            NSLog("AI Token Meter Claude OAuth usage response missing five_hour/seven_day windows")
+            return nil
+        }
+        return (fiveHour, sevenDay)
+    }
+
+    private func parseUsageWindow(_ raw: Any?, now: Date) -> ClaudeStatuslineWindow? {
+        guard let dict = raw as? [String: Any] else { return nil }
+        guard let percent = usageNumber(dict["utilization"]) ?? usageNumber(dict["used_percentage"]),
+              percent >= 0 else {
+            return nil
+        }
+        let resetsAt = usageDate(dict["resets_at"])
+        return ClaudeStatuslineWindow(usedPercent: min(100, percent), resetsAt: resetsAt)
+    }
+
+    private func usageNumber(_ raw: Any?) -> Double? {
+        if let raw, CFGetTypeID(raw as CFTypeRef) == CFBooleanGetTypeID() {
+            return nil
+        }
+        let value: Double?
+        if let raw = raw as? Double {
+            value = raw
+        } else if let raw = raw as? Int {
+            value = Double(raw)
+        } else if let raw = raw as? String {
+            value = Double(raw)
+        } else {
+            value = nil
+        }
+        guard let value, value.isFinite else { return nil }
+        return value
+    }
+
+    private func usageDate(_ raw: Any?) -> Date? {
+        if let epoch = usageNumber(raw), epoch > 0 {
+            return Date(timeIntervalSince1970: epoch)
+        }
+        guard let string = raw as? String else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = withFraction.date(from: string) {
+            return date
+        }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: string)
     }
 }
 
