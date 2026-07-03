@@ -111,6 +111,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onDismissThread: { [weak self] id in
                 self?.dismissThread(id: id)
             },
+            onTogglePin: { [weak self] id in
+                self?.togglePin(id: id)
+            },
             onSelectTab: { [weak self] tab in
                 self?.selectedTab = tab
             },
@@ -153,6 +156,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    private func togglePin(id: String) {
+        TaskBarSettings.togglePin(id)
+        threads.sort(by: stableThreadOrder)
+        lastThreadsSignature = threadsSignature(threads)
+        if popover.isShown {
+            rebuildPopover()
+        }
+        ThreadHoverPanel.shared.hideAll()
+    }
+
     private func dismissThread(id: String) {
         let selectedItem = threads.first(where: { $0.id == id })
         if let item = selectedItem, isReadDismissible(item.status) {
@@ -161,6 +174,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             readState.markRead(threadID: id)
         }
         threads.removeAll { $0.id == id && isReadDismissible($0.status) }
+        // A dismissed row leaves the list; keeping its pin would silently
+        // re-float the thread if it ever reappears.
+        if threads.first(where: { $0.id == id }) == nil {
+            TaskBarSettings.setPinned(false, for: id)
+        }
         lastThreadsSignature = threadsSignature(threads)
         updateStatusIcon()
         if popover.isShown {
@@ -177,6 +195,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             readState.markRead(threadID: id)
         }
         threads.removeAll { $0.id == id && isReadDismissible($0.status) }
+        if threads.first(where: { $0.id == id }) == nil {
+            TaskBarSettings.setPinned(false, for: id)
+        }
         updateStatusIcon()
         if popover.isShown {
             rebuildPopover()

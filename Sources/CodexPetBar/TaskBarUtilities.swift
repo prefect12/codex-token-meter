@@ -136,6 +136,13 @@ func statusDisplayRank(_ status: ThreadRunStatus) -> Int {
 }
 
 func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -> Bool {
+    // Pinned threads float above everything; among themselves they keep the
+    // same status/recency ordering as the rest of the list.
+    let pinned = TaskBarSettings.pinnedThreadIDs
+    let lhsPinned = pinned.contains(lhs.id)
+    let rhsPinned = pinned.contains(rhs.id)
+    if lhsPinned != rhsPinned { return lhsPinned }
+
     let lhsRank = statusDisplayRank(lhs.status)
     let rhsRank = statusDisplayRank(rhs.status)
     if lhsRank != rhsRank { return lhsRank < rhsRank }
@@ -154,14 +161,16 @@ func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -> Bool {
 extension Array where Element == CodexThreadItem {
     func limitedForTaskBar(limit: Int) -> [CodexThreadItem] {
         let limit = Swift.max(1, limit)
-        // Keep every active thread; only cap finished ("done"/unread) rows to fit the limit.
-        let activeCount = filter { $0.status != .unread }.count
-        let doneAllowed = Swift.max(0, limit - activeCount)
+        // Keep every active thread and every pinned thread; only cap the remaining
+        // finished ("done"/unread) rows to fit the limit.
+        let pinned = TaskBarSettings.pinnedThreadIDs
+        let alwaysKeptCount = filter { $0.status != .unread || pinned.contains($0.id) }.count
+        let doneAllowed = Swift.max(0, limit - alwaysKeptCount)
         // Preserve the incoming sort order (which honors the custom group order) instead of
         // re-segregating active-before-done, so a "done first" order stays intact.
         var doneKept = 0
         return filter { item in
-            guard item.status == .unread else { return true }
+            guard item.status == .unread, !pinned.contains(item.id) else { return true }
             defer { doneKept += 1 }
             return doneKept < doneAllowed
         }
