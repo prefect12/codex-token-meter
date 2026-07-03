@@ -369,11 +369,13 @@ private enum TaskBarSettingsSection: CaseIterable {
 
 private enum TaskBarSettingsInfo: CaseIterable {
     case layout
+    case sourceLabel
     case tokenUnit
 
     var title: String {
         switch self {
         case .layout: return "信息位置"
+        case .sourceLabel: return "来源标签"
         case .tokenUnit: return "Token 单位"
         }
     }
@@ -382,6 +384,8 @@ private enum TaskBarSettingsInfo: CaseIterable {
         switch self {
         case .layout:
             return "选“左侧”把时间 / 状态 / 平台移到左栏，行更窄、可显示更多任务。"
+        case .sourceLabel:
+            return "显示任务来自哪个本地来源：Claude Code 项目日志标为 Claude；Codex app-server、本地 state 或 rollout logs 标为 Codex。"
         case .tokenUnit:
             return "只影响 hover 中的输入 / 输出等数字；缓存率和金额不变。"
         }
@@ -539,11 +543,10 @@ private final class TaskBarSettingsView: NSView {
         let showRect = NSRect(x: binaryOptionX, y: labelPillY, width: binaryPillWidth, height: pillHeight)
         let hideRect = NSRect(x: showRect.maxX + pillGap, y: labelPillY, width: binaryPillWidth, height: pillHeight)
         platformOptionRects = [true: showRect, false: hideRect]
-        drawText(
+        drawSettingLabel(
             "来源标签",
             rect: NSRect(x: settingsCard.minX + 16, y: labelPillY + 7, width: binaryOptionX - settingsCard.minX - 32, height: 20),
-            font: .systemFont(ofSize: 13, weight: .semibold),
-            color: .white
+            info: .sourceLabel
         )
         drawSelectablePill("显示", rect: showRect, selected: TaskBarSettings.showPlatformLabels)
         drawSelectablePill("隐藏", rect: hideRect, selected: !TaskBarSettings.showPlatformLabels)
