@@ -39,6 +39,7 @@ final class ClaudeTokenScanner {
         var completedTurns = 0
         var activeDays: Set<String> = []
         var days: [String: RepoInsightDay] = [:]
+        var hours: [Int: RepoInsightHour] = [:]
     }
 
     private struct RepoAccumulator {
@@ -54,6 +55,7 @@ final class ClaudeTokenScanner {
         var turnBuckets = RepoInsightTurnBuckets()
         var compressionBuckets = RepoInsightCompressionBuckets()
         var days: [String: RepoInsightDay] = [:]
+        var hours: [Int: RepoInsightHour] = [:]
 
         mutating func add(_ conversation: RepoConversation) {
             conversations += conversation.conversations
@@ -87,6 +89,14 @@ final class ClaudeTokenScanner {
                 existing.compressions += day.compressions
                 days[day.day] = existing
             }
+
+            for hour in conversation.hours.values {
+                var existing = hours[hour.hour] ?? RepoInsightHour(hour: hour.hour, conversations: 0, turns: 0, tokens: 0)
+                existing.conversations += hour.conversations
+                existing.turns += hour.turns
+                existing.tokens += hour.tokens
+                hours[hour.hour] = existing
+            }
         }
 
         func repoInsight() -> RepoInsight {
@@ -108,7 +118,8 @@ final class ClaudeTokenScanner {
                 activeDays: activeDays,
                 turnBuckets: turnBuckets,
                 compressionBuckets: compressionBuckets,
-                days: days.values.sorted { $0.day < $1.day }
+                days: days.values.sorted { $0.day < $1.day },
+                hours: hours.values.sorted { $0.hour < $1.hour }
             )
         }
     }
@@ -124,10 +135,10 @@ final class ClaudeTokenScanner {
         self.isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         self.dayFormatter = DateFormatter()
         self.dayFormatter.locale = Locale(identifier: "en_US_POSIX")
-        self.dayFormatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        self.dayFormatter.timeZone = appTimeZone()
         self.dayFormatter.dateFormat = "yyyy-MM-dd"
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+        calendar.timeZone = appTimeZone()
         self.calendar = calendar
     }
 
@@ -342,6 +353,10 @@ final class ClaudeTokenScanner {
             var row = conversation.days[day] ?? RepoInsightDay(day: day, conversations: 0, turns: 0, compressions: 0)
             row.turns += 1
             conversation.days[day] = row
+            let hour = calendar.component(.hour, from: turn.timestamp)
+            var hourRow = conversation.hours[hour] ?? RepoInsightHour(hour: hour, conversations: 1, turns: 0, tokens: 0)
+            hourRow.turns += 1
+            conversation.hours[hour] = hourRow
         }
         for event in parsed.events where event.timestamp >= start && event.timestamp <= now {
             guard seenEventKeys.insert(event.key).inserted else { continue }
@@ -349,6 +364,10 @@ final class ClaudeTokenScanner {
             conversation.completedTurns += 1
             let day = dayFormatter.string(from: event.timestamp)
             conversation.activeDays.insert(day)
+            let hour = calendar.component(.hour, from: event.timestamp)
+            var hourRow = conversation.hours[hour] ?? RepoInsightHour(hour: hour, conversations: 1, turns: 0, tokens: 0)
+            hourRow.tokens += event.usage.total
+            conversation.hours[hour] = hourRow
         }
         for day in conversation.activeDays {
             var row = conversation.days[day] ?? RepoInsightDay(day: day, conversations: 0, turns: 0, compressions: 0)

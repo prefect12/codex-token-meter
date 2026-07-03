@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         localFormatter.locale = Locale(identifier: "en_US_POSIX")
-        localFormatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        localFormatter.timeZone = appTimeZone()
         localFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
 
         selectedWindow = .day
@@ -1001,8 +1001,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let report = state.report
         var lines = [
             "AI Token Meter - \(state.selectedWindow.title)",
-            "Scanned: \(localFormatter.string(from: report.scannedAt)) Asia/Shanghai",
-            "Next refresh: \(localFormatter.string(from: state.nextRefreshAt)) Asia/Shanghai",
+            "Scanned: \(localFormatter.string(from: report.scannedAt)) \(appTimeZone().identifier)",
+            "Next refresh: \(localFormatter.string(from: state.nextRefreshAt)) \(appTimeZone().identifier)",
             "Sessions: \(report.sessions)",
             "Turns: \(report.turns)",
             "Total: \(report.usage.total)",

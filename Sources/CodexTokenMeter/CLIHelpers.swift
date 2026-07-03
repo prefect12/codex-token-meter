@@ -217,7 +217,13 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
             return Int(argument.dropFirst("--insight-window=".count))
         }
         .first ?? 90
-    view.showSection(section, insightWindowDays: windowDays, source: source)
+    let insightMode = arguments
+        .compactMap { argument -> String? in
+            guard argument.hasPrefix("--insight-mode=") else { return nil }
+            return String(argument.dropFirst("--insight-mode=".count))
+        }
+        .first
+    view.showSection(section, insightWindowDays: windowDays, source: source, insightMode: insightMode)
     view.snapshot = snapshot
     view.isLoading = false
     view.layoutSubtreeIfNeeded()

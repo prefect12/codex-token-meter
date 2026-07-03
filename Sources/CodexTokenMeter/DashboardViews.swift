@@ -436,7 +436,7 @@ final class UsageChartView: NSView {
 
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.timeZone = appTimeZone()
         formatter.dateFormat = "HH:mm"
         let labels = [(0, series.first?.hour), (series.count / 2, series.indices.contains(series.count / 2) ? series[series.count / 2].hour : nil), (max(0, series.count - 1), series.last?.hour)]
         for (index, date) in labels {
@@ -546,7 +546,7 @@ final class UsageChartView: NSView {
     private func continuousHours() -> [HourUsage] {
         guard selectedWindow == .day else { return hours }
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+        calendar.timeZone = appTimeZone()
         let reference = scannedAt ?? hours.last?.hour
         guard let reference,
               let last = calendar.dateInterval(of: .hour, for: reference)?.start else { return hours }
@@ -587,7 +587,7 @@ final class UsageChartView: NSView {
             let hour = series[hoveredIndex].hour
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+            formatter.timeZone = appTimeZone()
             formatter.dateFormat = "MM/dd HH:mm"
             title = formatter.string(from: hour)
             usage = series[hoveredIndex].usage
@@ -966,7 +966,7 @@ final class PlatformQuotaOverviewView: NSView {
     private func resetClockText(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_Hans_CN")
-        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.timeZone = appTimeZone()
         formatter.dateFormat = Calendar.current.isDateInToday(date) ? "预计 HH:mm" : "预计 E HH:mm"
         return formatter.string(from: date)
     }
