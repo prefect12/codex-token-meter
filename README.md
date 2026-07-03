@@ -13,8 +13,8 @@
 
 | App | 安装包 | 安装位置 |
 | --- | --- | --- |
-| AI Token Meter | `AI-Token-Meter-0.2.3.dmg` | `/Applications/AI Token Meter.app` |
-| Task Bar | `Task-Bar-0.1.2.dmg` | `/Applications/Task Bar.app` |
+| AI Token Meter | `AI-Token-Meter-0.2.4.dmg` | `/Applications/AI Token Meter.app` |
+| Task Bar | `Task-Bar-0.1.3.dmg` | `/Applications/Task Bar.app` |
 
 如果只安装 AI Token Meter，就只会得到 token / 额度面板；Task Bar 是独立状态栏 app，需要下载并安装 `Task-Bar-*.dmg`。
 
@@ -56,8 +56,8 @@ Task Bar 把 Codex 和 Claude Code 任务合在一个小面板里，支持 `All 
 
 | App | Version | Build | Bundle |
 | --- | --- | --- | --- |
-| AI Token Meter | `0.2.3` | `17` | `/Applications/AI Token Meter.app` |
-| Task Bar | `0.1.2` | `3` | `/Applications/Task Bar.app` |
+| AI Token Meter | `0.2.4` | `18` | `/Applications/AI Token Meter.app` |
+| Task Bar | `0.1.3` | `4` | `/Applications/Task Bar.app` |
 
 ## 数据来源
 
@@ -90,8 +90,7 @@ Task Bar 读取：
 - **额度视图**：支持 `All / Codex / Claude` 平台筛选，以及 `24h / 7d / 30d` 时间窗口。
 - **剩余额度**：读取 Codex live rate limits 和 Claude statusline，可显示 5 小时、周/月剩余额度与重置时间。
 - **token 明细**：汇总 input、output、cached input、fresh input、total、cache hit rate、会话数和轮次。
-- **成本视图**：把订阅价值估算和 API 等价成本分开；API 等价成本按 fresh input、cached input、output 分项估算。
-- **详情窗口**：包含概览、仓库洞察、日历、金额、模型、设置、诊断和关于页面。
+- **详情窗口**：包含概览、仓库洞察、日历、模型、设置、诊断和关于页面。
 - **启动体验**：状态栏和详情窗口会先显示上次完整聚合结果，再后台刷新本机日志。
 - **多语言**：支持 English、简体中文、繁体中文、日本語、Français、Deutsch、Español、한국어。
 

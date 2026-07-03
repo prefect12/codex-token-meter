@@ -42,12 +42,6 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
   <img src="docs/images/zh-details-calendar.png" alt="AI Token Meter 中文活动日历页面" width="760">
 </p>
 
-### 金额与预算
-
-<p align="center">
-  <img src="docs/images/zh-details-costs.png" alt="AI Token Meter 中文金额页面" width="760">
-</p>
-
 ### 诊断
 
 <p align="center">
@@ -81,12 +75,6 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
   <img src="docs/images/en-details-calendar.png" alt="AI Token Meter English activity calendar page" width="760">
 </p>
 
-### Cost And Budget Tracking
-
-<p align="center">
-  <img src="docs/images/en-details-costs.png" alt="AI Token Meter English cost and budget page" width="760">
-</p>
-
 ### Diagnostics
 
 <p align="center">
@@ -106,17 +94,16 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 - 显示缓存命中率圆环。
 - 通过 `status.openai.com` 监控官方 Codex 服务状态，用一个极简的 Codex 状态 chip 展示，并可在设置里开关。
 - 展示 input、output、cached input、fresh input 和 total token。
-- 详情窗口包含概览、洞察、日历、金额、模型、设置、诊断和关于页面。
+- 详情窗口包含概览、洞察、日历、模型、设置、诊断和关于页面。
 - 状态栏首页和详情窗口都会缓存聚合快照，打开或切换时先显示上次结果，再在后台刷新。
 - 洞察页面会按仓库或文件夹聚合本地 Codex 与 Claude Code 对话，标出长线程、上下文压缩压力、活跃 worktree 和拆分新线程的建议。
 - 过去 365 天日历热力图，点击某一天可查看当天用量详情。
 - 模型页面按模型聚合长期 token 用量。
-- 金额页面支持 Codex / Claude 独立月付金额、付款币种、展示币种、本周剩余预算、历史消耗、当日价值、API 等价成本、可选外部 API 成本和币种折算；总和页按两边配置折算后合计。
 - 诊断页面展示 Codex CLI/auth 状态、实时额度可用性、日志覆盖、可选 API 成本输入和其他工具探测结果。
 - 默认覆盖当前会话、归档会话，以及已设置 `$CODEX_HOME` 时对应的会话目录。
 - 支持 English、简体中文、繁体中文、日本語、Français、Deutsch、Español、한국어。
 - 数字单位会跟随界面语言：英文使用 `K / M / B`，中文使用 `万 / 亿`。
-- 可配置 Codex 日志目录、状态栏显示内容、额度展示样式、Codex 状态 chip 开关、开机启动、低额度提醒、付款币种、展示币种和付费开始日期。
+- 可配置 Codex 日志目录、状态栏显示内容、额度展示样式、Codex 状态 chip 开关、开机启动和低额度提醒。
 - 支持手动刷新、打开本地日志目录和命令行统计检查。
 
 ## 数据与计算口径
