@@ -405,7 +405,10 @@ private final class TaskBarSettingsView: NSView {
     private var tokenUnitOptionRects: [TaskTokenUnitStyle: NSRect] = [:]
     private var layoutOptionRects: [TaskRowLayoutStyle: NSRect] = [:]
     private var hoverEyeRects: [String: NSRect] = [:]
+    private var hoverAddSeparatorRect: NSRect?
     private var hoverResetRect: NSRect?
+    private var hoverListClipRect: NSRect = .zero
+    private var hoverScrollOffset: CGFloat = 0
 
     // Drag-to-reorder state for the "All" status-order card.
     private let statusOrderRowHeight: CGFloat = 38
@@ -597,13 +600,16 @@ private final class TaskBarSettingsView: NSView {
         let card = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: content.height - 78)
         drawPanel(card)
         let resetRect = NSRect(x: card.maxX - 108, y: card.minY + 16, width: 92, height: 30)
+        let addRect = NSRect(x: resetRect.minX - 84, y: card.minY + 16, width: 72, height: 30)
+        hoverAddSeparatorRect = addRect
         hoverResetRect = resetRect
         drawText(
             "Hover 内容",
-            rect: NSRect(x: card.minX + 16, y: card.minY + 17, width: resetRect.minX - card.minX - 28, height: 22),
+            rect: NSRect(x: card.minX + 16, y: card.minY + 17, width: addRect.minX - card.minX - 28, height: 22),
             font: .systemFont(ofSize: 16, weight: .bold),
             color: .white
         )
+        drawSmallButton("+ 横线", rect: addRect, emphasized: true)
         drawSmallButton("恢复默认", rect: resetRect, emphasized: false)
 
         drawHoverLayoutRows(in: card)
@@ -753,6 +759,21 @@ private final class TaskBarSettingsView: NSView {
         needsDisplay = true
     }
 
+    override func scrollWheel(with event: NSEvent) {
+        guard selectedSection == .hover, hoverListClipRect.height > 1 else {
+            super.scrollWheel(with: event)
+            return
+        }
+        let maxOffset = maxHoverScrollOffset()
+        guard maxOffset > 0 else {
+            super.scrollWheel(with: event)
+            return
+        }
+        let direction: CGFloat = event.isDirectionInvertedFromDevice ? -1 : 1
+        hoverScrollOffset = min(max(hoverScrollOffset + event.scrollingDeltaY * direction, 0), maxOffset)
+        needsDisplay = true
+    }
+
     override func mouseUp(with event: NSEvent) {
         if selectedSection == .hover, draggingHoverItem != nil {
             let newLayout = liveHoverLayout
@@ -778,13 +799,23 @@ private final class TaskBarSettingsView: NSView {
     }
 
     private func handleHoverMouseDown(at point: NSPoint) {
-        if hoverResetRect?.contains(point) == true {
-            TaskBarSettings.resetHoverLayout()
+        if hoverAddSeparatorRect?.contains(point) == true {
+            var layout = TaskBarSettings.hoverLayout
+            layout.append(.separator("custom-\(UUID().uuidString)"))
+            TaskBarSettings.hoverLayout = layout
+            hoverScrollOffset = maxHoverScrollOffset(layout: layout)
             needsDisplay = true
             onSettingsChanged()
             return
         }
-        for (key, rect) in hoverEyeRects where rect.contains(point) {
+        if hoverResetRect?.contains(point) == true {
+            TaskBarSettings.resetHoverLayout()
+            hoverScrollOffset = 0
+            needsDisplay = true
+            onSettingsChanged()
+            return
+        }
+        for (key, rect) in hoverEyeRects where hoverListClipRect.contains(point) && rect.contains(point) {
             var hiddenItems = TaskBarSettings.hoverHiddenItemIDs
             if hiddenItems.contains(key) {
                 hiddenItems.remove(key)
@@ -796,6 +827,7 @@ private final class TaskBarSettingsView: NSView {
             onSettingsChanged()
             return
         }
+        guard hoverListClipRect.contains(point) else { return }
         let layout = TaskBarSettings.hoverLayout
         for (index, rect) in hoverOrderRowRects.enumerated() where rect.contains(point) {
             guard index < layout.count else { break }
@@ -829,6 +861,13 @@ private final class TaskBarSettingsView: NSView {
         guard target != currentIndex else { return }
         liveHoverLayout.remove(at: currentIndex)
         liveHoverLayout.insert(item, at: target)
+    }
+
+    private func maxHoverScrollOffset(layout: [TaskHoverLayoutItem]? = nil) -> CGFloat {
+        let itemCount = layout?.count ?? TaskBarSettings.hoverLayout.count
+        guard itemCount > 0, hoverListClipRect.height > 1 else { return 0 }
+        let contentHeight = CGFloat(itemCount) * hoverOrderRowHeight + CGFloat(max(0, itemCount - 1)) * hoverOrderRowGap
+        return max(0, contentHeight - hoverListClipRect.height)
     }
 
     private var appBackgroundTop: NSColor {
@@ -1044,12 +1083,23 @@ private final class TaskBarSettingsView: NSView {
         let rowX = card.minX + 16
         let rowW = card.width - 32
         let rowsTop = card.minY + 58
-        hoverOrderRowsTop = rowsTop
+        hoverListClipRect = NSRect(
+            x: rowX,
+            y: rowsTop,
+            width: rowW,
+            height: max(0, card.maxY - rowsTop - 14)
+        )
+        hoverScrollOffset = min(hoverScrollOffset, maxHoverScrollOffset(layout: layout))
+        hoverOrderRowsTop = rowsTop - hoverScrollOffset
         let step = hoverOrderRowHeight + hoverOrderRowGap
         hoverOrderRowRects = layout.indices.map { index in
-            NSRect(x: rowX, y: rowsTop + CGFloat(index) * step, width: rowW, height: hoverOrderRowHeight)
+            NSRect(x: rowX, y: rowsTop - hoverScrollOffset + CGFloat(index) * step, width: rowW, height: hoverOrderRowHeight)
         }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: hoverListClipRect).addClip()
         for (index, item) in layout.enumerated() where item != draggingHoverItem {
+            guard hoverOrderRowRects[index].intersects(hoverListClipRect) else { continue }
             drawHoverLayoutRow(
                 item,
                 rect: hoverOrderRowRects[index],
@@ -1059,8 +1109,9 @@ private final class TaskBarSettingsView: NSView {
             )
         }
         if let item = draggingHoverItem, let index = layout.firstIndex(of: item) {
-            let maxTop = rowsTop + CGFloat(layout.count - 1) * step
-            let floatTop = min(max(hoverDragPointerY - hoverDragGrabOffset, rowsTop), maxTop)
+            let minTop = hoverListClipRect.minY
+            let maxTop = hoverListClipRect.maxY - hoverOrderRowHeight
+            let floatTop = min(max(hoverDragPointerY - hoverDragGrabOffset, minTop), maxTop)
             let floatRect = NSRect(x: rowX, y: floatTop, width: rowW, height: hoverOrderRowHeight)
             drawHoverLayoutRow(
                 item,
@@ -1070,12 +1121,19 @@ private final class TaskBarSettingsView: NSView {
                 floating: true
             )
         }
+        NSGraphicsContext.restoreGraphicsState()
+
+        if maxHoverScrollOffset(layout: layout) > 0 {
+            drawHoverScrollbar(in: hoverListClipRect, layoutCount: layout.count)
+        }
     }
 
     private func clearHoverHitRects() {
         hoverEyeRects.removeAll(keepingCapacity: true)
         hoverOrderRowRects.removeAll(keepingCapacity: true)
+        hoverAddSeparatorRect = nil
         hoverResetRect = nil
+        hoverListClipRect = .zero
     }
 
     private func drawHoverLayoutRow(_ item: TaskHoverLayoutItem, rect: NSRect, position: Int, hidden: Bool, floating: Bool) {
@@ -1122,21 +1180,30 @@ private final class TaskBarSettingsView: NSView {
         let color = highlighted
             ? accentTeal.withAlphaComponent(0.92)
             : NSColor.white.withAlphaComponent(visible ? 0.74 : 0.28)
-        color.setStroke()
-        let eyeRect = rect.insetBy(dx: 5, dy: 5.5)
-        let path = NSBezierPath(ovalIn: eyeRect)
-        path.lineWidth = 1.3
-        path.stroke()
-        if visible {
-            color.setFill()
-            NSBezierPath(ovalIn: eyeRect.insetBy(dx: 5.4, dy: 3.5)).fill()
-        } else {
-            let slash = NSBezierPath()
-            slash.move(to: NSPoint(x: eyeRect.minX - 1, y: eyeRect.maxY + 1))
-            slash.line(to: NSPoint(x: eyeRect.maxX + 1, y: eyeRect.minY - 1))
-            slash.lineWidth = 1.5
-            slash.stroke()
+        if let image = NSImage(systemSymbolName: visible ? "eye" : "eye.slash", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13.5, weight: .semibold)) {
+            image.isTemplate = true
+            color.set()
+            image.draw(in: rect.insetBy(dx: 5, dy: 4), from: .zero, operation: .sourceOver, fraction: 1)
+            return
         }
+        color.setStroke()
+        let fallback = NSBezierPath(ovalIn: rect.insetBy(dx: 5, dy: 6))
+        fallback.lineWidth = 1.2
+        fallback.stroke()
+    }
+
+    private func drawHoverScrollbar(in rect: NSRect, layoutCount: Int) {
+        let maxOffset = maxHoverScrollOffset(layout: TaskBarSettings.hoverLayout)
+        guard maxOffset > 0 else { return }
+        let contentHeight = CGFloat(layoutCount) * hoverOrderRowHeight + CGFloat(max(0, layoutCount - 1)) * hoverOrderRowGap
+        let thumbHeight = max(32, rect.height * rect.height / max(contentHeight, rect.height))
+        let travel = max(1, rect.height - thumbHeight)
+        let thumbY = rect.minY + travel * (hoverScrollOffset / maxOffset)
+        NSColor.white.withAlphaComponent(0.10).setFill()
+        NSBezierPath(roundedRect: NSRect(x: rect.maxX - 4, y: rect.minY + 2, width: 2, height: rect.height - 4), xRadius: 1, yRadius: 1).fill()
+        NSColor.white.withAlphaComponent(0.34).setFill()
+        NSBezierPath(roundedRect: NSRect(x: rect.maxX - 5, y: thumbY, width: 3, height: thumbHeight), xRadius: 1.5, yRadius: 1.5).fill()
     }
 
     /// Draws the three draggable rows. During a drag the settled rows follow `liveOrder`
