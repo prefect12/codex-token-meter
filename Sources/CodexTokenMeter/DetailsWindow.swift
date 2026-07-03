@@ -5457,8 +5457,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func drawDaySourceSplit(_ split: (codex: Int64, claude: Int64), rect: NSRect) {
-        let codexColor = accentTeal
-        let claudeColor = accentAmber
+        let codexColor = NSColor(calibratedRed: 0.45, green: 0.50, blue: 1.00, alpha: 1.0)
+        let claudeColor = NSColor(calibratedRed: 0.898, green: 0.420, blue: 0.278, alpha: 1.0)
         let total = Double(split.codex + split.claude)
         let codexShare = CGFloat(Double(split.codex) / total)
 
