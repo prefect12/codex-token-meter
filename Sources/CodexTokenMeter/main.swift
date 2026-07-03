@@ -68,6 +68,24 @@ if CommandLine.arguments.contains("--print-profile") {
     exit(0)
 }
 
+if CommandLine.arguments.contains("--refresh-claude-usage") {
+    let claudeStore = ClaudeStatuslineStore()
+    let refreshed = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: claudeStore)
+    let snapshot = claudeStore.read()
+    let payload: [String: Any] = [
+        "refreshed": refreshed,
+        "captured_at": snapshot?.capturedAt?.description ?? "",
+        "is_stale": snapshot?.isStale ?? true,
+        "five_hour_used_percent": snapshot?.fiveHour?.usedPercent ?? -1,
+        "seven_day_used_percent": snapshot?.sevenDay?.usedPercent ?? -1
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+       let text = String(data: data, encoding: .utf8) {
+        print(text)
+    }
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--print-live") {
     let claudeStore = ClaudeStatuslineStore()
     let limits = combinedLiveLimits(claudeStore: claudeStore)
