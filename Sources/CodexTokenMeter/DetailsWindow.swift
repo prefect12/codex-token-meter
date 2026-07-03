@@ -3687,25 +3687,25 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             return
         }
 
-        let panelHeight: CGFloat = 480
+        let panelHeight: CGFloat = 384
         if content.width >= 940 {
             let gap: CGFloat = 16
             let listWidth = min(CGFloat(370), content.width * 0.40)
             let listRect = NSRect(x: content.minX, y: panelTop, width: listWidth, height: panelHeight)
             let detailRect = NSRect(x: listRect.maxX + gap, y: panelTop, width: content.width - listWidth - gap, height: panelHeight)
-            let weeklyRect = NSRect(x: content.minX, y: panelTop + panelHeight + 16, width: content.width, height: 112)
+            let heatmapRect = NSRect(x: content.minX, y: panelTop + panelHeight + 16, width: content.width, height: 148)
             drawInsightProjectList(rows: filtered, grouped: grouped, rect: listRect)
             let selected = selectedInsight(in: filtered)
             drawInsightDetail(selected, rect: detailRect)
-            drawInsightWeeklyTrend(row: selected, rect: weeklyRect)
+            drawInsightHeatmap(row: selected, rect: heatmapRect)
         } else {
             let selected = selectedInsight(in: filtered)
-            let listRect = NSRect(x: content.minX, y: panelTop, width: content.width, height: 400)
+            let listRect = NSRect(x: content.minX, y: panelTop, width: content.width, height: 384)
             let detailRect = NSRect(x: content.minX, y: listRect.maxY + 16, width: content.width, height: panelHeight)
-            let weeklyRect = NSRect(x: content.minX, y: detailRect.maxY + 16, width: content.width, height: 112)
+            let heatmapRect = NSRect(x: content.minX, y: detailRect.maxY + 16, width: content.width, height: 148)
             drawInsightProjectList(rows: filtered, grouped: grouped, rect: listRect)
             drawInsightDetail(selected, rect: detailRect)
-            drawInsightWeeklyTrend(row: selected, rect: weeklyRect)
+            drawInsightHeatmap(row: selected, rect: heatmapRect)
         }
     }
 
@@ -4106,9 +4106,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawText(metric.1, rect: NSRect(x: x, y: metricY + 16, width: metricW - 10, height: 24), font: .monospacedDigitSystemFont(ofSize: 19, weight: .bold), color: metric.2)
         }
 
-        let sectionH: CGFloat = 118
-        let lengthRect = NSRect(x: rect.minX + 16, y: metricY + 52, width: rect.width - 32, height: sectionH)
-        drawInsightBucketRows(
+        let sectionY = metricY + 52
+        let sectionH: CGFloat = 124
+        let sectionGap: CGFloat = 10
+        let sectionW = (rect.width - 32 - sectionGap) / 2
+        let lengthRect = NSRect(x: rect.minX + 16, y: sectionY, width: sectionW, height: sectionH)
+        drawInsightDonutSection(
             title: copy.lengthDistributionTitle,
             rightText: nil,
             buckets: [
@@ -4123,8 +4126,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let conversationTotal = max(1, row.conversations)
         let compressedCount = max(0, conversationTotal - row.compressionBuckets.zero)
         let compressedPercent = Int(round(Double(compressedCount) / Double(conversationTotal) * 100))
-        let compressionRect = NSRect(x: rect.minX + 16, y: lengthRect.maxY + 10, width: rect.width - 32, height: sectionH)
-        drawInsightBucketRows(
+        let compressionRect = NSRect(x: lengthRect.maxX + sectionGap, y: sectionY, width: sectionW, height: sectionH)
+        drawInsightDonutSection(
             title: copy.compactionDistributionTitle,
             rightText: copy.compactedPercent(compressedPercent),
             buckets: [
@@ -4136,38 +4139,58 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             rect: compressionRect
         )
 
-        let recommendationRect = NSRect(x: rect.minX + 16, y: compressionRect.maxY + 10, width: rect.width - 32, height: max(70, rect.maxY - compressionRect.maxY - 24))
+        let recommendationRect = NSRect(x: rect.minX + 16, y: compressionRect.maxY + 12, width: rect.width - 32, height: max(70, rect.maxY - compressionRect.maxY - 26))
         drawInsightRecommendations(row, rect: recommendationRect)
     }
 
-    private func drawInsightBucketRows(title: String, rightText: String?, buckets: [(String, Int, NSColor)], rect: NSRect) {
+    private func drawInsightDonutSection(title: String, rightText: String?, buckets: [(String, Int, NSColor)], rect: NSRect) {
         inputSurfaceColor.withAlphaComponent(0.42).setFill()
         NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
-        drawText(title, rect: NSRect(x: rect.minX + 12, y: rect.minY + 9, width: rect.width - 24, height: 16), font: .systemFont(ofSize: 12, weight: .bold), color: NSColor.white.withAlphaComponent(0.76))
+        let rightW: CGFloat = rightText == nil ? 0 : 96
+        drawTruncatedText(title, rect: NSRect(x: rect.minX + 12, y: rect.minY + 9, width: rect.width - 24 - rightW, height: 16), font: .systemFont(ofSize: 12, weight: .bold), color: NSColor.white.withAlphaComponent(0.76))
         if let rightText {
-            drawRight(rightText, rect: NSRect(x: rect.maxX - 150, y: rect.minY + 10, width: 138, height: 15), color: NSColor.white.withAlphaComponent(0.48), font: .systemFont(ofSize: 10, weight: .semibold))
+            drawRight(rightText, rect: NSRect(x: rect.maxX - 12 - rightW, y: rect.minY + 10, width: rightW, height: 15), color: NSColor.white.withAlphaComponent(0.48), font: .systemFont(ofSize: 10, weight: .semibold))
         }
+
         let total = max(1, buckets.reduce(0) { $0 + $1.1 })
-        let maxCount = max(1, buckets.map(\.1).max() ?? 1)
-        let labelW: CGFloat = 84
-        let valueW: CGFloat = 88
-        let rowsTop = rect.minY + 32
-        let rowH = (rect.height - 40) / CGFloat(max(1, buckets.count))
+        let bodyTop = rect.minY + 30
+        let bodyHeight = rect.height - 38
+        let radius: CGFloat = min(30, bodyHeight / 2 - 4)
+        let thickness: CGFloat = 11
+        let center = NSPoint(x: rect.minX + 14 + radius, y: bodyTop + bodyHeight / 2)
+
+        let track = NSBezierPath(ovalIn: NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+        track.lineWidth = thickness
+        NSColor.white.withAlphaComponent(0.06).setStroke()
+        track.stroke()
+
+        var angle: CGFloat = 90
+        for bucket in buckets where bucket.1 > 0 {
+            let sweep = 360 * CGFloat(bucket.1) / CGFloat(total)
+            let arc = NSBezierPath()
+            arc.appendArc(withCenter: center, radius: radius, startAngle: angle, endAngle: angle + sweep, clockwise: false)
+            arc.lineWidth = thickness
+            arc.lineCapStyle = .butt
+            bucket.2.withAlphaComponent(0.9).setStroke()
+            arc.stroke()
+            angle += sweep
+        }
+
+        if let dominant = buckets.max(by: { $0.1 < $1.1 }), dominant.1 > 0 {
+            let percent = Int(round(Double(dominant.1) / Double(total) * 100))
+            drawCentered("\(percent)%", rect: NSRect(x: center.x - radius + 4, y: center.y - 7, width: (radius - 4) * 2, height: 14), font: .monospacedDigitSystemFont(ofSize: 11, weight: .bold), color: dominant.2.withAlphaComponent(0.95))
+        }
+
+        let legendX = center.x + radius + 18
+        let rowH = bodyHeight / CGFloat(max(1, buckets.count))
         for (index, bucket) in buckets.enumerated() {
-            let y = rowsTop + CGFloat(index) * rowH
-            drawTruncatedText(bucket.0, rect: NSRect(x: rect.minX + 12, y: y + (rowH - 14) / 2, width: labelW, height: 14), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.58))
-            let trackX = rect.minX + 12 + labelW + 10
-            let trackW = max(10, rect.maxX - 12 - valueW - 10 - trackX)
-            let trackRect = NSRect(x: trackX, y: y + (rowH - 11) / 2, width: trackW, height: 11)
-            NSColor.white.withAlphaComponent(0.06).setFill()
-            NSBezierPath(roundedRect: trackRect, xRadius: 4, yRadius: 4).fill()
-            if bucket.1 > 0 {
-                let fillW = max(3, trackRect.width * CGFloat(bucket.1) / CGFloat(maxCount))
-                bucket.2.withAlphaComponent(0.85).setFill()
-                NSBezierPath(roundedRect: NSRect(x: trackRect.minX, y: trackRect.minY, width: fillW, height: trackRect.height), xRadius: 4, yRadius: 4).fill()
-            }
+            let y = bodyTop + CGFloat(index) * rowH
+            bucket.2.setFill()
+            NSBezierPath(ovalIn: NSRect(x: legendX, y: y + rowH / 2 - 3.5, width: 7, height: 7)).fill()
             let percent = Int(round(Double(bucket.1) / Double(total) * 100))
-            drawRight("\(bucket.1) · \(percent)%", rect: NSRect(x: rect.maxX - 12 - valueW, y: y + (rowH - 14) / 2, width: valueW, height: 14), color: NSColor.white.withAlphaComponent(0.72), font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
+            let valueW: CGFloat = 82
+            drawTruncatedText(bucket.0, rect: NSRect(x: legendX + 12, y: y + rowH / 2 - 7, width: max(30, rect.maxX - 12 - valueW - legendX - 18), height: 14), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.58))
+            drawRight("\(bucket.1) · \(percent)%", rect: NSRect(x: rect.maxX - 12 - valueW, y: y + rowH / 2 - 7, width: valueW, height: 14), color: NSColor.white.withAlphaComponent(0.72), font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
         }
     }
 
@@ -4623,63 +4646,54 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
-    private func drawInsightWeeklyTrend(row: RepoInsight, rect: NSRect) {
+    private func drawInsightHeatmap(row: RepoInsight, rect: NSRect) {
         let copy = AppLanguage.current.insightCopy
         drawPanel(rect)
-        drawText(copy.heatmapTitle, rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
-        let days = recentInsightDays(count: 91)
+        drawText(copy.heatmapTitle, rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
+        let days = recentInsightDays(count: 90)
         let dayMap = Dictionary(uniqueKeysWithValues: row.days.map { ($0.day, $0) })
-        var weeks: [(conversations: Int, compressions: Int)] = []
-        var index = 0
-        while index < days.count {
-            var conversations = 0
-            var compressions = 0
-            for day in days[index..<min(index + 7, days.count)] {
-                if let stats = dayMap[day] {
-                    conversations += stats.conversations
-                    compressions += stats.compressions
-                }
-            }
-            weeks.append((conversations, compressions))
-            index += 7
+        let cols = 30
+        let rows = 3
+        let gap: CGFloat = 4
+        let legendW: CGFloat = min(170, rect.width * 0.22)
+        let gridW = rect.width - 32 - legendW - 18
+        let cell = min(CGFloat(16), (gridW - CGFloat(cols - 1) * gap) / CGFloat(cols))
+        let startX = rect.minX + 16
+        let startY = rect.minY + 48
+        for (index, day) in days.enumerated() {
+            let col = index / rows
+            let rowIndex = index % rows
+            let cellRect = NSRect(x: startX + CGFloat(col) * (cell + gap), y: startY + CGFloat(rowIndex) * (cell + gap), width: cell, height: cell)
+            insightDayColor(dayMap[day]).setFill()
+            NSBezierPath(roundedRect: cellRect, xRadius: 3, yRadius: 3).fill()
         }
-        let legendW: CGFloat = min(180, rect.width * 0.24)
-        let chart = NSRect(x: rect.minX + 16, y: rect.minY + 38, width: rect.width - 32 - legendW - 18, height: rect.height - 54)
-        let maxConversations = max(1, weeks.map(\.conversations).max() ?? 1)
-        let gap: CGFloat = 8
-        let barW = max(6, (chart.width - CGFloat(max(0, weeks.count - 1)) * gap) / CGFloat(max(1, weeks.count)))
-        for (weekIndex, week) in weeks.enumerated() {
-            let x = chart.minX + CGFloat(weekIndex) * (barW + gap)
-            let color: NSColor
-            if week.conversations == 0 {
-                color = NSColor.white.withAlphaComponent(0.08)
-            } else {
-                let rate = Double(week.compressions) / Double(max(1, week.conversations))
-                if rate > 1 {
-                    color = accentRose.withAlphaComponent(0.82)
-                } else if rate > 0.3 {
-                    color = accentAmber.withAlphaComponent(0.82)
-                } else {
-                    color = accentTeal.withAlphaComponent(0.72)
-                }
-            }
-            let barH = week.conversations == 0 ? 3 : max(6, chart.height * CGFloat(week.conversations) / CGFloat(maxConversations))
-            color.setFill()
-            NSBezierPath(roundedRect: NSRect(x: x, y: chart.maxY - barH, width: barW, height: barH), xRadius: 3, yRadius: 3).fill()
-        }
-        let legendX = chart.maxX + 18
+        let legendX = startX + CGFloat(cols) * (cell + gap) + 18
         let legends: [(String, NSColor)] = [
             (copy.normalLegend, accentTeal),
             (copy.highLegend, accentAmber),
             (copy.veryHighLegend, accentRose),
             (copy.noActivityLegend, NSColor.white.withAlphaComponent(0.10))
         ]
-        for (legendIndex, legend) in legends.enumerated() {
-            let y = rect.minY + 32 + CGFloat(legendIndex) * 19
+        for (index, legend) in legends.enumerated() {
+            let y = rect.minY + 44 + CGFloat(index) * 22
             legend.1.setFill()
-            NSBezierPath(ovalIn: NSRect(x: legendX, y: y + 3, width: 8, height: 8)).fill()
-            drawText(legend.0, rect: NSRect(x: legendX + 14, y: y, width: rect.maxX - legendX - 24, height: 15), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.58))
+            NSBezierPath(ovalIn: NSRect(x: legendX, y: y + 4, width: 8, height: 8)).fill()
+            drawText(legend.0, rect: NSRect(x: legendX + 14, y: y, width: rect.maxX - legendX - 24, height: 16), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.58))
         }
+    }
+
+    private func insightDayColor(_ day: RepoInsightDay?) -> NSColor {
+        guard let day, day.conversations > 0 else {
+            return NSColor.white.withAlphaComponent(0.08)
+        }
+        let rate = Double(day.compressions) / Double(max(1, day.conversations))
+        if rate > 1 {
+            return accentRose.withAlphaComponent(0.82)
+        }
+        if rate > 0.3 {
+            return accentAmber.withAlphaComponent(0.82)
+        }
+        return accentTeal.withAlphaComponent(0.72)
     }
 
     private func insightRecommendations(for row: RepoInsight) -> [(String, String, NSColor)] {
