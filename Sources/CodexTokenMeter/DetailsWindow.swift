@@ -3596,6 +3596,111 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
+    private func drawModelsTable(snapshot: DetailsSnapshot, content: NSRect, y: CGFloat, height: CGFloat, maxRows: Int) {
+        let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
+        drawPanel(rect)
+        drawText(t(.models), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+        let breakdown = sourceReport(for: snapshot).modelBreakdown
+        let models = Array(breakdown.prefix(maxRows))
+        if models.isEmpty {
+            drawText(t(.noModelLabelsFound), rect: NSRect(x: rect.minX + 16, y: rect.minY + 48, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+        let totalTokens = breakdown.reduce(Int64(0)) { $0 + $1.usage.total }
+        drawModelShareBar(models: models, totalTokens: totalTokens, rect: NSRect(x: rect.minX + 16, y: rect.minY + 46, width: rect.width - 32, height: 8))
+
+        let showsActivity = rect.width >= 920
+        let gap: CGFloat = 10
+        let moneyW: CGFloat = 104
+        let eventsW: CGFloat = 76
+        let sessionsW: CGFloat = 68
+        let outputW: CGFloat = 84
+        let inputW: CGFloat = 88
+        let totalW: CGFloat = 88
+        let shareW: CGFloat = 48
+        let moneyX = rect.maxX - 16 - moneyW
+        let eventsX = moneyX - gap - eventsW
+        let sessionsX = eventsX - gap - sessionsW
+        let outputX = (showsActivity ? sessionsX : moneyX) - gap - outputW
+        let inputX = outputX - gap - inputW
+        let totalX = inputX - gap - totalW
+        let shareX = totalX - gap - shareW
+        let nameX = rect.minX + 32
+        let nameW = max(96, shareX - nameX - 12)
+
+        let headerY = rect.minY + 64
+        let headerColor = NSColor.white.withAlphaComponent(0.38)
+        let headerFont = NSFont.systemFont(ofSize: 10, weight: .bold)
+        drawRight("%", rect: NSRect(x: shareX, y: headerY, width: shareW, height: 14), color: headerColor, font: headerFont)
+        drawRight(t(.total), rect: NSRect(x: totalX, y: headerY, width: totalW, height: 14), color: headerColor, font: headerFont)
+        drawRight(t(.input), rect: NSRect(x: inputX, y: headerY, width: inputW, height: 14), color: headerColor, font: headerFont)
+        drawRight(t(.output), rect: NSRect(x: outputX, y: headerY, width: outputW, height: 14), color: headerColor, font: headerFont)
+        if showsActivity {
+            drawRight(t(.sessions), rect: NSRect(x: sessionsX, y: headerY, width: sessionsW, height: 14), color: headerColor, font: headerFont)
+            drawRight(t(.events), rect: NSRect(x: eventsX, y: headerY, width: eventsW, height: 14), color: headerColor, font: headerFont)
+        }
+        drawRight(t(.apiEquivalent), rect: NSRect(x: moneyX, y: headerY, width: moneyW, height: 14), color: headerColor, font: headerFont)
+
+        let displayCurrency = AppSettings.displayCurrency(for: selectedDetailsSource)
+        for (index, model) in models.enumerated() {
+            let y = rect.minY + 82 + CGFloat(index) * 20
+            let color = modelShareColor(index)
+            color.setFill()
+            NSBezierPath(ovalIn: NSRect(x: rect.minX + 16, y: y + 5, width: 8, height: 8)).fill()
+            drawText(model.name, rect: NSRect(x: nameX, y: y, width: nameW, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: .white)
+            let share = totalTokens > 0 ? Double(model.usage.total) / Double(totalTokens) * 100 : 0
+            let shareText = share > 0 && share < 0.1 ? "<0.1%" : String(format: "%.1f%%", share)
+            drawRight(shareText, rect: NSRect(x: shareX, y: y, width: shareW, height: 18), color: NSColor.white.withAlphaComponent(0.62), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
+            drawRight(compact(model.usage.total), rect: NSRect(x: totalX, y: y, width: totalW, height: 18), color: .white)
+            drawRight(compact(model.usage.input), rect: NSRect(x: inputX, y: y, width: inputW, height: 18), color: NSColor.white.withAlphaComponent(0.58))
+            drawRight(compact(model.usage.output), rect: NSRect(x: outputX, y: y, width: outputW, height: 18), color: NSColor.white.withAlphaComponent(0.58))
+            if showsActivity {
+                drawRight("\(model.sessions)", rect: NSRect(x: sessionsX, y: y, width: sessionsW, height: 18), color: NSColor.white.withAlphaComponent(0.52))
+                drawRight("\(model.events)", rect: NSRect(x: eventsX, y: y, width: eventsW, height: 18), color: NSColor.white.withAlphaComponent(0.52))
+            }
+            let estimate = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
+            let moneyText = estimate.hasPricedUsage
+                ? compactMoney(convertCurrency(estimate.usdValue, from: .usd, to: displayCurrency), currency: displayCurrency)
+                : "—"
+            drawRight(moneyText, rect: NSRect(x: moneyX, y: y, width: moneyW, height: 18), color: estimate.hasPricedUsage ? accentTeal.withAlphaComponent(0.92) : NSColor.white.withAlphaComponent(0.34), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
+        }
+    }
+
+    private var modelShareColors: [NSColor] {
+        [
+            accentBlue,
+            accentTeal,
+            accentAmber,
+            accentRose,
+            NSColor(calibratedRed: 0.702, green: 0.533, blue: 1.0, alpha: 1.0),
+            NSColor(calibratedRed: 0.478, green: 0.867, blue: 0.443, alpha: 1.0),
+            NSColor(calibratedRed: 1.0, green: 0.537, blue: 0.396, alpha: 1.0),
+            NSColor(calibratedRed: 0.408, green: 0.780, blue: 0.949, alpha: 1.0),
+            NSColor(calibratedRed: 0.910, green: 0.796, blue: 0.478, alpha: 1.0),
+            NSColor(calibratedRed: 0.769, green: 0.545, blue: 0.729, alpha: 1.0)
+        ]
+    }
+
+    private func modelShareColor(_ index: Int) -> NSColor {
+        modelShareColors[index % modelShareColors.count]
+    }
+
+    private func drawModelShareBar(models: [ModelUsage], totalTokens: Int64, rect: NSRect) {
+        guard totalTokens > 0 else { return }
+        inputSurfaceColor.withAlphaComponent(0.7).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).addClip()
+        var x = rect.minX
+        for (index, model) in models.enumerated() {
+            let width = rect.width * CGFloat(Double(model.usage.total) / Double(totalTokens))
+            modelShareColor(index).withAlphaComponent(0.92).setFill()
+            NSRect(x: x, y: rect.minY, width: width, height: rect.height).fill()
+            x += width
+        }
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
     private func drawMonthlySpendPanel(snapshot: DetailsSnapshot, content: NSRect, y: CGFloat, height: CGFloat) {
         let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
         drawPanel(rect)
@@ -3625,8 +3730,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     private func drawModelsPage(snapshot: DetailsSnapshot, content: NSRect) {
         drawQuotaRows(snapshot: snapshot, content: content, y: content.minY + 78, height: 128)
-        drawModelRows(snapshot: snapshot, content: content, y: content.minY + 222, height: 264, maxRows: 10)
-        let noteRect = NSRect(x: content.minX, y: content.minY + 502, width: content.width, height: min(76, content.maxY - (content.minY + 502)))
+        drawModelsTable(snapshot: snapshot, content: content, y: content.minY + 222, height: 296, maxRows: 10)
+        let noteRect = NSRect(x: content.minX, y: content.minY + 534, width: content.width, height: min(76, content.maxY - (content.minY + 534)))
         drawPanel(noteRect)
         drawText(t(.modelGroupingNote), rect: NSRect(x: noteRect.minX + 16, y: noteRect.minY + 16, width: noteRect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.62))
         drawText(t(.modelMissingNote), rect: NSRect(x: noteRect.minX + 16, y: noteRect.minY + 40, width: noteRect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
