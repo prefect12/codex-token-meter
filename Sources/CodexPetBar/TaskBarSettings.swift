@@ -1177,20 +1177,28 @@ private final class TaskBarSettingsView: NSView {
     }
 
     private func drawEyeIcon(in rect: NSRect, visible: Bool, highlighted: Bool) {
-        let color = highlighted
-            ? accentTeal.withAlphaComponent(0.92)
-            : NSColor.white.withAlphaComponent(visible ? 0.74 : 0.28)
-        if let image = NSImage(systemSymbolName: visible ? "eye" : "eye.slash", accessibilityDescription: nil)?
+        let eyeColor = NSColor.white.withAlphaComponent(visible ? (highlighted ? 0.90 : 0.78) : 0.34)
+        let drawRect = rect.insetBy(dx: 5, dy: 4)
+        if let image = NSImage(systemSymbolName: "eye", accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13.5, weight: .semibold)) {
             image.isTemplate = true
-            color.set()
-            image.draw(in: rect.insetBy(dx: 5, dy: 4), from: .zero, operation: .sourceOver, fraction: 1)
+            eyeColor.set()
+            image.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1)
+        } else {
+            eyeColor.setStroke()
+            let fallback = NSBezierPath(ovalIn: rect.insetBy(dx: 5, dy: 6))
+            fallback.lineWidth = 1.2
+            fallback.stroke()
+        }
+        guard !visible else {
             return
         }
-        color.setStroke()
-        let fallback = NSBezierPath(ovalIn: rect.insetBy(dx: 5, dy: 6))
-        fallback.lineWidth = 1.2
-        fallback.stroke()
+        NSColor.white.withAlphaComponent(0.68).setStroke()
+        let slash = NSBezierPath()
+        slash.move(to: NSPoint(x: drawRect.minX + 1, y: drawRect.maxY - 1))
+        slash.line(to: NSPoint(x: drawRect.maxX - 1, y: drawRect.minY + 1))
+        slash.lineWidth = 2
+        slash.stroke()
     }
 
     private func drawHoverScrollbar(in rect: NSRect, layoutCount: Int) {
