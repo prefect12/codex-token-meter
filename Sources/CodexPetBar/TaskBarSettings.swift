@@ -39,6 +39,69 @@ enum TaskRowLayoutStyle: String, CaseIterable {
     }
 }
 
+enum TaskHoverField: String, CaseIterable, Hashable {
+    case status
+    case input
+    case output
+    case cacheRate
+    case tokenTotal
+    case turns
+    case compression
+    case model
+    case folder
+    case branch
+    case worktree
+
+    var title: String {
+        switch self {
+        case .status: return "状态"
+        case .input: return "输入"
+        case .output: return "输出"
+        case .cacheRate: return "缓存率"
+        case .tokenTotal: return "Token 消耗"
+        case .turns: return "对话轮次"
+        case .compression: return "压缩次数"
+        case .model: return "模型"
+        case .folder: return "文件夹"
+        case .branch: return "分支"
+        case .worktree: return "Worktree"
+        }
+    }
+}
+
+enum TaskHoverLayoutItem: Equatable {
+    case field(TaskHoverField)
+    case separator(String)
+
+    var storageToken: String {
+        switch self {
+        case .field(let field): return field.rawValue
+        case .separator(let id): return "separator:\(id)"
+        }
+    }
+
+    var visibilityKey: String {
+        switch self {
+        case .field(let field): return field.rawValue
+        case .separator(let id): return "separator:\(id)"
+        }
+    }
+
+    init?(storageToken: String) {
+        if storageToken == "separator" {
+            self = .separator("legacy")
+            return
+        }
+        if storageToken.hasPrefix("separator:") {
+            let id = String(storageToken.dropFirst("separator:".count))
+            self = .separator(id.isEmpty ? "legacy" : id)
+            return
+        }
+        guard let field = TaskHoverField(rawValue: storageToken) else { return nil }
+        self = .field(field)
+    }
+}
+
 enum TaskBarSettings {
     private static let showPlatformLabelsKey = "showPlatformLabels"
     private static let tokenUnitStyleKey = "tokenUnitStyle"
@@ -46,6 +109,25 @@ enum TaskBarSettings {
     private static let statusGroupOrderKey = "statusGroupOrder"
     private static let popoverWidthKey = "popoverWidth"
     private static let popoverHeightKey = "popoverHeight"
+    private static let hoverLayoutKey = "hoverLayout"
+    private static let hoverHiddenFieldsKey = "hoverHiddenFields"
+
+    static let defaultHoverLayout: [TaskHoverLayoutItem] = [
+        .field(.status),
+        .separator("tokens"),
+        .field(.input),
+        .field(.output),
+        .field(.cacheRate),
+        .field(.tokenTotal),
+        .separator("conversation"),
+        .field(.turns),
+        .field(.compression),
+        .field(.model),
+        .separator("context"),
+        .field(.folder),
+        .field(.branch),
+        .field(.worktree)
+    ]
 
     /// User-resized popover size, persisted across opens and launches. `nil` until first resize.
     static var popoverSize: NSSize? {
@@ -119,6 +201,60 @@ enum TaskBarSettings {
         }
     }
 
+    static var hoverLayout: [TaskHoverLayoutItem] {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: hoverLayoutKey), !raw.isEmpty else {
+                return defaultHoverLayout
+            }
+            let stored = raw.split(separator: ",", omittingEmptySubsequences: false)
+                .compactMap { TaskHoverLayoutItem(storageToken: String($0)) }
+            guard !stored.isEmpty else { return defaultHoverLayout }
+
+            var seenFields = Set<TaskHoverField>()
+            var separatorIndex = 0
+            var seenSeparators = Set<String>()
+            var sanitized: [TaskHoverLayoutItem] = []
+            for item in stored {
+                switch item {
+                case .separator(let id):
+                    separatorIndex += 1
+                    let rawID = id == "legacy" ? "custom\(separatorIndex)" : id
+                    let nextID = seenSeparators.contains(rawID) ? "\(rawID)-\(separatorIndex)" : rawID
+                    seenSeparators.insert(nextID)
+                    sanitized.append(.separator(nextID))
+                case .field(let field):
+                    guard !seenFields.contains(field) else { continue }
+                    seenFields.insert(field)
+                    sanitized.append(.field(field))
+                }
+            }
+            for field in TaskHoverField.allCases where !seenFields.contains(field) {
+                sanitized.append(.field(field))
+            }
+            return sanitized
+        }
+        set {
+            UserDefaults.standard.set(newValue.map(\.storageToken).joined(separator: ","), forKey: hoverLayoutKey)
+        }
+    }
+
+    static var hoverHiddenItemIDs: Set<String> {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: hoverHiddenFieldsKey), !raw.isEmpty else {
+                return []
+            }
+            return Set(raw.split(separator: ",").map(String.init))
+        }
+        set {
+            UserDefaults.standard.set(newValue.sorted().joined(separator: ","), forKey: hoverHiddenFieldsKey)
+        }
+    }
+
+    static func resetHoverLayout() {
+        UserDefaults.standard.removeObject(forKey: hoverLayoutKey)
+        UserDefaults.standard.removeObject(forKey: hoverHiddenFieldsKey)
+    }
+
     static var rowLayout: TaskRowLayoutStyle {
         get {
             guard let rawValue = UserDefaults.standard.string(forKey: rowLayoutKey),
@@ -155,7 +291,7 @@ final class TaskBarSettingsWindowController: NSWindowController {
             defer: false
         )
         window.title = "Task Bar 设置"
-        window.contentMinSize = NSSize(width: 680, height: 540)
+        window.contentMinSize = NSSize(width: 680, height: 620)
         window.contentView = contentView
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor(calibratedRed: 0.055, green: 0.066, blue: 0.086, alpha: 1.0)
@@ -180,11 +316,13 @@ final class TaskBarSettingsWindowController: NSWindowController {
 
 private enum TaskBarSettingsSection: CaseIterable {
     case settings
+    case hover
     case about
 
     var title: String {
         switch self {
         case .settings: return "设置"
+        case .hover: return "Hover"
         case .about: return "关于"
         }
     }
@@ -216,7 +354,7 @@ private enum TaskBarSettingsInfo: CaseIterable {
 }
 
 private final class TaskBarSettingsView: NSView {
-    static let preferredSize = NSSize(width: 720, height: 560)
+    static let preferredSize = NSSize(width: 720, height: 660)
 
     private let onSettingsChanged: () -> Void
     private var selectedSection: TaskBarSettingsSection = .settings
@@ -227,6 +365,8 @@ private final class TaskBarSettingsView: NSView {
     private var platformOptionRects: [Bool: NSRect] = [:]
     private var tokenUnitOptionRects: [TaskTokenUnitStyle: NSRect] = [:]
     private var layoutOptionRects: [TaskRowLayoutStyle: NSRect] = [:]
+    private var hoverEyeRects: [String: NSRect] = [:]
+    private var hoverResetRect: NSRect?
 
     // Drag-to-reorder state for the "All" status-order card.
     private let statusOrderRowHeight: CGFloat = 38
@@ -237,6 +377,16 @@ private final class TaskBarSettingsView: NSView {
     private var liveOrder: [TaskStatusGroup] = []
     private var dragPointerY: CGFloat = 0
     private var dragGrabOffset: CGFloat = 0
+
+    // Drag-to-reorder state for hover field layout.
+    private let hoverOrderRowHeight: CGFloat = 30
+    private let hoverOrderRowGap: CGFloat = 6
+    private var hoverOrderRowRects: [NSRect] = []
+    private var hoverOrderRowsTop: CGFloat = 0
+    private var draggingHoverItem: TaskHoverLayoutItem?
+    private var liveHoverLayout: [TaskHoverLayoutItem] = []
+    private var hoverDragPointerY: CGFloat = 0
+    private var hoverDragGrabOffset: CGFloat = 0
 
     init(onSettingsChanged: @escaping () -> Void) {
         self.onSettingsChanged = onSettingsChanged
@@ -286,12 +436,15 @@ private final class TaskBarSettingsView: NSView {
         switch selectedSection {
         case .settings:
             drawSettingsPage(content: content)
+        case .hover:
+            drawHoverPage(content: content)
         case .about:
             drawAboutPage(content: content)
         }
     }
 
     private func drawSettingsPage(content: NSRect) {
+        clearHoverHitRects()
         infoMarkRects.removeAll(keepingCapacity: true)
         drawText(
             "任务栏设置",
@@ -381,11 +534,48 @@ private final class TaskBarSettingsView: NSView {
         }
     }
 
+    private func drawHoverPage(content: NSRect) {
+        platformOptionRects.removeAll(keepingCapacity: true)
+        tokenUnitOptionRects.removeAll(keepingCapacity: true)
+        layoutOptionRects.removeAll(keepingCapacity: true)
+        statusOrderRowRects.removeAll(keepingCapacity: true)
+        infoMarkRects.removeAll(keepingCapacity: true)
+        clearHoverHitRects()
+
+        drawText(
+            "Hover 字段",
+            rect: NSRect(x: content.minX, y: content.minY, width: content.width, height: 34),
+            font: .systemFont(ofSize: 26, weight: .bold),
+            color: .white
+        )
+        drawText(
+            "字段显隐、顺序和分隔线",
+            rect: NSRect(x: content.minX, y: content.minY + 36, width: content.width, height: 20),
+            font: .systemFont(ofSize: 13, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.56)
+        )
+
+        let card = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: content.height - 78)
+        drawPanel(card)
+        let resetRect = NSRect(x: card.maxX - 108, y: card.minY + 16, width: 92, height: 30)
+        hoverResetRect = resetRect
+        drawText(
+            "Hover 内容",
+            rect: NSRect(x: card.minX + 16, y: card.minY + 17, width: resetRect.minX - card.minX - 28, height: 22),
+            font: .systemFont(ofSize: 16, weight: .bold),
+            color: .white
+        )
+        drawSmallButton("恢复默认", rect: resetRect, emphasized: false)
+
+        drawHoverLayoutRows(in: card)
+    }
+
     private func drawAboutPage(content: NSRect) {
         platformOptionRects.removeAll(keepingCapacity: true)
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
         layoutOptionRects.removeAll(keepingCapacity: true)
         statusOrderRowRects.removeAll(keepingCapacity: true)
+        clearHoverHitRects()
 
         drawText(
             "关于 Task Bar",
@@ -441,9 +631,14 @@ private final class TaskBarSettingsView: NSView {
             guard selectedSection != section else { return }
             selectedSection = section
             draggingGroup = nil
+            draggingHoverItem = nil
             hoveredInfo = nil
             toolTip = nil
             needsDisplay = true
+            return
+        }
+        if selectedSection == .hover {
+            handleHoverMouseDown(at: point)
             return
         }
         guard selectedSection == .settings else {
@@ -504,6 +699,12 @@ private final class TaskBarSettingsView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if selectedSection == .hover, draggingHoverItem != nil {
+            hoverDragPointerY = convert(event.locationInWindow, from: nil).y
+            reflowLiveHoverLayoutForDrag()
+            needsDisplay = true
+            return
+        }
         guard selectedSection == .settings, draggingGroup != nil else {
             super.mouseDragged(with: event)
             return
@@ -514,6 +715,16 @@ private final class TaskBarSettingsView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if selectedSection == .hover, draggingHoverItem != nil {
+            let newLayout = liveHoverLayout
+            draggingHoverItem = nil
+            if newLayout != TaskBarSettings.hoverLayout {
+                TaskBarSettings.hoverLayout = newLayout
+                onSettingsChanged()
+            }
+            needsDisplay = true
+            return
+        }
         guard selectedSection == .settings, draggingGroup != nil else {
             super.mouseUp(with: event)
             return
@@ -527,6 +738,37 @@ private final class TaskBarSettingsView: NSView {
         needsDisplay = true
     }
 
+    private func handleHoverMouseDown(at point: NSPoint) {
+        if hoverResetRect?.contains(point) == true {
+            TaskBarSettings.resetHoverLayout()
+            needsDisplay = true
+            onSettingsChanged()
+            return
+        }
+        for (key, rect) in hoverEyeRects where rect.contains(point) {
+            var hiddenItems = TaskBarSettings.hoverHiddenItemIDs
+            if hiddenItems.contains(key) {
+                hiddenItems.remove(key)
+            } else {
+                hiddenItems.insert(key)
+            }
+            TaskBarSettings.hoverHiddenItemIDs = hiddenItems
+            needsDisplay = true
+            onSettingsChanged()
+            return
+        }
+        let layout = TaskBarSettings.hoverLayout
+        for (index, rect) in hoverOrderRowRects.enumerated() where rect.contains(point) {
+            guard index < layout.count else { break }
+            liveHoverLayout = layout
+            draggingHoverItem = layout[index]
+            hoverDragPointerY = point.y
+            hoverDragGrabOffset = point.y - rect.minY
+            needsDisplay = true
+            return
+        }
+    }
+
     /// Moves the grabbed group to whichever slot the pointer is currently hovering over.
     private func reflowLiveOrderForDrag() {
         guard let group = draggingGroup, let currentIndex = liveOrder.firstIndex(of: group) else { return }
@@ -537,6 +779,17 @@ private final class TaskBarSettingsView: NSView {
         guard target != currentIndex else { return }
         liveOrder.remove(at: currentIndex)
         liveOrder.insert(group, at: target)
+    }
+
+    private func reflowLiveHoverLayoutForDrag() {
+        guard let item = draggingHoverItem, let currentIndex = liveHoverLayout.firstIndex(of: item) else { return }
+        let step = hoverOrderRowHeight + hoverOrderRowGap
+        let draggedCenter = (hoverDragPointerY - hoverDragGrabOffset) + hoverOrderRowHeight / 2
+        var target = Int(((draggedCenter - hoverOrderRowsTop) / step).rounded())
+        target = min(max(target, 0), liveHoverLayout.count - 1)
+        guard target != currentIndex else { return }
+        liveHoverLayout.remove(at: currentIndex)
+        liveHoverLayout.insert(item, at: target)
     }
 
     private var appBackgroundTop: NSColor {
@@ -744,6 +997,107 @@ private final class TaskBarSettingsView: NSView {
             color: NSColor.white.withAlphaComponent(0.52)
         )
         drawStatusOrderRows(in: card)
+    }
+
+    private func drawHoverLayoutRows(in card: NSRect) {
+        let layout = draggingHoverItem != nil ? liveHoverLayout : TaskBarSettings.hoverLayout
+        let hiddenItems = TaskBarSettings.hoverHiddenItemIDs
+        let rowX = card.minX + 16
+        let rowW = card.width - 32
+        let rowsTop = card.minY + 58
+        hoverOrderRowsTop = rowsTop
+        let step = hoverOrderRowHeight + hoverOrderRowGap
+        hoverOrderRowRects = layout.indices.map { index in
+            NSRect(x: rowX, y: rowsTop + CGFloat(index) * step, width: rowW, height: hoverOrderRowHeight)
+        }
+        for (index, item) in layout.enumerated() where item != draggingHoverItem {
+            drawHoverLayoutRow(
+                item,
+                rect: hoverOrderRowRects[index],
+                position: index + 1,
+                hidden: hiddenItems.contains(item.visibilityKey),
+                floating: false
+            )
+        }
+        if let item = draggingHoverItem, let index = layout.firstIndex(of: item) {
+            let maxTop = rowsTop + CGFloat(layout.count - 1) * step
+            let floatTop = min(max(hoverDragPointerY - hoverDragGrabOffset, rowsTop), maxTop)
+            let floatRect = NSRect(x: rowX, y: floatTop, width: rowW, height: hoverOrderRowHeight)
+            drawHoverLayoutRow(
+                item,
+                rect: floatRect,
+                position: index + 1,
+                hidden: hiddenItems.contains(item.visibilityKey),
+                floating: true
+            )
+        }
+    }
+
+    private func clearHoverHitRects() {
+        hoverEyeRects.removeAll(keepingCapacity: true)
+        hoverOrderRowRects.removeAll(keepingCapacity: true)
+        hoverResetRect = nil
+    }
+
+    private func drawHoverLayoutRow(_ item: TaskHoverLayoutItem, rect: NSRect, position: Int, hidden: Bool, floating: Bool) {
+        (floating ? accentBlue.withAlphaComponent(0.24) : inputSurfaceColor.withAlphaComponent(hidden ? 0.42 : 0.82)).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+        (floating ? accentTeal.withAlphaComponent(0.5) : borderColor).setStroke()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+
+        let textY = rect.minY + (rect.height - 16) / 2
+        drawText(
+            "\(position)",
+            rect: NSRect(x: rect.minX + 14, y: textY, width: 20, height: 16),
+            font: .systemFont(ofSize: 12, weight: .bold),
+            color: NSColor.white.withAlphaComponent(hidden ? 0.24 : 0.42)
+        )
+
+        let titleColor = NSColor.white.withAlphaComponent(hidden ? 0.36 : 0.84)
+        switch item {
+        case .field(let field):
+            drawText(
+                field.title,
+                rect: NSRect(x: rect.minX + 46, y: textY, width: rect.width - 150, height: 16),
+                font: .systemFont(ofSize: 12.5, weight: .semibold),
+                color: titleColor
+            )
+        case .separator:
+            drawText(
+                "横线",
+                rect: NSRect(x: rect.minX + 46, y: textY, width: 48, height: 16),
+                font: .systemFont(ofSize: 12.5, weight: .semibold),
+                color: titleColor
+            )
+            NSColor.white.withAlphaComponent(hidden ? 0.08 : 0.18).setFill()
+            NSRect(x: rect.minX + 96, y: rect.midY, width: rect.width - 176, height: 1).fill()
+        }
+
+        let eyeRect = NSRect(x: rect.maxX - 76, y: rect.minY + 4, width: 28, height: rect.height - 8)
+        hoverEyeRects[item.visibilityKey] = eyeRect
+        drawEyeIcon(in: eyeRect, visible: !hidden, highlighted: floating)
+        drawDragHandle(in: NSRect(x: rect.maxX - 38, y: rect.minY, width: 38, height: rect.height))
+    }
+
+    private func drawEyeIcon(in rect: NSRect, visible: Bool, highlighted: Bool) {
+        let color = highlighted
+            ? accentTeal.withAlphaComponent(0.92)
+            : NSColor.white.withAlphaComponent(visible ? 0.74 : 0.28)
+        color.setStroke()
+        let eyeRect = rect.insetBy(dx: 5, dy: 5.5)
+        let path = NSBezierPath(ovalIn: eyeRect)
+        path.lineWidth = 1.3
+        path.stroke()
+        if visible {
+            color.setFill()
+            NSBezierPath(ovalIn: eyeRect.insetBy(dx: 5.4, dy: 3.5)).fill()
+        } else {
+            let slash = NSBezierPath()
+            slash.move(to: NSPoint(x: eyeRect.minX - 1, y: eyeRect.maxY + 1))
+            slash.line(to: NSPoint(x: eyeRect.maxX + 1, y: eyeRect.minY - 1))
+            slash.lineWidth = 1.5
+            slash.stroke()
+        }
     }
 
     /// Draws the three draggable rows. During a drag the settled rows follow `liveOrder`

@@ -20,6 +20,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior = .transient
         popover.animates = true
         popover.appearance = NSAppearance(named: .darkAqua)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(popoverDidClose(_:)),
+            name: NSPopover.didCloseNotification,
+            object: popover
+        )
         configureStatusButton()
         refresh()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -28,6 +34,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         animationTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { [weak self] _ in
             self?.updateStatusIcon()
         }
+    }
+
+    func applicationWillResignActive(_ notification: Notification) {
+        ThreadHoverPanel.shared.hideAll()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        ThreadHoverPanel.shared.hideAll()
     }
 
     private func refresh() {
@@ -83,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
         if popover.isShown {
-            popover.performClose(nil)
+            closePopover()
             return
         }
         rebuildPopover()
@@ -93,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func rebuildPopover() {
+        ThreadHoverPanel.shared.hideAll()
         let active = threads.filter { $0.status == .running || $0.status == .stale }
         let waitingCount = threads.filter { $0.status == .waiting }.count
         let unreadCount = threads.filter { $0.status == .unread }.count
@@ -118,8 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.openSettingsWindow()
             },
             onQuit: { [weak self] in
-                self?.popover.performClose(nil)
-                ThreadHoverPanel.shared.hideAll()
+                self?.closePopover()
                 self?.quit()
             },
             initialSize: TaskBarSettings.popoverSize,
@@ -138,8 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openSettingsWindow() {
-        popover.performClose(nil)
-        ThreadHoverPanel.shared.hideAll()
+        closePopover()
         if settingsWindowController == nil {
             settingsWindowController = TaskBarSettingsWindowController { [weak self] in
                 ThreadHoverPanel.shared.hideAll()
@@ -180,7 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatusIcon()
         if popover.isShown {
             rebuildPopover()
-            popover.performClose(nil)
+            closePopover()
         }
         ThreadHoverPanel.shared.hideAll()
 
@@ -210,5 +223,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+
+    @objc private func popoverDidClose(_ notification: Notification) {
+        ThreadHoverPanel.shared.hideAll()
+    }
+
+    private func closePopover() {
+        popover.performClose(nil)
+        ThreadHoverPanel.shared.hideAll()
     }
 }
