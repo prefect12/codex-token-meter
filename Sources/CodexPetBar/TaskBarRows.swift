@@ -204,7 +204,7 @@ final class ThreadRowView: NSView {
     }
 
     private func updatePinIcon() {
-        let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .medium)
         pinIconView.image = NSImage(
             systemSymbolName: isPinned ? "pin.fill" : "pin",
             accessibilityDescription: isPinned ? "取消置顶" : "置顶"
@@ -317,9 +317,10 @@ final class ThreadRowView: NSView {
         let contentX: CGFloat = 26
         let contentWidth = max(120, bounds.width - 18 - contentX)
 
-        // Title always reserves room for the pin so hover never covers its tail.
-        titleLabel.frame = NSRect(x: contentX + offset, y: bounds.height - 32, width: contentWidth - 24, height: 20)
-        pinIconView.frame = NSRect(x: bounds.width - 18 - 13 + offset, y: bounds.height - 29, width: 13, height: 13)
+        titleLabel.frame = NSRect(x: contentX + offset, y: bounds.height - 32, width: contentWidth, height: 20)
+        // Pin floats at the top-right corner on the title line; text keeps its full
+        // width and the pin (hover-only unless pinned) overlays it.
+        pinIconView.frame = NSRect(x: bounds.width - 16 - 12 + offset, y: titleLabel.frame.midY - 6, width: 12, height: 12)
         detailLabel.frame = NSRect(x: contentX + offset, y: 28, width: contentWidth, height: 32)
 
         // Clock symbol sits optically low inside its image box; keep it slightly lower
@@ -340,8 +341,8 @@ final class ThreadRowView: NSView {
         let rightX = contentX + railWidth + railGap
         let rightWidth = max(80, bounds.width - 18 - rightX)
 
-        titleLabel.frame = NSRect(x: rightX + offset, y: bounds.height - 30, width: rightWidth - 24, height: 20)
-        pinIconView.frame = NSRect(x: bounds.width - 18 - 13 + offset, y: bounds.height - 27, width: 13, height: 13)
+        titleLabel.frame = NSRect(x: rightX + offset, y: bounds.height - 30, width: rightWidth, height: 20)
+        pinIconView.frame = NSRect(x: bounds.width - 16 - 12 + offset, y: titleLabel.frame.midY - 6, width: 12, height: 12)
         detailLabel.frame = NSRect(x: rightX + offset, y: 8, width: rightWidth, height: 32)
 
         // Vertically center however many meta lines are visible (time, status, [source]).
