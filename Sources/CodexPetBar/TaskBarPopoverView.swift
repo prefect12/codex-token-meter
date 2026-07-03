@@ -61,6 +61,7 @@ final class TaskBarPopoverContentView: NSView {
     private let rowLayout: TaskRowLayoutStyle
     private let onOpenThread: (String) -> Void
     private let onDismissThread: (String) -> Void
+    private let onTogglePin: (String) -> Void
     private let externalSelectTab: (TaskBarTab) -> Void
     private var selectedTab: TaskBarTab
 
@@ -74,6 +75,7 @@ final class TaskBarPopoverContentView: NSView {
         rowLayout: TaskRowLayoutStyle,
         onOpenThread: @escaping (String) -> Void,
         onDismissThread: @escaping (String) -> Void,
+        onTogglePin: @escaping (String) -> Void,
         onSelectTab: @escaping (TaskBarTab) -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void,
@@ -86,6 +88,7 @@ final class TaskBarPopoverContentView: NSView {
         self.rowLayout = rowLayout
         self.onOpenThread = onOpenThread
         self.onDismissThread = onDismissThread
+        self.onTogglePin = onTogglePin
         self.externalSelectTab = onSelectTab
         self.selectedTab = selectedTab
 
@@ -110,7 +113,8 @@ final class TaskBarPopoverContentView: NSView {
             showPlatformLabels: showPlatformLabels,
             rowLayout: rowLayout,
             onOpenThread: onOpenThread,
-            onDismissThread: onDismissThread
+            onDismissThread: onDismissThread,
+            onTogglePin: onTogglePin
         )
         rowsView = TaskBarRowsView(rowViews: rowViews)
         rowsContentHeight = rowsView.frame.height
@@ -175,7 +179,8 @@ final class TaskBarPopoverContentView: NSView {
             showPlatformLabels: showPlatformLabels,
             rowLayout: rowLayout,
             onOpenThread: onOpenThread,
-            onDismissThread: onDismissThread
+            onDismissThread: onDismissThread,
+            onTogglePin: onTogglePin
         )
         let newRowsView = TaskBarRowsView(rowViews: rowViews)
         rowsView = newRowsView
@@ -192,7 +197,8 @@ final class TaskBarPopoverContentView: NSView {
         showPlatformLabels: Bool,
         rowLayout: TaskRowLayoutStyle,
         onOpenThread: @escaping (String) -> Void,
-        onDismissThread: @escaping (String) -> Void
+        onDismissThread: @escaping (String) -> Void,
+        onTogglePin: @escaping (String) -> Void
     ) -> [NSView] {
         if filtered.isEmpty {
             return [EmptyStateView(message: selectedTab.emptyMessage)]
@@ -203,7 +209,8 @@ final class TaskBarPopoverContentView: NSView {
                 showPlatformLabel: showPlatformLabels,
                 rowLayout: rowLayout,
                 onOpen: onOpenThread,
-                onDismiss: onDismissThread
+                onDismiss: onDismissThread,
+                onTogglePin: onTogglePin
             )
         }
     }

@@ -48,7 +48,7 @@ private func renderTaskBar(to path: String) {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
 
-    var mock = mockTaskBarThreads()
+    var mock = mockTaskBarThreads().sorted(by: stableThreadOrder)
     if let countArg = CommandLine.arguments.first(where: { $0.hasPrefix("--count=") }),
        let count = Int(countArg.dropFirst("--count=".count)) {
         mock = Array(mock.prefix(max(0, count)))
@@ -75,6 +75,7 @@ private func renderTaskBar(to path: String) {
         rowLayout: TaskBarSettings.rowLayout,
         onOpenThread: { _ in },
         onDismissThread: { _ in },
+        onTogglePin: { _ in },
         onSelectTab: { _ in },
         onOpenSettings: {},
         onQuit: {},

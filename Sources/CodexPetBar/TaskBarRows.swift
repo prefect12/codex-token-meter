@@ -5,6 +5,7 @@ final class ThreadRowView: NSView {
     private let item: CodexThreadItem
     private let onOpen: (String) -> Void
     private let onDismiss: (String) -> Void
+    private let onTogglePin: (String) -> Void
     private let showPlatformLabel: Bool
     private let rowLayout: TaskRowLayoutStyle
     private let titleLabel = NSTextField(labelWithString: "")
@@ -14,6 +15,8 @@ final class ThreadRowView: NSView {
     private let metaDotView = NSView()
     private let metaStatusLabel = NSTextField(labelWithString: "")
     private let platformLabel = NSTextField(labelWithString: "")
+    private let pinIconView = NSImageView()
+    private var isPinned: Bool
     private var trackingAreaRef: NSTrackingArea?
     private var elapsedTimer: Timer?
     private var mouseDownPoint = NSPoint.zero
@@ -23,7 +26,10 @@ final class ThreadRowView: NSView {
     private var scrollSwipeSettleTimer: Timer?
     private var didDrag = false
     private var isHovering = false {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            updatePinIcon()
+        }
     }
 
     init(
@@ -31,13 +37,16 @@ final class ThreadRowView: NSView {
         showPlatformLabel: Bool,
         rowLayout: TaskRowLayoutStyle,
         onOpen: @escaping (String) -> Void,
-        onDismiss: @escaping (String) -> Void
+        onDismiss: @escaping (String) -> Void,
+        onTogglePin: @escaping (String) -> Void
     ) {
         self.item = item
         self.showPlatformLabel = showPlatformLabel
         self.rowLayout = rowLayout
         self.onOpen = onOpen
         self.onDismiss = onDismiss
+        self.onTogglePin = onTogglePin
+        self.isPinned = TaskBarSettings.isPinned(item.id)
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: rowLayout.rowHeight))
         wantsLayer = true
         let tooltip = tooltipText(for: item)
@@ -83,6 +92,10 @@ final class ThreadRowView: NSView {
 
         platformLabel.lineBreakMode = .byTruncatingTail
         addSubview(platformLabel)
+
+        pinIconView.imageScaling = .scaleProportionallyDown
+        addSubview(pinIconView)
+        updatePinIcon()
 
         switch rowLayout {
         case .standard:
@@ -171,7 +184,36 @@ final class ThreadRowView: NSView {
             didDrag = false
             return
         }
+        let point = convert(event.locationInWindow, from: nil)
+        if pinHitRect.contains(point) {
+            togglePinTapped()
+            return
+        }
         onOpen(item.id)
+    }
+
+    /// Generous hit target around the (small) pin glyph.
+    private var pinHitRect: NSRect {
+        pinIconView.frame.insetBy(dx: -8, dy: -8)
+    }
+
+    private func togglePinTapped() {
+        isPinned.toggle()
+        updatePinIcon()
+        onTogglePin(item.id)
+    }
+
+    private func updatePinIcon() {
+        let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        pinIconView.image = NSImage(
+            systemSymbolName: isPinned ? "pin.fill" : "pin",
+            accessibilityDescription: isPinned ? "取消置顶" : "置顶"
+        )?.withSymbolConfiguration(config)
+        pinIconView.contentTintColor = isPinned
+            ? NSColor(calibratedRed: 0.98, green: 0.68, blue: 0.20, alpha: 1)
+            : NSColor(calibratedWhite: 0.5, alpha: 1)
+        pinIconView.toolTip = isPinned ? "取消置顶" : "置顶"
+        pinIconView.isHidden = !(isPinned || isHovering)
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -275,7 +317,9 @@ final class ThreadRowView: NSView {
         let contentX: CGFloat = 26
         let contentWidth = max(120, bounds.width - 18 - contentX)
 
-        titleLabel.frame = NSRect(x: contentX + offset, y: bounds.height - 32, width: contentWidth, height: 20)
+        // Title always reserves room for the pin so hover never covers its tail.
+        titleLabel.frame = NSRect(x: contentX + offset, y: bounds.height - 32, width: contentWidth - 24, height: 20)
+        pinIconView.frame = NSRect(x: bounds.width - 18 - 13 + offset, y: bounds.height - 29, width: 13, height: 13)
         detailLabel.frame = NSRect(x: contentX + offset, y: 28, width: contentWidth, height: 32)
 
         // Clock symbol sits optically low inside its image box; keep it slightly lower
@@ -296,7 +340,8 @@ final class ThreadRowView: NSView {
         let rightX = contentX + railWidth + railGap
         let rightWidth = max(80, bounds.width - 18 - rightX)
 
-        titleLabel.frame = NSRect(x: rightX + offset, y: bounds.height - 30, width: rightWidth, height: 20)
+        titleLabel.frame = NSRect(x: rightX + offset, y: bounds.height - 30, width: rightWidth - 24, height: 20)
+        pinIconView.frame = NSRect(x: bounds.width - 18 - 13 + offset, y: bounds.height - 27, width: 13, height: 13)
         detailLabel.frame = NSRect(x: rightX + offset, y: 8, width: rightWidth, height: 32)
 
         // Vertically center however many meta lines are visible (time, status, [source]).

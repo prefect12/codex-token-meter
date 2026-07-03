@@ -46,6 +46,45 @@ enum TaskBarSettings {
     private static let statusGroupOrderKey = "statusGroupOrder"
     private static let popoverWidthKey = "popoverWidth"
     private static let popoverHeightKey = "popoverHeight"
+    private static let pinnedThreadsKey = "pinnedThreadIDs"
+    private static let pinnedThreadsCap = 100
+    private static let pinnedThreadsLock = NSLock()
+    private static var pinnedThreadsCache: Set<String>?
+
+    /// Thread ids pinned to the top of the list. Cached in memory because the sort
+    /// comparator reads this per comparison, potentially off the main thread.
+    static var pinnedThreadIDs: Set<String> {
+        pinnedThreadsLock.lock()
+        defer { pinnedThreadsLock.unlock() }
+        if let cached = pinnedThreadsCache { return cached }
+        let stored = Set(UserDefaults.standard.stringArray(forKey: pinnedThreadsKey) ?? [])
+        pinnedThreadsCache = stored
+        return stored
+    }
+
+    static func isPinned(_ threadID: String) -> Bool {
+        pinnedThreadIDs.contains(threadID)
+    }
+
+    static func togglePin(_ threadID: String) {
+        setPinned(!isPinned(threadID), for: threadID)
+    }
+
+    static func setPinned(_ pinned: Bool, for threadID: String) {
+        pinnedThreadsLock.lock()
+        defer { pinnedThreadsLock.unlock() }
+        var stored = UserDefaults.standard.stringArray(forKey: pinnedThreadsKey) ?? []
+        stored.removeAll { $0 == threadID }
+        if pinned {
+            stored.append(threadID)
+            // Oldest pins fall off first so stale ids cannot accumulate forever.
+            if stored.count > pinnedThreadsCap {
+                stored.removeFirst(stored.count - pinnedThreadsCap)
+            }
+        }
+        UserDefaults.standard.set(stored, forKey: pinnedThreadsKey)
+        pinnedThreadsCache = Set(stored)
+    }
 
     /// User-resized popover size, persisted across opens and launches. `nil` until first resize.
     static var popoverSize: NSSize? {
