@@ -1,6 +1,13 @@
 import Cocoa
 import Foundation
 
+/// A running Codex/Claude turn writes to its transcript every few seconds. Once a
+/// session has been silent longer than this it has stopped — the window was closed
+/// or the turn died mid-flight — so it must no longer be reported as "running".
+/// Kept generous so a long, quiet tool call (e.g. a multi-minute build) is not
+/// mistaken for a dead session.
+private let runningActivityTimeout: TimeInterval = 10 * 60
+
 private struct ReadStateFile: Codable {
     var schemaVersion: Int?
     var didBaselineExistingWaiting: Bool
@@ -57,15 +64,11 @@ final class CodexActivityReader {
             let activityDate = summary.isRunning
                 ? maxDate(logged.lastActivity, summary.lastTaskEventAt)
                 : summary.lastCompletionAt ?? summary.lastTaskEventAt ?? logged.lastActivity
-            let isStale = summary.isRunning && Date().timeIntervalSince(activityDate) > 10 * 60
-            let status: ThreadRunStatus
-            if isStale {
-                status = .stale
-            } else if summary.isRunning {
-                status = .running
-            } else {
-                status = .unread
-            }
+            // A running turn keeps emitting events; once it has been silent past the
+            // timeout the turn has stopped, so it is reported as finished, not running.
+            let isRunning = summary.isRunning
+                && Date().timeIntervalSince(activityDate) <= runningActivityTimeout
+            let status: ThreadRunStatus = isRunning ? .running : .unread
             let externalReadAt = appServerSnapshot.externalReadAtByID[logged.id]
             let explicitUnread = unreadThreadIDs.contains(logged.id)
                 && !isAppServerReadThrough(externalReadAt: externalReadAt, lastActivity: activityDate)
@@ -806,7 +809,12 @@ final class CodexActivityReader {
         let userToolResultStillActive = latestUserIsToolResult
             && !latestUserIsInteractiveToolResult
             && (latestUserAt ?? .distantPast) >= (latestAssistantAt ?? .distantPast)
-        let isRunning = pendingUserResponse || queuedAfterAssistant || assistantRunningTool || userToolResultStillActive
+        let looksRunning = pendingUserResponse || queuedAfterAssistant || assistantRunningTool || userToolResultStillActive
+        // A running turn streams to the transcript every few seconds; if the session
+        // has gone silent past the timeout the turn has stopped (window closed or died
+        // mid-flight), so it is no longer running even though the log ends mid-turn.
+        let isRunning = looksRunning
+            && Date().timeIntervalSince(activityDate) <= runningActivityTimeout
         let isWaitingForUser = !isRunning && (assistantWaitingForInput || interactiveToolResultWaiting)
         let status: ThreadRunStatus = isRunning ? .running : (isWaitingForUser ? .waiting : .unread)
         let startedAt: Date?
