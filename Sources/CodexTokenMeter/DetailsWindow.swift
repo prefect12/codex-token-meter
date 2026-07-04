@@ -5442,7 +5442,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let badgeText: String
         let kindTimeText: String
         let durationText: String
-        let deltaPt: Int?
         let percent: Double
         let isCurrent: Bool
         let isPartial: Bool
@@ -5579,7 +5578,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         var hasBackfilled = false
         var hasEarlyRefresh = false
         var rows: [QuotaCycleRowModel] = []
-        for (index, info) in infos.enumerated() {
+        for info in infos {
             if info.isBackfilled { hasBackfilled = true }
             if info.earlyRefreshAt != nil { hasEarlyRefresh = true }
             let effectiveEnd = info.earlyRefreshAt ?? info.end
@@ -5625,11 +5624,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 durationText = "--"
             }
 
-            var deltaPt: Int?
-            if index > 0 {
-                deltaPt = Int(round(info.percent - infos[index - 1].percent))
-            }
-
             rows.append(QuotaCycleRowModel(
                 shortRange: shortRange,
                 fullRange: fullRange,
@@ -5637,7 +5631,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 badgeText: badgeText,
                 kindTimeText: kindTimeText,
                 durationText: durationText,
-                deltaPt: deltaPt,
                 percent: info.percent,
                 isCurrent: info.isCurrent,
                 isPartial: info.isBackfilled
@@ -5974,9 +5967,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             lines.append((t(.cycleNormalReset), row.kindTimeText, NSColor.white.withAlphaComponent(0.88)))
         }
         lines.append((t(.cycleDurationLabel), row.durationText, NSColor.white.withAlphaComponent(0.88)))
-        if let delta = row.deltaPt {
-            lines.append((t(.cycleDeltaLabel), String(format: "%+dpt", delta), delta > 0 ? accentAmber : NSColor.systemGreen))
-        }
         let footerText: String? = row.isPartial ? "* \(t(.cycleBackfilled))" : nil
 
         let width: CGFloat = 238
