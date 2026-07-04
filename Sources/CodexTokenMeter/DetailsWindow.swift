@@ -5759,7 +5759,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let inputX = outputX - 90
         let nameW = min(220, rect.width * 0.30)
         let barX = rect.minX + nameW + 18
-        let barW = max(80, inputX - barX - 16)
+        let barW = max(0, inputX - barX - 24)
         drawRight(t(.input), rect: NSRect(x: inputX, y: rect.minY, width: 80, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         drawRight(t(.output), rect: NSRect(x: outputX, y: rect.minY, width: 80, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         drawRight(t(.total), rect: NSRect(x: totalX, y: rect.minY, width: 82, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
@@ -5769,24 +5769,27 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             guard y + 18 <= rect.maxY else { break }
             drawText(model.name, rect: NSRect(x: rect.minX, y: y, width: nameW, height: 12), font: .systemFont(ofSize: 10, weight: .semibold), color: .white)
             drawText("\(model.events) \(t(.events).lowercased())", rect: NSRect(x: rect.minX, y: y + 11, width: nameW, height: 11), font: .systemFont(ofSize: 8, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42))
+
+            if barW >= 18 {
+                let bar = NSRect(x: barX, y: y + 6, width: barW, height: 6)
+                NSColor.white.withAlphaComponent(0.07).setFill()
+                NSBezierPath(roundedRect: bar, xRadius: 4, yRadius: 4).fill()
+                let totalRatio = CGFloat(Double(model.usage.total) / Double(maxTotal))
+                let filledWidth = max(4, bar.width * totalRatio)
+                let inputOutput = max(model.usage.input + model.usage.output, 1)
+                let inputWidth = filledWidth * CGFloat(model.usage.input) / CGFloat(inputOutput)
+                NSColor.systemGreen.withAlphaComponent(0.92).setFill()
+                NSBezierPath(roundedRect: NSRect(x: bar.minX, y: bar.minY, width: inputWidth, height: bar.height), xRadius: 4, yRadius: 4).fill()
+                NSColor.systemCyan.withAlphaComponent(0.92).setFill()
+                NSBezierPath(roundedRect: NSRect(x: bar.minX + inputWidth, y: bar.minY, width: max(0, filledWidth - inputWidth), height: bar.height), xRadius: 4, yRadius: 4).fill()
+            }
+
             drawRight(compact(model.usage.input), rect: NSRect(x: inputX, y: y + 1, width: 80, height: 16), color: .systemGreen)
             drawRight(compact(model.usage.output), rect: NSRect(x: outputX, y: y + 1, width: 80, height: 16), color: .systemCyan)
             drawRight(compact(model.usage.total), rect: NSRect(x: totalX, y: y + 1, width: 82, height: 16), color: .white)
             let modelCost = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
             let costText = modelCost.hasPricedUsage ? compactDisplayAPIMoney(modelCost.usdValue) : "—"
             drawRight(costText, rect: NSRect(x: costX, y: y + 1, width: 92, height: 16), color: modelCost.hasPricedUsage ? accentTeal : NSColor.white.withAlphaComponent(0.38))
-
-            let bar = NSRect(x: barX, y: y + 6, width: barW, height: 6)
-            NSColor.white.withAlphaComponent(0.07).setFill()
-            NSBezierPath(roundedRect: bar, xRadius: 4, yRadius: 4).fill()
-            let totalRatio = CGFloat(Double(model.usage.total) / Double(maxTotal))
-            let filledWidth = max(4, bar.width * totalRatio)
-            let inputOutput = max(model.usage.input + model.usage.output, 1)
-            let inputWidth = filledWidth * CGFloat(model.usage.input) / CGFloat(inputOutput)
-            NSColor.systemGreen.withAlphaComponent(0.92).setFill()
-            NSBezierPath(roundedRect: NSRect(x: bar.minX, y: bar.minY, width: inputWidth, height: bar.height), xRadius: 4, yRadius: 4).fill()
-            NSColor.systemCyan.withAlphaComponent(0.92).setFill()
-            NSBezierPath(roundedRect: NSRect(x: bar.minX + inputWidth, y: bar.minY, width: max(0, filledWidth - inputWidth), height: bar.height), xRadius: 4, yRadius: 4).fill()
         }
     }
 
