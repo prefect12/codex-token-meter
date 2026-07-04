@@ -5571,6 +5571,18 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
             infos[index].earlyRefreshAt = nextStart
         }
+        // Backfilled cycles carry their real span in start/end; one clearly
+        // shorter than a weekly window means the quota was refreshed early.
+        // The oldest cycle is exempt: its start is when observation began,
+        // not the true cycle start, so a short span proves nothing.
+        for index in 1..<max(1, infos.count) {
+            guard infos[index].isBackfilled, infos[index].earlyRefreshAt == nil,
+                  let start = infos[index].start,
+                  infos[index].end.timeIntervalSince(start) < 5.5 * 86_400 else {
+                continue
+            }
+            infos[index].earlyRefreshAt = infos[index].end
+        }
 
         var hasBackfilled = false
         var hasEarlyRefresh = false
@@ -5780,20 +5792,35 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func drawCycleRing(rect: NSRect, thickness: CGFloat, percent: Double, color: NSColor, highlighted: Bool) {
         fillDonut(in: rect, thickness: thickness, color: NSColor.white.withAlphaComponent(0.09))
         let progress = CGFloat(max(0, min(100, percent)) / 100)
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let outerRadius = rect.width / 2
-        let startAngle = -CGFloat.pi / 2
-        let endAngle = startAngle + CGFloat.pi * 2 * progress
+        // Semi-transparent fills would double-darken where the rounded caps
+        // overlap the arc, so draw the arc opaque inside a transparency layer
+        // and apply the alpha to the composited result.
+        let alpha = color.alphaComponent
+        let opaqueColor = alpha < 0.999 ? color.withAlphaComponent(1) : color
+        let cgContext = alpha < 0.999 ? NSGraphicsContext.current?.cgContext : nil
+        if let cgContext {
+            cgContext.saveGState()
+            cgContext.setAlpha(alpha)
+            cgContext.beginTransparencyLayer(auxiliaryInfo: nil)
+        }
         if progress >= 0.999 {
-            fillDonut(in: rect, thickness: thickness, color: color)
+            fillDonut(in: rect, thickness: thickness, color: opaqueColor)
         } else if progress > 0.001 {
-            fillDonutSegment(center: center, outerRadius: outerRadius, thickness: thickness, startAngle: startAngle, endAngle: endAngle, color: color)
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            let outerRadius = rect.width / 2
+            let startAngle = -CGFloat.pi / 2
+            let endAngle = startAngle + CGFloat.pi * 2 * progress
+            fillDonutSegment(center: center, outerRadius: outerRadius, thickness: thickness, startAngle: startAngle, endAngle: endAngle, color: opaqueColor)
             let midRadius = outerRadius - thickness / 2
-            color.setFill()
+            opaqueColor.setFill()
             for angle in [startAngle, endAngle] {
                 let capCenter = CGPoint(x: center.x + midRadius * cos(angle), y: center.y + midRadius * sin(angle))
                 NSBezierPath(ovalIn: NSRect(x: capCenter.x - thickness / 2, y: capCenter.y - thickness / 2, width: thickness, height: thickness)).fill()
             }
+        }
+        if let cgContext {
+            cgContext.endTransparencyLayer()
+            cgContext.restoreGState()
         }
         if highlighted {
             color.setStroke()

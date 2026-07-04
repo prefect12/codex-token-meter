@@ -226,9 +226,19 @@ final class QuotaCycleStore {
         if let data = try? Data(contentsOf: url),
            let decoded = try? JSONDecoder().decode(QuotaCycleFile.self, from: data) {
             self.file = decoded
+            if file.version < 2 {
+                // Version 2 rebuilds legacy seeds from observed usage-drop
+                // events, giving contiguous ranges and preserving mid-cycle
+                // promo refreshes; drop the old calendar-week estimates.
+                file.cycles.removeAll { $0.isBackfilled }
+                file.version = 2
+                backfillWeeklyCyclesFromCostHistory()
+                save()
+            }
         } else {
-            self.file = QuotaCycleFile()
+            self.file = QuotaCycleFile(version: 2)
             backfillWeeklyCyclesFromCostHistory()
+            save()
         }
     }
 
@@ -295,48 +305,95 @@ final class QuotaCycleStore {
         return true
     }
 
-    /// Seeds weekly cycles from the legacy calendar-week cost history so the
-    /// page is not empty on first launch. Calendar weeks can straddle two real
-    /// cycles, so seeded records are flagged as backfilled estimates.
+    /// Seeds weekly cycles from the legacy cost history. Observed usage-drop
+    /// events are the primary cycle boundaries (each event records the exact
+    /// moment and the final used percent of the cycle it ended, including
+    /// mid-cycle promo refreshes). Scheduled reset times from week snapshots
+    /// only fill gaps where no drop was observed, and only when they sit a
+    /// plausible window length after the previous boundary. Ranges come out
+    /// contiguous, with `windowMinutes` equal to the real cycle span.
     private func backfillWeeklyCyclesFromCostHistory() {
         guard let data = try? Data(contentsOf: AppSettings.costHistoryURL),
               let legacy = try? JSONDecoder().decode(CostHistoryFile.self, from: data) else {
             return
         }
-        let toleranceSeconds = 24.0 * 3600
+        let day: TimeInterval = 86_400
+        let weekStartParser = dayFormatter()
+        let limitIDs = Set(legacy.weeks.values.map(\.limitID)).union(legacy.events.map(\.limitID))
         var seeded: [QuotaCycleRecord] = []
-        for snapshot in legacy.weeks.values {
-            guard let resetAtText = snapshot.resetAt,
-                  let resetAt = isoFormatter.date(from: resetAtText) else {
-                continue
+        for limitID in limitIDs {
+            let snapshots = legacy.weeks.values.filter { $0.limitID == limitID }
+            let events: [(time: Date, peak: Double)] = legacy.events
+                .filter { $0.limitID == limitID && $0.type == "weekly_usage_percent_drop" }
+                .compactMap { event in
+                    isoFormatter.date(from: event.observedAt).map { ($0, event.previousUsedPercent) }
+                }
+                .sorted { $0.time < $1.time }
+
+            var boundaries: [(time: Date, peak: Double?)] = events.map { ($0.time, $0.peak) }
+            let scheduledEnds = snapshots
+                .compactMap { $0.resetAt.flatMap { isoFormatter.date(from: $0) } }
+                .sorted()
+            for scheduled in scheduledEnds {
+                if boundaries.contains(where: { abs($0.time.timeIntervalSince(scheduled)) < day }) { continue }
+                if let previous = boundaries.map(\.time).filter({ $0 < scheduled }).max() {
+                    // A genuine next reset sits roughly one window after the
+                    // previous boundary; anything else is a stale schedule
+                    // superseded by an early refresh.
+                    let gap = scheduled.timeIntervalSince(previous)
+                    guard gap > 5.5 * day, gap < 8.5 * day else { continue }
+                }
+                boundaries.append((scheduled, nil))
+                boundaries.sort { $0.time < $1.time }
             }
-            let usedPercent = max(0, min(100, snapshot.maxUsedPercent))
-            if let index = seeded.firstIndex(where: { record in
-                record.limitID == snapshot.limitID
-                    && record.resetAtDate(isoFormatter).map { abs($0.timeIntervalSince(resetAt)) <= toleranceSeconds } == true
-            }) {
-                seeded[index].maxUsedPercent = max(seeded[index].maxUsedPercent, usedPercent)
-                seeded[index].lastUsedPercent = snapshot.lastUsedPercent
-                seeded[index].observedCount += snapshot.observedCount
-                seeded[index].lastSeenAt = max(seeded[index].lastSeenAt, snapshot.updatedAt)
-            } else {
+            guard !boundaries.isEmpty else { continue }
+
+            let firstSeen = snapshots.compactMap { isoFormatter.date(from: $0.firstSeenAt) }.min()
+            var previousEnd = firstSeen ?? boundaries[0].time.addingTimeInterval(-7 * day)
+            for boundary in boundaries {
+                let interval = boundary.time.timeIntervalSince(previousEnd)
+                let cycleStart = previousEnd
+                previousEnd = boundary.time
+                guard interval > 6 * 3600 else { continue }
+
+                let peak: Double
+                if let eventPeak = boundary.peak {
+                    peak = eventPeak
+                } else {
+                    let nearLast = snapshots
+                        .filter { snapshot in
+                            guard let updated = isoFormatter.date(from: snapshot.updatedAt) else { return false }
+                            return updated > boundary.time.addingTimeInterval(-4 * day)
+                                && updated < boundary.time.addingTimeInterval(day)
+                        }
+                        .map(\.lastUsedPercent)
+                        .max()
+                    let overlapMax = snapshots
+                        .filter { snapshot in
+                            guard let weekStart = weekStartParser.date(from: snapshot.weekStart) else { return false }
+                            return weekStart < boundary.time && weekStart.addingTimeInterval(7 * day) > cycleStart
+                        }
+                        .map(\.maxUsedPercent)
+                        .max()
+                    peak = nearLast ?? overlapMax ?? 0
+                }
+
                 seeded.append(QuotaCycleRecord(
-                    limitID: snapshot.limitID,
+                    limitID: limitID,
                     kind: QuotaWindowKind.weekly.rawValue,
-                    windowMinutes: 7 * 24 * 60,
-                    resetAt: resetAtText,
-                    maxUsedPercent: usedPercent,
-                    lastUsedPercent: snapshot.lastUsedPercent,
-                    observedCount: snapshot.observedCount,
-                    firstSeenAt: snapshot.firstSeenAt,
-                    lastSeenAt: snapshot.updatedAt,
+                    windowMinutes: max(1, Int(interval / 60)),
+                    resetAt: isoFormatter.string(from: boundary.time),
+                    maxUsedPercent: max(0, min(100, peak)),
+                    lastUsedPercent: max(0, min(100, peak)),
+                    observedCount: 1,
+                    firstSeenAt: isoFormatter.string(from: cycleStart),
+                    lastSeenAt: isoFormatter.string(from: boundary.time),
                     backfilled: true
                 ))
             }
         }
         guard !seeded.isEmpty else { return }
-        file.cycles = seeded
-        save()
+        file.cycles.append(contentsOf: seeded)
     }
 
     private func prune() {
