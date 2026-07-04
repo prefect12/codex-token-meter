@@ -469,6 +469,8 @@ enum L10nKey {
     case cycleBandGrowHint
     case cycleDurationLabel
     case cycleDeltaLabel
+    case cyclePaceCapEtaFormat
+    case cyclePaceEndProjectionFormat
 
     var english: String {
         switch self {
@@ -517,7 +519,7 @@ enum L10nKey {
         case .cycleNoHistory: return "No cycle history yet. Keep the app running to collect reset cycles."
         case .cyclePaceAheadFormat: return "%dpt ahead of even pace"
         case .cyclePaceBehindFormat: return "%dpt behind even pace"
-        case .cycleTimeMarkerHint: return "Tick marks elapsed time"
+        case .cycleTimeMarkerHint: return "Elapsed"
         case .cycleNow: return "now"
         case .cycleEarlyRefresh: return "Early refresh"
         case .cycleEarlyRefreshFootnote: return "Early refresh: quota refreshed before the scheduled reset time (e.g. provider promotion)"
@@ -531,6 +533,8 @@ enum L10nKey {
         case .cycleBandGrowHint: return "Earlier cycles will appear here as history accumulates."
         case .cycleDurationLabel: return "Duration"
         case .cycleDeltaLabel: return "vs prev"
+        case .cyclePaceCapEtaFormat: return "caps in %@ at this pace"
+        case .cyclePaceEndProjectionFormat: return "ends near %d%% at this pace"
         case .costHistory: return "Spend History"
         case .codexIncident: return "Incident"
         case .codexNoActiveIncident: return "No active incidents"
@@ -752,7 +756,7 @@ enum L10nKey {
         case .cycleNoHistory: return "暂无周期记录，保持应用运行即可自动积累。"
         case .cyclePaceAheadFormat: return "超前匀速 %dpt"
         case .cyclePaceBehindFormat: return "低于匀速 %dpt"
-        case .cycleTimeMarkerHint: return "刻度线 = 时间进度"
+        case .cycleTimeMarkerHint: return "时间进度"
         case .cycleNow: return "至今"
         case .cycleEarlyRefresh: return "提前刷新"
         case .cycleEarlyRefreshFootnote: return "提前刷新：在计划重置时间之前观察到额度刷新（如官方活动）"
@@ -766,6 +770,8 @@ enum L10nKey {
         case .cycleBandGrowHint: return "更早周期会随记录自动出现在这里，逐渐排满一整年。"
         case .cycleDurationLabel: return "时长"
         case .cycleDeltaLabel: return "较上轮"
+        case .cyclePaceCapEtaFormat: return "按此节奏 %@ 后触顶"
+        case .cyclePaceEndProjectionFormat: return "按此节奏周期末约 %d%%"
         case .costHistory: return "金额历史"
         case .codexIncident: return "故障"
         case .codexNoActiveIncident: return "当前没有故障"
@@ -987,7 +993,7 @@ enum L10nKey {
         case .cycleNoHistory: return "周期履歴はまだありません。アプリを起動したままにすると記録されます。"
         case .cyclePaceAheadFormat: return "均等ペースより%dpt先行"
         case .cyclePaceBehindFormat: return "均等ペースより%dpt低い"
-        case .cycleTimeMarkerHint: return "目盛り = 経過時間"
+        case .cycleTimeMarkerHint: return "経過"
         case .cycleNow: return "現在"
         case .cycleEarlyRefresh: return "前倒し更新"
         case .cycleEarlyRefreshFootnote: return "前倒し更新：予定リセットより早いクォータ更新（公式キャンペーン等）"
@@ -1001,6 +1007,8 @@ enum L10nKey {
         case .cycleBandGrowHint: return "以前の周期は記録が貯まるとここに表示されます。"
         case .cycleDurationLabel: return "期間"
         case .cycleDeltaLabel: return "前周期比"
+        case .cyclePaceCapEtaFormat: return "このペースだと%@後に上限"
+        case .cyclePaceEndProjectionFormat: return "このペースで周期末は約%d%%"
         case .costHistory: return "金額履歴"
         case .codexIncident: return "障害"
         case .codexNoActiveIncident: return "進行中の障害はありません"

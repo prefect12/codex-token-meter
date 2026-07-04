@@ -5496,6 +5496,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         return formatter
     }()
 
+    private static let cycleClockLabelFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
     private var quotaCycleSource: QuotaViewOption {
         selectedDetailsSource == .claude ? .claude : .codex
     }
@@ -5756,9 +5763,23 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 paceText = String(format: t(.cyclePaceBehindFormat), -delta)
             }
             paceText += " · \(t(.cycleTimeMarkerHint)) \(Int(round(pace.progressPercent)))%"
+
+            // Constant-rate projection: will this cycle hit the cap, and when?
+            let progressFraction = pace.progressPercent / 100
+            if progressFraction >= 0.03, used >= 1, used < 100 {
+                let projectedEnd = used / progressFraction
+                if projectedEnd >= 100 {
+                    let elapsedSeconds = Double(window.windowMinutes) * 60 * progressFraction
+                    let secondsToCap = elapsedSeconds * (100 - used) / used
+                    let capText = compactResetRelative(Date().addingTimeInterval(secondsToCap))
+                    paceText += " · \(String(format: t(.cyclePaceCapEtaFormat), capText))"
+                } else {
+                    paceText += " · \(String(format: t(.cyclePaceEndProjectionFormat), Int(round(projectedEnd))))"
+                }
+            }
         }
         if !paceText.isEmpty {
-            drawText(paceText, rect: NSRect(x: rect.minX + 18, y: barRect.maxY + 12, width: rect.width - 36, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+            drawTruncatedText(paceText, rect: NSRect(x: rect.minX + 18, y: barRect.maxY + 12, width: rect.width - 36, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
         }
     }
 
@@ -6018,13 +6039,21 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let areaX = rect.minX + 18
         let areaWidth = rect.width - 36
         let count = model.fiveHourBars.count
-        let gap: CGFloat = count > 24 ? 4 : 6
-        let barWidth = min(26, (areaWidth - gap * CGFloat(max(count - 1, 0))) / CGFloat(count))
+        let showsPerBarLabels = count <= 10
+        let gap: CGFloat = count > 24 ? 4 : (showsPerBarLabels ? 14 : 6)
+        let maxBarWidth: CGFloat = showsPerBarLabels ? 38 : 26
+        let barWidth = min(maxBarWidth, (areaWidth - gap * CGFloat(max(count - 1, 0))) / CGFloat(count))
+        let groupWidth = barWidth * CGFloat(count) + gap * CGFloat(max(count - 1, 0))
+        let groupX = areaX + max(0, (areaWidth - groupWidth) / 2)
+        let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+        let labelColor = NSColor.white.withAlphaComponent(0.42)
+        let tooltipIndexBase = quotaCycleTooltipRows.count
+
         for (index, bar) in model.fiveHourBars.enumerated() {
             let percent = max(0, min(100, bar.percent))
             let height = max(4, areaHeight * CGFloat(percent / 100))
             let barRect = NSRect(
-                x: areaX + CGFloat(index) * (barWidth + gap),
+                x: groupX + CGFloat(index) * (barWidth + gap),
                 y: areaBottom - height,
                 width: barWidth,
                 height: height
@@ -6041,15 +6070,44 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 accentBlue.setFill()
                 NSBezierPath(ovalIn: NSRect(x: barRect.midX - 2.5, y: barRect.minY - 10, width: 5, height: 5)).fill()
             }
+            if hoveredQuotaCycleIndex == tooltipIndexBase + index {
+                NSColor.white.withAlphaComponent(0.65).setStroke()
+                let focus = NSBezierPath(roundedRect: barRect.insetBy(dx: -2.5, dy: -2.5), xRadius: 4, yRadius: 4)
+                focus.lineWidth = 1
+                focus.stroke()
+            }
+            if showsPerBarLabels {
+                drawCentered(Self.cycleClockLabelFormatter.string(from: bar.resetAt), rect: NSRect(x: barRect.midX - 30, y: areaBottom + 8, width: 60, height: 14), font: labelFont, color: labelColor)
+            }
+
+            let start = bar.resetAt.addingTimeInterval(-Double(max(bar.windowMinutes, 1)) * 60)
+            let endText = bar.isCurrent ? t(.cycleNow) : Self.cycleTimeLabelFormatter.string(from: bar.resetAt)
+            let minutes = max(bar.windowMinutes, 1)
+            let durationText = minutes % 60 == 0 ? "\(minutes / 60)h" : "\(minutes / 60)h\(minutes % 60)m"
+            quotaCycleTooltipRows.append(QuotaCycleRowModel(
+                shortRange: "",
+                fullRange: "\(Self.cycleTimeLabelFormatter.string(from: start)) → \(endText)",
+                kind: bar.isCurrent ? .current : (bar.isEarlyRefresh ? .earlyRefresh : .scheduledReset),
+                badgeText: "",
+                kindTimeText: Self.cycleTimeLabelFormatter.string(from: bar.resetAt),
+                durationText: durationText,
+                percent: percent,
+                isCurrent: bar.isCurrent,
+                isPartial: false
+            ))
+            quotaCycleHitAreas.append((
+                rect: NSRect(x: barRect.minX - gap / 2, y: areaTop, width: barWidth + gap, height: areaBottom - areaTop + 6),
+                index: tooltipIndexBase + index
+            ))
         }
 
-        let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
-        let labelColor = NSColor.white.withAlphaComponent(0.42)
-        if let first = model.fiveHourBars.first {
-            drawText(Self.cycleDayLabelFormatter.string(from: first.resetAt), rect: NSRect(x: areaX, y: areaBottom + 8, width: 90, height: 14), font: labelFont, color: labelColor)
-        }
-        if let last = model.fiveHourBars.last, model.fiveHourBars.count > 1 {
-            drawRight(Self.cycleDayLabelFormatter.string(from: last.resetAt), rect: NSRect(x: rect.maxX - 16 - 90, y: areaBottom + 8, width: 90, height: 14), color: labelColor, font: labelFont)
+        if !showsPerBarLabels {
+            if let first = model.fiveHourBars.first {
+                drawText(Self.cycleDayLabelFormatter.string(from: first.resetAt), rect: NSRect(x: areaX, y: areaBottom + 8, width: 90, height: 14), font: labelFont, color: labelColor)
+            }
+            if let last = model.fiveHourBars.last, model.fiveHourBars.count > 1 {
+                drawRight(Self.cycleDayLabelFormatter.string(from: last.resetAt), rect: NSRect(x: rect.maxX - 16 - 90, y: areaBottom + 8, width: 90, height: 14), color: labelColor, font: labelFont)
+            }
         }
     }
 
