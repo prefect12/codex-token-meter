@@ -2302,16 +2302,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
-    /// Form-like pages cap their content width so labels on the left and
-    /// controls/values on the right stay visually paired in wide windows.
     private func sectionContent(for section: DetailsSection, in bounds: NSRect, sidebarWidth: CGFloat) -> NSRect {
-        let full = NSRect(x: sidebarWidth + 28, y: 28, width: bounds.width - sidebarWidth - 56, height: bounds.height - 56)
-        switch section {
-        case .settings, .diagnostics, .about:
-            return NSRect(x: full.minX, y: full.minY, width: min(full.width, 920), height: full.height)
-        default:
-            return full
-        }
+        NSRect(x: sidebarWidth + 28, y: 28, width: bounds.width - sidebarWidth - 56, height: bounds.height - 56)
     }
 
     private var visibleCostControlFrames: [NSRect] {
