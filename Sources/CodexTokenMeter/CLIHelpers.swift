@@ -170,8 +170,20 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let source = requestedDetailsSource(from: arguments) ?? .all
     let isInsightsSection = section == .insights
     let accountUsage = !isInsightsSection && AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
-    let codex = isInsightsSection ? TokenReport(scannedAt: Date()) : scanner.scan(window: .week)
-    let claude = isInsightsSection ? TokenReport(scannedAt: Date()) : claudeScanner.scan(window: .week)
+    let codex: TokenReport
+    let claude: TokenReport
+    if isInsightsSection {
+        codex = TokenReport(scannedAt: Date())
+        claude = TokenReport(scannedAt: Date())
+    } else if section == .costs {
+        // The quota-cycle page attributes local usage to each cycle, which
+        // needs more than the one-week window the other sections use.
+        codex = scanner.scan(days: 365)
+        claude = claudeScanner.scan(days: 365)
+    } else {
+        codex = scanner.scan(window: .week)
+        claude = claudeScanner.scan(window: .week)
+    }
     let all = mergedTokenReport([codex, claude])
     let codexRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90])
     let claudeRepoInsightReports = claudeScanner.scanRepoInsights(windows: [7, 30, 90])

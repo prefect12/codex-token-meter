@@ -5445,6 +5445,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let percent: Double
         let isCurrent: Bool
         let isPartial: Bool
+        var tokenText: String?
+        var apiCostText: String?
 
         var isEarlyRefresh: Bool { kind == .earlyRefresh }
         var isCapped: Bool { percent >= 97 }
@@ -5456,6 +5458,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         var windowMinutes: Int
         var isCurrent: Bool
         var isEarlyRefresh: Bool
+        var tokenText: String?
     }
 
     private struct QuotaCyclePageModel {
@@ -5519,6 +5522,43 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             var isBackfilled: Bool
             var isCurrent: Bool
             var earlyRefreshAt: Date?
+        }
+
+        // Local-log usage attributed to each cycle, for tooltips: day-level
+        // sums for weekly cycles, hour-level sums for 5h cycles.
+        let usageReport = quotaCycleSource == .claude ? snapshot.claude : snapshot.codex
+        let dayParser = dayFormatter()
+        struct CycleDayStat {
+            let midpoint: Date
+            let total: Int64
+            let usd: Double
+            let priced: Bool
+        }
+        let dayStats: [CycleDayStat] = usageReport.byDay.compactMap { day in
+            guard day.usage.total > 0, let date = dayParser.date(from: day.day) else { return nil }
+            let estimate = APICostEstimator.estimate(day: day)
+            return CycleDayStat(midpoint: date.addingTimeInterval(43_200), total: day.usage.total, usd: estimate.usdValue, priced: estimate.hasPricedUsage)
+        }
+        func cycleUsageStats(start: Date?, end: Date) -> (tokenText: String?, apiCostText: String?) {
+            guard let start else { return (nil, nil) }
+            var total: Int64 = 0
+            var usd = 0.0
+            var hasPriced = false
+            for stat in dayStats where stat.midpoint >= start && stat.midpoint < end {
+                total += stat.total
+                if stat.priced {
+                    usd += stat.usd
+                    hasPriced = true
+                }
+            }
+            guard total > 0 else { return (nil, nil) }
+            return (compact(total), hasPriced ? compactDisplayAPIMoney(usd) : nil)
+        }
+        func fiveHourTokenText(start: Date, end: Date) -> String? {
+            let total = usageReport.byHour.reduce(Int64(0)) { partial, hour in
+                hour.hour >= start && hour.hour < end ? partial + hour.usage.total : partial
+            }
+            return total > 0 ? compact(total) : nil
         }
 
         let weeklyRecords = QuotaCycleStore.shared.cycles(limitID: limitID, kind: .weekly)
@@ -5633,6 +5673,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 durationText = "--"
             }
 
+            let usageStats = cycleUsageStats(start: info.start, end: info.isCurrent ? Date() : effectiveEnd)
             rows.append(QuotaCycleRowModel(
                 shortRange: shortRange,
                 fullRange: fullRange,
@@ -5642,7 +5683,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 durationText: durationText,
                 percent: info.percent,
                 isCurrent: info.isCurrent,
-                isPartial: info.isBackfilled
+                isPartial: info.isBackfilled,
+                tokenText: usageStats.tokenText,
+                apiCostText: usageStats.apiCostText
             ))
         }
         rows.reverse()
@@ -5687,6 +5730,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 bars[index].isEarlyRefresh = true
                 hasEarlyRefresh = true
             }
+        }
+        for index in 0..<bars.count {
+            let bar = bars[index]
+            let start = bar.resetAt.addingTimeInterval(-Double(max(bar.windowMinutes, 1)) * 60)
+            bars[index].tokenText = fiveHourTokenText(start: start, end: bar.isCurrent ? Date() : bar.resetAt)
         }
         let capped = bars.filter { $0.percent >= 97 }.count
 
@@ -5981,6 +6029,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         var lines: [(String, String, NSColor)] = []
         let percentColor = cycleSeverityColor(row.percent)
         lines.append((row.isCurrent ? t(.used) : t(.cyclePeak), "\(Int(round(row.percent)))%", percentColor))
+        if let tokenText = row.tokenText {
+            lines.append(("Token", tokenText, NSColor.white.withAlphaComponent(0.9)))
+        }
+        if let apiCostText = row.apiCostText {
+            lines.append((t(.apiEquivalent), apiCostText, accentTeal))
+        }
         switch row.kind {
         case .current:
             lines.append((t(.reset), row.kindTimeText, NSColor.white.withAlphaComponent(0.88)))
@@ -6093,7 +6147,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 durationText: durationText,
                 percent: percent,
                 isCurrent: bar.isCurrent,
-                isPartial: false
+                isPartial: false,
+                tokenText: bar.tokenText,
+                apiCostText: nil
             ))
             quotaCycleHitAreas.append((
                 rect: NSRect(x: barRect.minX - gap / 2, y: areaTop, width: barWidth + gap, height: areaBottom - areaTop + 6),
