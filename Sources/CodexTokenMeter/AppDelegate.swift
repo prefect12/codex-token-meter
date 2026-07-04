@@ -358,6 +358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if forceLive, !codexLimits.isEmpty {
                 AppSettings.learnModelLimit(from: codexLimits)
                 CostHistoryStore.shared.record(limits: codexLimits)
+                QuotaCycleStore.shared.record(limits: limits)
                 QuotaWarningManager.shared.evaluate(limits: codexLimits)
             }
             let nextRefresh = Date().addingTimeInterval(self.refreshInterval)
@@ -429,6 +430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let codexLimits = codexTrackedLiveLimits(limits)
             AppSettings.learnModelLimit(from: codexLimits)
             CostHistoryStore.shared.record(limits: codexLimits)
+            QuotaCycleStore.shared.record(limits: limits)
             QuotaWarningManager.shared.evaluate(limits: codexLimits)
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             DispatchQueue.main.async {

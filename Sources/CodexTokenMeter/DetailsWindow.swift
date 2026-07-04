@@ -1834,12 +1834,7 @@ enum DetailsSection: CaseIterable {
     }
 
     var isVisibleInDetailsNavigation: Bool {
-        switch self {
-        case .costs:
-            return false
-        default:
-            return true
-        }
+        true
     }
 
     var visibleFallback: DetailsSection {
@@ -1852,7 +1847,7 @@ enum DetailsSection: CaseIterable {
         case .insights: return AppLanguage.current.insightCopy.sidebarTitle
         case .models: return t(.models)
         case .calendar: return t(.calendar)
-        case .costs: return t(.costs)
+        case .costs: return t(.quotaCycles)
         case .storage: return AppLanguage.current.storageCopy.sidebarTitle
         case .settings: return t(.settings)
         case .diagnostics: return t(.diagnostics)
@@ -1866,7 +1861,7 @@ enum DetailsSection: CaseIterable {
         case .insights: return AppLanguage.current.insightCopy.sidebarSubtitle
         case .models: return t(.modelsSubtitle)
         case .calendar: return t(.calendarSubtitle)
-        case .costs: return t(.costsSubtitle)
+        case .costs: return t(.quotaCyclesSubtitle)
         case .storage: return AppLanguage.current.storageCopy.headerSubtitle
         case .settings: return t(.settingsSubtitle)
         case .diagnostics: return t(.diagnosticsSubtitle)
@@ -2320,8 +2315,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private var visibleCostControlFrames: [NSRect] {
-        guard selectedSection == .costs else { return [] }
-        return [costYearPopup.frame].filter { !$0.isEmpty }
+        []
     }
 
     private var appBackgroundTop: NSColor {
@@ -2534,30 +2528,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func layoutCostControls() {
-        let visible = selectedSection == .costs
-        costAmountField.isHidden = !visible
-        paymentStartDayField.isHidden = !visible
-        paymentCurrencyPopup.isHidden = !visible
-        displayCurrencyPopup.isHidden = !visible
-        costYearPopup.isHidden = !visible
+        // The quota-cycle page replaced the legacy money page; its plan-cost
+        // input controls stay hidden everywhere.
+        costAmountField.isHidden = true
+        paymentStartDayField.isHidden = true
+        paymentCurrencyPopup.isHidden = true
+        displayCurrencyPopup.isHidden = true
+        costYearPopup.isHidden = true
         showHistoricalEmptyWeeksSwitch.isHidden = true
         showHistoricalEmptyWeeksToggleRect = nil
-        guard visible else { return }
-
-        let content = NSRect(x: detailsSidebarWidth + 28, y: 28, width: bounds.width - detailsSidebarWidth - 56, height: bounds.height - 56)
-        let summaryHeight: CGFloat = 168
-        let settingsRect = NSRect(x: content.minX, y: content.minY + 78 + summaryHeight + 16, width: content.width, height: 244)
-        let controlWidth = min(300, max(252, settingsRect.width * 0.34))
-        let controlX = settingsRect.maxX - controlWidth - 16
-        costAmountField.frame = NSRect(x: controlX, y: settingsRect.minY + 28, width: controlWidth, height: 44)
-        paymentStartDayField.frame = NSRect(x: controlX, y: settingsRect.minY + 82, width: controlWidth, height: 36)
-        paymentCurrencyPopup.frame = NSRect(x: controlX, y: settingsRect.minY + 132, width: controlWidth, height: 36)
-        displayCurrencyPopup.frame = NSRect(x: controlX, y: settingsRect.minY + 182, width: controlWidth, height: 36)
-        let chartY = settingsRect.maxY + 16
-        let chartRect = NSRect(x: content.minX, y: chartY, width: content.width, height: 332)
-        let headerLayout = costHistoryHeaderLayout(chartRect: chartRect)
-        costYearPopup.frame = headerLayout.yearRect
-        updateCostControlsFromSettings()
     }
 
     private func layoutSettingsControls() {
@@ -2675,23 +2654,19 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             let detailHeight = selectedDayPanelPreferredHeight(contentWidth: contentWidth)
             targetHeight = 174 + gridHeight + detailHeight
         case .costs:
-            let monthlyRows: Int
+            let weeklyRowCount: Int
             if let snapshot {
-                let limit = sourceCostLimit(for: snapshot)
-                monthlyRows = min(costPageData(for: snapshot, limit: limit, year: selectedCostYear).monthlyRows.count, 6)
+                weeklyRowCount = quotaCyclePageModel(for: snapshot).weeklyRows.count
             } else {
-                monthlyRows = 0
+                weeklyRowCount = 0
             }
-            let monthlyTableHeight = max(140, 54 + CGFloat(max(monthlyRows, 1)) * 18 + 28)
-            let annualChartHeight: CGFloat = 332
             let topOffset: CGFloat = 78
-            let settingsHeight: CGFloat = 244
-            let summaryHeight: CGFloat = 168
+            let currentPanelHeight: CGFloat = 150
+            let weeklyPanelHeight: CGFloat = 50 + CGFloat(max(weeklyRowCount, 1)) * 36 + 26
+            let fiveHourPanelHeight: CGFloat = 176
             let sectionGap: CGFloat = 16
             let bottomPadding: CGFloat = 44
-            let firstBlock = topOffset + settingsHeight + sectionGap + summaryHeight
-            let secondBlock = sectionGap + annualChartHeight + sectionGap + monthlyTableHeight
-            targetHeight = firstBlock + secondBlock + bottomPadding
+            targetHeight = topOffset + currentPanelHeight + sectionGap + weeklyPanelHeight + sectionGap + fiveHourPanelHeight + bottomPadding
         case .diagnostics:
             targetHeight = 714
         case .storage:
@@ -3400,7 +3375,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         case .calendar:
             drawCalendarPage(snapshot: snapshot, content: content)
         case .costs:
-            drawCostPage(snapshot: snapshot, content: content)
+            drawQuotaCyclesPage(snapshot: snapshot, content: content)
         case .settings:
             drawSettingsPage(content: content)
         case .diagnostics:
@@ -3411,10 +3386,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawAboutPage(content: content)
         }
 
-        if selectedSection == .costs {
-            drawCostHistoryTooltip()
-            drawCostOverviewInfoTooltip()
-        } else if selectedSection == .calendar {
+        if selectedSection == .calendar {
             drawDayValueInfoTooltip()
             drawProfileAPIInfoTooltip()
         } else if selectedSection == .insights {
@@ -3423,12 +3395,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func drawDetailsSourceSelector(content: NSRect, width: CGFloat) {
-        let options: [QuotaViewOption] = selectedSection == .diagnostics ? [.codex, .claude] : [.all, .codex, .claude]
+        let usesPlatformOnlySources = selectedSection == .diagnostics || selectedSection == .costs
+        let options: [QuotaViewOption] = usesPlatformOnlySources ? [.codex, .claude] : [.all, .codex, .claude]
         let height: CGFloat = 30
         let gap: CGFloat = 8
         let rect = NSRect(x: content.maxX - width, y: content.minY + 6, width: width, height: height)
         let optionWidth = (rect.width - gap * CGFloat(options.count - 1)) / CGFloat(options.count)
-        let selectedOption = selectedSection == .diagnostics && selectedDetailsSource == .all ? QuotaViewOption.codex : selectedDetailsSource
+        let selectedOption = usesPlatformOnlySources && selectedDetailsSource == .all ? QuotaViewOption.codex : selectedDetailsSource
         for (index, option) in options.enumerated() {
             let optionRect = NSRect(
                 x: rect.minX + CGFloat(index) * (optionWidth + gap),
@@ -3522,7 +3495,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         case .overview: return "square.grid.2x2"
         case .calendar: return "calendar"
         case .insights: return "waveform.path.ecg"
-        case .costs: return "creditcard"
+        case .costs: return "clock.arrow.circlepath"
         case .models: return "cpu"
         case .storage: return "internaldrive"
         case .settings: return "gearshape"
@@ -5400,6 +5373,291 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             yearRect: yearRect,
             ringsRect: ringsRect
         )
+    }
+
+    private struct QuotaCycleRowModel {
+        let rangeText: String
+        let metaText: String?
+        let percent: Double
+        let isCurrent: Bool
+        let isPartial: Bool
+    }
+
+    private struct QuotaCycleBarModel {
+        var percent: Double
+        var resetAt: Date
+        var isCurrent: Bool
+    }
+
+    private struct QuotaCyclePageModel {
+        let limit: LiveRateLimit?
+        let weeklyRows: [QuotaCycleRowModel]
+        let fiveHourBars: [QuotaCycleBarModel]
+        let cappedCount: Int
+        let hasBackfilledRows: Bool
+    }
+
+    private static let cycleISOFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let cycleRangeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MM-dd HH:mm"
+        return formatter
+    }()
+
+    private static let cycleDayLabelFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MM-dd"
+        return formatter
+    }()
+
+    private var quotaCycleSource: QuotaViewOption {
+        selectedDetailsSource == .claude ? .claude : .codex
+    }
+
+    private func quotaCyclePageModel(for snapshot: DetailsSnapshot) -> QuotaCyclePageModel {
+        let limitID = quotaCycleSource.liveLimitID
+        let limit = snapshot.liveLimits.first { $0.id == limitID }
+        let iso = Self.cycleISOFormatter
+
+        let weeklyRecords = QuotaCycleStore.shared.cycles(limitID: limitID, kind: .weekly)
+        let weeklyTolerance: TimeInterval = 24 * 3600
+        var rows: [QuotaCycleRowModel] = []
+        var hasBackfilled = false
+        var matchedWeeklyIndex: Int?
+        if let liveWeekly = limit?.secondary, let resetsAt = liveWeekly.resetsAt, liveWeekly.windowMinutes > 0 {
+            matchedWeeklyIndex = weeklyRecords.firstIndex { record in
+                record.resetAtDate(iso).map { abs($0.timeIntervalSince(resetsAt)) <= weeklyTolerance } == true
+            }
+            let recordedPeak = matchedWeeklyIndex.map { weeklyRecords[$0].maxUsedPercent } ?? 0
+            let used = max(0, min(100, max(liveWeekly.usedPercent, recordedPeak)))
+            let start = resetsAt.addingTimeInterval(-Double(liveWeekly.windowMinutes) * 60)
+            rows.append(QuotaCycleRowModel(
+                rangeText: "\(Self.cycleRangeFormatter.string(from: start)) → \(t(.cycleNow))",
+                metaText: "\(t(.cycleInProgress)) · \(t(.reset)) \(Self.cycleRangeFormatter.string(from: resetsAt))",
+                percent: used,
+                isCurrent: true,
+                isPartial: false
+            ))
+        }
+        let hasCurrentRow = !rows.isEmpty
+        for (index, record) in weeklyRecords.enumerated() {
+            if index == matchedWeeklyIndex { continue }
+            guard let end = record.resetAtDate(iso) else { continue }
+            if hasCurrentRow && end.timeIntervalSinceNow > 0 { continue }
+            let rangeText: String
+            if let start = record.cycleStartDate(iso) {
+                rangeText = "\(Self.cycleRangeFormatter.string(from: start)) → \(Self.cycleRangeFormatter.string(from: end))"
+            } else {
+                rangeText = Self.cycleRangeFormatter.string(from: end)
+            }
+            if record.isBackfilled { hasBackfilled = true }
+            let resetMeta = "\(t(.reset)) \(Self.cycleRangeFormatter.string(from: end))"
+            rows.append(QuotaCycleRowModel(
+                rangeText: rangeText,
+                metaText: record.isBackfilled ? "\(resetMeta) *" : resetMeta,
+                percent: max(0, min(100, record.maxUsedPercent)),
+                isCurrent: false,
+                isPartial: record.isBackfilled
+            ))
+        }
+        rows = Array(rows.prefix(10))
+
+        var bars: [QuotaCycleBarModel] = QuotaCycleStore.shared.cycles(limitID: limitID, kind: .fiveHour).compactMap { record in
+            guard let end = record.resetAtDate(iso) else { return nil }
+            return QuotaCycleBarModel(percent: max(0, min(100, record.maxUsedPercent)), resetAt: end, isCurrent: false)
+        }
+        if let livePrimary = limit?.primary, let resetsAt = livePrimary.resetsAt {
+            let tolerance = min(max(Double(livePrimary.windowMinutes) * 60 * 0.1, 20 * 60), 24 * 3600)
+            let liveUsed = max(0, min(100, livePrimary.usedPercent))
+            if let index = bars.firstIndex(where: { abs($0.resetAt.timeIntervalSince(resetsAt)) <= tolerance }) {
+                bars[index].isCurrent = true
+                bars[index].percent = max(bars[index].percent, liveUsed)
+            } else {
+                bars.append(QuotaCycleBarModel(percent: liveUsed, resetAt: resetsAt, isCurrent: true))
+            }
+        }
+        bars.sort { $0.resetAt < $1.resetAt }
+        if bars.count > 36 {
+            bars = Array(bars.suffix(36))
+        }
+        let capped = bars.filter { $0.percent >= 97 }.count
+
+        return QuotaCyclePageModel(
+            limit: limit,
+            weeklyRows: rows,
+            fiveHourBars: bars,
+            cappedCount: capped,
+            hasBackfilledRows: hasBackfilled
+        )
+    }
+
+    private func cycleSeverityColor(_ percent: Double) -> NSColor {
+        if percent >= 97 { return accentRose }
+        if percent >= 70 { return accentAmber }
+        return accentTeal
+    }
+
+    private func drawQuotaCyclesPage(snapshot: DetailsSnapshot, content: NSRect) {
+        let model = quotaCyclePageModel(for: snapshot)
+
+        let panelGap: CGFloat = 16
+        let currentHeight: CGFloat = 150
+        let panelWidth = (content.width - panelGap) / 2
+        let fiveHourRect = NSRect(x: content.minX, y: content.minY + 78, width: panelWidth, height: currentHeight)
+        let weeklyCurrentRect = NSRect(x: fiveHourRect.maxX + panelGap, y: fiveHourRect.minY, width: panelWidth, height: currentHeight)
+        drawCurrentCyclePanel(window: model.limit?.primary, title: t(.fiveHourWindow), rect: fiveHourRect)
+        drawCurrentCyclePanel(window: model.limit?.secondary, title: t(.weeklyWindow), rect: weeklyCurrentRect)
+
+        let historyHeight = 50 + CGFloat(max(model.weeklyRows.count, 1)) * 36 + 26
+        let historyRect = NSRect(x: content.minX, y: fiveHourRect.maxY + panelGap, width: content.width, height: historyHeight)
+        drawWeeklyCycleHistory(model: model, rect: historyRect)
+
+        let stripRect = NSRect(x: content.minX, y: historyRect.maxY + panelGap, width: content.width, height: 176)
+        drawFiveHourCycleStrip(model: model, rect: stripRect)
+    }
+
+    private func drawCurrentCyclePanel(window: RateWindow?, title: String, rect: NSRect) {
+        drawPanel(rect)
+        drawText(title, rect: NSRect(x: rect.minX + 18, y: rect.minY + 16, width: rect.width - 200, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+        guard let window, window.windowMinutes > 0 else {
+            drawText(t(.liveLimitUnavailable), rect: NSRect(x: rect.minX + 18, y: rect.minY + 52, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        if let resetsAt = window.resetsAt {
+            let resetText = "\(t(.reset)) \(compactResetRelative(resetsAt)) · \(Self.cycleRangeFormatter.string(from: resetsAt))"
+            drawRight(resetText, rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: rect.width - 36, height: 16), color: NSColor.white.withAlphaComponent(0.52), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
+        }
+
+        let used = max(0, min(100, window.usedPercent))
+        let usedColor = cycleSeverityColor(used)
+        drawText("\(t(.used)) \(Int(round(used)))%", rect: NSRect(x: rect.minX + 18, y: rect.minY + 44, width: rect.width - 36, height: 32), font: .monospacedDigitSystemFont(ofSize: 26, weight: .bold), color: usedColor)
+
+        let barRect = NSRect(x: rect.minX + 18, y: rect.minY + 92, width: rect.width - 36, height: 10)
+        NSColor.white.withAlphaComponent(0.10).setFill()
+        NSBezierPath(roundedRect: barRect, xRadius: 5, yRadius: 5).fill()
+        let fillWidth = barRect.width * CGFloat(used / 100)
+        if fillWidth > 1 {
+            usedColor.setFill()
+            NSBezierPath(roundedRect: NSRect(x: barRect.minX, y: barRect.minY, width: fillWidth, height: barRect.height), xRadius: 5, yRadius: 5).fill()
+        }
+
+        var paceText = ""
+        if let pace = paceComparison(for: window) {
+            let markerX = barRect.minX + barRect.width * CGFloat(min(100, max(0, pace.progressPercent)) / 100)
+            NSColor.white.withAlphaComponent(0.72).setFill()
+            NSRect(x: markerX - 1, y: barRect.minY - 4, width: 2, height: barRect.height + 8).fill()
+            let delta = Int(round(used - pace.progressPercent))
+            if delta > 0 {
+                paceText = String(format: t(.cyclePaceAheadFormat), delta)
+            } else {
+                paceText = String(format: t(.cyclePaceBehindFormat), -delta)
+            }
+            paceText += " · \(t(.cycleTimeMarkerHint)) \(Int(round(pace.progressPercent)))%"
+        }
+        if !paceText.isEmpty {
+            drawText(paceText, rect: NSRect(x: rect.minX + 18, y: barRect.maxY + 12, width: rect.width - 36, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        }
+    }
+
+    private func drawWeeklyCycleHistory(model: QuotaCyclePageModel, rect: NSRect) {
+        drawPanel(rect)
+        drawText(t(.cycleHistoryTitle), rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: 320, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
+        drawRight(t(.cycleHistoryHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 18, width: rect.width - 32, height: 16), color: NSColor.white.withAlphaComponent(0.44), font: .systemFont(ofSize: 11, weight: .medium))
+
+        guard !model.weeklyRows.isEmpty else {
+            drawText(t(.cycleNoHistory), rect: NSRect(x: rect.minX + 16, y: rect.minY + 52, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        let rangeFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        let rangeWidth = max(240, model.weeklyRows.map { measuredTextWidth($0.rangeText, font: rangeFont) }.max() ?? 240) + 12
+        let valueWidth: CGFloat = 96
+        let barX = rect.minX + 16 + rangeWidth + 12
+        let barMaxX = rect.maxX - 16 - valueWidth - 12
+        for (index, row) in model.weeklyRows.enumerated() {
+            let rowY = rect.minY + 50 + CGFloat(index) * 36
+            let textColor: NSColor = row.isCurrent ? .white : NSColor.white.withAlphaComponent(0.82)
+            drawText(row.rangeText, rect: NSRect(x: rect.minX + 16, y: rowY + 1, width: rangeWidth, height: 16), font: rangeFont, color: textColor)
+            if let meta = row.metaText {
+                drawText(meta, rect: NSRect(x: rect.minX + 16, y: rowY + 18, width: rangeWidth, height: 13), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+            }
+
+            let barRect = NSRect(x: barX, y: rowY + 11, width: max(60, barMaxX - barX), height: 10)
+            NSColor.white.withAlphaComponent(0.08).setFill()
+            NSBezierPath(roundedRect: barRect, xRadius: 5, yRadius: 5).fill()
+            let percent = max(0, min(100, row.percent))
+            let fillWidth = barRect.width * CGFloat(percent / 100)
+            if fillWidth > 1 {
+                let color = cycleSeverityColor(percent)
+                (row.isPartial ? color.withAlphaComponent(0.45) : color).setFill()
+                NSBezierPath(roundedRect: NSRect(x: barRect.minX, y: barRect.minY, width: fillWidth, height: barRect.height), xRadius: 5, yRadius: 5).fill()
+            }
+
+            let valueLabel = row.isCurrent ? t(.used) : t(.cyclePeak)
+            drawRight("\(valueLabel) \(Int(round(percent)))%", rect: NSRect(x: rect.maxX - 16 - valueWidth, y: rowY + 8, width: valueWidth, height: 16), color: row.isCurrent ? .white : NSColor.white.withAlphaComponent(0.78), font: .monospacedDigitSystemFont(ofSize: 12, weight: .semibold))
+        }
+
+        if model.hasBackfilledRows {
+            let footY = rect.minY + 50 + CGFloat(model.weeklyRows.count) * 36 + 2
+            drawText("* \(t(.cycleBackfilled))", rect: NSRect(x: rect.minX + 16, y: footY, width: rect.width - 32, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.38))
+        }
+    }
+
+    private func drawFiveHourCycleStrip(model: QuotaCyclePageModel, rect: NSRect) {
+        drawPanel(rect)
+        drawText(t(.fiveHourCyclesTitle), rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: 260, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
+        let summary = String(format: t(.cycleCappedFormat), model.cappedCount, model.fiveHourBars.count)
+        drawRight(summary, rect: NSRect(x: rect.minX + 16, y: rect.minY + 18, width: rect.width - 32, height: 16), color: NSColor.white.withAlphaComponent(0.52), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
+        drawText(t(.fiveHourCyclesHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 38, width: rect.width - 32, height: 15), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.44))
+
+        guard !model.fiveHourBars.isEmpty else {
+            drawText(t(.cycleNoHistory), rect: NSRect(x: rect.minX + 16, y: rect.minY + 76, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        let areaTop = rect.minY + 62
+        let areaBottom = rect.maxY - 34
+        let areaHeight = areaBottom - areaTop
+        let areaX = rect.minX + 18
+        let areaWidth = rect.width - 36
+        let count = model.fiveHourBars.count
+        let gap: CGFloat = count > 24 ? 4 : 6
+        let barWidth = min(26, (areaWidth - gap * CGFloat(max(count - 1, 0))) / CGFloat(count))
+        for (index, bar) in model.fiveHourBars.enumerated() {
+            let percent = max(0, min(100, bar.percent))
+            let height = max(4, areaHeight * CGFloat(percent / 100))
+            let barRect = NSRect(
+                x: areaX + CGFloat(index) * (barWidth + gap),
+                y: areaBottom - height,
+                width: barWidth,
+                height: height
+            )
+            cycleSeverityColor(percent).setFill()
+            let path = NSBezierPath(roundedRect: barRect, xRadius: 2.5, yRadius: 2.5)
+            path.fill()
+            if bar.isCurrent {
+                NSColor.white.withAlphaComponent(0.85).setStroke()
+                path.lineWidth = 1.5
+                path.stroke()
+            }
+        }
+
+        let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+        let labelColor = NSColor.white.withAlphaComponent(0.42)
+        if let first = model.fiveHourBars.first {
+            drawText(Self.cycleDayLabelFormatter.string(from: first.resetAt), rect: NSRect(x: areaX, y: areaBottom + 8, width: 90, height: 14), font: labelFont, color: labelColor)
+        }
+        if let last = model.fiveHourBars.last, model.fiveHourBars.count > 1 {
+            drawRight(Self.cycleDayLabelFormatter.string(from: last.resetAt), rect: NSRect(x: rect.maxX - 16 - 90, y: areaBottom + 8, width: 90, height: 14), color: labelColor, font: labelFont)
+        }
     }
 
     private func drawCostPage(snapshot: DetailsSnapshot, content: NSRect) {

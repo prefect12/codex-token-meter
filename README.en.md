@@ -94,7 +94,8 @@ When available, it also reads live quota data from the local Codex runtime, incl
 - Cache hit-rate ring.
 - Compact Codex service-status chip sourced from `status.openai.com`, with a settings toggle to show or hide it.
 - Token breakdown for input, output, cached input, fresh input, and total tokens.
-- Details window with overview, insights, calendar, model, settings, diagnostics, and about pages.
+- Details window with overview, insights, calendar, quota-cycle, model, settings, diagnostics, and about pages.
+- Quota Cycles page splits Codex / Claude 5h and weekly quota history by observed reset times, showing current-cycle pace and each past cycle's peak usage.
 - The menu dashboard and details window cache aggregate snapshots, showing the last complete result first and refreshing in the background.
 - Insights page that groups local Codex and Claude Code conversations by repository or folder, highlights long-running threads, context-compaction pressure, active worktrees, and split-thread recommendations.
 - 365-day activity calendar with daily detail cards.

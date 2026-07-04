@@ -438,6 +438,24 @@ enum L10nKey {
     case month
     case fiveHourLeft
     case chinese
+    case quotaCycles
+    case quotaCyclesSubtitle
+    case fiveHourWindow
+    case weeklyWindow
+    case cyclePeak
+    case cycleInProgress
+    case cycleHistoryTitle
+    case cycleHistoryHint
+    case fiveHourCyclesTitle
+    case fiveHourCyclesHint
+    case cyclePartial
+    case cycleBackfilled
+    case cycleCappedFormat
+    case cycleNoHistory
+    case cyclePaceAheadFormat
+    case cyclePaceBehindFormat
+    case cycleTimeMarkerHint
+    case cycleNow
 
     var english: String {
         switch self {
@@ -470,6 +488,24 @@ enum L10nKey {
         case .copy: return "Copy"
         case .costs: return "Costs"
         case .costsSubtitle: return "Plan settings and estimated money usage"
+        case .quotaCycles: return "Quota Cycles"
+        case .quotaCyclesSubtitle: return "When quotas reset and how much each cycle used"
+        case .fiveHourWindow: return "5h window"
+        case .weeklyWindow: return "Weekly window"
+        case .cyclePeak: return "Peak"
+        case .cycleInProgress: return "In progress"
+        case .cycleHistoryTitle: return "Weekly Cycles"
+        case .cycleHistoryHint: return "Split by observed reset times, not calendar weeks"
+        case .fiveHourCyclesTitle: return "Recent 5h Cycles"
+        case .fiveHourCyclesHint: return "Each bar is one 5h cycle's peak usage"
+        case .cyclePartial: return "partial samples"
+        case .cycleBackfilled: return "estimated from legacy weekly data"
+        case .cycleCappedFormat: return "%d capped / %d cycles"
+        case .cycleNoHistory: return "No cycle history yet. Keep the app running to collect reset cycles."
+        case .cyclePaceAheadFormat: return "%dpt ahead of even pace"
+        case .cyclePaceBehindFormat: return "%dpt behind even pace"
+        case .cycleTimeMarkerHint: return "Tick marks elapsed time"
+        case .cycleNow: return "now"
         case .costHistory: return "Spend History"
         case .codexIncident: return "Incident"
         case .codexNoActiveIncident: return "No active incidents"
@@ -674,6 +710,24 @@ enum L10nKey {
         case .copy: return "复制"
         case .costs: return "金额"
         case .costsSubtitle: return "套餐设置和金额估算"
+        case .quotaCycles: return "额度周期"
+        case .quotaCyclesSubtitle: return "额度重置时间与每个周期的用量"
+        case .fiveHourWindow: return "5 小时窗口"
+        case .weeklyWindow: return "周窗口"
+        case .cyclePeak: return "峰值"
+        case .cycleInProgress: return "进行中"
+        case .cycleHistoryTitle: return "周额度周期历史"
+        case .cycleHistoryHint: return "按实际重置时刻切分，而非自然周"
+        case .fiveHourCyclesTitle: return "最近 5 小时周期"
+        case .fiveHourCyclesHint: return "每根柱是一个 5h 周期的峰值用量"
+        case .cyclePartial: return "采样不完整"
+        case .cycleBackfilled: return "旧版周数据估算"
+        case .cycleCappedFormat: return "%d 次触顶 / %d 周期"
+        case .cycleNoHistory: return "暂无周期记录，保持应用运行即可自动积累。"
+        case .cyclePaceAheadFormat: return "超前匀速 %dpt"
+        case .cyclePaceBehindFormat: return "低于匀速 %dpt"
+        case .cycleTimeMarkerHint: return "刻度线 = 时间进度"
+        case .cycleNow: return "至今"
         case .costHistory: return "金额历史"
         case .codexIncident: return "故障"
         case .codexNoActiveIncident: return "当前没有故障"
@@ -878,6 +932,24 @@ enum L10nKey {
         case .copy: return "コピー"
         case .costs: return "金額"
         case .costsSubtitle: return "プラン設定と金額推定"
+        case .quotaCycles: return "クォータ周期"
+        case .quotaCyclesSubtitle: return "リセット時刻と各周期の使用率"
+        case .fiveHourWindow: return "5時間ウィンドウ"
+        case .weeklyWindow: return "週ウィンドウ"
+        case .cyclePeak: return "ピーク"
+        case .cycleInProgress: return "進行中"
+        case .cycleHistoryTitle: return "週クォータ周期の履歴"
+        case .cycleHistoryHint: return "暦週ではなく実際のリセット時刻で区切ります"
+        case .fiveHourCyclesTitle: return "直近の5時間周期"
+        case .fiveHourCyclesHint: return "各バーは1周期のピーク使用率"
+        case .cyclePartial: return "サンプル不足"
+        case .cycleBackfilled: return "旧週次データからの推定"
+        case .cycleCappedFormat: return "上限到達 %d / %d 周期"
+        case .cycleNoHistory: return "周期履歴はまだありません。アプリを起動したままにすると記録されます。"
+        case .cyclePaceAheadFormat: return "均等ペースより%dpt先行"
+        case .cyclePaceBehindFormat: return "均等ペースより%dpt低い"
+        case .cycleTimeMarkerHint: return "目盛り = 経過時間"
+        case .cycleNow: return "現在"
         case .costHistory: return "金額履歴"
         case .codexIncident: return "障害"
         case .codexNoActiveIncident: return "進行中の障害はありません"
@@ -1264,6 +1336,10 @@ enum AppSettings {
 
     static var costHistoryURL: URL {
         appSupportDirectoryURL.appendingPathComponent("cost-history.json")
+    }
+
+    static var quotaCycleHistoryURL: URL {
+        appSupportDirectoryURL.appendingPathComponent("quota-cycle-history.json")
     }
 
     static var dashboardReportCacheURL: URL {

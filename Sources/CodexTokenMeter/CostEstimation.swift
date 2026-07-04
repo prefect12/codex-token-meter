@@ -177,6 +177,206 @@ extension JSONEncoder {
     }
 }
 
+// MARK: - Quota Cycle History
+
+enum QuotaWindowKind: String, Codable {
+    case fiveHour = "primary"
+    case weekly = "secondary"
+}
+
+struct QuotaCycleRecord: Codable {
+    var limitID: String
+    var kind: String
+    var windowMinutes: Int
+    var resetAt: String
+    var maxUsedPercent: Double
+    var lastUsedPercent: Double
+    var observedCount: Int
+    var firstSeenAt: String
+    var lastSeenAt: String
+    var backfilled: Bool?
+
+    var isBackfilled: Bool { backfilled == true }
+}
+
+struct QuotaCycleFile: Codable {
+    var version: Int = 1
+    var updatedAt: String?
+    var cycles: [QuotaCycleRecord] = []
+}
+
+/// Tracks one record per observed rate-limit cycle, keyed by the cycle's
+/// `resetsAt` boundary instead of calendar weeks, so history matches the
+/// rolling reset schedule Codex actually uses.
+final class QuotaCycleStore {
+    static let shared = QuotaCycleStore(url: AppSettings.quotaCycleHistoryURL)
+
+    private static let maxCyclesPerWindow: [QuotaWindowKind: Int] = [.fiveHour: 96, .weekly: 40]
+
+    private let url: URL
+    private var file: QuotaCycleFile
+    private let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    init(url: URL) {
+        self.url = url
+        if let data = try? Data(contentsOf: url),
+           let decoded = try? JSONDecoder().decode(QuotaCycleFile.self, from: data) {
+            self.file = decoded
+        } else {
+            self.file = QuotaCycleFile()
+            backfillWeeklyCyclesFromCostHistory()
+        }
+    }
+
+    func cycles(limitID: String, kind: QuotaWindowKind) -> [QuotaCycleRecord] {
+        file.cycles
+            .filter { $0.limitID == limitID && $0.kind == kind.rawValue }
+            .sorted { ($0.resetAtDate(isoFormatter) ?? .distantPast) > ($1.resetAtDate(isoFormatter) ?? .distantPast) }
+    }
+
+    func record(limits: [LiveRateLimit], observedAt: Date = Date()) {
+        guard !limits.isEmpty else { return }
+        var changed = false
+        for limit in limits {
+            let windows: [(QuotaWindowKind, RateWindow)] = [(.fiveHour, limit.primary), (.weekly, limit.secondary)]
+            for (kind, window) in windows {
+                guard let resetsAt = window.resetsAt, window.windowMinutes > 0 else { continue }
+                if upsert(limitID: limit.id, kind: kind, window: window, resetsAt: resetsAt, observedAt: observedAt) {
+                    changed = true
+                }
+            }
+        }
+        if changed {
+            prune()
+            file.updatedAt = isoFormatter.string(from: observedAt)
+            save()
+        }
+    }
+
+    private func upsert(limitID: String, kind: QuotaWindowKind, window: RateWindow, resetsAt: Date, observedAt: Date) -> Bool {
+        // `resetsAt` can drift a little between reads of the same cycle, so
+        // match against a tolerance proportional to the window length.
+        let toleranceSeconds = min(max(Double(window.windowMinutes) * 60 * 0.1, 20 * 60), 24 * 3600)
+        let usedPercent = max(0, min(100, window.usedPercent))
+        let observedAtText = isoFormatter.string(from: observedAt)
+
+        if let index = file.cycles.firstIndex(where: { record in
+            record.limitID == limitID
+                && record.kind == kind.rawValue
+                && record.resetAtDate(isoFormatter).map { abs($0.timeIntervalSince(resetsAt)) <= toleranceSeconds } == true
+        }) {
+            var record = file.cycles[index]
+            record.windowMinutes = window.windowMinutes
+            record.resetAt = isoFormatter.string(from: resetsAt)
+            record.maxUsedPercent = max(record.maxUsedPercent, usedPercent)
+            record.lastUsedPercent = usedPercent
+            record.observedCount += 1
+            record.lastSeenAt = observedAtText
+            record.backfilled = nil
+            file.cycles[index] = record
+            return true
+        }
+
+        file.cycles.append(QuotaCycleRecord(
+            limitID: limitID,
+            kind: kind.rawValue,
+            windowMinutes: window.windowMinutes,
+            resetAt: isoFormatter.string(from: resetsAt),
+            maxUsedPercent: usedPercent,
+            lastUsedPercent: usedPercent,
+            observedCount: 1,
+            firstSeenAt: observedAtText,
+            lastSeenAt: observedAtText
+        ))
+        return true
+    }
+
+    /// Seeds weekly cycles from the legacy calendar-week cost history so the
+    /// page is not empty on first launch. Calendar weeks can straddle two real
+    /// cycles, so seeded records are flagged as backfilled estimates.
+    private func backfillWeeklyCyclesFromCostHistory() {
+        guard let data = try? Data(contentsOf: AppSettings.costHistoryURL),
+              let legacy = try? JSONDecoder().decode(CostHistoryFile.self, from: data) else {
+            return
+        }
+        let toleranceSeconds = 24.0 * 3600
+        var seeded: [QuotaCycleRecord] = []
+        for snapshot in legacy.weeks.values {
+            guard let resetAtText = snapshot.resetAt,
+                  let resetAt = isoFormatter.date(from: resetAtText) else {
+                continue
+            }
+            let usedPercent = max(0, min(100, snapshot.maxUsedPercent))
+            if let index = seeded.firstIndex(where: { record in
+                record.limitID == snapshot.limitID
+                    && record.resetAtDate(isoFormatter).map { abs($0.timeIntervalSince(resetAt)) <= toleranceSeconds } == true
+            }) {
+                seeded[index].maxUsedPercent = max(seeded[index].maxUsedPercent, usedPercent)
+                seeded[index].lastUsedPercent = snapshot.lastUsedPercent
+                seeded[index].observedCount += snapshot.observedCount
+                seeded[index].lastSeenAt = max(seeded[index].lastSeenAt, snapshot.updatedAt)
+            } else {
+                seeded.append(QuotaCycleRecord(
+                    limitID: snapshot.limitID,
+                    kind: QuotaWindowKind.weekly.rawValue,
+                    windowMinutes: 7 * 24 * 60,
+                    resetAt: resetAtText,
+                    maxUsedPercent: usedPercent,
+                    lastUsedPercent: snapshot.lastUsedPercent,
+                    observedCount: snapshot.observedCount,
+                    firstSeenAt: snapshot.firstSeenAt,
+                    lastSeenAt: snapshot.updatedAt,
+                    backfilled: true
+                ))
+            }
+        }
+        guard !seeded.isEmpty else { return }
+        file.cycles = seeded
+        save()
+    }
+
+    private func prune() {
+        for kind in [QuotaWindowKind.fiveHour, .weekly] {
+            let limitIDs = Set(file.cycles.filter { $0.kind == kind.rawValue }.map(\.limitID))
+            for limitID in limitIDs {
+                let keep = Set(
+                    cycles(limitID: limitID, kind: kind)
+                        .prefix(Self.maxCyclesPerWindow[kind] ?? 40)
+                        .map(\.resetAt)
+                )
+                file.cycles.removeAll {
+                    $0.limitID == limitID && $0.kind == kind.rawValue && !keep.contains($0.resetAt)
+                }
+            }
+        }
+    }
+
+    private func save() {
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try JSONEncoder.prettySorted.encode(file)
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            NSLog("AI Token Meter failed to save quota cycle history: \(error)")
+        }
+    }
+}
+
+extension QuotaCycleRecord {
+    func resetAtDate(_ formatter: ISO8601DateFormatter) -> Date? {
+        formatter.date(from: resetAt)
+    }
+
+    func cycleStartDate(_ formatter: ISO8601DateFormatter) -> Date? {
+        guard let end = resetAtDate(formatter), windowMinutes > 0 else { return nil }
+        return end.addingTimeInterval(-Double(windowMinutes) * 60)
+    }
+}
+
 func costEstimateLimit(from limits: [LiveRateLimit]) -> LiveRateLimit? {
     limits.first { $0.id == QuotaViewOption.codex.liveLimitID }
 }

@@ -92,6 +92,7 @@ if CommandLine.arguments.contains("--print-live") {
     let codexLimits = codexTrackedLiveLimits(limits)
     AppSettings.learnModelLimit(from: codexLimits)
     CostHistoryStore.shared.record(limits: codexLimits)
+    QuotaCycleStore.shared.record(limits: limits)
     let payload = limits.map { limit in
         [
             "id": limit.id,

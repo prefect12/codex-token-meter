@@ -94,7 +94,8 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 - 显示缓存命中率圆环。
 - 通过 `status.openai.com` 监控官方 Codex 服务状态，用一个极简的 Codex 状态 chip 展示，并可在设置里开关。
 - 展示 input、output、cached input、fresh input 和 total token。
-- 详情窗口包含概览、洞察、日历、模型、设置、诊断和关于页面。
+- 详情窗口包含概览、洞察、日历、额度周期、模型、设置、诊断和关于页面。
+- 额度周期页面按实际重置时刻切分 Codex / Claude 的 5 小时和周额度周期，展示当前周期进度、匀速对比和每个历史周期的峰值用量。
 - 状态栏首页和详情窗口都会缓存聚合快照，打开或切换时先显示上次结果，再在后台刷新。
 - 洞察页面会按仓库或文件夹聚合本地 Codex 与 Claude Code 对话，标出长线程、上下文压缩压力、活跃 worktree 和拆分新线程的建议。
 - 过去 365 天日历热力图，点击某一天可查看当天用量详情。
