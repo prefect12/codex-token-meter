@@ -226,9 +226,21 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         .first
     view.showSection(section, insightWindowDays: windowDays, source: source, insightMode: insightMode)
     view.snapshot = snapshot
+    if let weekStart = arguments
+        .compactMap({ argument -> String? in
+            guard argument.hasPrefix("--select-week=") else { return nil }
+            return String(argument.dropFirst("--select-week=".count))
+        })
+        .first {
+        view.selectCalendarWeek(startDay: weekStart)
+    }
     if section == .storage {
         view.storageSnapshot = StorageScanner.scan()
         view.isStorageScanning = false
+        let height = view.preferredDocumentHeight(for: 1280)
+        view.frame = NSRect(x: 0, y: 0, width: 1280, height: height)
+    }
+    if section == .calendar {
         let height = view.preferredDocumentHeight(for: 1280)
         view.frame = NSRect(x: 0, y: 0, width: 1280, height: height)
     }

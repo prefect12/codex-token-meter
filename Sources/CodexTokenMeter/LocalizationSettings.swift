@@ -365,6 +365,7 @@ enum L10nKey {
     case past7Days
     case pastYear
     case peakDay
+    case peakWeek
     case planCost
     case planCostChange
     case planCostHint
@@ -603,6 +604,7 @@ enum L10nKey {
         case .past7Days: return "Past 7 Days"
         case .pastYear: return "Past Year"
         case .peakDay: return "of peak day"
+        case .peakWeek: return "of peak week"
         case .planCost: return "Plan Cost"
         case .planCostChange: return "Change"
         case .planCostHint: return "Estimated from monthly price, local FX rates, and live weekly quota usage; this is not official billing."
@@ -659,7 +661,7 @@ enum L10nKey {
         case .updated: return "Updated"
         case .used: return "Used"
         case .usageDetails: return "Usage Details"
-        case .usageIntensityHint: return "Hover a week for 7-day totals; click a day for details"
+        case .usageIntensityHint: return "Click a week dot above the grid for the weekly summary; click a day for details"
         case .usageRateHint: return "This week used value divided by this week budget. Current week prefers live weekly quota usedPercent."
         case .usageWindow: return "Usage window"
         case .visibleWeekShare: return "7d share"
@@ -825,6 +827,7 @@ enum L10nKey {
         case .past7Days: return "过去 7 天"
         case .pastYear: return "过去一年"
         case .peakDay: return "峰值日"
+        case .peakWeek: return "峰值周"
         case .planCost: return "套餐成本"
         case .planCostChange: return "修改"
         case .planCostHint: return "基于月费、本地近似汇率和实时周额度使用率估算，不是官方账单。"
@@ -881,7 +884,7 @@ enum L10nKey {
         case .updated: return "已更新"
         case .used: return "已用"
         case .usageDetails: return "用量详情"
-        case .usageIntensityHint: return "悬停整周看 7 天汇总，点击日期看单日明细"
+        case .usageIntensityHint: return "点击格子上方的圆点看整周汇总，点击日期看单日明细"
         case .usageRateHint: return "本周已用金额除以本周预算；当前周优先使用实时周额度 usedPercent。"
         case .usageWindow: return "用量窗口"
         case .visibleWeekShare: return "占7天用量"
@@ -1047,6 +1050,7 @@ enum L10nKey {
         case .past7Days: return "過去 7 日"
         case .pastYear: return "過去 1 年"
         case .peakDay: return "ピーク日"
+        case .peakWeek: return "ピーク週"
         case .planCost: return "プラン費用"
         case .planCostChange: return "変更"
         case .planCostHint: return "月額料金、ローカルの概算為替、リアルタイムの週制限使用率から推定します。公式請求ではありません。"
@@ -1103,7 +1107,7 @@ enum L10nKey {
         case .updated: return "更新"
         case .used: return "使用済み"
         case .usageDetails: return "使用量詳細"
-        case .usageIntensityHint: return "週にホバーで7日集計、日付クリックで日別詳細"
+        case .usageIntensityHint: return "グリッド上の丸をクリックで週間集計、日付クリックで日別詳細"
         case .usageRateHint: return "今週の使用額を今週の予算で割った値です。現在週はリアルタイム週制限の usedPercent を優先します。"
         case .usageWindow: return "使用量ウィンドウ"
         case .visibleWeekShare: return "7日内比率"
