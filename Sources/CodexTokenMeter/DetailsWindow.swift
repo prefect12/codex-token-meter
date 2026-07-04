@@ -2652,15 +2652,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 : selectedDayPanelPreferredHeight(contentWidth: contentWidth)
             targetHeight = 174 + gridHeight + detailHeight
         case .costs:
-            let weeklyRowCount: Int
+            let weeklyPanelHeight: CGFloat
             if let snapshot {
-                weeklyRowCount = quotaCyclePageModel(for: snapshot).weeklyRows.count
+                let model = quotaCyclePageModel(for: snapshot)
+                weeklyPanelHeight = model.weeklyRows.isEmpty ? 96 : (model.hasBackfilledRows ? 224 : 208)
             } else {
-                weeklyRowCount = 0
+                weeklyPanelHeight = 96
             }
             let topOffset: CGFloat = 78
             let currentPanelHeight: CGFloat = 150
-            let weeklyPanelHeight: CGFloat = 50 + CGFloat(max(weeklyRowCount, 1)) * 36 + 26
             let fiveHourPanelHeight: CGFloat = 176
             let sectionGap: CGFloat = 16
             let bottomPadding: CGFloat = 44
@@ -5428,6 +5428,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private struct QuotaCycleRowModel {
         let rangeText: String
         let metaText: String?
+        let shortRange: String
+        let shortMeta: String
         let percent: Double
         let isCurrent: Bool
         let isPartial: Bool
@@ -5467,6 +5469,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         return formatter
     }()
 
+    private static let cycleTimeLabelFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MM-dd HH:mm"
+        return formatter
+    }()
+
     private var quotaCycleSource: QuotaViewOption {
         selectedDetailsSource == .claude ? .claude : .codex
     }
@@ -5491,6 +5500,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             rows.append(QuotaCycleRowModel(
                 rangeText: "\(Self.cycleRangeFormatter.string(from: start)) → \(t(.cycleNow))",
                 metaText: "\(t(.cycleInProgress)) · \(t(.reset)) \(Self.cycleRangeFormatter.string(from: resetsAt))",
+                shortRange: "\(Self.cycleDayLabelFormatter.string(from: start)) → \(t(.cycleNow))",
+                shortMeta: "\(t(.cycleInProgress)) · \(t(.reset)) \(Self.cycleDayLabelFormatter.string(from: resetsAt))",
                 percent: used,
                 isCurrent: true,
                 isPartial: false
@@ -5509,9 +5520,18 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
             if record.isBackfilled { hasBackfilled = true }
             let resetMeta = "\(t(.reset)) \(Self.cycleRangeFormatter.string(from: end))"
+            let shortRange: String
+            if let start = record.cycleStartDate(iso) {
+                shortRange = "\(Self.cycleDayLabelFormatter.string(from: start)) → \(Self.cycleDayLabelFormatter.string(from: end))"
+            } else {
+                shortRange = Self.cycleDayLabelFormatter.string(from: end)
+            }
+            let shortResetMeta = "\(t(.reset)) \(Self.cycleTimeLabelFormatter.string(from: end))"
             rows.append(QuotaCycleRowModel(
                 rangeText: rangeText,
                 metaText: record.isBackfilled ? "\(resetMeta) *" : resetMeta,
+                shortRange: shortRange,
+                shortMeta: record.isBackfilled ? "\(shortResetMeta) *" : shortResetMeta,
                 percent: max(0, min(100, record.maxUsedPercent)),
                 isCurrent: false,
                 isPartial: record.isBackfilled
@@ -5565,7 +5585,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawCurrentCyclePanel(window: model.limit?.primary, title: t(.fiveHourWindow), rect: fiveHourRect)
         drawCurrentCyclePanel(window: model.limit?.secondary, title: t(.weeklyWindow), rect: weeklyCurrentRect)
 
-        let historyHeight = 50 + CGFloat(max(model.weeklyRows.count, 1)) * 36 + 26
+        let historyHeight: CGFloat = model.weeklyRows.isEmpty ? 96 : (model.hasBackfilledRows ? 224 : 208)
         let historyRect = NSRect(x: content.minX, y: fiveHourRect.maxY + panelGap, width: content.width, height: historyHeight)
         drawWeeklyCycleHistory(model: model, rect: historyRect)
 
@@ -5627,37 +5647,56 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             return
         }
 
-        let rangeFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
-        let rangeWidth = max(240, model.weeklyRows.map { measuredTextWidth($0.rangeText, font: rangeFont) }.max() ?? 240) + 12
-        let valueWidth: CGFloat = 96
-        let barX = rect.minX + 16 + rangeWidth + 12
-        let barMaxX = rect.maxX - 16 - valueWidth - 12
-        for (index, row) in model.weeklyRows.enumerated() {
-            let rowY = rect.minY + 50 + CGFloat(index) * 36
-            let textColor: NSColor = row.isCurrent ? .white : NSColor.white.withAlphaComponent(0.82)
-            drawText(row.rangeText, rect: NSRect(x: rect.minX + 16, y: rowY + 1, width: rangeWidth, height: 16), font: rangeFont, color: textColor)
-            if let meta = row.metaText {
-                drawText(meta, rect: NSRect(x: rect.minX + 16, y: rowY + 18, width: rangeWidth, height: 13), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
-            }
+        // Oldest on the left, current cycle on the right, centered as a group.
+        let cells = Array(model.weeklyRows.reversed())
+        let count = CGFloat(cells.count)
+        let cellWidth = min(150, (rect.width - 32) / count)
+        let startX = rect.minX + 16 + max(0, (rect.width - 32 - cellWidth * count) / 2)
+        let ringSide = min(88, cellWidth - 16)
+        let ringTop = rect.minY + 52
 
-            let barRect = NSRect(x: barX, y: rowY + 11, width: max(60, barMaxX - barX), height: 10)
-            NSColor.white.withAlphaComponent(0.08).setFill()
-            NSBezierPath(roundedRect: barRect, xRadius: 5, yRadius: 5).fill()
+        for (index, row) in cells.enumerated() {
+            let cellMidX = startX + CGFloat(index) * cellWidth + cellWidth / 2
+            let ringRect = NSRect(x: cellMidX - ringSide / 2, y: ringTop, width: ringSide, height: ringSide)
             let percent = max(0, min(100, row.percent))
-            let fillWidth = barRect.width * CGFloat(percent / 100)
-            if fillWidth > 1 {
-                let color = cycleSeverityColor(percent)
-                (row.isPartial ? color.withAlphaComponent(0.45) : color).setFill()
-                NSBezierPath(roundedRect: NSRect(x: barRect.minX, y: barRect.minY, width: fillWidth, height: barRect.height), xRadius: 5, yRadius: 5).fill()
+            let color = cycleSeverityColor(percent)
+            let fillColor = row.isPartial ? color.withAlphaComponent(0.5) : color
+            let thickness = max(6, ringSide * 0.13)
+
+            fillDonut(in: ringRect, thickness: thickness, color: NSColor.white.withAlphaComponent(0.10))
+            let startAngle = -CGFloat.pi / 2
+            let progress = CGFloat(percent / 100)
+            if progress >= 0.999 {
+                fillDonut(in: ringRect, thickness: thickness, color: fillColor)
+            } else if progress > 0.001 {
+                fillDonutSegment(
+                    center: CGPoint(x: ringRect.midX, y: ringRect.midY),
+                    outerRadius: ringSide / 2,
+                    thickness: thickness,
+                    startAngle: startAngle,
+                    endAngle: startAngle + CGFloat.pi * 2 * progress,
+                    color: fillColor
+                )
             }
 
-            let valueLabel = row.isCurrent ? t(.used) : t(.cyclePeak)
-            drawRight("\(valueLabel) \(Int(round(percent)))%", rect: NSRect(x: rect.maxX - 16 - valueWidth, y: rowY + 8, width: valueWidth, height: 16), color: row.isCurrent ? .white : NSColor.white.withAlphaComponent(0.78), font: .monospacedDigitSystemFont(ofSize: 12, weight: .semibold))
+            if row.isCurrent {
+                color.setStroke()
+                let focus = NSBezierPath(ovalIn: ringRect.insetBy(dx: -5, dy: -5))
+                focus.lineWidth = 1.5
+                focus.stroke()
+            }
+
+            let percentFont = NSFont.monospacedDigitSystemFont(ofSize: ringSide < 72 ? 13 : 15, weight: .bold)
+            drawCentered("\(Int(round(percent)))%", rect: NSRect(x: ringRect.minX, y: ringRect.midY - 9, width: ringRect.width, height: 18), font: percentFont, color: row.isCurrent ? .white : NSColor.white.withAlphaComponent(0.88))
+
+            let labelWidth = cellWidth + 16
+            let labelX = cellMidX - labelWidth / 2
+            drawCentered(row.shortRange, rect: NSRect(x: labelX, y: ringRect.maxY + 12, width: labelWidth, height: 15), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(row.isCurrent ? 0.92 : 0.68))
+            drawCentered(row.shortMeta, rect: NSRect(x: labelX, y: ringRect.maxY + 29, width: labelWidth, height: 13), font: .monospacedDigitSystemFont(ofSize: 9.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
         }
 
         if model.hasBackfilledRows {
-            let footY = rect.minY + 50 + CGFloat(model.weeklyRows.count) * 36 + 2
-            drawText("* \(t(.cycleBackfilled))", rect: NSRect(x: rect.minX + 16, y: footY, width: rect.width - 32, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.38))
+            drawText("* \(t(.cycleBackfilled))", rect: NSRect(x: rect.minX + 16, y: rect.maxY - 24, width: rect.width - 32, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.38))
         }
     }
 
