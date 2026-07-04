@@ -2655,7 +2655,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             let weeklyPanelHeight: CGFloat
             if let snapshot {
                 let model = quotaCyclePageModel(for: snapshot)
-                weeklyPanelHeight = model.weeklyRows.isEmpty ? 96 : (model.hasBackfilledRows ? 224 : 208)
+                weeklyPanelHeight = model.weeklyRows.isEmpty ? 96 : (model.hasFootnote ? 224 : 208)
             } else {
                 weeklyPanelHeight = 96
             }
@@ -5426,19 +5426,20 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private struct QuotaCycleRowModel {
-        let rangeText: String
-        let metaText: String?
         let shortRange: String
         let shortMeta: String
         let percent: Double
         let isCurrent: Bool
         let isPartial: Bool
+        let isEarlyRefresh: Bool
     }
 
     private struct QuotaCycleBarModel {
         var percent: Double
         var resetAt: Date
+        var windowMinutes: Int
         var isCurrent: Bool
+        var isEarlyRefresh: Bool
     }
 
     private struct QuotaCyclePageModel {
@@ -5447,6 +5448,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let fiveHourBars: [QuotaCycleBarModel]
         let cappedCount: Int
         let hasBackfilledRows: Bool
+        let hasEarlyRefreshRows: Bool
+
+        var hasFootnote: Bool { hasBackfilledRows || hasEarlyRefreshRows }
     }
 
     private static let cycleISOFormatter: ISO8601DateFormatter = {
@@ -5485,63 +5489,108 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let limit = snapshot.liveLimits.first { $0.id == limitID }
         let iso = Self.cycleISOFormatter
 
+        struct WeeklyCycleInfo {
+            var start: Date?
+            var end: Date
+            var percent: Double
+            var isBackfilled: Bool
+            var isCurrent: Bool
+            var earlyRefreshAt: Date?
+        }
+
         let weeklyRecords = QuotaCycleStore.shared.cycles(limitID: limitID, kind: .weekly)
         let weeklyTolerance: TimeInterval = 24 * 3600
-        var rows: [QuotaCycleRowModel] = []
-        var hasBackfilled = false
         var matchedWeeklyIndex: Int?
+        var currentInfo: WeeklyCycleInfo?
         if let liveWeekly = limit?.secondary, let resetsAt = liveWeekly.resetsAt, liveWeekly.windowMinutes > 0 {
             matchedWeeklyIndex = weeklyRecords.firstIndex { record in
                 record.resetAtDate(iso).map { abs($0.timeIntervalSince(resetsAt)) <= weeklyTolerance } == true
             }
             let recordedPeak = matchedWeeklyIndex.map { weeklyRecords[$0].maxUsedPercent } ?? 0
-            let used = max(0, min(100, max(liveWeekly.usedPercent, recordedPeak)))
-            let start = resetsAt.addingTimeInterval(-Double(liveWeekly.windowMinutes) * 60)
-            rows.append(QuotaCycleRowModel(
-                rangeText: "\(Self.cycleRangeFormatter.string(from: start)) → \(t(.cycleNow))",
-                metaText: "\(t(.cycleInProgress)) · \(t(.reset)) \(Self.cycleRangeFormatter.string(from: resetsAt))",
-                shortRange: "\(Self.cycleDayLabelFormatter.string(from: start)) → \(t(.cycleNow))",
-                shortMeta: "\(t(.cycleInProgress)) · \(t(.reset)) \(Self.cycleDayLabelFormatter.string(from: resetsAt))",
-                percent: used,
-                isCurrent: true,
-                isPartial: false
-            ))
+            currentInfo = WeeklyCycleInfo(
+                start: resetsAt.addingTimeInterval(-Double(liveWeekly.windowMinutes) * 60),
+                end: resetsAt,
+                percent: max(0, min(100, max(liveWeekly.usedPercent, recordedPeak))),
+                isBackfilled: false,
+                isCurrent: true
+            )
         }
-        let hasCurrentRow = !rows.isEmpty
+
+        var infos: [WeeklyCycleInfo] = []
         for (index, record) in weeklyRecords.enumerated() {
             if index == matchedWeeklyIndex { continue }
             guard let end = record.resetAtDate(iso) else { continue }
-            if hasCurrentRow && end.timeIntervalSinceNow > 0 { continue }
-            let rangeText: String
-            if let start = record.cycleStartDate(iso) {
-                rangeText = "\(Self.cycleRangeFormatter.string(from: start)) → \(Self.cycleRangeFormatter.string(from: end))"
-            } else {
-                rangeText = Self.cycleRangeFormatter.string(from: end)
-            }
-            if record.isBackfilled { hasBackfilled = true }
-            let resetMeta = "\(t(.reset)) \(Self.cycleRangeFormatter.string(from: end))"
-            let shortRange: String
-            if let start = record.cycleStartDate(iso) {
-                shortRange = "\(Self.cycleDayLabelFormatter.string(from: start)) → \(Self.cycleDayLabelFormatter.string(from: end))"
-            } else {
-                shortRange = Self.cycleDayLabelFormatter.string(from: end)
-            }
-            let shortResetMeta = "\(t(.reset)) \(Self.cycleTimeLabelFormatter.string(from: end))"
-            rows.append(QuotaCycleRowModel(
-                rangeText: rangeText,
-                metaText: record.isBackfilled ? "\(resetMeta) *" : resetMeta,
-                shortRange: shortRange,
-                shortMeta: record.isBackfilled ? "\(shortResetMeta) *" : shortResetMeta,
+            if currentInfo != nil && end.timeIntervalSinceNow > 0 { continue }
+            infos.append(WeeklyCycleInfo(
+                start: record.cycleStartDate(iso),
+                end: end,
                 percent: max(0, min(100, record.maxUsedPercent)),
-                isCurrent: false,
-                isPartial: record.isBackfilled
+                isBackfilled: record.isBackfilled,
+                isCurrent: false
             ))
+        }
+        infos.sort { $0.end < $1.end }
+        if let currentInfo {
+            infos.append(currentInfo)
+        }
+
+        // A cycle whose successor starts well before the scheduled reset was
+        // refreshed early (e.g. a provider promotion). Backfilled estimates
+        // carry too much calendar-week drift to classify.
+        let earlyRefreshTolerance: TimeInterval = 12 * 3600
+        for index in 0..<max(0, infos.count - 1) {
+            guard !infos[index].isBackfilled, !infos[index + 1].isBackfilled,
+                  let nextStart = infos[index + 1].start,
+                  nextStart < infos[index].end.addingTimeInterval(-earlyRefreshTolerance) else {
+                continue
+            }
+            infos[index].earlyRefreshAt = nextStart
+        }
+
+        var hasBackfilled = false
+        var hasEarlyRefresh = false
+        var rows: [QuotaCycleRowModel] = infos.reversed().map { info in
+            if info.isBackfilled { hasBackfilled = true }
+            if info.earlyRefreshAt != nil { hasEarlyRefresh = true }
+            let effectiveEnd = info.earlyRefreshAt ?? info.end
+            let shortRange: String
+            if info.isCurrent {
+                let startText = info.start.map { Self.cycleDayLabelFormatter.string(from: $0) } ?? "--"
+                shortRange = "\(startText) → \(t(.cycleNow))"
+            } else if let start = info.start {
+                shortRange = "\(Self.cycleDayLabelFormatter.string(from: start)) → \(Self.cycleDayLabelFormatter.string(from: effectiveEnd))"
+            } else {
+                shortRange = Self.cycleDayLabelFormatter.string(from: effectiveEnd)
+            }
+            let shortMeta: String
+            if info.isCurrent {
+                shortMeta = "\(t(.cycleInProgress)) · \(t(.reset)) \(Self.cycleDayLabelFormatter.string(from: info.end))"
+            } else if let earlyRefreshAt = info.earlyRefreshAt {
+                shortMeta = "\(t(.cycleEarlyRefresh)) \(Self.cycleTimeLabelFormatter.string(from: earlyRefreshAt))"
+            } else {
+                let resetMeta = "\(t(.reset)) \(Self.cycleTimeLabelFormatter.string(from: info.end))"
+                shortMeta = info.isBackfilled ? "\(resetMeta) *" : resetMeta
+            }
+            return QuotaCycleRowModel(
+                shortRange: shortRange,
+                shortMeta: shortMeta,
+                percent: info.percent,
+                isCurrent: info.isCurrent,
+                isPartial: info.isBackfilled,
+                isEarlyRefresh: info.earlyRefreshAt != nil
+            )
         }
         rows = Array(rows.prefix(10))
 
         var bars: [QuotaCycleBarModel] = QuotaCycleStore.shared.cycles(limitID: limitID, kind: .fiveHour).compactMap { record in
             guard let end = record.resetAtDate(iso) else { return nil }
-            return QuotaCycleBarModel(percent: max(0, min(100, record.maxUsedPercent)), resetAt: end, isCurrent: false)
+            return QuotaCycleBarModel(
+                percent: max(0, min(100, record.maxUsedPercent)),
+                resetAt: end,
+                windowMinutes: record.windowMinutes,
+                isCurrent: false,
+                isEarlyRefresh: false
+            )
         }
         if let livePrimary = limit?.primary, let resetsAt = livePrimary.resetsAt {
             let tolerance = min(max(Double(livePrimary.windowMinutes) * 60 * 0.1, 20 * 60), 24 * 3600)
@@ -5550,12 +5599,28 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 bars[index].isCurrent = true
                 bars[index].percent = max(bars[index].percent, liveUsed)
             } else {
-                bars.append(QuotaCycleBarModel(percent: liveUsed, resetAt: resetsAt, isCurrent: true))
+                bars.append(QuotaCycleBarModel(
+                    percent: liveUsed,
+                    resetAt: resetsAt,
+                    windowMinutes: livePrimary.windowMinutes,
+                    isCurrent: true,
+                    isEarlyRefresh: false
+                ))
             }
         }
         bars.sort { $0.resetAt < $1.resetAt }
         if bars.count > 36 {
             bars = Array(bars.suffix(36))
+        }
+        let fiveHourEarlyTolerance: TimeInterval = 30 * 60
+        for index in 0..<max(0, bars.count - 1) {
+            let next = bars[index + 1]
+            guard next.windowMinutes > 0 else { continue }
+            let nextStart = next.resetAt.addingTimeInterval(-Double(next.windowMinutes) * 60)
+            if nextStart < bars[index].resetAt.addingTimeInterval(-fiveHourEarlyTolerance) {
+                bars[index].isEarlyRefresh = true
+                hasEarlyRefresh = true
+            }
         }
         let capped = bars.filter { $0.percent >= 97 }.count
 
@@ -5564,7 +5629,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             weeklyRows: rows,
             fiveHourBars: bars,
             cappedCount: capped,
-            hasBackfilledRows: hasBackfilled
+            hasBackfilledRows: hasBackfilled,
+            hasEarlyRefreshRows: hasEarlyRefresh
         )
     }
 
@@ -5585,7 +5651,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawCurrentCyclePanel(window: model.limit?.primary, title: t(.fiveHourWindow), rect: fiveHourRect)
         drawCurrentCyclePanel(window: model.limit?.secondary, title: t(.weeklyWindow), rect: weeklyCurrentRect)
 
-        let historyHeight: CGFloat = model.weeklyRows.isEmpty ? 96 : (model.hasBackfilledRows ? 224 : 208)
+        let historyHeight: CGFloat = model.weeklyRows.isEmpty ? 96 : (model.hasFootnote ? 224 : 208)
         let historyRect = NSRect(x: content.minX, y: fiveHourRect.maxY + panelGap, width: content.width, height: historyHeight)
         drawWeeklyCycleHistory(model: model, rect: historyRect)
 
@@ -5692,11 +5758,19 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             let labelWidth = cellWidth + 16
             let labelX = cellMidX - labelWidth / 2
             drawCentered(row.shortRange, rect: NSRect(x: labelX, y: ringRect.maxY + 12, width: labelWidth, height: 15), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(row.isCurrent ? 0.92 : 0.68))
-            drawCentered(row.shortMeta, rect: NSRect(x: labelX, y: ringRect.maxY + 29, width: labelWidth, height: 13), font: .monospacedDigitSystemFont(ofSize: 9.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+            let metaColor = row.isEarlyRefresh ? accentBlue.withAlphaComponent(0.9) : NSColor.white.withAlphaComponent(0.42)
+            drawCentered(row.shortMeta, rect: NSRect(x: labelX, y: ringRect.maxY + 29, width: labelWidth, height: 13), font: .monospacedDigitSystemFont(ofSize: 9.5, weight: .medium), color: metaColor)
         }
 
+        var footnotes: [String] = []
         if model.hasBackfilledRows {
-            drawText("* \(t(.cycleBackfilled))", rect: NSRect(x: rect.minX + 16, y: rect.maxY - 24, width: rect.width - 32, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.38))
+            footnotes.append("* \(t(.cycleBackfilled))")
+        }
+        if model.hasEarlyRefreshRows {
+            footnotes.append(t(.cycleEarlyRefreshFootnote))
+        }
+        if !footnotes.isEmpty {
+            drawText(footnotes.joined(separator: "   ·   "), rect: NSRect(x: rect.minX + 16, y: rect.maxY - 24, width: rect.width - 32, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.38))
         }
     }
 
@@ -5736,6 +5810,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 NSColor.white.withAlphaComponent(0.85).setStroke()
                 path.lineWidth = 1.5
                 path.stroke()
+            }
+            if bar.isEarlyRefresh {
+                accentBlue.setFill()
+                NSBezierPath(ovalIn: NSRect(x: barRect.midX - 2.5, y: barRect.minY - 10, width: 5, height: 5)).fill()
             }
         }
 
