@@ -2074,6 +2074,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             if selectedSection != .costs {
                 hoveredCostHistoryIndex = nil
                 hoveredCostOverviewInfo = nil
+                hoveredQuotaCycleIndex = nil
             }
             if selectedSection != .calendar {
                 isHoveringDayValueInfo = false
@@ -2159,6 +2160,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var showHistoricalEmptyWeeksToggleRect: NSRect?
     private var selectedDay: String?
     private var hoveredCostHistoryIndex: Int?
+    private var quotaCycleHitAreas: [(rect: NSRect, index: Int)] = []
+    private var quotaCycleTooltipRows: [QuotaCycleRowModel] = []
+    private var hoveredQuotaCycleIndex: Int?
     private var hoveredCostOverviewInfo: CostOverviewInfo?
     private var isHoveringDayValueInfo = false
     private var isHoveringProfileAPIInfo = false
@@ -2655,7 +2659,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             let weeklyPanelHeight: CGFloat
             if let snapshot {
                 let model = quotaCyclePageModel(for: snapshot)
-                weeklyPanelHeight = model.weeklyRows.isEmpty ? 96 : (model.hasFootnote ? 224 : 208)
+                weeklyPanelHeight = weeklyHistoryPanelHeight(rowCount: model.weeklyRows.count, contentWidth: contentWidth)
             } else {
                 weeklyPanelHeight = 96
             }
@@ -2853,9 +2857,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         if selectedSection == .costs {
             updateCostHistoryHover(at: point)
             updateCostOverviewInfoHover(at: point)
+            updateQuotaCycleHover(at: point)
         } else {
             if hoveredCostHistoryIndex != nil {
                 hoveredCostHistoryIndex = nil
+                needsDisplay = true
+            }
+            if hoveredQuotaCycleIndex != nil {
+                hoveredQuotaCycleIndex = nil
                 needsDisplay = true
             }
             if hoveredCostOverviewInfo != nil {
@@ -3355,6 +3364,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionWeekDotRects.removeAll()
         costHistoryBarRects.removeAll()
         costHistoryRows.removeAll()
+        quotaCycleHitAreas.removeAll()
         costOverviewInfoRects.removeAll()
         dayValueInfoRect = nil
         profileAPIInfoRect = nil
@@ -3436,6 +3446,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawProfileAPIInfoTooltip()
         } else if selectedSection == .insights {
             drawInsightUsageTimeTooltip()
+        } else if selectedSection == .costs {
+            drawQuotaCycleTooltip(container: content)
         }
     }
 
@@ -5425,13 +5437,26 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         )
     }
 
+    private enum QuotaCycleRowKind {
+        case current
+        case earlyRefresh
+        case scheduledReset
+    }
+
     private struct QuotaCycleRowModel {
         let shortRange: String
-        let shortMeta: String
+        let fullRange: String
+        let kind: QuotaCycleRowKind
+        let badgeText: String
+        let kindTimeText: String
+        let durationText: String
+        let deltaPt: Int?
         let percent: Double
         let isCurrent: Bool
         let isPartial: Bool
-        let isEarlyRefresh: Bool
+
+        var isEarlyRefresh: Bool { kind == .earlyRefresh }
+        var isCapped: Bool { percent >= 97 }
     }
 
     private struct QuotaCycleBarModel {
@@ -5549,38 +5574,73 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
         var hasBackfilled = false
         var hasEarlyRefresh = false
-        var rows: [QuotaCycleRowModel] = infos.reversed().map { info in
+        var rows: [QuotaCycleRowModel] = []
+        for (index, info) in infos.enumerated() {
             if info.isBackfilled { hasBackfilled = true }
             if info.earlyRefreshAt != nil { hasEarlyRefresh = true }
             let effectiveEnd = info.earlyRefreshAt ?? info.end
+            let dayText: (Date) -> String = { Self.cycleDayLabelFormatter.string(from: $0) }
+            let timeText: (Date) -> String = { Self.cycleTimeLabelFormatter.string(from: $0) }
+
             let shortRange: String
+            let fullRange: String
             if info.isCurrent {
-                let startText = info.start.map { Self.cycleDayLabelFormatter.string(from: $0) } ?? "--"
-                shortRange = "\(startText) → \(t(.cycleNow))"
+                let startDay = info.start.map(dayText) ?? "--"
+                let startFull = info.start.map(timeText) ?? "--"
+                shortRange = "\(startDay)→\(t(.cycleNow))"
+                fullRange = "\(startFull) → \(t(.cycleNow))"
             } else if let start = info.start {
-                shortRange = "\(Self.cycleDayLabelFormatter.string(from: start)) → \(Self.cycleDayLabelFormatter.string(from: effectiveEnd))"
+                shortRange = "\(dayText(start))→\(dayText(effectiveEnd))"
+                fullRange = "\(timeText(start)) → \(timeText(effectiveEnd))"
             } else {
-                shortRange = Self.cycleDayLabelFormatter.string(from: effectiveEnd)
+                shortRange = dayText(effectiveEnd)
+                fullRange = timeText(effectiveEnd)
             }
-            let shortMeta: String
-            if info.isCurrent {
-                shortMeta = "\(t(.cycleInProgress)) · \(t(.reset)) \(Self.cycleDayLabelFormatter.string(from: info.end))"
-            } else if let earlyRefreshAt = info.earlyRefreshAt {
-                shortMeta = "\(t(.cycleEarlyRefresh)) \(Self.cycleTimeLabelFormatter.string(from: earlyRefreshAt))"
+
+            let kind: QuotaCycleRowKind = info.isCurrent ? .current : (info.earlyRefreshAt != nil ? .earlyRefresh : .scheduledReset)
+            let kindTimeText: String
+            let badgeText: String
+            switch kind {
+            case .current:
+                kindTimeText = timeText(info.end)
+                badgeText = "\(t(.cycleInProgress)) · \(t(.reset)) \(compactResetRelative(info.end))"
+            case .earlyRefresh:
+                kindTimeText = timeText(effectiveEnd)
+                badgeText = "\(t(.cycleEarlyRefresh)) \(kindTimeText)"
+            case .scheduledReset:
+                kindTimeText = timeText(info.end)
+                badgeText = "\(t(.cycleNormalReset)) \(kindTimeText)\(info.isBackfilled ? " *" : "")"
+            }
+
+            let durationText: String
+            if let start = info.start {
+                let referenceEnd = info.isCurrent ? Date() : effectiveEnd
+                let days = max(0, referenceEnd.timeIntervalSince(start)) / 86_400
+                durationText = String(format: t(info.isCurrent ? .cycleCurrentDayFormat : .cycleDurationDaysFormat), days)
             } else {
-                let resetMeta = "\(t(.reset)) \(Self.cycleTimeLabelFormatter.string(from: info.end))"
-                shortMeta = info.isBackfilled ? "\(resetMeta) *" : resetMeta
+                durationText = "--"
             }
-            return QuotaCycleRowModel(
+
+            var deltaPt: Int?
+            if index > 0 {
+                deltaPt = Int(round(info.percent - infos[index - 1].percent))
+            }
+
+            rows.append(QuotaCycleRowModel(
                 shortRange: shortRange,
-                shortMeta: shortMeta,
+                fullRange: fullRange,
+                kind: kind,
+                badgeText: badgeText,
+                kindTimeText: kindTimeText,
+                durationText: durationText,
+                deltaPt: deltaPt,
                 percent: info.percent,
                 isCurrent: info.isCurrent,
-                isPartial: info.isBackfilled,
-                isEarlyRefresh: info.earlyRefreshAt != nil
-            )
+                isPartial: info.isBackfilled
+            ))
         }
-        rows = Array(rows.prefix(10))
+        rows.reverse()
+        rows = Array(rows.prefix(60))
 
         var bars: [QuotaCycleBarModel] = QuotaCycleStore.shared.cycles(limitID: limitID, kind: .fiveHour).compactMap { record in
             guard let end = record.resetAtDate(iso) else { return nil }
@@ -5651,7 +5711,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawCurrentCyclePanel(window: model.limit?.primary, title: t(.fiveHourWindow), rect: fiveHourRect)
         drawCurrentCyclePanel(window: model.limit?.secondary, title: t(.weeklyWindow), rect: weeklyCurrentRect)
 
-        let historyHeight: CGFloat = model.weeklyRows.isEmpty ? 96 : (model.hasFootnote ? 224 : 208)
+        let historyHeight = weeklyHistoryPanelHeight(rowCount: model.weeklyRows.count, contentWidth: content.width)
         let historyRect = NSRect(x: content.minX, y: fiveHourRect.maxY + panelGap, width: content.width, height: historyHeight)
         drawWeeklyCycleHistory(model: model, rect: historyRect)
 
@@ -5703,74 +5763,229 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
+    private func weeklyHistoryPanelHeight(rowCount: Int, contentWidth: CGFloat) -> CGFloat {
+        guard rowCount > 0 else { return 96 }
+        let bandCount = max(0, rowCount - 6)
+        let bandHeight: CGFloat
+        if bandCount > 0 {
+            let perRow = max(1, Int((contentWidth - 32 + 8) / 32))
+            let bandRows = Int(ceil(Double(bandCount) / Double(perRow)))
+            bandHeight = 32 + CGFloat(bandRows) * 32
+        } else {
+            bandHeight = 30
+        }
+        return 50 + 138 + bandHeight + 30
+    }
+
+    private func drawCycleRing(rect: NSRect, thickness: CGFloat, percent: Double, color: NSColor, highlighted: Bool) {
+        fillDonut(in: rect, thickness: thickness, color: NSColor.white.withAlphaComponent(0.09))
+        let progress = CGFloat(max(0, min(100, percent)) / 100)
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let outerRadius = rect.width / 2
+        let startAngle = -CGFloat.pi / 2
+        let endAngle = startAngle + CGFloat.pi * 2 * progress
+        if progress >= 0.999 {
+            fillDonut(in: rect, thickness: thickness, color: color)
+        } else if progress > 0.001 {
+            fillDonutSegment(center: center, outerRadius: outerRadius, thickness: thickness, startAngle: startAngle, endAngle: endAngle, color: color)
+            let midRadius = outerRadius - thickness / 2
+            color.setFill()
+            for angle in [startAngle, endAngle] {
+                let capCenter = CGPoint(x: center.x + midRadius * cos(angle), y: center.y + midRadius * sin(angle))
+                NSBezierPath(ovalIn: NSRect(x: capCenter.x - thickness / 2, y: capCenter.y - thickness / 2, width: thickness, height: thickness)).fill()
+            }
+        }
+        if highlighted {
+            color.setStroke()
+            let focus = NSBezierPath(ovalIn: rect.insetBy(dx: -4.5, dy: -4.5))
+            focus.lineWidth = 1.5
+            focus.stroke()
+        }
+    }
+
+    private func drawCycleBadge(row: QuotaCycleRowModel, centerX: CGFloat, y: CGFloat, maxWidth: CGFloat) {
+        let font = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
+        let iconName: String
+        let tint: NSColor
+        let background: NSColor
+        switch row.kind {
+        case .current:
+            iconName = "play.fill"
+            tint = NSColor.systemGreen
+            background = NSColor.systemGreen.withAlphaComponent(0.13)
+        case .earlyRefresh:
+            iconName = "bolt.fill"
+            tint = accentBlue
+            background = accentBlue.withAlphaComponent(0.16)
+        case .scheduledReset:
+            iconName = "arrow.clockwise"
+            tint = NSColor.white.withAlphaComponent(0.56)
+            background = NSColor.white.withAlphaComponent(0.08)
+        }
+        let textWidth = min(maxWidth - 32, measuredTextWidth(row.badgeText, font: font))
+        let pillWidth = textWidth + 30
+        let pill = NSRect(x: centerX - pillWidth / 2, y: y, width: pillWidth, height: 18)
+        background.setFill()
+        NSBezierPath(roundedRect: pill, xRadius: 9, yRadius: 9).fill()
+        drawSymbolIcon(iconName, in: NSRect(x: pill.minX + 7, y: pill.minY + 4.5, width: 9, height: 9), color: tint, pointSize: 8)
+        drawTruncatedText(row.badgeText, rect: NSRect(x: pill.minX + 20, y: pill.minY + 2.5, width: pill.width - 26, height: 13), font: font, color: tint)
+    }
+
     private func drawWeeklyCycleHistory(model: QuotaCyclePageModel, rect: NSRect) {
         drawPanel(rect)
+        quotaCycleTooltipRows = model.weeklyRows
         drawText(t(.cycleHistoryTitle), rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: 320, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
-        drawRight(t(.cycleHistoryHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 18, width: rect.width - 32, height: 16), color: NSColor.white.withAlphaComponent(0.44), font: .systemFont(ofSize: 11, weight: .medium))
+
+        let completed = model.weeklyRows.filter { !$0.isCurrent }
+        let statsBase = completed.isEmpty ? model.weeklyRows : completed
+        if !statsBase.isEmpty {
+            let averagePeak = Int(round(statsBase.map(\.percent).reduce(0, +) / Double(statsBase.count)))
+            var summaryParts = [String(format: t(.cycleAvgPeakFormat), averagePeak)]
+            summaryParts.append(String(format: t(.cycleCappedCountFormat), completed.filter(\.isCapped).count))
+            let earlyCount = model.weeklyRows.filter(\.isEarlyRefresh).count
+            if earlyCount > 0 {
+                summaryParts.append(String(format: t(.cycleEarlyCountFormat), earlyCount))
+            }
+            drawRight(summaryParts.joined(separator: " · "), rect: NSRect(x: rect.minX + 16, y: rect.minY + 18, width: rect.width - 32, height: 16), color: NSColor.white.withAlphaComponent(0.5), font: .monospacedDigitSystemFont(ofSize: 11, weight: .medium))
+        }
 
         guard !model.weeklyRows.isEmpty else {
             drawText(t(.cycleNoHistory), rect: NSRect(x: rect.minX + 16, y: rect.minY + 52, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
             return
         }
 
-        // Oldest on the left, current cycle on the right, centered as a group.
-        let cells = Array(model.weeklyRows.reversed())
-        let count = CGFloat(cells.count)
-        let cellWidth = min(150, (rect.width - 32) / count)
-        let startX = rect.minX + 16 + max(0, (rect.width - 32 - cellWidth * count) / 2)
-        let ringSide = min(88, cellWidth - 16)
+        // Recent cycles as large rings: oldest on the left, current on the right.
+        let bigCount = min(model.weeklyRows.count, 6)
+        let bigRows = Array(model.weeklyRows.prefix(bigCount).reversed())
+        let cellWidth = min(178, (rect.width - 32) / CGFloat(bigCount))
+        let startX = rect.minX + 16 + max(0, (rect.width - 32 - cellWidth * CGFloat(bigCount)) / 2)
+        let ringSide: CGFloat = 84
         let ringTop = rect.minY + 52
-
-        for (index, row) in cells.enumerated() {
-            let cellMidX = startX + CGFloat(index) * cellWidth + cellWidth / 2
+        let rangeFont = NSFont.monospacedDigitSystemFont(ofSize: 11.5, weight: .semibold)
+        for (displayIndex, row) in bigRows.enumerated() {
+            let modelIndex = bigCount - 1 - displayIndex
+            let cellMidX = startX + CGFloat(displayIndex) * cellWidth + cellWidth / 2
             let ringRect = NSRect(x: cellMidX - ringSide / 2, y: ringTop, width: ringSide, height: ringSide)
             let percent = max(0, min(100, row.percent))
             let color = cycleSeverityColor(percent)
-            let fillColor = row.isPartial ? color.withAlphaComponent(0.5) : color
-            let thickness = max(6, ringSide * 0.13)
+            drawCycleRing(rect: ringRect, thickness: 9, percent: percent, color: row.isPartial ? color.withAlphaComponent(0.5) : color, highlighted: row.isCurrent)
+            drawCentered("\(Int(round(percent)))%", rect: NSRect(x: ringRect.minX, y: ringRect.midY - 11, width: ringRect.width, height: 18), font: .monospacedDigitSystemFont(ofSize: 16, weight: .bold), color: row.isCurrent ? .white : NSColor.white.withAlphaComponent(0.9))
+            drawCentered(row.isCurrent ? t(.used) : t(.cyclePeak), rect: NSRect(x: ringRect.minX, y: ringRect.midY + 7, width: ringRect.width, height: 12), font: .systemFont(ofSize: 8.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
 
-            fillDonut(in: ringRect, thickness: thickness, color: NSColor.white.withAlphaComponent(0.10))
-            let startAngle = -CGFloat.pi / 2
-            let progress = CGFloat(percent / 100)
-            if progress >= 0.999 {
-                fillDonut(in: ringRect, thickness: thickness, color: fillColor)
-            } else if progress > 0.001 {
-                fillDonutSegment(
-                    center: CGPoint(x: ringRect.midX, y: ringRect.midY),
-                    outerRadius: ringSide / 2,
-                    thickness: thickness,
-                    startAngle: startAngle,
-                    endAngle: startAngle + CGFloat.pi * 2 * progress,
-                    color: fillColor
-                )
+            let rangeY = ringRect.maxY + 10
+            drawCentered(row.shortRange, rect: NSRect(x: cellMidX - cellWidth / 2 - 8, y: rangeY, width: cellWidth + 16, height: 15), font: rangeFont, color: NSColor.white.withAlphaComponent(row.isCurrent ? 0.94 : 0.7))
+            if row.isCapped {
+                let rangeWidth = measuredTextWidth(row.shortRange, font: rangeFont)
+                accentRose.setFill()
+                NSBezierPath(ovalIn: NSRect(x: cellMidX + rangeWidth / 2 + 5, y: rangeY + 5, width: 5, height: 5)).fill()
             }
-
-            if row.isCurrent {
-                color.setStroke()
-                let focus = NSBezierPath(ovalIn: ringRect.insetBy(dx: -5, dy: -5))
-                focus.lineWidth = 1.5
-                focus.stroke()
-            }
-
-            let percentFont = NSFont.monospacedDigitSystemFont(ofSize: ringSide < 72 ? 13 : 15, weight: .bold)
-            drawCentered("\(Int(round(percent)))%", rect: NSRect(x: ringRect.minX, y: ringRect.midY - 9, width: ringRect.width, height: 18), font: percentFont, color: row.isCurrent ? .white : NSColor.white.withAlphaComponent(0.88))
-
-            let labelWidth = cellWidth + 16
-            let labelX = cellMidX - labelWidth / 2
-            drawCentered(row.shortRange, rect: NSRect(x: labelX, y: ringRect.maxY + 12, width: labelWidth, height: 15), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(row.isCurrent ? 0.92 : 0.68))
-            let metaColor = row.isEarlyRefresh ? accentBlue.withAlphaComponent(0.9) : NSColor.white.withAlphaComponent(0.42)
-            drawCentered(row.shortMeta, rect: NSRect(x: labelX, y: ringRect.maxY + 29, width: labelWidth, height: 13), font: .monospacedDigitSystemFont(ofSize: 9.5, weight: .medium), color: metaColor)
+            drawCycleBadge(row: row, centerX: cellMidX, y: rangeY + 20, maxWidth: cellWidth + 12)
+            quotaCycleHitAreas.append((rect: ringRect.insetBy(dx: -6, dy: -6), index: modelIndex))
         }
 
-        var footnotes: [String] = []
+        // Older cycles as a dense mini-ring band, oldest first.
+        let bandTop = ringTop + ringSide + 52
+        let bandModels = Array(model.weeklyRows.dropFirst(6).reversed())
+        if bandModels.isEmpty {
+            drawText(t(.cycleBandGrowHint), rect: NSRect(x: rect.minX + 16, y: bandTop + 4, width: rect.width - 32, height: 15), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.34))
+        } else {
+            drawText("\(t(.cycleEarlierBand)) (\(bandModels.count))", rect: NSRect(x: rect.minX + 16, y: bandTop, width: rect.width - 32, height: 15), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.44))
+            let miniSide: CGFloat = 24
+            let miniGap: CGFloat = 8
+            let perRow = max(1, Int((rect.width - 32 + miniGap) / (miniSide + miniGap)))
+            for (bandIndex, row) in bandModels.enumerated() {
+                let modelIndex = model.weeklyRows.count - 1 - bandIndex
+                let column = bandIndex % perRow
+                let bandRow = bandIndex / perRow
+                let miniRect = NSRect(
+                    x: rect.minX + 16 + CGFloat(column) * (miniSide + miniGap),
+                    y: bandTop + 22 + CGFloat(bandRow) * (miniSide + 8),
+                    width: miniSide,
+                    height: miniSide
+                )
+                let percent = max(0, min(100, row.percent))
+                let color = cycleSeverityColor(percent)
+                drawCycleRing(rect: miniRect, thickness: 4.5, percent: percent, color: row.isPartial ? color.withAlphaComponent(0.5) : color, highlighted: false)
+                if hoveredQuotaCycleIndex == modelIndex {
+                    NSColor.white.withAlphaComponent(0.65).setStroke()
+                    let focus = NSBezierPath(ovalIn: miniRect.insetBy(dx: -2.5, dy: -2.5))
+                    focus.lineWidth = 1
+                    focus.stroke()
+                }
+                quotaCycleHitAreas.append((rect: miniRect.insetBy(dx: -4, dy: -4), index: modelIndex))
+            }
+        }
+
+        var footnotes = [t(.cycleHistoryHint)]
         if model.hasBackfilledRows {
             footnotes.append("* \(t(.cycleBackfilled))")
         }
         if model.hasEarlyRefreshRows {
             footnotes.append(t(.cycleEarlyRefreshFootnote))
         }
-        if !footnotes.isEmpty {
-            drawText(footnotes.joined(separator: "   ·   "), rect: NSRect(x: rect.minX + 16, y: rect.maxY - 24, width: rect.width - 32, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.38))
+        drawTruncatedText(footnotes.joined(separator: "   ·   "), rect: NSRect(x: rect.minX + 16, y: rect.maxY - 24, width: rect.width - 32, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.36))
+    }
+
+    private func updateQuotaCycleHover(at point: CGPoint) {
+        let match = quotaCycleHitAreas.first { $0.rect.contains(point) }
+        let newIndex = match?.index
+        if hoveredQuotaCycleIndex != newIndex {
+            hoveredQuotaCycleIndex = newIndex
+            needsDisplay = true
+        }
+    }
+
+    private func drawQuotaCycleTooltip(container: NSRect) {
+        guard let index = hoveredQuotaCycleIndex,
+              index >= 0, index < quotaCycleTooltipRows.count,
+              let hit = quotaCycleHitAreas.first(where: { $0.index == index }) else {
+            return
+        }
+        let row = quotaCycleTooltipRows[index]
+
+        var lines: [(String, String, NSColor)] = []
+        let percentColor = cycleSeverityColor(row.percent)
+        lines.append((row.isCurrent ? t(.used) : t(.cyclePeak), "\(Int(round(row.percent)))%", percentColor))
+        switch row.kind {
+        case .current:
+            lines.append((t(.reset), row.kindTimeText, NSColor.white.withAlphaComponent(0.88)))
+        case .earlyRefresh:
+            lines.append((t(.cycleEarlyRefresh), row.kindTimeText, accentBlue))
+        case .scheduledReset:
+            lines.append((t(.cycleNormalReset), row.kindTimeText, NSColor.white.withAlphaComponent(0.88)))
+        }
+        lines.append((t(.cycleDurationLabel), row.durationText, NSColor.white.withAlphaComponent(0.88)))
+        if let delta = row.deltaPt {
+            lines.append((t(.cycleDeltaLabel), String(format: "%+dpt", delta), delta > 0 ? accentAmber : NSColor.systemGreen))
+        }
+        let footerText: String? = row.isPartial ? "* \(t(.cycleBackfilled))" : nil
+
+        let width: CGFloat = 238
+        let height: CGFloat = 30 + CGFloat(lines.count) * 16 + (footerText != nil ? 18 : 8)
+        let gap: CGFloat = 12
+        var origin = CGPoint(x: hit.rect.midX - width / 2, y: hit.rect.minY - height - gap)
+        if origin.y < container.minY + 10 {
+            origin.y = hit.rect.maxY + gap
+        }
+        origin.x = max(container.minX + 12, min(origin.x, container.maxX - width - 12))
+        origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
+        let tooltipRect = NSRect(origin: origin, size: NSSize(width: width, height: height))
+
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: tooltipRect, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        let border = NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        border.lineWidth = 1
+        border.stroke()
+
+        drawText(row.fullRange, rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.minY + 8, width: tooltipRect.width - 20, height: 14), font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.85))
+        for (lineIndex, line) in lines.enumerated() {
+            let y = tooltipRect.minY + 28 + CGFloat(lineIndex) * 16
+            drawText(line.0, rect: NSRect(x: tooltipRect.minX + 10, y: y, width: 100, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.5))
+            drawRight(line.1, rect: NSRect(x: tooltipRect.minX + 104, y: y - 1, width: tooltipRect.width - 114, height: 15), color: line.2, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
+        }
+        if let footerText {
+            drawText(footerText, rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.maxY - 17, width: tooltipRect.width - 20, height: 12), font: .systemFont(ofSize: 9, weight: .medium), color: NSColor.white.withAlphaComponent(0.4))
         }
     }
 

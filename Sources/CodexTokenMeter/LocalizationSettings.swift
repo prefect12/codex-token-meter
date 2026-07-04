@@ -459,6 +459,16 @@ enum L10nKey {
     case cycleNow
     case cycleEarlyRefresh
     case cycleEarlyRefreshFootnote
+    case cycleNormalReset
+    case cycleEarlierBand
+    case cycleAvgPeakFormat
+    case cycleCappedCountFormat
+    case cycleEarlyCountFormat
+    case cycleDurationDaysFormat
+    case cycleCurrentDayFormat
+    case cycleBandGrowHint
+    case cycleDurationLabel
+    case cycleDeltaLabel
 
     var english: String {
         switch self {
@@ -511,6 +521,16 @@ enum L10nKey {
         case .cycleNow: return "now"
         case .cycleEarlyRefresh: return "Early refresh"
         case .cycleEarlyRefreshFootnote: return "Early refresh: quota refreshed before the scheduled reset time (e.g. provider promotion)"
+        case .cycleNormalReset: return "Scheduled reset"
+        case .cycleEarlierBand: return "Earlier cycles"
+        case .cycleAvgPeakFormat: return "Avg peak %d%%"
+        case .cycleCappedCountFormat: return "%d capped"
+        case .cycleEarlyCountFormat: return "%d early refresh"
+        case .cycleDurationDaysFormat: return "%.1f days"
+        case .cycleCurrentDayFormat: return "day %.1f"
+        case .cycleBandGrowHint: return "Earlier cycles will appear here as history accumulates."
+        case .cycleDurationLabel: return "Duration"
+        case .cycleDeltaLabel: return "vs prev"
         case .costHistory: return "Spend History"
         case .codexIncident: return "Incident"
         case .codexNoActiveIncident: return "No active incidents"
@@ -736,6 +756,16 @@ enum L10nKey {
         case .cycleNow: return "至今"
         case .cycleEarlyRefresh: return "提前刷新"
         case .cycleEarlyRefreshFootnote: return "提前刷新：在计划重置时间之前观察到额度刷新（如官方活动）"
+        case .cycleNormalReset: return "正常重置"
+        case .cycleEarlierBand: return "更早周期"
+        case .cycleAvgPeakFormat: return "平均峰值 %d%%"
+        case .cycleCappedCountFormat: return "触顶 %d 次"
+        case .cycleEarlyCountFormat: return "提前刷新 %d 次"
+        case .cycleDurationDaysFormat: return "%.1f 天"
+        case .cycleCurrentDayFormat: return "第 %.1f 天"
+        case .cycleBandGrowHint: return "更早周期会随记录自动出现在这里，逐渐排满一整年。"
+        case .cycleDurationLabel: return "时长"
+        case .cycleDeltaLabel: return "较上轮"
         case .costHistory: return "金额历史"
         case .codexIncident: return "故障"
         case .codexNoActiveIncident: return "当前没有故障"
@@ -961,6 +991,16 @@ enum L10nKey {
         case .cycleNow: return "現在"
         case .cycleEarlyRefresh: return "前倒し更新"
         case .cycleEarlyRefreshFootnote: return "前倒し更新：予定リセットより早いクォータ更新（公式キャンペーン等）"
+        case .cycleNormalReset: return "定期リセット"
+        case .cycleEarlierBand: return "以前の周期"
+        case .cycleAvgPeakFormat: return "平均ピーク %d%%"
+        case .cycleCappedCountFormat: return "上限到達 %d回"
+        case .cycleEarlyCountFormat: return "前倒し更新 %d回"
+        case .cycleDurationDaysFormat: return "%.1f日"
+        case .cycleCurrentDayFormat: return "%.1f日目"
+        case .cycleBandGrowHint: return "以前の周期は記録が貯まるとここに表示されます。"
+        case .cycleDurationLabel: return "期間"
+        case .cycleDeltaLabel: return "前周期比"
         case .costHistory: return "金額履歴"
         case .codexIncident: return "障害"
         case .codexNoActiveIncident: return "進行中の障害はありません"

@@ -211,7 +211,7 @@ struct QuotaCycleFile: Codable {
 final class QuotaCycleStore {
     static let shared = QuotaCycleStore(url: AppSettings.quotaCycleHistoryURL)
 
-    private static let maxCyclesPerWindow: [QuotaWindowKind: Int] = [.fiveHour: 96, .weekly: 40]
+    private static let maxCyclesPerWindow: [QuotaWindowKind: Int] = [.fiveHour: 96, .weekly: 60]
 
     private let url: URL
     private var file: QuotaCycleFile
