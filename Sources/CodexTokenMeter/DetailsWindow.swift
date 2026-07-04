@@ -5600,19 +5600,21 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 fullRange = timeText(effectiveEnd)
             }
 
+            // Badges stay short: the range line above already carries the
+            // dates, and the hover tooltip has the exact timestamps.
             let kind: QuotaCycleRowKind = info.isCurrent ? .current : (info.earlyRefreshAt != nil ? .earlyRefresh : .scheduledReset)
             let kindTimeText: String
             let badgeText: String
             switch kind {
             case .current:
                 kindTimeText = timeText(info.end)
-                badgeText = "\(t(.cycleInProgress)) · \(t(.reset)) \(compactResetRelative(info.end))"
+                badgeText = "\(t(.cycleInProgress)) · \(compactResetRelative(info.end))"
             case .earlyRefresh:
                 kindTimeText = timeText(effectiveEnd)
-                badgeText = "\(t(.cycleEarlyRefresh)) \(kindTimeText)"
+                badgeText = t(.cycleEarlyRefresh)
             case .scheduledReset:
                 kindTimeText = timeText(info.end)
-                badgeText = "\(t(.cycleNormalReset)) \(kindTimeText)\(info.isBackfilled ? " *" : "")"
+                badgeText = "\(t(.cycleNormalReset))\(info.isBackfilled ? " *" : "")"
             }
 
             let durationText: String
@@ -5891,7 +5893,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 accentRose.setFill()
                 NSBezierPath(ovalIn: NSRect(x: cellMidX + rangeWidth / 2 + 5, y: rangeY + 5, width: 5, height: 5)).fill()
             }
-            drawCycleBadge(row: row, centerX: cellMidX, y: rangeY + 20, maxWidth: cellWidth + 12)
+            drawCycleBadge(row: row, centerX: cellMidX, y: rangeY + 20, maxWidth: cellWidth - 8)
             quotaCycleHitAreas.append((rect: ringRect.insetBy(dx: -6, dy: -6), index: modelIndex))
         }
 
