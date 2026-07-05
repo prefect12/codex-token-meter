@@ -36,8 +36,10 @@ private struct RolloutSummary {
     var preview: String?
     var cwd: String?
     var isRunning = false
+    var isWaitingForInput = false
     var turns = 0
     var lastTaskEventAt: Date?
+    var lastWaitingAt: Date?
     var lastCompletionAt: Date?
     var currentTurnStartedAt: Date?
     var tokenBreakdown = TokenBreakdown()
@@ -67,6 +69,8 @@ private struct RolloutScanState {
     var position = FileScanPosition()
     var summary = RolloutSummary()
     var previousTokenCounters = TokenBreakdown()
+    var pendingInteractiveCallIDs = Set<String>()
+    var pendingInteractiveCallWithoutID = false
 }
 
 /// Accumulated fold state for one Claude Code transcript, kept across scans so
@@ -118,31 +122,40 @@ final class CodexActivityReader {
             let rollout = rolloutURL(threadID: logged.id, lastActivity: logged.lastActivity, lookbackHours: lookbackHours)
             let summary = rollout.flatMap(rolloutSummary)
             guard let summary, summary.turns > 0 else { continue }
-            let activityDate = summary.isRunning
-                ? maxDate(logged.lastActivity, summary.lastTaskEventAt)
-                : summary.lastCompletionAt ?? summary.lastTaskEventAt ?? logged.lastActivity
+            let activityDate: Date
+            if summary.isWaitingForInput {
+                activityDate = summary.lastWaitingAt ?? summary.lastTaskEventAt ?? logged.lastActivity
+            } else if summary.isRunning {
+                activityDate = maxDate(logged.lastActivity, summary.lastTaskEventAt)
+            } else {
+                activityDate = summary.lastCompletionAt ?? summary.lastTaskEventAt ?? logged.lastActivity
+            }
             // A running turn keeps emitting events; once it has been silent past the
             // timeout the turn has stopped, so it is reported as finished, not running.
-            let isRunning = summary.isRunning
+            let isRunning = !summary.isWaitingForInput
+                && summary.isRunning
                 && Date().timeIntervalSince(activityDate) <= runningActivityTimeout
-            let status: ThreadRunStatus = isRunning ? .running : .unread
+            let status: ThreadRunStatus = summary.isWaitingForInput ? .waiting : (isRunning ? .running : .unread)
             let externalReadAt = appServerSnapshot.externalReadAtByID[logged.id]
             let explicitUnread = unreadThreadIDs.contains(logged.id)
                 && !isAppServerReadThrough(externalReadAt: externalReadAt, lastActivity: activityDate)
             if let existing = byID[logged.id] {
-                let preferLoggedStatus = statusRank(status) < statusRank(existing.status)
+                let preferLoggedStatus = status == .waiting || statusRank(status) < statusRank(existing.status)
                 let tokenBreakdown = summary.tokenBreakdown.resolved(with: existing.tokenBreakdown)
                 let mergedTitle = cleanTitle(summary.title)
                     ?? cleanTitle(existing.title)
                     ?? summary.cwd.map(shortFolderName)
                     ?? existing.title
+                let startedAt = status == .waiting
+                    ? (summary.lastWaitingAt ?? summary.currentTurnStartedAt)
+                    : summary.currentTurnStartedAt
                 byID[logged.id] = CodexThreadItem(
                     id: existing.id,
                     title: mergedTitle,
                     preview: summary.preview ?? existing.preview,
                     cwd: existing.cwd ?? summary.cwd,
                     lastActivity: maxDate(existing.lastActivity, activityDate),
-                    startedAt: preferLoggedStatus ? summary.currentTurnStartedAt : existing.startedAt,
+                    startedAt: preferLoggedStatus ? startedAt : existing.startedAt,
                     externalReadAt: maxOptionalDate(existing.externalReadAt, externalReadAt),
                     status: preferLoggedStatus ? status : existing.status,
                     turns: max(existing.turns, summary.turns),
@@ -158,13 +171,16 @@ final class CodexActivityReader {
             let title = cleanTitle(summary.title)
                 ?? summary.cwd.map(shortFolderName)
                 ?? String(logged.id.prefix(8))
+            let startedAt = status == .waiting
+                ? (summary.lastWaitingAt ?? summary.currentTurnStartedAt)
+                : (summary.isRunning ? summary.currentTurnStartedAt : nil)
             byID[logged.id] = CodexThreadItem(
                 id: logged.id,
                 title: title,
                 preview: summary.preview,
                 cwd: summary.cwd,
                 lastActivity: activityDate,
-                startedAt: summary.isRunning ? summary.currentTurnStartedAt : nil,
+                startedAt: startedAt,
                 externalReadAt: externalReadAt,
                 status: status,
                 turns: summary.turns,
@@ -1072,6 +1088,12 @@ final class CodexActivityReader {
         return transient.summary
     }
 
+    private func clearInteractiveWaiting(_ state: inout RolloutScanState) {
+        state.summary.isWaitingForInput = false
+        state.pendingInteractiveCallIDs.removeAll()
+        state.pendingInteractiveCallWithoutID = false
+    }
+
     private func applyRolloutLine(_ line: String, to state: inout RolloutScanState) {
         // Extracting the event date parses the whole line as JSON; do it lazily so
         // lines that match no marker below skip that cost entirely.
@@ -1091,6 +1113,7 @@ final class CodexActivityReader {
                 state.summary.cwd = cwd
             }
             state.summary.isRunning = true
+            clearInteractiveWaiting(&state)
             state.summary.turns += 1
             state.summary.lastTaskEventAt = lineEventDate() ?? state.summary.lastTaskEventAt
             state.summary.currentTurnStartedAt = lineEventDate() ?? state.summary.currentTurnStartedAt
@@ -1105,6 +1128,9 @@ final class CodexActivityReader {
                 state.summary.title = title
             }
         }
+        if isUserMessage(line: line) {
+            clearInteractiveWaiting(&state)
+        }
         if line.contains(#""type":"response_item""#),
            line.contains(#""payload":{"type":"message""#),
            line.contains(#""role":"assistant""#),
@@ -1112,8 +1138,42 @@ final class CodexActivityReader {
            let preview = cleanPreview(candidate) {
             state.summary.preview = preview
         }
+        if let call = functionCallInfo(from: line),
+           isInteractiveUserInputTool(call.name) {
+            state.summary.isRunning = true
+            state.summary.isWaitingForInput = true
+            if let callID = call.callID {
+                state.pendingInteractiveCallIDs.insert(callID)
+            } else {
+                state.pendingInteractiveCallWithoutID = true
+            }
+            let waitingAt = lineEventDate() ?? state.summary.lastTaskEventAt ?? state.summary.currentTurnStartedAt
+            state.summary.lastWaitingAt = waitingAt ?? state.summary.lastWaitingAt
+            state.summary.lastTaskEventAt = waitingAt ?? state.summary.lastTaskEventAt
+        } else if isFunctionCallOutput(line: line),
+                  state.summary.isWaitingForInput {
+            let callID = functionCallOutputID(from: line)
+            let matchesPendingCall = callID.map {
+                state.pendingInteractiveCallIDs.contains($0)
+                    || (state.pendingInteractiveCallWithoutID && state.pendingInteractiveCallIDs.isEmpty)
+            } ?? state.pendingInteractiveCallWithoutID
+            if matchesPendingCall {
+                if let callID {
+                    state.pendingInteractiveCallIDs.remove(callID)
+                }
+                if state.pendingInteractiveCallWithoutID {
+                    state.pendingInteractiveCallWithoutID = false
+                }
+                if state.pendingInteractiveCallIDs.isEmpty && !state.pendingInteractiveCallWithoutID {
+                    state.summary.isWaitingForInput = false
+                }
+                state.summary.isRunning = true
+                state.summary.lastTaskEventAt = lineEventDate() ?? state.summary.lastTaskEventAt
+            }
+        }
         if isFinalAssistantMessage(line: line) {
             state.summary.isRunning = false
+            clearInteractiveWaiting(&state)
             state.summary.lastTaskEventAt = lineEventDate() ?? state.summary.lastTaskEventAt
             state.summary.lastCompletionAt = lineEventDate() ?? state.summary.lastCompletionAt
             state.summary.currentTurnStartedAt = nil
@@ -1133,6 +1193,7 @@ final class CodexActivityReader {
         if line.contains(#""type":"task_started""#) {
             let wasAlreadyRunning = state.summary.isRunning
             state.summary.isRunning = true
+            clearInteractiveWaiting(&state)
             if !wasAlreadyRunning {
                 state.summary.turns += 1
             }
@@ -1140,6 +1201,7 @@ final class CodexActivityReader {
             state.summary.currentTurnStartedAt = lineEventDate() ?? state.summary.currentTurnStartedAt
         } else if line.contains(#""type":"task_complete""#) || line.contains(#""type":"turn_aborted""#) {
             state.summary.isRunning = false
+            clearInteractiveWaiting(&state)
             state.summary.lastTaskEventAt = lineEventDate() ?? state.summary.lastTaskEventAt
             state.summary.lastCompletionAt = lineEventDate() ?? state.summary.lastCompletionAt
             state.summary.currentTurnStartedAt = nil
@@ -1150,18 +1212,65 @@ final class CodexActivityReader {
         }
     }
 
+    private func isUserMessage(line: String) -> Bool {
+        guard line.contains(#""type":"response_item""#),
+              line.contains(#""payload":{"type":"message""#),
+              line.contains(#""role":"user""#),
+              let payload = responseItemPayload(from: line) else {
+            return false
+        }
+        return string(payload["type"]) == "message" && string(payload["role"]) == "user"
+    }
+
     private func isFinalAssistantMessage(line: String) -> Bool {
         guard line.contains(#""type":"response_item""#),
               line.contains(#""payload":{"type":"message""#),
               line.contains(#""role":"assistant""#),
-              let data = line.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let payload = object["payload"] as? [String: Any],
+              let payload = responseItemPayload(from: line),
               string(payload["type"]) == "message",
               string(payload["role"]) == "assistant" else {
             return false
         }
         return string(payload["phase"]) == "final"
+    }
+
+    private func functionCallInfo(from line: String) -> (name: String, callID: String?)? {
+        guard line.contains(#""type":"response_item""#),
+              line.contains(#""type":"function_call""#),
+              let payload = responseItemPayload(from: line),
+              string(payload["type"]) == "function_call",
+              let name = string(payload["name"]) else {
+            return nil
+        }
+        return (name, string(payload["call_id"] ?? payload["id"]))
+    }
+
+    private func isFunctionCallOutput(line: String) -> Bool {
+        guard line.contains(#""type":"response_item""#),
+              line.contains(#""type":"function_call_output""#),
+              let payload = responseItemPayload(from: line),
+              string(payload["type"]) == "function_call_output" else {
+            return false
+        }
+        return true
+    }
+
+    private func functionCallOutputID(from line: String) -> String? {
+        guard let payload = responseItemPayload(from: line),
+              string(payload["type"]) == "function_call_output" else {
+            return nil
+        }
+        return string(payload["call_id"] ?? payload["id"])
+    }
+
+    private func responseItemPayload(from line: String) -> [String: Any]? {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "response_item",
+              let payload = object["payload"] as? [String: Any] else {
+            return nil
+        }
+        return payload
     }
 
     private func tokenCounters(from line: String) -> TokenBreakdown? {
