@@ -25,7 +25,7 @@
 ### AI Token Meter 总览
 
 <p align="center">
-  <img src="docs/images/ai-token-meter-release.png" alt="AI Token Meter menu dashboard" width="420">
+  <img src="docs/images/ai-token-meter-release.webp" alt="AI Token Meter menu dashboard" width="420">
 </p>
 
 AI Token Meter 的状态栏面板支持 `全部 / Codex / Claude` 和 `24h / 7d / 30d` 切换。顶部显示当前窗口总 token，环形图显示剩余额度，表格对比 Codex 与 Claude 的 5h 剩余额度、输入输出和服务状态，底部汇总会话/轮次/事件数与 API 等价成本。
@@ -33,7 +33,7 @@ AI Token Meter 的状态栏面板支持 `全部 / Codex / Claude` 和 `24h / 7d 
 ### AI Token Meter Hover
 
 <p align="center">
-  <img src="docs/images/ai-token-meter-hover-release.png" alt="AI Token Meter calendar hover detail" width="420">
+  <img src="docs/images/ai-token-meter-hover-release.webp" alt="AI Token Meter calendar hover detail" width="420">
 </p>
 
 日历柱状图 hover 会显示单日拆分：Codex、Claude、输入、输出、缓存、新输入、占月额度、当日订阅价值估算和 API 等价成本。Profile API 可用时，30 天窗口会优先展示 Profile API 聚合总量；本地日志仍用于补充日历、模型和成本拆分。
@@ -41,7 +41,7 @@ AI Token Meter 的状态栏面板支持 `全部 / Codex / Claude` 和 `24h / 7d 
 ### 详情窗口 · 概览
 
 <p align="center">
-  <img src="docs/images/zh-details-overview.png" alt="AI Token Meter 详情概览页" width="760">
+  <img src="docs/images/zh-details-overview.webp" alt="AI Token Meter 详情概览页" width="760">
 </p>
 
 过去 365 天按来源（全部 / Codex / Claude）和模型统计的总量、输入/输出拆分、缓存命中率、API 等价成本，以及全年活动热力图。
@@ -49,7 +49,7 @@ AI Token Meter 的状态栏面板支持 `全部 / Codex / Claude` 和 `24h / 7d 
 ### 详情窗口 · 仓库洞察
 
 <p align="center">
-  <img src="docs/images/zh-details-insights.png" alt="AI Token Meter 仓库洞察页" width="760">
+  <img src="docs/images/zh-details-insights.webp" alt="AI Token Meter 仓库洞察页" width="760">
 </p>
 
 Repo 对话体检：按项目和文件夹定位长线程，统计对话长度分布、上下文压缩分布和活跃天数强度，并给出「新 bug 单独窗口」这类拆线程建议。支持 `使用习惯 / 使用时间` 两种视角和 `7 / 30 / 90 天` 窗口。
@@ -57,7 +57,7 @@ Repo 对话体检：按项目和文件夹定位长线程，统计对话长度分
 ### 详情窗口 · 活动日历
 
 <p align="center">
-  <img src="docs/images/zh-details-calendar.png" alt="AI Token Meter 活动日历页" width="760">
+  <img src="docs/images/zh-details-calendar.webp" alt="AI Token Meter 活动日历页" width="760">
 </p>
 
 点击某一天查看单日明细：输入/输出/缓存拆分、Codex 与 Claude 占比圆环、当日订阅价值和逐模型 API 等价成本；点击格子上方的圆点可看整周汇总。
@@ -65,7 +65,7 @@ Repo 对话体检：按项目和文件夹定位长线程，统计对话长度分
 ### 详情窗口 · 模型
 
 <p align="center">
-  <img src="docs/images/zh-details-models.png" alt="AI Token Meter 模型页" width="760">
+  <img src="docs/images/zh-details-models.webp" alt="AI Token Meter 模型页" width="760">
 </p>
 
 按模型聚合的长期 token 用量、占比条、会话/事件数和逐模型 API 等价成本。
@@ -73,7 +73,7 @@ Repo 对话体检：按项目和文件夹定位长线程，统计对话长度分
 ### 详情窗口 · 空间
 
 <p align="center">
-  <img src="docs/images/zh-details-storage.png" alt="AI Token Meter 空间页" width="760">
+  <img src="docs/images/zh-details-storage.webp" alt="AI Token Meter 空间页" width="760">
 </p>
 
 按来源、项目和类型追踪本地日志磁盘占用：来源分布、最大项目排行、近 14 天增长曲线和清理风险构成，每一类都标注「可安全清理 / 需确认 / 不建议清理」，并支持导出报告和在访达中打开。
@@ -81,7 +81,7 @@ Repo 对话体检：按项目和文件夹定位长线程，统计对话长度分
 ### 详情窗口 · 设置
 
 <p align="center">
-  <img src="docs/images/zh-details-settings.png" alt="AI Token Meter 设置页" width="760">
+  <img src="docs/images/zh-details-settings.webp" alt="AI Token Meter 设置页" width="760">
 </p>
 
 界面语言、数字单位、日志目录、状态栏显示与来源、额度样式（圆环/子弹图）、首页圆环口径（5 小时/周额度）、开机启动、额度提醒和 Profile API 总量等都可配置。
@@ -89,7 +89,7 @@ Repo 对话体检：按项目和文件夹定位长线程，统计对话长度分
 ### Task Bar 总览
 
 <p align="center">
-  <img src="docs/images/task-bar-release.png" alt="Task Bar popover" width="420">
+  <img src="docs/images/task-bar-release.webp" alt="Task Bar popover" width="420">
 </p>
 
 Task Bar 把 Codex 和 Claude Code 任务合在一个小面板里，支持 `All / Running / Waiting / Done` 筛选。行内会显示任务状态、来源、标题、最近摘要和未读/等待状态，适合在多个 Codex 线程和 Claude 会话之间快速切换。
@@ -97,7 +97,7 @@ Task Bar 把 Codex 和 Claude Code 任务合在一个小面板里，支持 `All 
 ### Task Bar Hover
 
 <p align="center">
-  <img src="docs/images/task-bar-hover-release.png" alt="Task Bar row hover token detail" width="560">
+  <img src="docs/images/task-bar-hover-release.webp" alt="Task Bar row hover token detail" width="560">
 </p>
 
 任务行 hover 会显示该任务的可解释 token 摘要：状态、输入、输出、缓存率、对话轮次、压缩次数和模型。只有日志里能拆出来的字段才会展示；如果来源只提供总量，不会伪造输入/输出拆分。
@@ -234,12 +234,13 @@ Task Bar：
 "./build/Task Bar.app/Contents/MacOS/TaskBar" --print
 ```
 
-渲染 README 截图（`--redact` 会把仓库名和本机目录替换为演示数据，`-appLanguage` / `-numberUnitStyle` 可临时指定语言，不会改动应用设置）：
+渲染 README 截图（`--redact` 会把仓库名和本机目录替换为演示数据，`-appLanguage` / `-numberUnitStyle` 可临时指定语言，不会改动应用设置）。渲染输出 PNG，入库前用 `cwebp` 压缩成 WebP：
 
 ```bash
-"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" -appLanguage zh -numberUnitStyle chinese --render-dashboard=docs/images/ai-token-meter-release.png
-"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" -appLanguage zh -numberUnitStyle chinese --render-details=docs/images/zh-details-insights.png --section=insights --redact
-"./build/Task Bar.app/Contents/MacOS/TaskBar" --render-taskbar=docs/images/task-bar-release.png
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" -appLanguage zh -numberUnitStyle chinese --render-dashboard=/tmp/ai-token-meter-release.png
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/zh-details-insights.png --section=insights --redact
+"./build/Task Bar.app/Contents/MacOS/TaskBar" --render-taskbar=/tmp/task-bar-release.png
+cwebp -q 90 /tmp/zh-details-insights.png -o docs/images/zh-details-insights.webp
 ```
 
 ## 隐私

@@ -23,7 +23,7 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ### 状态栏面板
 
 <p align="center">
-  <img src="docs/images/zh-menu-popover.png" alt="AI Token Meter 中文状态栏面板" width="420">
+  <img src="docs/images/zh-menu-popover.webp" alt="AI Token Meter 中文状态栏面板" width="420">
 </p>
 
 支持 `全部 / Codex / Claude` 与 `24h / 7d / 30d` 切换；双平台剩余额度圆环、5 小时压力对比表、7 天用量柱状图和 API 等价成本一屏看完。
@@ -31,7 +31,7 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ### 详情概览
 
 <p align="center">
-  <img src="docs/images/zh-details-overview.png" alt="AI Token Meter 中文详情概览" width="760">
+  <img src="docs/images/zh-details-overview.webp" alt="AI Token Meter 中文详情概览" width="760">
 </p>
 
 过去 365 天按来源和模型统计的总量、输入/输出拆分和全年活动热力图。
@@ -39,7 +39,7 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ### 仓库洞察
 
 <p align="center">
-  <img src="docs/images/zh-details-insights.png" alt="AI Token Meter 中文仓库洞察页面" width="760">
+  <img src="docs/images/zh-details-insights.webp" alt="AI Token Meter 中文仓库洞察页面" width="760">
 </p>
 
 Repo 对话体检：按项目定位长线程和上下文压缩压力，给出对话长度分布、压缩分布、活跃天数强度和拆线程建议。
@@ -47,7 +47,7 @@ Repo 对话体检：按项目定位长线程和上下文压缩压力，给出对
 ### 活动日历
 
 <p align="center">
-  <img src="docs/images/zh-details-calendar.png" alt="AI Token Meter 中文活动日历页面" width="760">
+  <img src="docs/images/zh-details-calendar.webp" alt="AI Token Meter 中文活动日历页面" width="760">
 </p>
 
 点击日期查看单日明细：输入/输出/缓存拆分、Codex 与 Claude 占比、当日订阅价值和 API 等价成本；点击格子上方的圆点可看整周汇总。
@@ -55,7 +55,7 @@ Repo 对话体检：按项目定位长线程和上下文压缩压力，给出对
 ### 模型
 
 <p align="center">
-  <img src="docs/images/zh-details-models.png" alt="AI Token Meter 中文模型页面" width="760">
+  <img src="docs/images/zh-details-models.webp" alt="AI Token Meter 中文模型页面" width="760">
 </p>
 
 按模型聚合的 token 用量、占比条、会话/事件数和逐模型 API 等价成本。
@@ -63,7 +63,7 @@ Repo 对话体检：按项目定位长线程和上下文压缩压力，给出对
 ### 空间
 
 <p align="center">
-  <img src="docs/images/zh-details-storage.png" alt="AI Token Meter 中文空间页面" width="760">
+  <img src="docs/images/zh-details-storage.webp" alt="AI Token Meter 中文空间页面" width="760">
 </p>
 
 按来源、项目和类型追踪本地日志磁盘占用：近 14 天增长、最大项目排行、清理风险构成，并支持导出报告和在访达中打开。
@@ -71,7 +71,7 @@ Repo 对话体检：按项目定位长线程和上下文压缩压力，给出对
 ### 设置
 
 <p align="center">
-  <img src="docs/images/zh-details-settings.png" alt="AI Token Meter 中文设置页面" width="760">
+  <img src="docs/images/zh-details-settings.webp" alt="AI Token Meter 中文设置页面" width="760">
 </p>
 
 界面语言、数字单位、日志目录、状态栏显示与来源、额度样式、首页圆环口径、开机启动等都可配置。
@@ -79,7 +79,7 @@ Repo 对话体检：按项目定位长线程和上下文压缩压力，给出对
 ### 诊断
 
 <p align="center">
-  <img src="docs/images/zh-details-diagnostics.png" alt="AI Token Meter 中文诊断页面" width="760">
+  <img src="docs/images/zh-details-diagnostics.webp" alt="AI Token Meter 中文诊断页面" width="760">
 </p>
 
 <details>
@@ -88,37 +88,37 @@ Repo 对话体检：按项目定位长线程和上下文压缩压力，给出对
 ### Menu Bar Dashboard
 
 <p align="center">
-  <img src="docs/images/en-menu-popover.png" alt="AI Token Meter English menu bar dashboard" width="420">
+  <img src="docs/images/en-menu-popover.webp" alt="AI Token Meter English menu bar dashboard" width="420">
 </p>
 
 ### Repository Insights
 
 <p align="center">
-  <img src="docs/images/en-details-insights.png" alt="AI Token Meter English repository insights page" width="760">
+  <img src="docs/images/en-details-insights.webp" alt="AI Token Meter English repository insights page" width="760">
 </p>
 
 ### Details Overview
 
 <p align="center">
-  <img src="docs/images/en-details-overview.png" alt="AI Token Meter English details overview" width="760">
+  <img src="docs/images/en-details-overview.webp" alt="AI Token Meter English details overview" width="760">
 </p>
 
 ### Activity Calendar
 
 <p align="center">
-  <img src="docs/images/en-details-calendar.png" alt="AI Token Meter English activity calendar page" width="760">
+  <img src="docs/images/en-details-calendar.webp" alt="AI Token Meter English activity calendar page" width="760">
 </p>
 
 ### Storage
 
 <p align="center">
-  <img src="docs/images/en-details-storage.png" alt="AI Token Meter English storage page" width="760">
+  <img src="docs/images/en-details-storage.webp" alt="AI Token Meter English storage page" width="760">
 </p>
 
 ### Diagnostics
 
 <p align="center">
-  <img src="docs/images/en-details-diagnostics.png" alt="AI Token Meter English diagnostics page" width="760">
+  <img src="docs/images/en-details-diagnostics.webp" alt="AI Token Meter English diagnostics page" width="760">
 </p>
 
 </details>
