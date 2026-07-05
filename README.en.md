@@ -23,7 +23,7 @@ All screenshots below are rendered with the built-in `--redact` mode: repository
 ### Menu Bar Dashboard
 
 <p align="center">
-  <img src="docs/images/en-menu-popover.png" alt="AI Token Meter menu bar dashboard" width="420">
+  <img src="docs/images/en-menu-popover.webp" alt="AI Token Meter menu bar dashboard" width="420">
 </p>
 
 Switch between `All / Codex / Claude` and `24h / 7d / 30d`. Platform quota rings, a 5-hour pressure comparison table, 7-day usage bars, and API-equivalent cost in one panel.
@@ -31,7 +31,7 @@ Switch between `All / Codex / Claude` and `24h / 7d / 30d`. Platform quota rings
 ### Details Overview
 
 <p align="center">
-  <img src="docs/images/en-details-overview.png" alt="AI Token Meter details overview" width="760">
+  <img src="docs/images/en-details-overview.webp" alt="AI Token Meter details overview" width="760">
 </p>
 
 365-day totals by source and model, input/output breakdown, and a full-year activity heatmap.
@@ -39,7 +39,7 @@ Switch between `All / Codex / Claude` and `24h / 7d / 30d`. Platform quota rings
 ### Repository Insights
 
 <p align="center">
-  <img src="docs/images/en-details-insights.png" alt="AI Token Meter repository insights page" width="760">
+  <img src="docs/images/en-details-insights.webp" alt="AI Token Meter repository insights page" width="760">
 </p>
 
 Repo conversation check: find long-running threads and context-compaction pressure per project, with length/compaction distributions, active-day intensity, and split-thread recommendations.
@@ -47,7 +47,7 @@ Repo conversation check: find long-running threads and context-compaction pressu
 ### Activity Calendar
 
 <p align="center">
-  <img src="docs/images/en-details-calendar.png" alt="AI Token Meter activity calendar page" width="760">
+  <img src="docs/images/en-details-calendar.webp" alt="AI Token Meter activity calendar page" width="760">
 </p>
 
 Click a day for its detail card: input/output/cache split, Codex vs Claude share, that day's subscription value, and API-equivalent cost. Click the dot above a column for a weekly summary.
@@ -55,7 +55,7 @@ Click a day for its detail card: input/output/cache split, Codex vs Claude share
 ### Models
 
 <p align="center">
-  <img src="docs/images/en-details-models.png" alt="AI Token Meter models page" width="760">
+  <img src="docs/images/en-details-models.webp" alt="AI Token Meter models page" width="760">
 </p>
 
 Per-model token aggregation, share bar, session/event counts, and per-model API-equivalent cost.
@@ -63,7 +63,7 @@ Per-model token aggregation, share bar, session/event counts, and per-model API-
 ### Storage
 
 <p align="center">
-  <img src="docs/images/en-details-storage.png" alt="AI Token Meter storage page" width="760">
+  <img src="docs/images/en-details-storage.webp" alt="AI Token Meter storage page" width="760">
 </p>
 
 Track local log disk usage by source, project, and category: 14-day growth, largest projects, cleanup-risk composition, report export, and open-in-Finder.
@@ -71,7 +71,7 @@ Track local log disk usage by source, project, and category: 14-day growth, larg
 ### Settings
 
 <p align="center">
-  <img src="docs/images/en-details-settings.png" alt="AI Token Meter settings page" width="760">
+  <img src="docs/images/en-details-settings.webp" alt="AI Token Meter settings page" width="760">
 </p>
 
 Interface language, number units, log folders, status-bar display and source, quota style, home-ring metrics, launch at login, and more.
@@ -79,7 +79,7 @@ Interface language, number units, log folders, status-bar display and source, qu
 ### Diagnostics
 
 <p align="center">
-  <img src="docs/images/en-details-diagnostics.png" alt="AI Token Meter diagnostics page" width="760">
+  <img src="docs/images/en-details-diagnostics.webp" alt="AI Token Meter diagnostics page" width="760">
 </p>
 
 <details>
@@ -88,37 +88,37 @@ Interface language, number units, log folders, status-bar display and source, qu
 ### 状态栏面板
 
 <p align="center">
-  <img src="docs/images/zh-menu-popover.png" alt="AI Token Meter Chinese menu bar dashboard" width="420">
+  <img src="docs/images/zh-menu-popover.webp" alt="AI Token Meter Chinese menu bar dashboard" width="420">
 </p>
 
 ### 仓库洞察
 
 <p align="center">
-  <img src="docs/images/zh-details-insights.png" alt="AI Token Meter Chinese repository insights page" width="760">
+  <img src="docs/images/zh-details-insights.webp" alt="AI Token Meter Chinese repository insights page" width="760">
 </p>
 
 ### 详情概览
 
 <p align="center">
-  <img src="docs/images/zh-details-overview.png" alt="AI Token Meter Chinese details overview" width="760">
+  <img src="docs/images/zh-details-overview.webp" alt="AI Token Meter Chinese details overview" width="760">
 </p>
 
 ### 活动日历
 
 <p align="center">
-  <img src="docs/images/zh-details-calendar.png" alt="AI Token Meter Chinese activity calendar page" width="760">
+  <img src="docs/images/zh-details-calendar.webp" alt="AI Token Meter Chinese activity calendar page" width="760">
 </p>
 
 ### 空间
 
 <p align="center">
-  <img src="docs/images/zh-details-storage.png" alt="AI Token Meter Chinese storage page" width="760">
+  <img src="docs/images/zh-details-storage.webp" alt="AI Token Meter Chinese storage page" width="760">
 </p>
 
 ### 诊断
 
 <p align="center">
-  <img src="docs/images/zh-details-diagnostics.png" alt="AI Token Meter Chinese diagnostics page" width="760">
+  <img src="docs/images/zh-details-diagnostics.webp" alt="AI Token Meter Chinese diagnostics page" width="760">
 </p>
 
 </details>
