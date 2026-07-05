@@ -252,7 +252,7 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         let height = view.preferredDocumentHeight(for: 1280)
         view.frame = NSRect(x: 0, y: 0, width: 1280, height: height)
     }
-    if section == .calendar {
+    if section == .calendar || section == .costs {
         let height = view.preferredDocumentHeight(for: 1280)
         view.frame = NSRect(x: 0, y: 0, width: 1280, height: height)
     }
