@@ -14,6 +14,31 @@ private struct ReadStateFile: Codable {
     var openedAt: [String: TimeInterval]
     var runningSeenAt: [String: TimeInterval]?
     var userReadAt: [String: TimeInterval]?
+    var codexUnreadSeenAt: [String: TimeInterval]?
+}
+
+/// The Codex desktop app persists its own unread-thread set here; opening a
+/// thread in Codex removes its id. Returns nil when the file is missing or the
+/// atom cannot be parsed, so a read failure is never mistaken for "everything
+/// was read".
+private func codexDesktopUnreadThreadIDs() -> Set<String>? {
+    let fileURL = URL(fileURLWithPath: NSHomeDirectory())
+        .appendingPathComponent(".codex", isDirectory: true)
+        .appendingPathComponent(".codex-global-state.json")
+    guard let data = try? Data(contentsOf: fileURL),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let atoms = object["electron-persisted-atom-state"] as? [String: Any],
+          let unreadByHost = atoms["unread-thread-ids-by-host-v1"] as? [String: Any] else {
+        return nil
+    }
+
+    var ids = Set<String>()
+    for value in unreadByHost.values {
+        if let array = value as? [Any] {
+            ids.formUnion(array.compactMap(string))
+        }
+    }
+    return ids
 }
 
 private struct LoggedThread {
@@ -519,23 +544,7 @@ final class CodexActivityReader {
     }
 
     private func globalUnreadThreadIDs() -> Set<String> {
-        let fileURL = URL(fileURLWithPath: home)
-            .appendingPathComponent(".codex", isDirectory: true)
-            .appendingPathComponent(".codex-global-state.json")
-        guard let data = try? Data(contentsOf: fileURL),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let atoms = object["electron-persisted-atom-state"] as? [String: Any],
-              let unreadByHost = atoms["unread-thread-ids-by-host-v1"] as? [String: Any] else {
-            return []
-        }
-
-        var ids = Set<String>()
-        for value in unreadByHost.values {
-            if let array = value as? [Any] {
-                ids.formUnion(array.compactMap(string))
-            }
-        }
-        return ids
+        codexDesktopUnreadThreadIDs() ?? []
     }
 
     private func firstArray(in object: [String: Any], keys: [String]) -> [Any] {
@@ -1465,7 +1474,7 @@ final class CodexActivityReader {
 }
 
 final class ReadStateStore {
-    private static let schemaVersion = 4
+    private static let schemaVersion = 5
     private static let readWatermarkTolerance: TimeInterval = 60
     /// A thread first seen as "unread" may simply be one whose running phase every
     /// scan missed — scans are periodic and can be starved for minutes under system
@@ -1498,7 +1507,8 @@ final class ReadStateStore {
                 didBaselineExistingWaiting: decoded.didBaselineExistingWaiting,
                 openedAt: decoded.openedAt,
                 runningSeenAt: decoded.runningSeenAt ?? [:],
-                userReadAt: decoded.userReadAt
+                userReadAt: decoded.userReadAt,
+                codexUnreadSeenAt: decoded.codexUnreadSeenAt ?? [:]
             )
         } else {
             state = ReadStateFile(
@@ -1506,7 +1516,8 @@ final class ReadStateStore {
                 didBaselineExistingWaiting: false,
                 openedAt: [:],
                 runningSeenAt: [:],
-                userReadAt: [:]
+                userReadAt: [:],
+                codexUnreadSeenAt: [:]
             )
         }
     }
@@ -1532,6 +1543,7 @@ final class ReadStateStore {
             }
         }
         current.runningSeenAt = runningSeenAt
+        syncCodexDesktopReads(&current, items: items, didChange: &didChange)
 
         for item in items where !item.isExplicitUnread {
             guard let externalReadAt = item.externalReadAt,
@@ -1563,7 +1575,11 @@ final class ReadStateStore {
                         current.openedAt[item.id] = timestamp
                         didChange = true
                     }
-                    visible.append(item)
+                    // A local dismissal outranks Codex's still-unread flag; the
+                    // thread resurfaces only when it gains newer activity.
+                    if (current.userReadAt?[item.id] ?? 0) < item.lastActivity.timeIntervalSince1970 {
+                        visible.append(item)
+                    }
                     continue
                 }
                 let readAt = current.openedAt[item.id] ?? 0
@@ -1632,6 +1648,37 @@ final class ReadStateStore {
         state.didBaselineExistingWaiting = true
         saveLocked()
         lock.unlock()
+    }
+
+    /// Codex has no per-thread readAt, but its desktop app keeps an unread-id
+    /// set that shrinks when the user opens a thread there. Membership is
+    /// remembered across polls; an id that leaves the set was read (or archived)
+    /// in Codex, which counts as a user read here too. New activity after that
+    /// moves lastActivity past the watermark, so the thread resurfaces normally.
+    private func syncCodexDesktopReads(_ current: inout ReadStateFile, items: [CodexThreadItem], didChange: inout Bool) {
+        guard let unreadIDs = codexDesktopUnreadThreadIDs() else { return }
+        var seenAt = current.codexUnreadSeenAt ?? [:]
+        let itemsByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let now = Date()
+        for id in seenAt.keys where !unreadIDs.contains(id) {
+            seenAt.removeValue(forKey: id)
+            let timestamp = itemsByID[id].map { readThroughTime(for: $0, at: now) }
+                ?? now.timeIntervalSince1970
+            if (current.openedAt[id] ?? 0) < timestamp {
+                current.openedAt[id] = timestamp
+            }
+            var userReadAt = current.userReadAt ?? [:]
+            if (userReadAt[id] ?? 0) < timestamp {
+                userReadAt[id] = timestamp
+            }
+            current.userReadAt = userReadAt
+            didChange = true
+        }
+        for id in unreadIDs where seenAt[id] == nil {
+            seenAt[id] = now.timeIntervalSince1970
+            didChange = true
+        }
+        current.codexUnreadSeenAt = seenAt
     }
 
     private func shouldBaselineAsRead(_ item: CodexThreadItem, state: ReadStateFile) -> Bool {
