@@ -2648,19 +2648,21 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 : selectedDayPanelPreferredHeight(contentWidth: contentWidth)
             targetHeight = 174 + gridHeight + detailHeight
         case .costs:
-            let weeklyPanelHeight: CGFloat
+            let topOffset: CGFloat = 78
+            let sectionGap: CGFloat = 16
+            let fiveHourPanelHeight: CGFloat = 176
+            let bottomPadding: CGFloat = 44
             if let snapshot {
                 let model = quotaCyclePageModel(for: snapshot)
-                weeklyPanelHeight = weeklyHistoryPanelHeight(rowCount: model.weeklyRows.count, contentWidth: contentWidth)
+                if model.moneySummary != nil {
+                    targetHeight = topOffset + 96 + sectionGap + 172 + sectionGap + 330 + sectionGap + fiveHourPanelHeight + bottomPadding
+                } else {
+                    let weeklyPanelHeight = weeklyHistoryPanelHeight(rowCount: model.weeklyRows.count, contentWidth: contentWidth)
+                    targetHeight = topOffset + 150 + sectionGap + weeklyPanelHeight + sectionGap + fiveHourPanelHeight + bottomPadding
+                }
             } else {
-                weeklyPanelHeight = 96
+                targetHeight = topOffset + 150 + sectionGap + 96 + sectionGap + fiveHourPanelHeight + bottomPadding
             }
-            let topOffset: CGFloat = 78
-            let currentPanelHeight: CGFloat = 150
-            let fiveHourPanelHeight: CGFloat = 176
-            let sectionGap: CGFloat = 16
-            let bottomPadding: CGFloat = 44
-            targetHeight = topOffset + currentPanelHeight + sectionGap + weeklyPanelHeight + sectionGap + fiveHourPanelHeight + bottomPadding
         case .diagnostics:
             targetHeight = 714
         case .storage:
@@ -5447,9 +5449,27 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let isPartial: Bool
         var tokenText: String?
         var apiCostText: String?
+        var moneyValue: Double?
+        var usedMoneyValue: Double?
 
         var isEarlyRefresh: Bool { kind == .earlyRefresh }
         var isCapped: Bool { percent >= 97 }
+        var wastedMoneyValue: Double? {
+            guard let moneyValue, let usedMoneyValue, !isCurrent else { return nil }
+            return max(0, moneyValue - usedMoneyValue)
+        }
+    }
+
+    private struct QuotaCycleMoneySummary {
+        let cycleCount: Int
+        let totalValue: Double
+        let usedValue: Double
+        let wastedValue: Double
+        let currentValue: Double?
+        let currentUsedValue: Double?
+        let currentRemainTokensText: String?
+        let monthlyCost: Double
+        let weeklyBudget: Double
     }
 
     private struct QuotaCycleBarModel {
@@ -5468,6 +5488,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let cappedCount: Int
         let hasBackfilledRows: Bool
         let hasEarlyRefreshRows: Bool
+        let moneySummary: QuotaCycleMoneySummary?
+        let currentDailyUsage: [(day: String, total: Int64)]
 
         var hasFootnote: Bool { hasBackfilledRows || hasEarlyRefreshRows }
     }
@@ -5527,6 +5549,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         // Local-log usage attributed to each cycle, for tooltips: day-level
         // sums for weekly cycles, hour-level sums for 5h cycles.
         let usageReport = quotaCycleSource == .claude ? snapshot.claude : snapshot.codex
+        let moneySource = quotaCycleSource
+        let monthlyCost = AppSettings.monthlyPlanCost(for: moneySource)
+        let weeklyBudget = monthlyCost > 0 ? monthlyCost * 12 / 52 : 0
         let dayParser = dayFormatter()
         struct CycleDayStat {
             let midpoint: Date
@@ -5674,6 +5699,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
 
             let usageStats = cycleUsageStats(start: info.start, end: info.isCurrent ? Date() : effectiveEnd)
+            // Cycle value: the weekly plan budget, pro-rated for cycles that
+            // were cut short by an early refresh.
+            var moneyValue: Double?
+            var usedMoneyValue: Double?
+            if weeklyBudget > 0, let start = info.start {
+                let span = max(0, effectiveEnd.timeIntervalSince(start))
+                let value = weeklyBudget * min(1, span / (7 * 86_400))
+                moneyValue = value
+                usedMoneyValue = value * max(0, min(100, info.percent)) / 100
+            }
             rows.append(QuotaCycleRowModel(
                 shortRange: shortRange,
                 fullRange: fullRange,
@@ -5685,11 +5720,73 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 isCurrent: info.isCurrent,
                 isPartial: info.isBackfilled,
                 tokenText: usageStats.tokenText,
-                apiCostText: usageStats.apiCostText
+                apiCostText: usageStats.apiCostText,
+                moneyValue: moneyValue,
+                usedMoneyValue: usedMoneyValue
             ))
         }
         rows.reverse()
         rows = Array(rows.prefix(60))
+
+        // Money summary over the shown cycles, plus a token estimate for the
+        // remaining share of the current cycle.
+        var moneySummary: QuotaCycleMoneySummary?
+        if weeklyBudget > 0, !rows.isEmpty {
+            var totalValue = 0.0
+            var usedValue = 0.0
+            var wastedValue = 0.0
+            var currentValue: Double?
+            var currentUsedValue: Double?
+            for row in rows {
+                guard let value = row.moneyValue, let used = row.usedMoneyValue else { continue }
+                totalValue += value
+                usedValue += used
+                if row.isCurrent {
+                    currentValue = value
+                    currentUsedValue = used
+                } else {
+                    wastedValue += max(0, value - used)
+                }
+            }
+            var remainTokensText: String?
+            if let currentRow = rows.first(where: { $0.isCurrent }),
+               let estimator = CostEstimator(
+                   report: usageReport,
+                   limit: limit,
+                   quotaReferenceReport: nil,
+                   monthlyCost: monthlyCost,
+                   paymentStartDay: AppSettings.paymentStartDay(for: moneySource)
+               ) {
+                let remainPercent = max(0, 100 - currentRow.percent)
+                let tokens = Int64(estimator.weeklyReferenceTotal * remainPercent / 100)
+                if tokens > 0 {
+                    remainTokensText = String(format: t(.cycleTokensApproxFormat), compact(tokens))
+                }
+            }
+            moneySummary = QuotaCycleMoneySummary(
+                cycleCount: rows.count,
+                totalValue: totalValue,
+                usedValue: usedValue,
+                wastedValue: wastedValue,
+                currentValue: currentValue,
+                currentUsedValue: currentUsedValue,
+                currentRemainTokensText: remainTokensText,
+                monthlyCost: monthlyCost,
+                weeklyBudget: weeklyBudget
+            )
+        }
+
+        // Daily usage inside the current cycle for the mini distribution.
+        var currentDailyUsage: [(day: String, total: Int64)] = []
+        if let currentInfo, let currentStart = currentInfo.start {
+            for day in usageReport.byDay {
+                guard let date = dayParser.date(from: day.day) else { continue }
+                let midpoint = date.addingTimeInterval(43_200)
+                guard midpoint >= currentStart, midpoint < Date().addingTimeInterval(43_200) else { continue }
+                currentDailyUsage.append((day: day.day, total: day.usage.total))
+            }
+            currentDailyUsage.sort { $0.day < $1.day }
+        }
 
         var bars: [QuotaCycleBarModel] = QuotaCycleStore.shared.cycles(limitID: limitID, kind: .fiveHour).compactMap { record in
             guard let end = record.resetAtDate(iso) else { return nil }
@@ -5744,7 +5841,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             fiveHourBars: bars,
             cappedCount: capped,
             hasBackfilledRows: hasBackfilled,
-            hasEarlyRefreshRows: hasEarlyRefresh
+            hasEarlyRefreshRows: hasEarlyRefresh,
+            moneySummary: moneySummary,
+            currentDailyUsage: currentDailyUsage
         )
     }
 
@@ -5756,21 +5855,282 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     private func drawQuotaCyclesPage(snapshot: DetailsSnapshot, content: NSRect) {
         let model = quotaCyclePageModel(for: snapshot)
-
         let panelGap: CGFloat = 16
-        let currentHeight: CGFloat = 150
-        let panelWidth = (content.width - panelGap) / 2
-        let fiveHourRect = NSRect(x: content.minX, y: content.minY + 78, width: panelWidth, height: currentHeight)
-        let weeklyCurrentRect = NSRect(x: fiveHourRect.maxX + panelGap, y: fiveHourRect.minY, width: panelWidth, height: currentHeight)
-        drawCurrentCyclePanel(window: model.limit?.primary, title: t(.fiveHourWindow), rect: fiveHourRect)
-        drawCurrentCyclePanel(window: model.limit?.secondary, title: t(.weeklyWindow), rect: weeklyCurrentRect)
 
-        let historyHeight = weeklyHistoryPanelHeight(rowCount: model.weeklyRows.count, contentWidth: content.width)
-        let historyRect = NSRect(x: content.minX, y: fiveHourRect.maxY + panelGap, width: content.width, height: historyHeight)
-        drawWeeklyCycleHistory(model: model, rect: historyRect)
+        guard model.moneySummary != nil else {
+            // No plan cost configured: fall back to the percent-only layout.
+            let currentHeight: CGFloat = 150
+            let panelWidth = (content.width - panelGap) / 2
+            let fiveHourRect = NSRect(x: content.minX, y: content.minY + 78, width: panelWidth, height: currentHeight)
+            let weeklyCurrentRect = NSRect(x: fiveHourRect.maxX + panelGap, y: fiveHourRect.minY, width: panelWidth, height: currentHeight)
+            drawCurrentCyclePanel(window: model.limit?.primary, title: t(.fiveHourWindow), rect: fiveHourRect)
+            drawCurrentCyclePanel(window: model.limit?.secondary, title: t(.weeklyWindow), rect: weeklyCurrentRect)
+            let historyHeight = weeklyHistoryPanelHeight(rowCount: model.weeklyRows.count, contentWidth: content.width)
+            let historyRect = NSRect(x: content.minX, y: fiveHourRect.maxY + panelGap, width: content.width, height: historyHeight)
+            drawWeeklyCycleHistory(model: model, rect: historyRect)
+            let stripRect = NSRect(x: content.minX, y: historyRect.maxY + panelGap, width: content.width, height: 176)
+            drawFiveHourCycleStrip(model: model, rect: stripRect)
+            return
+        }
 
-        let stripRect = NSRect(x: content.minX, y: historyRect.maxY + panelGap, width: content.width, height: 176)
-        drawFiveHourCycleStrip(model: model, rect: stripRect)
+        var y = content.minY + 78
+        drawMoneySummaryCards(model: model, rect: NSRect(x: content.minX, y: y, width: content.width, height: 96))
+        y += 96 + panelGap
+        let currentRect = NSRect(x: content.minX, y: y, width: content.width, height: 172)
+        drawCurrentCycleMoneyPanel(model: model, rect: currentRect)
+        y += 172 + panelGap
+        let barsRect = NSRect(x: content.minX, y: y, width: content.width, height: 330)
+        drawCycleValueBars(model: model, rect: barsRect)
+        y += 330 + panelGap
+        drawFiveHourCycleStrip(model: model, rect: NSRect(x: content.minX, y: y, width: content.width, height: 176))
+    }
+
+    private func drawMoneySummaryCards(model: QuotaCyclePageModel, rect: NSRect) {
+        guard let money = model.moneySummary else { return }
+        let source = quotaCycleSource
+        let gap: CGFloat = 12
+        let cardWidth = (rect.width - gap * 3) / 4
+        let usedShare = money.totalValue > 0 ? Int(round(money.usedValue / money.totalValue * 100)) : 0
+        let wastedShare = money.totalValue > 0 ? Int(round(money.wastedValue / money.totalValue * 100)) : 0
+        let currentRemain = (money.currentValue ?? 0) - (money.currentUsedValue ?? 0)
+        let currentRemainShare = (money.currentValue ?? 0) > 0 ? Int(round(currentRemain / (money.currentValue ?? 1) * 100)) : 0
+        var remainSub = "\(currentRemainShare)%"
+        if let tokens = money.currentRemainTokensText {
+            remainSub += " \(tokens)"
+        }
+
+        let cards: [(title: String, value: String, valueColor: NSColor, sub: String)] = [
+            (
+                String(format: t(.cycleMoneySummaryValueFormat), money.cycleCount),
+                displayMoney(money.totalValue, source: source),
+                .white,
+                String(format: t(.cycleMoneyPerCycleFormat), displayMoney(money.monthlyCost, source: source), displayMoney(money.weeklyBudget, source: source))
+            ),
+            (
+                t(.cycleMoneyUsedTitle),
+                displayMoney(money.usedValue, source: source),
+                accentTeal,
+                "\(usedShare)%"
+            ),
+            (
+                t(.cycleMoneyWastedTitle),
+                displayMoney(money.wastedValue, source: source),
+                money.wastedValue >= money.weeklyBudget * 0.5 ? accentRose : NSColor.white.withAlphaComponent(0.85),
+                "\(wastedShare)%"
+            ),
+            (
+                t(.cycleMoneyRemainTitle),
+                money.currentValue != nil ? displayMoney(max(0, currentRemain), source: source) : "--",
+                accentAmber,
+                remainSub
+            )
+        ]
+        for (index, card) in cards.enumerated() {
+            let cardRect = NSRect(x: rect.minX + CGFloat(index) * (cardWidth + gap), y: rect.minY, width: cardWidth, height: rect.height)
+            drawPanel(cardRect)
+            drawText(card.title, rect: NSRect(x: cardRect.minX + 16, y: cardRect.minY + 14, width: cardRect.width - 32, height: 16), font: .systemFont(ofSize: 11.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.5))
+            drawText(card.value, rect: NSRect(x: cardRect.minX + 16, y: cardRect.minY + 34, width: cardRect.width - 32, height: 28), font: .monospacedDigitSystemFont(ofSize: 23, weight: .bold), color: card.valueColor)
+            drawTruncatedText(card.sub, rect: NSRect(x: cardRect.minX + 16, y: cardRect.minY + 66, width: cardRect.width - 32, height: 15), font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+        }
+    }
+
+    private func drawCurrentCycleMoneyPanel(model: QuotaCyclePageModel, rect: NSRect) {
+        drawPanel(rect)
+        let source = quotaCycleSource
+        guard let window = model.limit?.secondary,
+              window.windowMinutes > 0,
+              let currentRow = model.weeklyRows.first(where: { $0.isCurrent }) else {
+            drawText(t(.cycleCurrentTitle), rect: NSRect(x: rect.minX + 18, y: rect.minY + 16, width: 300, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+            drawText(t(.liveLimitUnavailable), rect: NSRect(x: rect.minX + 18, y: rect.minY + 52, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        let headerText = "\(t(.cycleCurrentTitle)) · \(currentRow.shortRange)"
+        drawText(headerText, rect: NSRect(x: rect.minX + 18, y: rect.minY + 16, width: rect.width * 0.5, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+        if let resetsAt = window.resetsAt {
+            let resetText = "\(t(.reset)) \(compactResetRelative(resetsAt)) · \(Self.cycleRangeFormatter.string(from: resetsAt))"
+            drawRight(resetText, rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: rect.width - 36, height: 16), color: NSColor.white.withAlphaComponent(0.52), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
+        }
+
+        let used = max(0, min(100, window.usedPercent))
+        let usedColor = cycleSeverityColor(used)
+        let leftWidth = rect.width * 0.56 - 18
+        var bigText = "\(t(.used)) \(Int(round(used)))%"
+        if let usedMoney = currentRow.usedMoneyValue {
+            bigText += " · \(displayMoney(usedMoney, source: source))"
+        }
+        drawText(bigText, rect: NSRect(x: rect.minX + 18, y: rect.minY + 46, width: leftWidth, height: 30), font: .monospacedDigitSystemFont(ofSize: 24, weight: .bold), color: usedColor)
+
+        let barRect = NSRect(x: rect.minX + 18, y: rect.minY + 96, width: leftWidth, height: 10)
+        NSColor.white.withAlphaComponent(0.10).setFill()
+        NSBezierPath(roundedRect: barRect, xRadius: 5, yRadius: 5).fill()
+        let fillWidth = barRect.width * CGFloat(used / 100)
+        if fillWidth > 1 {
+            usedColor.setFill()
+            NSBezierPath(roundedRect: NSRect(x: barRect.minX, y: barRect.minY, width: fillWidth, height: barRect.height), xRadius: 5, yRadius: 5).fill()
+        }
+        var paceText = ""
+        if let pace = paceComparison(for: window) {
+            let markerX = barRect.minX + barRect.width * CGFloat(min(100, max(0, pace.progressPercent)) / 100)
+            NSColor.white.withAlphaComponent(0.72).setFill()
+            NSRect(x: markerX - 1, y: barRect.minY - 4, width: 2, height: barRect.height + 8).fill()
+            let delta = Int(round(used - pace.progressPercent))
+            paceText = delta > 0 ? String(format: t(.cyclePaceAheadFormat), delta) : String(format: t(.cyclePaceBehindFormat), -delta)
+            let progressFraction = pace.progressPercent / 100
+            if progressFraction >= 0.03, used >= 1, used < 100 {
+                let projectedEnd = used / progressFraction
+                if projectedEnd >= 100 {
+                    let elapsedSeconds = Double(window.windowMinutes) * 60 * progressFraction
+                    let secondsToCap = elapsedSeconds * (100 - used) / used
+                    paceText += " · \(String(format: t(.cyclePaceCapEtaFormat), compactResetRelative(Date().addingTimeInterval(secondsToCap))))"
+                } else {
+                    paceText += " · \(String(format: t(.cyclePaceEndProjectionFormat), Int(round(projectedEnd))))"
+                }
+            }
+        }
+        if !paceText.isEmpty {
+            drawTruncatedText(paceText, rect: NSRect(x: rect.minX + 18, y: barRect.maxY + 12, width: leftWidth, height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        }
+
+        // Right column: remaining money/tokens plus the daily distribution.
+        let rightX = rect.minX + rect.width * 0.6
+        let rightWidth = rect.maxX - 18 - rightX
+        if let money = model.moneySummary, let currentValue = money.currentValue, let currentUsed = money.currentUsedValue {
+            let remain = max(0, currentValue - currentUsed)
+            var remainText = "\(t(.remaining)) \(displayMoney(remain, source: source))"
+            if let tokens = money.currentRemainTokensText {
+                remainText += " \(tokens)"
+            }
+            drawText(remainText, rect: NSRect(x: rightX, y: rect.minY + 50, width: rightWidth, height: 18), font: .monospacedDigitSystemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.82))
+        }
+        if !model.currentDailyUsage.isEmpty {
+            let barsTop = rect.minY + 82
+            let barsBottom = rect.minY + 130
+            let barsHeight = barsBottom - barsTop
+            let count = model.currentDailyUsage.count
+            let gap: CGFloat = 6
+            let dayBarWidth = min(40, (rightWidth - gap * CGFloat(max(count - 1, 0))) / CGFloat(count))
+            let maxTotal = max(model.currentDailyUsage.map(\.total).max() ?? 1, 1)
+            for (index, day) in model.currentDailyUsage.enumerated() {
+                let height = max(3, barsHeight * CGFloat(Double(day.total) / Double(maxTotal)))
+                let dayRect = NSRect(
+                    x: rightX + CGFloat(index) * (dayBarWidth + gap),
+                    y: barsBottom - height,
+                    width: dayBarWidth,
+                    height: height
+                )
+                accentAmber.withAlphaComponent(index == count - 1 ? 1 : 0.5).setFill()
+                NSBezierPath(roundedRect: dayRect, xRadius: 2.5, yRadius: 2.5).fill()
+            }
+            drawText(t(.cycleDailyHint), rect: NSRect(x: rightX, y: barsBottom + 8, width: rightWidth, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.38))
+        }
+    }
+
+    private func drawCycleValueBars(model: QuotaCyclePageModel, rect: NSRect) {
+        drawPanel(rect)
+        quotaCycleTooltipRows = model.weeklyRows
+        drawText(t(.cycleHistoryTitle), rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: 320, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
+        let completed = model.weeklyRows.filter { !$0.isCurrent }
+        var summaryParts: [String] = []
+        summaryParts.append(String(format: t(.cycleCappedCountFormat), completed.filter(\.isCapped).count))
+        let earlyCount = model.weeklyRows.filter(\.isEarlyRefresh).count
+        if earlyCount > 0 {
+            summaryParts.append(String(format: t(.cycleEarlyCountFormat), earlyCount))
+        }
+        drawRight(summaryParts.joined(separator: " · "), rect: NSRect(x: rect.minX + 16, y: rect.minY + 18, width: rect.width - 32, height: 16), color: NSColor.white.withAlphaComponent(0.5), font: .monospacedDigitSystemFont(ofSize: 11, weight: .medium))
+
+        guard !model.weeklyRows.isEmpty else {
+            drawText(t(.cycleNoHistory), rect: NSRect(x: rect.minX + 16, y: rect.minY + 52, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        let source = quotaCycleSource
+        let cells = Array(model.weeklyRows.reversed())
+        let count = cells.count
+        let showsBadges = count <= 8
+        let areaX = rect.minX + 18
+        let areaWidth = rect.width - 36
+        let gap: CGFloat = count > 16 ? 6 : 14
+        let barWidth = min(66, (areaWidth - gap * CGFloat(max(count - 1, 0))) / CGFloat(count))
+        let groupWidth = barWidth * CGFloat(count) + gap * CGFloat(max(count - 1, 0))
+        let groupX = areaX + max(0, (areaWidth - groupWidth) / 2)
+        let barsTop = rect.minY + 56
+        let barsBottom = rect.maxY - (showsBadges ? 96 : 72)
+        let maxValue = max(model.weeklyRows.compactMap(\.moneyValue).max() ?? 1, 0.01)
+
+        for (displayIndex, row) in cells.enumerated() {
+            let modelIndex = count - 1 - displayIndex
+            let value = row.moneyValue ?? 0
+            let usedMoney = row.usedMoneyValue ?? 0
+            let barX = groupX + CGFloat(displayIndex) * (barWidth + gap)
+            let totalHeight = max(6, (barsBottom - barsTop) * CGFloat(value / maxValue))
+            let usedHeight = max(3, totalHeight * CGFloat(max(0, min(100, row.percent)) / 100))
+            let wasteHeight = max(0, totalHeight - usedHeight)
+
+            if wasteHeight > 0.5 {
+                accentRose.withAlphaComponent(row.isCurrent ? 0.14 : (row.isPartial ? 0.3 : 0.45)).setFill()
+                NSBezierPath(roundedRect: NSRect(x: barX, y: barsBottom - totalHeight, width: barWidth, height: wasteHeight), xRadius: 4, yRadius: 4).fill()
+            }
+            let usedColor = row.isCurrent ? accentAmber : (row.isPartial ? accentTeal.withAlphaComponent(0.55) : accentTeal)
+            let usedPath = NSBezierPath(roundedRect: NSRect(x: barX, y: barsBottom - usedHeight, width: barWidth, height: usedHeight), xRadius: 4, yRadius: 4)
+            usedColor.setFill()
+            usedPath.fill()
+            if row.isCurrent {
+                accentAmber.setStroke()
+                let focus = NSBezierPath(roundedRect: NSRect(x: barX - 3, y: barsBottom - totalHeight - 3, width: barWidth + 6, height: totalHeight + 6), xRadius: 6, yRadius: 6)
+                focus.lineWidth = 1.5
+                focus.stroke()
+            }
+
+            let topLabel: String
+            let topColor: NSColor
+            if row.isCurrent {
+                topLabel = displayMoney(usedMoney, source: source)
+                topColor = accentAmber
+            } else if let waste = row.wastedMoneyValue, waste >= 1 {
+                topLabel = "-\(displayMoney(waste, source: source))"
+                topColor = accentRose.withAlphaComponent(0.92)
+            } else {
+                topLabel = "≈0"
+                topColor = NSColor.white.withAlphaComponent(0.4)
+            }
+            let topLabelFont = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold)
+            let topLabelY = barsBottom - totalHeight - 20
+            drawCentered(topLabel, rect: NSRect(x: barX - gap / 2, y: topLabelY, width: barWidth + gap, height: 14), font: topLabelFont, color: topColor)
+            if row.isCapped {
+                let topLabelWidth = measuredTextWidth(topLabel, font: topLabelFont)
+                accentRose.setFill()
+                NSBezierPath(ovalIn: NSRect(x: barX + barWidth / 2 + topLabelWidth / 2 + 5, y: topLabelY + 5, width: 4.5, height: 4.5)).fill()
+            }
+
+            let labelY = barsBottom + 8
+            drawCentered(row.shortRange, rect: NSRect(x: barX - gap / 2 - 8, y: labelY, width: barWidth + gap + 16, height: 15), font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(row.isCurrent ? 0.94 : 0.66))
+            if showsBadges {
+                drawCycleBadge(row: row, centerX: barX + barWidth / 2, y: labelY + 20, maxWidth: barWidth + gap + 8)
+            }
+            quotaCycleHitAreas.append((
+                rect: NSRect(x: barX - gap / 2, y: barsTop, width: barWidth + gap, height: barsBottom - barsTop + 20),
+                index: modelIndex
+            ))
+        }
+
+        let legendY = rect.maxY - 26
+        var legendX = rect.minX + 16
+        let legendFont = NSFont.systemFont(ofSize: 10, weight: .medium)
+        let legendColor = NSColor.white.withAlphaComponent(0.42)
+        func legendSwatch(_ color: NSColor, _ text: String) {
+            color.setFill()
+            NSBezierPath(roundedRect: NSRect(x: legendX, y: legendY + 3, width: 9, height: 9), xRadius: 2, yRadius: 2).fill()
+            drawText(text, rect: NSRect(x: legendX + 13, y: legendY, width: 120, height: 14), font: legendFont, color: legendColor)
+            legendX += 13 + measuredTextWidth(text, font: legendFont) + 18
+        }
+        legendSwatch(accentTeal, t(.used))
+        legendSwatch(accentRose.withAlphaComponent(0.5), t(.cycleWasteLabel))
+        var footnotes = [t(.cycleMoneyHint)]
+        if model.hasBackfilledRows {
+            footnotes.append("* \(t(.cycleBackfilled))")
+        }
+        drawTruncatedText(footnotes.joined(separator: "   ·   "), rect: NSRect(x: legendX + 8, y: legendY, width: rect.maxX - 16 - legendX - 8, height: 14), font: legendFont, color: NSColor.white.withAlphaComponent(0.36))
     }
 
     private func drawCurrentCyclePanel(window: RateWindow?, title: String, rect: NSRect) {
@@ -6028,7 +6388,17 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
         var lines: [(String, String, NSColor)] = []
         let percentColor = cycleSeverityColor(row.percent)
-        lines.append((row.isCurrent ? t(.used) : t(.cyclePeak), "\(Int(round(row.percent)))%", percentColor))
+        var percentValue = "\(Int(round(row.percent)))%"
+        if let usedMoney = row.usedMoneyValue {
+            percentValue += " · \(displayMoney(usedMoney, source: quotaCycleSource))"
+        }
+        lines.append((row.isCurrent ? t(.used) : t(.cyclePeak), percentValue, percentColor))
+        if let waste = row.wastedMoneyValue, waste >= 0.5 {
+            lines.append((t(.cycleWasteLabel), displayMoney(waste, source: quotaCycleSource), accentRose.withAlphaComponent(0.92)))
+        }
+        if let value = row.moneyValue {
+            lines.append((t(.cycleValueLabel), displayMoney(value, source: quotaCycleSource), NSColor.white.withAlphaComponent(0.88)))
+        }
         if let tokenText = row.tokenText {
             lines.append(("Token", tokenText, NSColor.white.withAlphaComponent(0.9)))
         }
@@ -6080,7 +6450,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawText(t(.fiveHourCyclesTitle), rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: 260, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         let summary = String(format: t(.cycleCappedFormat), model.cappedCount, model.fiveHourBars.count)
         drawRight(summary, rect: NSRect(x: rect.minX + 16, y: rect.minY + 18, width: rect.width - 32, height: 16), color: NSColor.white.withAlphaComponent(0.52), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
-        drawText(t(.fiveHourCyclesHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 38, width: rect.width - 32, height: 15), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.44))
+        var hintText = t(.fiveHourCyclesHint)
+        if let primary = model.limit?.primary, primary.windowMinutes > 0 {
+            hintText += " · \(t(.cycleCurrentTitle)) \(t(.used)) \(Int(round(max(0, min(100, primary.usedPercent)))))%"
+            if let resetsAt = primary.resetsAt {
+                hintText += " · \(t(.reset)) \(compactResetRelative(resetsAt))"
+            }
+        }
+        drawTruncatedText(hintText, rect: NSRect(x: rect.minX + 16, y: rect.minY + 38, width: rect.width - 32, height: 15), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.44))
 
         guard !model.fiveHourBars.isEmpty else {
             drawText(t(.cycleNoHistory), rect: NSRect(x: rect.minX + 16, y: rect.minY + 76, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))

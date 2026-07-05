@@ -471,6 +471,17 @@ enum L10nKey {
     case cycleDeltaLabel
     case cyclePaceCapEtaFormat
     case cyclePaceEndProjectionFormat
+    case cycleMoneySummaryValueFormat
+    case cycleMoneyUsedTitle
+    case cycleMoneyWastedTitle
+    case cycleMoneyRemainTitle
+    case cycleMoneyPerCycleFormat
+    case cycleMoneyHint
+    case cycleWasteLabel
+    case cycleValueLabel
+    case cycleCurrentTitle
+    case cycleDailyHint
+    case cycleTokensApproxFormat
 
     var english: String {
         switch self {
@@ -535,6 +546,17 @@ enum L10nKey {
         case .cycleDeltaLabel: return "vs prev"
         case .cyclePaceCapEtaFormat: return "caps in %@ at this pace"
         case .cyclePaceEndProjectionFormat: return "ends near %d%% at this pace"
+        case .cycleMoneySummaryValueFormat: return "Last %d cycles value"
+        case .cycleMoneyUsedTitle: return "Value used"
+        case .cycleMoneyWastedTitle: return "Money wasted"
+        case .cycleMoneyRemainTitle: return "Left this cycle"
+        case .cycleMoneyPerCycleFormat: return "%@/mo · %@ per cycle"
+        case .cycleMoneyHint: return "Cycle value = monthly × 12 ÷ 52 · early-refresh cycles pro-rated by span"
+        case .cycleWasteLabel: return "Wasted"
+        case .cycleValueLabel: return "Cycle value"
+        case .cycleCurrentTitle: return "Current cycle"
+        case .cycleDailyHint: return "Daily usage this cycle"
+        case .cycleTokensApproxFormat: return "≈ %@ tokens"
         case .costHistory: return "Spend History"
         case .codexIncident: return "Incident"
         case .codexNoActiveIncident: return "No active incidents"
@@ -772,6 +794,17 @@ enum L10nKey {
         case .cycleDeltaLabel: return "较上轮"
         case .cyclePaceCapEtaFormat: return "按此节奏 %@ 后触顶"
         case .cyclePaceEndProjectionFormat: return "按此节奏周期末约 %d%%"
+        case .cycleMoneySummaryValueFormat: return "近 %d 轮总价值"
+        case .cycleMoneyUsedTitle: return "用出来的价值"
+        case .cycleMoneyWastedTitle: return "浪费掉的钱"
+        case .cycleMoneyRemainTitle: return "本轮剩余可用"
+        case .cycleMoneyPerCycleFormat: return "%@/月 · 每轮 %@"
+        case .cycleMoneyHint: return "每轮价值 = 月费×12÷52 · 提前刷新轮按实际时长折算"
+        case .cycleWasteLabel: return "浪费"
+        case .cycleValueLabel: return "周期价值"
+        case .cycleCurrentTitle: return "本轮"
+        case .cycleDailyHint: return "本轮每日消耗"
+        case .cycleTokensApproxFormat: return "≈ %@ token"
         case .costHistory: return "金额历史"
         case .codexIncident: return "故障"
         case .codexNoActiveIncident: return "当前没有故障"
@@ -1009,6 +1042,17 @@ enum L10nKey {
         case .cycleDeltaLabel: return "前周期比"
         case .cyclePaceCapEtaFormat: return "このペースだと%@後に上限"
         case .cyclePaceEndProjectionFormat: return "このペースで周期末は約%d%%"
+        case .cycleMoneySummaryValueFormat: return "直近%d周期の総価値"
+        case .cycleMoneyUsedTitle: return "使った価値"
+        case .cycleMoneyWastedTitle: return "無駄になった金額"
+        case .cycleMoneyRemainTitle: return "今周期の残り"
+        case .cycleMoneyPerCycleFormat: return "%@/月 · 1周期 %@"
+        case .cycleMoneyHint: return "周期価値 = 月額×12÷52 · 前倒し周期は期間で按分"
+        case .cycleWasteLabel: return "未使用"
+        case .cycleValueLabel: return "周期価値"
+        case .cycleCurrentTitle: return "今周期"
+        case .cycleDailyHint: return "今周期の日別消費"
+        case .cycleTokensApproxFormat: return "≈ %@ tokens"
         case .costHistory: return "金額履歴"
         case .codexIncident: return "障害"
         case .codexNoActiveIncident: return "進行中の障害はありません"
