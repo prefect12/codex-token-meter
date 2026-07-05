@@ -6762,20 +6762,24 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     private func drawStatusMetricRow(slot: StatusBarMetricSlot, in rect: NSRect, y: CGFloat, includesOff: Bool) {
         drawText(slot.title, rect: NSRect(x: rect.minX + 16, y: y + 4, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        var selections = StatusBarMetric.allCases.map { StatusBarMetricSelection.metric($0) }
-        if includesOff {
-            selections.append(.off)
-        }
+        var selections: [StatusBarMetricSelection] = includesOff ? [.off] : []
+        selections.append(contentsOf: StatusBarMetric.allCases.map { StatusBarMetricSelection.metric($0) })
 
-        let gap: CGFloat = 10
+        let gap: CGFloat = 8
         let optionStartX = rect.minX + 236
         let optionAreaWidth = rect.maxX - 16 - optionStartX
-        let optionWidth = max(92, floor((optionAreaWidth - gap * CGFloat(selections.count - 1)) / CGFloat(selections.count)))
+        let offWidth: CGFloat = includesOff ? 82 : 0
+        let metricCount = CGFloat(StatusBarMetric.allCases.count)
+        let metricAreaWidth = includesOff ? optionAreaWidth - offWidth - gap : optionAreaWidth
+        let metricWidth = max(86, floor((metricAreaWidth - gap * CGFloat(max(StatusBarMetric.allCases.count - 1, 0))) / metricCount))
         let selected = selectedStatusMetricSelection(for: slot)
-        for (index, selection) in selections.enumerated() {
-            let optionRect = NSRect(x: optionStartX + CGFloat(index) * (optionWidth + gap), y: y, width: optionWidth, height: 36)
+        var currentX = optionStartX
+        for selection in selections {
+            let width = selection == .off ? offWidth : metricWidth
+            let optionRect = NSRect(x: currentX, y: y, width: width, height: 36)
             statusMetricOptionRects[slot, default: [:]][selection] = optionRect
             drawSelectablePill(statusMetricSelectionTitle(selection), rect: optionRect, selected: selection == selected)
+            currentX = optionRect.maxX + gap
         }
     }
 
