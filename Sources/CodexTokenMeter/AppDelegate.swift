@@ -81,14 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onNumberUnitStyleChanged = { [weak self] style in
             self?.changeNumberUnitStyle(style)
         }
-        detailsController.detailsView.onStatusDisplayChanged = { [weak self] option in
-            guard let self else { return }
-            StatusDisplayOption.current = option
-            detailsController.detailsView.needsDisplay = true
-            updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
-        }
-        detailsController.detailsView.onStatusBarQuotaSourceChanged = { [weak self] source in
-            self?.changeStatusBarQuotaSource(source)
+        detailsController.detailsView.onStatusBarMetricChanged = { [weak self] slot, metric in
+            self?.changeStatusBarMetric(slot: slot, metric: metric)
         }
         detailsController.detailsView.onQuotaDisplayStyleChanged = { [weak self] style in
             self?.changeQuotaDisplayStyle(style)
@@ -590,71 +584,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateStatusTitle(report: TokenReport, limits: [LiveRateLimit], quota: QuotaViewOption) {
         statusItem.length = NSStatusItem.variableLength
         guard let button = statusItem.button else { return }
-        let option = StatusDisplayOption.current
-        let statusQuota = AppSettings.statusBarQuotaSource
-        requestStatusUsageIfNeeded(option: option, quota: statusQuota)
-        let title = statusTitle(report: report, limits: limits, quota: statusQuota, option: option)
-        let pending = latestState.isLoading || statusValueIsPending(option: option, quota: statusQuota, limits: limits)
+        let metrics = AppSettings.statusBarMetrics
+        let title = statusTitle(metrics: metrics, limits: limits)
+        let pending = latestState.isLoading || statusValueIsPending(metrics: metrics, limits: limits)
         button.title = title ?? "--"
         setStatusLoading(pending)
     }
 
-    private func statusTitle(report: TokenReport, limits: [LiveRateLimit], quota: QuotaViewOption, option: StatusDisplayOption) -> String? {
-        let limit = selectedLimit(from: limits, quota: quota)
-        switch option {
-        case .fiveHourPercent:
-            if let live = limit?.primary.remainingPercent {
-                return "\(Int(round(live)))%"
-            }
-        case .weeklyPercent:
-            if let live = limit?.secondary.remainingPercent {
-                return "\(Int(round(live)))%"
-            }
-        case .weeklyTokens:
-            if let usage = statusUsage(window: .week, quota: quota)?.usage, usage.total > 0 {
-                return compact(usage.total)
-            }
-        case .dailyTokens:
-            if let usage = statusUsage(window: .day, quota: quota)?.usage, usage.total > 0 {
-                return compact(usage.total)
-            }
-        }
-        return nil
+    private func statusTitle(metrics: [StatusBarMetric], limits: [LiveRateLimit]) -> String? {
+        let parts = metrics.map { statusMetricText($0, limits: limits) }
+        guard parts.contains(where: { $0 != nil }) else { return nil }
+        return parts.map { $0 ?? "--" }.joined(separator: " | ")
     }
 
-    private func requestStatusUsageIfNeeded(option: StatusDisplayOption, quota: QuotaViewOption) {
-        guard let window = option.requiredReportWindow else { return }
-        let key = ReportCacheKey(window: window, quota: quota)
-        guard reportCache[key] == nil, !activeScans.contains(key) else { return }
-        prewarm(window: window, quota: quota)
-    }
-
-    private func statusValueIsPending(option: StatusDisplayOption, quota: QuotaViewOption, limits: [LiveRateLimit]) -> Bool {
-        switch option {
-        case .fiveHourPercent:
-            return selectedLimit(from: limits, quota: quota)?.primary.remainingPercent == nil && liveRefreshInFlight
-        case .weeklyPercent:
-            return selectedLimit(from: limits, quota: quota)?.secondary.remainingPercent == nil && liveRefreshInFlight
-        case .weeklyTokens, .dailyTokens:
-            guard let window = option.requiredReportWindow else { return false }
-            let key = ReportCacheKey(window: window, quota: quota)
-            return reportCache[key] == nil || activeScans.contains(key)
+    private func statusMetricText(_ metric: StatusBarMetric, limits: [LiveRateLimit]) -> String? {
+        let limit = selectedLimit(from: limits, quota: metric.source)
+        switch metric.quotaMetric {
+        case .fiveHour:
+            return statusPercentText(limit?.primary.remainingPercent)
+        case .weekly:
+            return statusPercentText(limit?.secondary.remainingPercent)
         }
     }
 
-    private func statusUsage(window: WindowOption, quota: QuotaViewOption) -> TokenReport? {
-        let key = ReportCacheKey(window: window, quota: quota)
-        let localReport = reportCache[key] ?? (latestState.selectedWindow == window && latestState.selectedQuota == quota ? latestState.report : nil)
-        if let profileReport = profileReport(window: window, quota: quota, accountUsage: accountUsage, localReport: localReport) {
-            return profileReport
-        }
-        if let cached = reportCache[key] {
-            return cached
-        }
-        if latestState.selectedWindow == window && latestState.selectedQuota == quota {
-            return latestState.report
-        }
-        return nil
+    private func statusPercentText(_ percent: Double?) -> String? {
+        guard let percent else { return nil }
+        return "\(Int(round(percent)))%"
+    }
+
+    private func statusValueIsPending(metrics: [StatusBarMetric], limits: [LiveRateLimit]) -> Bool {
+        liveRefreshInFlight && metrics.contains { statusMetricText($0, limits: limits) == nil }
     }
 
     private func selectedLimit(from limits: [LiveRateLimit], quota: QuotaViewOption) -> LiveRateLimit? {
@@ -747,8 +706,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
     }
 
-    private func changeStatusBarQuotaSource(_ source: QuotaViewOption) {
-        AppSettings.statusBarQuotaSource = source
+    private func changeStatusBarMetric(slot: StatusBarMetricSlot, metric: StatusBarMetric?) {
+        switch slot {
+        case .first:
+            guard let metric else { return }
+            AppSettings.statusBarPrimaryMetric = metric
+        case .second:
+            AppSettings.statusBarSecondaryMetric = metric
+        }
         detailsController.detailsView.needsDisplay = true
         updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
     }

@@ -1893,6 +1893,11 @@ enum DetailsSection: CaseIterable {
     }
 }
 
+private enum StatusBarMetricSelection: Hashable {
+    case metric(StatusBarMetric)
+    case off
+}
+
 final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
     private func centeredRect(for bounds: NSRect) -> NSRect {
         let horizontalPadding: CGFloat = 12
@@ -2048,8 +2053,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var loadingProgress = DetailsLoadingProgress.starting { didSet { needsDisplay = true } }
     var onLanguageChanged: ((AppLanguage) -> Void)?
     var onNumberUnitStyleChanged: ((NumberUnitStyle) -> Void)?
-    var onStatusDisplayChanged: ((StatusDisplayOption) -> Void)?
-    var onStatusBarQuotaSourceChanged: ((QuotaViewOption) -> Void)?
+    var onStatusBarMetricChanged: ((StatusBarMetricSlot, StatusBarMetric?) -> Void)?
     var onQuotaDisplayStyleChanged: ((QuotaDisplayStyle) -> Void)?
     var onCodexHomeRingMetricChanged: ((HomeQuotaRingMetric) -> Void)?
     var onClaudeHomeRingMetricChanged: ((HomeQuotaRingMetric) -> Void)?
@@ -2138,8 +2142,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var hoveredInsightPeriod: String?
     private var insightListScrollOffset: CGFloat = 0
     private var numberUnitOptionRects: [NumberUnitStyle: NSRect] = [:]
-    private var statusOptionRects: [StatusDisplayOption: NSRect] = [:]
-    private var statusQuotaSourceRects: [QuotaViewOption: NSRect] = [:]
+    private var statusMetricOptionRects: [StatusBarMetricSlot: [StatusBarMetricSelection: NSRect]] = [:]
     private var quotaDisplayStyleRects: [QuotaDisplayStyle: NSRect] = [:]
     private var codexHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
     private var claudeHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
@@ -3135,13 +3138,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 onNumberUnitStyleChanged?(style)
                 return
             }
-            for (option, rect) in statusOptionRects where rect.contains(point) {
-                onStatusDisplayChanged?(option)
-                return
-            }
-            for (source, rect) in statusQuotaSourceRects where rect.contains(point) {
-                onStatusBarQuotaSourceChanged?(source)
-                return
+            for (slot, selections) in statusMetricOptionRects {
+                for (selection, rect) in selections where rect.contains(point) {
+                    switch selection {
+                    case .metric(let metric):
+                        onStatusBarMetricChanged?(slot, metric)
+                    case .off:
+                        onStatusBarMetricChanged?(slot, nil)
+                    }
+                    return
+                }
             }
             for (style, rect) in quotaDisplayStyleRects where rect.contains(point) {
                 onQuotaDisplayStyleChanged?(style)
@@ -3371,8 +3377,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         insightStatusFilterRects.removeAll()
         insightListViewportRect = nil
         numberUnitOptionRects.removeAll()
-        statusOptionRects.removeAll()
-        statusQuotaSourceRects.removeAll()
+        statusMetricOptionRects.removeAll()
         quotaDisplayStyleRects.removeAll()
         sourceOptionRects.removeAll()
         chooseLogFolderRect = nil
@@ -6713,27 +6718,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawSmallButton(t(.logFolderChoose), rect: chooseLogFolderRect!, emphasized: true)
         drawText(t(.logFolderHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 286, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.statusBarDisplay), rect: NSRect(x: rect.minX + 16, y: rect.minY + 334, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let statusY = rect.minY + 330
-        let statusGap: CGFloat = 10
-        let statusOptionW = max(100, (rect.width - 260 - statusGap * CGFloat(StatusDisplayOption.allCases.count - 1)) / CGFloat(StatusDisplayOption.allCases.count))
-        let statusStartX = rect.maxX - 16 - statusOptionW * CGFloat(StatusDisplayOption.allCases.count) - statusGap * CGFloat(StatusDisplayOption.allCases.count - 1)
-        for (index, option) in StatusDisplayOption.allCases.enumerated() {
-            let optionRect = NSRect(x: statusStartX + CGFloat(index) * (statusOptionW + statusGap), y: statusY, width: statusOptionW, height: 36)
-            statusOptionRects[option] = optionRect
-            drawSelectablePill(option.title, rect: optionRect, selected: option == StatusDisplayOption.current)
-        }
-        drawText(t(.statusBarSource), rect: NSRect(x: rect.minX + 16, y: rect.minY + 378, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let statusSourceY = rect.minY + 374
-        let statusSourceGap: CGFloat = 10
-        let statusSourceW: CGFloat = 104
-        let statusSources: [QuotaViewOption] = [.all, .codex, .claude]
-        let statusSourceStartX = rect.maxX - 16 - statusSourceW * CGFloat(statusSources.count) - statusSourceGap * CGFloat(statusSources.count - 1)
-        for (index, source) in statusSources.enumerated() {
-            let optionRect = NSRect(x: statusSourceStartX + CGFloat(index) * (statusSourceW + statusSourceGap), y: statusSourceY, width: statusSourceW, height: 36)
-            statusQuotaSourceRects[source] = optionRect
-            drawSelectablePill(source.shortTitle, rect: optionRect, selected: source == AppSettings.statusBarQuotaSource)
-        }
+        drawStatusMetricRow(slot: .first, in: rect, y: rect.minY + 330, includesOff: false)
+        drawStatusMetricRow(slot: .second, in: rect, y: rect.minY + 374, includesOff: true)
         drawText(t(.claudeActiveRefresh), rect: NSRect(x: rect.minX + 16, y: rect.minY + 422, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         drawText(t(.claudeActiveRefreshHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 446, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
 
@@ -6772,6 +6758,44 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawText(t(.launchAtLogin), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 640, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 668, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         drawText(t(.profileAPITotals), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 668, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+    }
+
+    private func drawStatusMetricRow(slot: StatusBarMetricSlot, in rect: NSRect, y: CGFloat, includesOff: Bool) {
+        drawText(slot.title, rect: NSRect(x: rect.minX + 16, y: y + 4, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        var selections = StatusBarMetric.allCases.map { StatusBarMetricSelection.metric($0) }
+        if includesOff {
+            selections.append(.off)
+        }
+
+        let gap: CGFloat = 10
+        let optionStartX = rect.minX + 236
+        let optionAreaWidth = rect.maxX - 16 - optionStartX
+        let optionWidth = max(92, floor((optionAreaWidth - gap * CGFloat(selections.count - 1)) / CGFloat(selections.count)))
+        let selected = selectedStatusMetricSelection(for: slot)
+        for (index, selection) in selections.enumerated() {
+            let optionRect = NSRect(x: optionStartX + CGFloat(index) * (optionWidth + gap), y: y, width: optionWidth, height: 36)
+            statusMetricOptionRects[slot, default: [:]][selection] = optionRect
+            drawSelectablePill(statusMetricSelectionTitle(selection), rect: optionRect, selected: selection == selected)
+        }
+    }
+
+    private func selectedStatusMetricSelection(for slot: StatusBarMetricSlot) -> StatusBarMetricSelection {
+        switch slot {
+        case .first:
+            return .metric(AppSettings.statusBarPrimaryMetric)
+        case .second:
+            guard let metric = AppSettings.statusBarSecondaryMetric else { return .off }
+            return .metric(metric)
+        }
+    }
+
+    private func statusMetricSelectionTitle(_ selection: StatusBarMetricSelection) -> String {
+        switch selection {
+        case .metric(let metric):
+            return metric.title
+        case .off:
+            return t(.statusMetricOff)
+        }
     }
 
     private var costUsedColor: NSColor {

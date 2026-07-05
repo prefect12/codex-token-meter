@@ -124,6 +124,7 @@ enum AppLanguage: String, CaseIterable {
 enum StatusDisplayOption: String, CaseIterable {
     case fiveHourPercent
     case weeklyPercent
+    case quotaPercents
     case weeklyTokens
     case dailyTokens
 
@@ -146,6 +147,7 @@ enum StatusDisplayOption: String, CaseIterable {
         switch self {
         case .fiveHourPercent: return t(.statusFiveHourPercent)
         case .weeklyPercent: return t(.statusWeeklyPercent)
+        case .quotaPercents: return t(.statusQuotaPercents)
         case .weeklyTokens: return t(.statusWeeklyTokens)
         case .dailyTokens: return t(.statusDailyTokens)
         }
@@ -155,7 +157,65 @@ enum StatusDisplayOption: String, CaseIterable {
         switch self {
         case .weeklyTokens: return .week
         case .dailyTokens: return .day
-        case .fiveHourPercent, .weeklyPercent: return nil
+        case .fiveHourPercent, .weeklyPercent, .quotaPercents: return nil
+        }
+    }
+}
+
+enum StatusBarMetric: String, CaseIterable {
+    case codexFiveHour
+    case codexWeekly
+    case claudeFiveHour
+    case claudeWeekly
+
+    var title: String {
+        switch self {
+        case .codexFiveHour: return t(.statusCodexFiveHour)
+        case .codexWeekly: return t(.statusCodexWeekly)
+        case .claudeFiveHour: return t(.statusClaudeFiveHour)
+        case .claudeWeekly: return t(.statusClaudeWeekly)
+        }
+    }
+
+    var source: QuotaViewOption {
+        switch self {
+        case .codexFiveHour, .codexWeekly:
+            return .codex
+        case .claudeFiveHour, .claudeWeekly:
+            return .claude
+        }
+    }
+
+    var quotaMetric: HomeQuotaRingMetric {
+        switch self {
+        case .codexFiveHour, .claudeFiveHour:
+            return .fiveHour
+        case .codexWeekly, .claudeWeekly:
+            return .weekly
+        }
+    }
+
+    static func metric(source: QuotaViewOption, quotaMetric: HomeQuotaRingMetric) -> StatusBarMetric {
+        let normalizedSource: QuotaViewOption = source == .claude ? .claude : .codex
+        switch (normalizedSource, quotaMetric) {
+        case (.codex, .fiveHour): return .codexFiveHour
+        case (.codex, .weekly): return .codexWeekly
+        case (.claude, .fiveHour): return .claudeFiveHour
+        case (.claude, .weekly): return .claudeWeekly
+        case (.all, .fiveHour): return .codexFiveHour
+        case (.all, .weekly): return .codexWeekly
+        }
+    }
+}
+
+enum StatusBarMetricSlot: CaseIterable {
+    case first
+    case second
+
+    var title: String {
+        switch self {
+        case .first: return t(.statusBarMetricOne)
+        case .second: return t(.statusBarMetricTwo)
         }
     }
 }
@@ -402,10 +462,18 @@ enum L10nKey {
     case sparkDescription
     case sparkModel
     case statusBarDisplay
+    case statusBarMetricOne
+    case statusBarMetricTwo
     case statusBarSource
+    case statusCodexFiveHour
+    case statusCodexWeekly
     case statusDailyTokens
     case statusDisplayHint
     case statusFiveHourPercent
+    case statusMetricOff
+    case statusClaudeFiveHour
+    case statusClaudeWeekly
+    case statusQuotaPercents
     case statusWeeklyPercent
     case statusWeeklyTokens
     case tokenActivity
@@ -669,10 +737,18 @@ enum L10nKey {
         case .sparkDescription: return "Events whose model is GPT-5.3-Codex-Spark."
         case .sparkModel: return "GPT-5.3-Codex-Spark model"
         case .statusBarDisplay: return "Menu Bar Display"
+        case .statusBarMetricOne: return "Menu Bar Number 1"
+        case .statusBarMetricTwo: return "Menu Bar Number 2"
         case .statusBarSource: return "Menu Bar Source"
+        case .statusCodexFiveHour: return "Codex 5h"
+        case .statusCodexWeekly: return "Codex 1w"
         case .statusDailyTokens: return "24h tokens"
-        case .statusDisplayHint: return "Choose what the menu bar item shows and which source it uses."
+        case .statusDisplayHint: return "Choose one or two live quota percentages. Number 2 can be turned off."
         case .statusFiveHourPercent: return "5h %"
+        case .statusMetricOff: return "Off"
+        case .statusClaudeFiveHour: return "Claude 5h"
+        case .statusClaudeWeekly: return "Claude 1w"
+        case .statusQuotaPercents: return "5h | Weekly %"
         case .statusWeeklyPercent: return "Weekly %"
         case .statusWeeklyTokens: return "7d tokens"
         case .tokenActivity: return "Token Activity"
@@ -906,10 +982,18 @@ enum L10nKey {
         case .sparkDescription: return "模型为 GPT-5.3-Codex-Spark 的事件。"
         case .sparkModel: return "GPT-5.3-Codex-Spark 模型"
         case .statusBarDisplay: return "状态栏显示"
+        case .statusBarMetricOne: return "状态栏数字 1"
+        case .statusBarMetricTwo: return "状态栏数字 2"
         case .statusBarSource: return "状态栏来源"
+        case .statusCodexFiveHour: return "Codex 5h"
+        case .statusCodexWeekly: return "Codex 1周"
         case .statusDailyTokens: return "24h 用量"
-        case .statusDisplayHint: return "选择菜单栏里直接展示的指标和它使用的数据来源。"
+        case .statusDisplayHint: return "选择 1 个或 2 个实时额度百分比；数字 2 可关闭。"
         case .statusFiveHourPercent: return "5h 百分比"
+        case .statusMetricOff: return "关闭"
+        case .statusClaudeFiveHour: return "Claude 5h"
+        case .statusClaudeWeekly: return "Claude 1周"
+        case .statusQuotaPercents: return "5h | 周百分比"
         case .statusWeeklyPercent: return "周百分比"
         case .statusWeeklyTokens: return "7d 用量"
         case .tokenActivity: return "Token 活动"
@@ -1143,10 +1227,18 @@ enum L10nKey {
         case .sparkDescription: return "モデルが GPT-5.3-Codex-Spark のイベント。"
         case .sparkModel: return "GPT-5.3-Codex-Spark モデル"
         case .statusBarDisplay: return "メニューバー表示"
+        case .statusBarMetricOne: return "メニューバー数値 1"
+        case .statusBarMetricTwo: return "メニューバー数値 2"
         case .statusBarSource: return "メニューバーソース"
+        case .statusCodexFiveHour: return "Codex 5h"
+        case .statusCodexWeekly: return "Codex 1週"
         case .statusDailyTokens: return "24h 使用量"
-        case .statusDisplayHint: return "メニューバーに表示する指標とソースを選びます。"
+        case .statusDisplayHint: return "ライブ制限の割合を 1 つまたは 2 つ選択します。数値 2 はオフにできます。"
         case .statusFiveHourPercent: return "5h %"
+        case .statusMetricOff: return "オフ"
+        case .statusClaudeFiveHour: return "Claude 5h"
+        case .statusClaudeWeekly: return "Claude 1週"
+        case .statusQuotaPercents: return "5h | 週 %"
         case .statusWeeklyPercent: return "週 %"
         case .statusWeeklyTokens: return "7日使用量"
         case .tokenActivity: return "Token アクティビティ"
@@ -1286,7 +1378,10 @@ enum AppSettings {
     static let codexHomeRingMetricKey = "codexHomeRingMetric"
     static let claudeHomeRingMetricKey = "claudeHomeRingMetric"
     static let statusBarQuotaSourceKey = "statusBarQuotaSource"
+    static let statusBarPrimaryMetricKey = "statusBarPrimaryMetric"
+    static let statusBarSecondaryMetricKey = "statusBarSecondaryMetric"
     static let claudeActiveQuotaRefreshEnabledKey = "claudeActiveQuotaRefreshEnabled"
+    static let statusBarMetricOffRawValue = "off"
 
     static let fallbackModelLimitID = "codex_bengalfox"
     static let fallbackModelLimitName = "GPT-5.3-Codex-Spark"
@@ -1755,6 +1850,58 @@ enum AppSettings {
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: statusBarQuotaSourceKey)
+        }
+    }
+
+    static var statusBarPrimaryMetric: StatusBarMetric {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: statusBarPrimaryMetricKey),
+                  let metric = StatusBarMetric(rawValue: raw) else {
+                return legacyStatusBarMetrics().first ?? .codexFiveHour
+            }
+            return metric
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: statusBarPrimaryMetricKey)
+        }
+    }
+
+    static var statusBarSecondaryMetric: StatusBarMetric? {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: statusBarSecondaryMetricKey) else {
+                let legacyMetrics = legacyStatusBarMetrics()
+                return legacyMetrics.count > 1 ? legacyMetrics[1] : nil
+            }
+            guard raw != statusBarMetricOffRawValue else { return nil }
+            return StatusBarMetric(rawValue: raw)
+        }
+        set {
+            UserDefaults.standard.set(newValue?.rawValue ?? statusBarMetricOffRawValue, forKey: statusBarSecondaryMetricKey)
+        }
+    }
+
+    static var statusBarMetrics: [StatusBarMetric] {
+        var metrics = [statusBarPrimaryMetric]
+        if let secondary = statusBarSecondaryMetric {
+            metrics.append(secondary)
+        }
+        return metrics
+    }
+
+    private static func legacyStatusBarMetrics() -> [StatusBarMetric] {
+        let source = statusBarQuotaSource
+        switch StatusDisplayOption.current {
+        case .fiveHourPercent:
+            return [StatusBarMetric.metric(source: source, quotaMetric: .fiveHour)]
+        case .weeklyPercent:
+            return [StatusBarMetric.metric(source: source, quotaMetric: .weekly)]
+        case .quotaPercents:
+            return [
+                StatusBarMetric.metric(source: source, quotaMetric: .fiveHour),
+                StatusBarMetric.metric(source: source, quotaMetric: .weekly)
+            ]
+        case .weeklyTokens, .dailyTokens:
+            return [StatusBarMetric.metric(source: source, quotaMetric: .weekly)]
         }
     }
 
