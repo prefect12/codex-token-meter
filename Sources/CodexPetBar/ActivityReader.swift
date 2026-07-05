@@ -1588,6 +1588,7 @@ final class ReadStateStore {
                 let userReadAt = current.userReadAt?[item.id] ?? 0
                 guard userReadAt < item.lastActivity.timeIntervalSince1970 else { continue }
                 if item.isExplicitUnread {
+                    guard shouldShowCompletedThread(item, state: current) else { continue }
                     visible.append(item)
                     continue
                 }
@@ -1664,9 +1665,6 @@ final class ReadStateStore {
 
     private func shouldShowCompletedThread(_ item: CodexThreadItem, state: ReadStateFile) -> Bool {
         guard item.status == .unread else { return false }
-        if (state.runningSeenAt?[item.id] ?? 0) > 0 {
-            return true
-        }
         return Date().timeIntervalSince(item.lastActivity) <= Self.recentCompletionVisibilityWindow
     }
 
