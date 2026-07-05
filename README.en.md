@@ -18,17 +18,15 @@ When available, it also reads live quota data from the local Codex runtime, incl
 
 ## Screenshots
 
+All screenshots below are rendered with the built-in `--redact` mode: repository names and local directories are replaced with demo data.
+
 ### Menu Bar Dashboard
 
 <p align="center">
-  <img src="docs/images/en-menu-popover-current.png" alt="AI Token Meter menu bar dashboard" width="420">
+  <img src="docs/images/en-menu-popover.png" alt="AI Token Meter menu bar dashboard" width="420">
 </p>
 
-### Repository Insights
-
-<p align="center">
-  <img src="docs/images/en-details-insights.png" alt="AI Token Meter repository insights page" width="760">
-</p>
+Switch between `All / Codex / Claude` and `24h / 7d / 30d`. Platform quota rings, a 5-hour pressure comparison table, 7-day usage bars, and API-equivalent cost in one panel.
 
 ### Details Overview
 
@@ -36,11 +34,47 @@ When available, it also reads live quota data from the local Codex runtime, incl
   <img src="docs/images/en-details-overview.png" alt="AI Token Meter details overview" width="760">
 </p>
 
+365-day totals by source and model, input/output breakdown, and a full-year activity heatmap.
+
+### Repository Insights
+
+<p align="center">
+  <img src="docs/images/en-details-insights.png" alt="AI Token Meter repository insights page" width="760">
+</p>
+
+Repo conversation check: find long-running threads and context-compaction pressure per project, with length/compaction distributions, active-day intensity, and split-thread recommendations.
+
 ### Activity Calendar
 
 <p align="center">
   <img src="docs/images/en-details-calendar.png" alt="AI Token Meter activity calendar page" width="760">
 </p>
+
+Click a day for its detail card: input/output/cache split, Codex vs Claude share, that day's subscription value, and API-equivalent cost. Click the dot above a column for a weekly summary.
+
+### Models
+
+<p align="center">
+  <img src="docs/images/en-details-models.png" alt="AI Token Meter models page" width="760">
+</p>
+
+Per-model token aggregation, share bar, session/event counts, and per-model API-equivalent cost.
+
+### Storage
+
+<p align="center">
+  <img src="docs/images/en-details-storage.png" alt="AI Token Meter storage page" width="760">
+</p>
+
+Track local log disk usage by source, project, and category: 14-day growth, largest projects, cleanup-risk composition, report export, and open-in-Finder.
+
+### Settings
+
+<p align="center">
+  <img src="docs/images/en-details-settings.png" alt="AI Token Meter settings page" width="760">
+</p>
+
+Interface language, number units, log folders, status-bar display and source, quota style, home-ring metrics, launch at login, and more.
 
 ### Diagnostics
 
@@ -54,7 +88,7 @@ When available, it also reads live quota data from the local Codex runtime, incl
 ### 状态栏面板
 
 <p align="center">
-  <img src="docs/images/zh-menu-popover-current.png" alt="AI Token Meter Chinese menu bar dashboard" width="420">
+  <img src="docs/images/zh-menu-popover.png" alt="AI Token Meter Chinese menu bar dashboard" width="420">
 </p>
 
 ### 仓库洞察
@@ -73,6 +107,12 @@ When available, it also reads live quota data from the local Codex runtime, incl
 
 <p align="center">
   <img src="docs/images/zh-details-calendar.png" alt="AI Token Meter Chinese activity calendar page" width="760">
+</p>
+
+### 空间
+
+<p align="center">
+  <img src="docs/images/zh-details-storage.png" alt="AI Token Meter Chinese storage page" width="760">
 </p>
 
 ### 诊断
@@ -94,12 +134,13 @@ When available, it also reads live quota data from the local Codex runtime, incl
 - Cache hit-rate ring.
 - Compact Codex service-status chip sourced from `status.openai.com`, with a settings toggle to show or hide it.
 - Token breakdown for input, output, cached input, fresh input, and total tokens.
-- Details window with overview, insights, calendar, quota-cycle, model, settings, diagnostics, and about pages.
-- Quota Cycles page splits Codex / Claude 5h and weekly quota history by observed reset times, showing current-cycle pace and each past cycle's peak usage.
+- Details window with overview, calendar, insights, models, storage, settings, diagnostics, and about pages.
 - The menu dashboard and details window cache aggregate snapshots, showing the last complete result first and refreshing in the background.
 - Insights page that groups local Codex and Claude Code conversations by repository or folder, highlights long-running threads, context-compaction pressure, active worktrees, and split-thread recommendations.
-- 365-day activity calendar with daily detail cards.
-- Model-level aggregation for long-term usage analysis.
+- 365-day activity calendar with daily detail cards and clickable weekly-summary dots.
+- Model-level aggregation for long-term usage analysis, including per-model API-equivalent cost.
+- Storage page that tracks local log disk usage by source, project, and category, with 14-day growth, cleanup-risk composition, report export, and open-in-Finder.
+- Built-in `--render-dashboard` / `--render-details` screenshot rendering; add `--redact` to replace repository names and local directories with demo data for public sharing.
 - Diagnostics page for Codex CLI/auth health, live quota availability, log coverage, optional API cost input, and other tool detection.
 - Default scan coverage for current sessions, archived sessions, and `CODEX_HOME` when that environment variable is set.
 - Localized UI for English, Simplified Chinese, Traditional Chinese, Japanese, French, German, Spanish, and Korean.
@@ -138,6 +179,12 @@ If you run work through Codex CLI or the Codex app with API-based authentication
 
 ## Recent Updates
 
+- `0.2.5` temporarily hides the quota-cycles page until its interaction design is finalized; cycle data is still recorded locally so history is preserved.
+- Added the `--redact` screenshot-rendering mode that replaces repository names and local directories with demo data for public sharing.
+- Calendar weekly summaries moved from hover tooltips to clickable week dots.
+- Details pages now use a full-width layout, and the settings page render height is fixed.
+- Fixed model share-bar overlap on the models page.
+- The diagnostics page now shows the Codex CLI path with `~` abbreviation.
 - `0.2.0` renames the app to AI Token Meter. The installed bundle is now `/Applications/AI Token Meter.app`; `install.sh` removes the old `/Applications/Codex Token Meter.app` bundle while keeping the legacy App Support directory for local data.
 - Added a combined Codex + Claude home dashboard with two platform quota rings, a platform comparison table, 24h/7d/30d usage bars, and platform-specific hover details.
 - Added Claude Code local-log scanning for assistant usage JSONL under `~/.claude/projects`, `CLAUDE_CONFIG_DIR`, and `$XDG_CONFIG_HOME/claude/projects`.

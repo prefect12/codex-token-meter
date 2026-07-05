@@ -93,6 +93,93 @@ func requestedDetailsSource(from arguments: [String]) -> QuotaViewOption? {
     }.first
 }
 
+// MARK: - Snapshot Redaction
+
+/// Replaces personal folder names in rendered snapshots with generic demo
+/// names so screenshots can be published without leaking local directories.
+struct SnapshotRedactor {
+    private static let demoNames = [
+        "orion-app", "atlas-api", "nova-web", "pulse-service", "quartz-cli",
+        "delta-docs", "ember-ml", "lumen-site", "vega-infra", "koda-tools",
+        "argo-batch", "iris-mobile", "sable-sdk", "tarn-proxy", "wren-bot"
+    ]
+
+    private var assignedNames: [String: String] = [:]
+
+    static func requested(from arguments: [String]) -> Bool {
+        arguments.contains("--redact")
+    }
+
+    mutating func demoName(forFolder folder: String) -> String {
+        let key = URL(fileURLWithPath: (folder as NSString).standardizingPath).lastPathComponent
+        if let existing = assignedNames[key] { return existing }
+        let name = assignedNames.count < Self.demoNames.count
+            ? Self.demoNames[assignedNames.count]
+            : "project-\(assignedNames.count + 1)"
+        assignedNames[key] = name
+        return name
+    }
+
+    func homeAbbreviated(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
+    }
+
+    mutating func redact(_ report: RepoInsightsReport) -> RepoInsightsReport {
+        var result = report
+        result.rows = report.rows.map { row in
+            var row = row
+            let name = demoName(forFolder: row.primaryFolder.isEmpty ? row.key : row.primaryFolder)
+            row.key = "~/dev/\(name)"
+            row.displayName = "github/\(name)"
+            row.primaryFolder = "~/dev/\(name)"
+            row.folders = ["~/dev/\(name)"]
+            return row
+        }
+        return result
+    }
+
+    mutating func redact(_ reports: [Int: RepoInsightsReport]) -> [Int: RepoInsightsReport] {
+        var result = reports
+        for (days, report) in reports {
+            result[days] = redact(report)
+        }
+        return result
+    }
+
+    mutating func redact(_ snapshot: DetailsSnapshot) -> DetailsSnapshot {
+        var result = snapshot
+        result.repoInsights = redact(snapshot.repoInsights)
+        result.repoInsightReports = redact(snapshot.repoInsightReports)
+        result.codexRepoInsights = redact(snapshot.codexRepoInsights)
+        result.codexRepoInsightReports = redact(snapshot.codexRepoInsightReports)
+        result.claudeRepoInsights = redact(snapshot.claudeRepoInsights)
+        result.claudeRepoInsightReports = redact(snapshot.claudeRepoInsightReports)
+        return result
+    }
+
+    mutating func redact(_ storage: StorageSnapshot) -> StorageSnapshot {
+        var result = storage
+        result.projects = storage.projects.map { project in
+            let name = demoName(forFolder: project.path)
+            return StorageProjectUsage(
+                name: name,
+                path: "~/dev/\(name)",
+                platform: project.platform,
+                bytes: project.bytes,
+                fileCount: project.fileCount,
+                newestModified: project.newestModified
+            )
+        }
+        result.categories = storage.categories.map { category in
+            var category = category
+            category.roots = category.roots.map(homeAbbreviated)
+            return category
+        }
+        return result
+    }
+}
+
 func writePNG(of view: NSView, to url: URL) throws {
     guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
         throw NSError(domain: "CodexTokenMeter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create bitmap"])
@@ -200,7 +287,8 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let repoInsights = repoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
     let codexRepoInsights = codexRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
     let claudeRepoInsights = claudeRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
-    let snapshot = DetailsSnapshot(
+    var redactor = SnapshotRedactor.requested(from: arguments) ? SnapshotRedactor() : nil
+    var snapshot = DetailsSnapshot(
         all: all,
         codex: codex,
         claude: claude,
@@ -215,6 +303,9 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         costReferenceReport: source == .codex ? codex : all,
         accountUsage: accountUsage
     )
+    if redactor != nil {
+        snapshot = redactor!.redact(snapshot)
+    }
 
     let outputURL = arguments
         .compactMap { argument -> URL? in
@@ -247,7 +338,8 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         view.selectCalendarWeek(startDay: weekStart)
     }
     if section == .storage {
-        view.storageSnapshot = StorageScanner.scan()
+        let storage = StorageScanner.scan()
+        view.storageSnapshot = redactor != nil ? redactor!.redact(storage) : storage
         view.isStorageScanning = false
     }
     view.isLoading = false
