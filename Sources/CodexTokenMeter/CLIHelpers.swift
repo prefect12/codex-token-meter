@@ -249,14 +249,10 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     if section == .storage {
         view.storageSnapshot = StorageScanner.scan()
         view.isStorageScanning = false
-        let height = view.preferredDocumentHeight(for: 1280)
-        view.frame = NSRect(x: 0, y: 0, width: 1280, height: height)
-    }
-    if section == .calendar {
-        let height = view.preferredDocumentHeight(for: 1280)
-        view.frame = NSRect(x: 0, y: 0, width: 1280, height: height)
     }
     view.isLoading = false
+    let height = max(760, view.preferredDocumentHeight(for: 1280))
+    view.frame = NSRect(x: 0, y: 0, width: 1280, height: height)
     view.layoutSubtreeIfNeeded()
     try writePNG(of: view, to: outputURL)
     return outputURL
