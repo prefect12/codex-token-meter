@@ -13,6 +13,7 @@ private struct ReadStateFile: Codable {
     var didBaselineExistingWaiting: Bool
     var openedAt: [String: TimeInterval]
     var runningSeenAt: [String: TimeInterval]?
+    var userReadAt: [String: TimeInterval]?
 }
 
 private struct LoggedThread {
@@ -378,9 +379,7 @@ final class CodexActivityReader {
             "lastViewedAt",
             "last_viewed_at",
             "viewedAt",
-            "viewed_at",
-            "recencyAt",
-            "recency_at"
+            "viewed_at"
         ]
         for key in keys {
             if let seconds = double(dict[key]) {
@@ -1357,7 +1356,7 @@ final class CodexActivityReader {
 }
 
 final class ReadStateStore {
-    private static let schemaVersion = 2
+    private static let schemaVersion = 4
     private static let readWatermarkTolerance: TimeInterval = 60
     /// A thread first seen as "unread" may simply be one whose running phase every
     /// scan missed — scans are periodic and can be starved for minutes under system
@@ -1365,6 +1364,8 @@ final class ReadStateStore {
     /// silently marked read; kept above `runningActivityTimeout` so a turn that
     /// stalled out still shows up as done.
     private static let missedActivityGrace: TimeInterval = 15 * 60
+    private static let recentCompletionVisibilityWindow: TimeInterval = 60 * 60
+    private static let legacyAutoReadSlack: TimeInterval = 90
     private let fileManager = FileManager.default
     private let fileURL: URL
     private let lock = NSLock()
@@ -1387,14 +1388,16 @@ final class ReadStateStore {
                 schemaVersion: decoded.schemaVersion ?? Self.schemaVersion,
                 didBaselineExistingWaiting: decoded.didBaselineExistingWaiting,
                 openedAt: decoded.openedAt,
-                runningSeenAt: decoded.runningSeenAt ?? [:]
+                runningSeenAt: decoded.runningSeenAt ?? [:],
+                userReadAt: decoded.userReadAt
             )
         } else {
             state = ReadStateFile(
                 schemaVersion: Self.schemaVersion,
                 didBaselineExistingWaiting: false,
                 openedAt: [:],
-                runningSeenAt: [:]
+                runningSeenAt: [:],
+                userReadAt: [:]
             )
         }
     }
@@ -1404,7 +1407,7 @@ final class ReadStateStore {
         var current = state
         var didChange = false
         if !current.didBaselineExistingWaiting {
-            for item in items where isReadDismissible(item.status) && !item.isExplicitUnread {
+            for item in items where shouldBaselineAsRead(item, state: current) {
                 current.openedAt[item.id] = readThroughTime(for: item)
             }
             current.didBaselineExistingWaiting = true
@@ -1431,6 +1434,12 @@ final class ReadStateStore {
                 current.openedAt[item.id] = timestamp
                 didChange = true
             }
+            if (current.userReadAt?[item.id] ?? 0) < timestamp {
+                var userReadAt = current.userReadAt ?? [:]
+                userReadAt[item.id] = timestamp
+                current.userReadAt = userReadAt
+                didChange = true
+            }
         }
 
         var visible: [CodexThreadItem] = []
@@ -1449,8 +1458,13 @@ final class ReadStateStore {
                     continue
                 }
                 let readAt = current.openedAt[item.id] ?? 0
-                guard readAt < item.lastActivity.timeIntervalSince1970 else { continue }
-                if (current.runningSeenAt?[item.id] ?? 0) > 0 {
+                let userReadAt = current.userReadAt?[item.id] ?? 0
+                guard userReadAt < item.lastActivity.timeIntervalSince1970 else { continue }
+                if readAt >= item.lastActivity.timeIntervalSince1970,
+                   !shouldShowDespiteAutomaticReadWatermark(item, readAt: readAt, state: current) {
+                    continue
+                }
+                if shouldShowCompletedThread(item, state: current) {
                     visible.append(item)
                 } else if Date().timeIntervalSince(item.lastActivity) < Self.missedActivityGrace {
                     // Recently active but never observed running: the scanner most
@@ -1477,26 +1491,62 @@ final class ReadStateStore {
 
     func markRead(_ item: CodexThreadItem) {
         lock.lock()
-        state.openedAt[item.id] = readThroughTime(for: item)
+        let timestamp = readThroughTime(for: item)
+        state.openedAt[item.id] = timestamp
+        var userReadAt = state.userReadAt ?? [:]
+        userReadAt[item.id] = timestamp
+        state.userReadAt = userReadAt
         saveLocked()
         lock.unlock()
     }
 
     func markRead(threadID: String, at date: Date = Date()) {
         lock.lock()
-        state.openedAt[threadID] = date.timeIntervalSince1970
+        let timestamp = date.timeIntervalSince1970
+        state.openedAt[threadID] = timestamp
+        var userReadAt = state.userReadAt ?? [:]
+        userReadAt[threadID] = timestamp
+        state.userReadAt = userReadAt
         saveLocked()
         lock.unlock()
     }
 
     func markWaitingRead(_ items: [CodexThreadItem], at date: Date = Date()) {
         lock.lock()
+        var userReadAt = state.userReadAt ?? [:]
         for item in items where isReadDismissible(item.status) {
-            state.openedAt[item.id] = readThroughTime(for: item, at: date)
+            let timestamp = readThroughTime(for: item, at: date)
+            state.openedAt[item.id] = timestamp
+            userReadAt[item.id] = timestamp
         }
+        state.userReadAt = userReadAt
         state.didBaselineExistingWaiting = true
         saveLocked()
         lock.unlock()
+    }
+
+    private func shouldBaselineAsRead(_ item: CodexThreadItem, state: ReadStateFile) -> Bool {
+        guard isReadDismissible(item.status), !item.isExplicitUnread else { return false }
+        guard item.status == .unread else { return true }
+        return !shouldShowCompletedThread(item, state: state)
+    }
+
+    private func shouldShowCompletedThread(_ item: CodexThreadItem, state: ReadStateFile) -> Bool {
+        guard item.status == .unread else { return false }
+        if (state.runningSeenAt?[item.id] ?? 0) > 0 {
+            return true
+        }
+        return Date().timeIntervalSince(item.lastActivity) <= Self.recentCompletionVisibilityWindow
+    }
+
+    private func shouldShowDespiteAutomaticReadWatermark(_ item: CodexThreadItem, readAt: TimeInterval, state: ReadStateFile) -> Bool {
+        guard (state.userReadAt?[item.id] ?? 0) <= 0 else { return false }
+        guard shouldShowCompletedThread(item, state: state) else { return false }
+        guard state.userReadAt != nil else { return true }
+        let automaticWatermarkCutoff = item.lastActivity.timeIntervalSince1970
+            + Self.readWatermarkTolerance
+            + Self.legacyAutoReadSlack
+        return readAt <= automaticWatermarkCutoff
     }
 
     private func readThroughTime(for item: CodexThreadItem, at date: Date = Date()) -> TimeInterval {
@@ -1506,6 +1556,7 @@ final class ReadStateStore {
     private func saveLocked() {
         let directory = fileURL.deletingLastPathComponent()
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        state.schemaVersion = Self.schemaVersion
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: fileURL, options: [.atomic])
     }

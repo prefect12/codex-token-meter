@@ -2,7 +2,10 @@ import Cocoa
 import Foundation
 
 private func printThreads() {
-    let items = ReadStateStore().visibleThreads(from: CodexActivityReader().read())
+    let items = ReadStateStore()
+        .visibleThreads(from: CodexActivityReader().read(limit: taskBarCandidateThreadLimit))
+        .sorted(by: stableThreadOrder)
+        .limitedForTaskBar(limit: taskBarVisibleThreadLimit)
     if items.isEmpty {
         print("No running or unread Codex or Claude turns")
         return
