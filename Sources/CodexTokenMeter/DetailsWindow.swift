@@ -1834,7 +1834,8 @@ enum DetailsSection: CaseIterable {
     }
 
     var isVisibleInDetailsNavigation: Bool {
-        true
+        // Quota cycles page is hidden until its design is finalized.
+        self != .costs
     }
 
     var visibleFallback: DetailsSection {
