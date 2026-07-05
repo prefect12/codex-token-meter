@@ -44,11 +44,68 @@ private struct RolloutSummary {
     var compressionCount = 0
 }
 
+/// Byte-offset bookmark into a JSONL file that is only ever appended to.
+/// `size` detects rewrites: whenever the file shrinks the scan restarts at zero.
+private struct FileScanPosition {
+    var offset: UInt64 = 0
+    var size: UInt64 = 0
+}
+
+/// The bytes appended to a file since the previous scan. `body` holds complete
+/// lines (up to the last newline); `tail` holds a possibly half-written final
+/// line that must not advance the bookmark, so it is re-read next scan.
+private struct AppendedContent {
+    let body: String
+    let tail: String
+    let position: FileScanPosition
+    let restarted: Bool
+}
+
+/// Accumulated fold state for one Codex rollout file, kept across scans so each
+/// scan only parses newly appended lines.
+private struct RolloutScanState {
+    var position = FileScanPosition()
+    var summary = RolloutSummary()
+    var previousTokenCounters = TokenBreakdown()
+}
+
+/// Accumulated fold state for one Claude Code transcript, kept across scans so
+/// each scan only parses newly appended lines.
+private struct ClaudeScanState {
+    var position = FileScanPosition()
+    var sessionID: String
+    var cwd: String?
+    var firstUserText: String?
+    var latestUserText: String?
+    var latestAssistantText: String?
+    var lastPrompt: String?
+    var aiTitle: String?
+    var latestUserAt: Date?
+    var latestUserIsToolResult = false
+    var latestUserIsInteractiveToolResult = false
+    var latestAssistantAt: Date?
+    var latestAssistantIsRunning = false
+    var latestAssistantNeedsInput = false
+    var latestAssistantInteractiveToolIDs = Set<String>()
+    var lastActivity: Date?
+    var lastQueueOperation: String?
+    var lastQueueAt: Date?
+    var turns = 0
+    var model: String?
+    var tokens = TokenBreakdown()
+}
+
 final class CodexActivityReader {
     private let fileManager = FileManager.default
     private let home = NSHomeDirectory()
+    private var rolloutScanCache: [String: RolloutScanState] = [:]
+    private var claudeScanCache: [String: ClaudeScanState] = [:]
 
     func read(limit: Int = 12, lookbackHours: Int = 12) -> [CodexThreadItem] {
+        // Safety valve only: entries are tiny, but an unbounded map over months of
+        // uptime should not grow forever. Dropping everything just re-parses once.
+        if rolloutScanCache.count > 2048 { rolloutScanCache.removeAll() }
+        if claudeScanCache.count > 2048 { claudeScanCache.removeAll() }
         var byID: [String: CodexThreadItem] = [:]
         let unreadThreadIDs = globalUnreadThreadIDs()
         let stateMetadata = stateThreadMetadata()
@@ -663,152 +720,160 @@ final class CodexActivityReader {
     }
 
     private func claudeThreadItem(fileURL: URL, cutoff: Date) -> CodexThreadItem? {
-        guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return nil }
-        var sessionID = fileURL.deletingPathExtension().lastPathComponent
-        var cwd: String?
-        var firstUserText: String?
-        var latestUserText: String?
-        var latestAssistantText: String?
-        var lastPrompt: String?
-        var aiTitle: String?
-        var latestUserAt: Date?
-        var latestUserIsToolResult = false
-        var latestUserIsInteractiveToolResult = false
-        var latestAssistantAt: Date?
-        var latestAssistantIsRunning = false
-        var latestAssistantNeedsInput = false
-        var latestAssistantInteractiveToolIDs = Set<String>()
-        var lastActivity: Date?
-        var lastQueueOperation: String?
-        var lastQueueAt: Date?
-        var turns = 0
-        var model: String?
-        var tokens = TokenBreakdown()
+        let key = fileURL.path
+        let fallbackSessionID = fileURL.deletingPathExtension().lastPathComponent
+        var state = claudeScanCache[key] ?? ClaudeScanState(sessionID: fallbackSessionID)
+        guard let chunk = appendedContent(fileURL: fileURL, position: state.position) else {
+            claudeScanCache.removeValue(forKey: key)
+            return nil
+        }
+        if chunk.restarted {
+            state = ClaudeScanState(sessionID: fallbackSessionID)
+        }
+        for line in chunk.body.split(separator: "\n", omittingEmptySubsequences: true) {
+            applyClaudeLine(String(line), to: &state)
+        }
+        state.position = chunk.position
+        claudeScanCache[key] = state
+        guard !chunk.tail.isEmpty else {
+            return claudeThreadItem(from: state, cutoff: cutoff)
+        }
+        var transient = state
+        applyClaudeLine(chunk.tail, to: &transient)
+        return claudeThreadItem(from: transient, cutoff: cutoff)
+    }
 
-        text.enumerateLines { line, _ in
-            guard let data = line.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return
-            }
-            if let value = string(object["sessionId"]), !value.isEmpty {
-                sessionID = value
-            }
-            if let value = string(object["cwd"]), !value.isEmpty {
-                cwd = value
-            }
-            let timestamp = string(object["timestamp"]).flatMap(iso8601Date)
-            if let timestamp {
-                lastActivity = maxDate(lastActivity ?? timestamp, timestamp)
-            }
+    /// Titles and previews only ever use the head of a message, so persisted fold
+    /// state must not hang on to multi-megabyte pasted prompts.
+    private func cappedScanText(_ value: String) -> String {
+        value.count > 4096 ? String(value.prefix(4096)) : value
+    }
 
-            let type = string(object["type"]) ?? ""
-            if type == "queue-operation" {
-                if let timestamp {
-                    lastQueueAt = timestamp
-                    lastQueueOperation = string(object["operation"])
-                }
-                return
-            }
-            if type == "last-prompt" {
-                if let value = string(object["lastPrompt"]), !value.isEmpty {
-                    lastPrompt = value
-                }
-                return
-            }
-            if type == "ai-title" {
-                if let value = cleanTitle(string(object["aiTitle"])) {
-                    aiTitle = value
-                }
-                return
-            }
-
-            guard let message = object["message"] as? [String: Any] else { return }
-            let role = string(message["role"]) ?? type
-            let contentText = self.messageContentText(message["content"])
-            if role == "user" {
-                if let timestamp {
-                    latestUserAt = timestamp
-                }
-                let isToolResult = bool(object["toolUseResult"]) == true
-                    || self.messageContentContainsType(message["content"], "tool_result")
-                let toolResultIDs = self.messageContentToolResultIDs(message["content"])
-                let isInteractiveToolResult = !toolResultIDs.isEmpty
-                    && !latestAssistantInteractiveToolIDs.isDisjoint(with: toolResultIDs)
-                latestUserIsToolResult = isToolResult
-                latestUserIsInteractiveToolResult = isInteractiveToolResult
-                if let contentText {
-                    firstUserText = firstUserText ?? contentText
-                    latestUserText = contentText
-                }
-                // Only genuine human prompts count as turns. Tool results are
-                // role=user but automated; sidechain/meta messages are injected.
-                let isSidechain = (object["isSidechain"] as? Bool) ?? false
-                let isMeta = (object["isMeta"] as? Bool) ?? false
-                if !isToolResult, !isSidechain, !isMeta,
-                   let contentText, !contentText.isEmpty {
-                    turns += 1
-                }
-            } else if role == "assistant" {
-                if let timestamp {
-                    latestAssistantAt = timestamp
-                }
-                latestUserIsToolResult = false
-                latestUserIsInteractiveToolResult = false
-                if let value = string(message["model"]), !value.isEmpty {
-                    model = value
-                }
-                if let usage = message["usage"] as? [String: Any] {
-                    let input = intValue(usage["input_tokens"]) ?? 0
-                    let cacheRead = intValue(usage["cache_read_input_tokens"]) ?? 0
-                    let cacheCreate = intValue(usage["cache_creation_input_tokens"]) ?? 0
-                    let output = intValue(usage["output_tokens"]) ?? 0
-                    let totalInput = input + cacheRead + cacheCreate
-                    if totalInput + output > 0 {
-                        tokens.add(TokenBreakdown(
-                            input: totalInput,
-                            cachedInput: cacheRead,
-                            output: output,
-                            reasoningOutput: 0,
-                            total: totalInput + output,
-                            hasDetailedCounters: true
-                        ))
-                    }
-                }
-                let stopReason = string(message["stop_reason"] ?? message["stopReason"])?.lowercased()
-                let interactiveToolIDs = self.messageContentToolUses(message["content"])
-                    .filter { self.isInteractiveUserInputTool($0.name) }
-                    .compactMap(\.id)
-                latestAssistantInteractiveToolIDs = Set(interactiveToolIDs)
-                let assistantRequestedUserInput = !latestAssistantInteractiveToolIDs.isEmpty
-                latestAssistantIsRunning = !assistantRequestedUserInput
-                    && (stopReason == "tool_use"
-                        || self.messageContentContainsType(message["content"], "tool_use"))
-                latestAssistantNeedsInput = stopReason == "pause_turn" || assistantRequestedUserInput
-                if let contentText {
-                    latestAssistantText = contentText
-                }
-            }
+    private func applyClaudeLine(_ line: String, to state: inout ClaudeScanState) {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        if let value = string(object["sessionId"]), !value.isEmpty {
+            state.sessionID = value
+        }
+        if let value = string(object["cwd"]), !value.isEmpty {
+            state.cwd = value
+        }
+        let timestamp = string(object["timestamp"]).flatMap(iso8601Date)
+        if let timestamp {
+            state.lastActivity = maxDate(state.lastActivity ?? timestamp, timestamp)
         }
 
-        guard let activityDate = lastActivity,
+        let type = string(object["type"]) ?? ""
+        if type == "queue-operation" {
+            if let timestamp {
+                state.lastQueueAt = timestamp
+                state.lastQueueOperation = string(object["operation"])
+            }
+            return
+        }
+        if type == "last-prompt" {
+            if let value = string(object["lastPrompt"]), !value.isEmpty {
+                state.lastPrompt = cappedScanText(value)
+            }
+            return
+        }
+        if type == "ai-title" {
+            if let value = cleanTitle(string(object["aiTitle"])) {
+                state.aiTitle = value
+            }
+            return
+        }
+
+        guard let message = object["message"] as? [String: Any] else { return }
+        let role = string(message["role"]) ?? type
+        let contentText = messageContentText(message["content"])
+        if role == "user" {
+            if let timestamp {
+                state.latestUserAt = timestamp
+            }
+            let isToolResult = bool(object["toolUseResult"]) == true
+                || messageContentContainsType(message["content"], "tool_result")
+            let toolResultIDs = messageContentToolResultIDs(message["content"])
+            let isInteractiveToolResult = !toolResultIDs.isEmpty
+                && !state.latestAssistantInteractiveToolIDs.isDisjoint(with: toolResultIDs)
+            state.latestUserIsToolResult = isToolResult
+            state.latestUserIsInteractiveToolResult = isInteractiveToolResult
+            if let contentText {
+                state.firstUserText = state.firstUserText ?? cappedScanText(contentText)
+                state.latestUserText = cappedScanText(contentText)
+            }
+            // Only genuine human prompts count as turns. Tool results are
+            // role=user but automated; sidechain/meta messages are injected.
+            let isSidechain = (object["isSidechain"] as? Bool) ?? false
+            let isMeta = (object["isMeta"] as? Bool) ?? false
+            if !isToolResult, !isSidechain, !isMeta,
+               let contentText, !contentText.isEmpty {
+                state.turns += 1
+            }
+        } else if role == "assistant" {
+            if let timestamp {
+                state.latestAssistantAt = timestamp
+            }
+            state.latestUserIsToolResult = false
+            state.latestUserIsInteractiveToolResult = false
+            if let value = string(message["model"]), !value.isEmpty {
+                state.model = value
+            }
+            if let usage = message["usage"] as? [String: Any] {
+                let input = intValue(usage["input_tokens"]) ?? 0
+                let cacheRead = intValue(usage["cache_read_input_tokens"]) ?? 0
+                let cacheCreate = intValue(usage["cache_creation_input_tokens"]) ?? 0
+                let output = intValue(usage["output_tokens"]) ?? 0
+                let totalInput = input + cacheRead + cacheCreate
+                if totalInput + output > 0 {
+                    state.tokens.add(TokenBreakdown(
+                        input: totalInput,
+                        cachedInput: cacheRead,
+                        output: output,
+                        reasoningOutput: 0,
+                        total: totalInput + output,
+                        hasDetailedCounters: true
+                    ))
+                }
+            }
+            let stopReason = string(message["stop_reason"] ?? message["stopReason"])?.lowercased()
+            let interactiveToolIDs = messageContentToolUses(message["content"])
+                .filter { isInteractiveUserInputTool($0.name) }
+                .compactMap(\.id)
+            state.latestAssistantInteractiveToolIDs = Set(interactiveToolIDs)
+            let assistantRequestedUserInput = !state.latestAssistantInteractiveToolIDs.isEmpty
+            state.latestAssistantIsRunning = !assistantRequestedUserInput
+                && (stopReason == "tool_use"
+                    || messageContentContainsType(message["content"], "tool_use"))
+            state.latestAssistantNeedsInput = stopReason == "pause_turn" || assistantRequestedUserInput
+            if let contentText {
+                state.latestAssistantText = cappedScanText(contentText)
+            }
+        }
+    }
+
+    private func claudeThreadItem(from state: ClaudeScanState, cutoff: Date) -> CodexThreadItem? {
+        guard let activityDate = state.lastActivity,
               activityDate >= cutoff,
-              turns > 0 || latestAssistantText != nil else {
+              state.turns > 0 || state.latestAssistantText != nil else {
             return nil
         }
 
-        let pendingUserResponse = !latestUserIsInteractiveToolResult
-            && (latestUserAt ?? .distantPast) > (latestAssistantAt ?? .distantPast)
-        let queuedAfterAssistant = lastQueueOperation == "enqueue"
-            && (lastQueueAt ?? .distantPast) > (latestAssistantAt ?? .distantPast)
-        let assistantWaitingForInput = latestAssistantNeedsInput
-            && (latestAssistantAt ?? .distantPast) >= (latestUserAt ?? .distantPast)
-        let interactiveToolResultWaiting = latestUserIsInteractiveToolResult
-            && (latestUserAt ?? .distantPast) >= (latestAssistantAt ?? .distantPast)
-        let assistantRunningTool = latestAssistantIsRunning
-            && (latestAssistantAt ?? .distantPast) >= (latestUserAt ?? .distantPast)
-        let userToolResultStillActive = latestUserIsToolResult
-            && !latestUserIsInteractiveToolResult
-            && (latestUserAt ?? .distantPast) >= (latestAssistantAt ?? .distantPast)
+        let pendingUserResponse = !state.latestUserIsInteractiveToolResult
+            && (state.latestUserAt ?? .distantPast) > (state.latestAssistantAt ?? .distantPast)
+        let queuedAfterAssistant = state.lastQueueOperation == "enqueue"
+            && (state.lastQueueAt ?? .distantPast) > (state.latestAssistantAt ?? .distantPast)
+        let assistantWaitingForInput = state.latestAssistantNeedsInput
+            && (state.latestAssistantAt ?? .distantPast) >= (state.latestUserAt ?? .distantPast)
+        let interactiveToolResultWaiting = state.latestUserIsInteractiveToolResult
+            && (state.latestUserAt ?? .distantPast) >= (state.latestAssistantAt ?? .distantPast)
+        let assistantRunningTool = state.latestAssistantIsRunning
+            && (state.latestAssistantAt ?? .distantPast) >= (state.latestUserAt ?? .distantPast)
+        let userToolResultStillActive = state.latestUserIsToolResult
+            && !state.latestUserIsInteractiveToolResult
+            && (state.latestUserAt ?? .distantPast) >= (state.latestAssistantAt ?? .distantPast)
         let looksRunning = pendingUserResponse || queuedAfterAssistant || assistantRunningTool || userToolResultStillActive
         // A running turn streams to the transcript every few seconds; if the session
         // has gone silent past the timeout the turn has stopped (window closed or died
@@ -819,34 +884,34 @@ final class CodexActivityReader {
         let status: ThreadRunStatus = isRunning ? .running : (isWaitingForUser ? .waiting : .unread)
         let startedAt: Date?
         if isRunning {
-            startedAt = latestUserAt ?? latestAssistantAt ?? lastQueueAt ?? activityDate
+            startedAt = state.latestUserAt ?? state.latestAssistantAt ?? state.lastQueueAt ?? activityDate
         } else if isWaitingForUser {
-            startedAt = latestAssistantAt ?? activityDate
+            startedAt = state.latestAssistantAt ?? activityDate
         } else {
             startedAt = nil
         }
-        let title = aiTitle
-            ?? cleanTitle(lastPrompt)
-            ?? cleanTitle(firstUserText)
-            ?? cwd.map(shortFolderName)
-            ?? String(sessionID.prefix(8))
-        let preview = cleanPreview(latestAssistantText ?? latestUserText)
+        let title = state.aiTitle
+            ?? cleanTitle(state.lastPrompt)
+            ?? cleanTitle(state.firstUserText)
+            ?? state.cwd.map(shortFolderName)
+            ?? String(state.sessionID.prefix(8))
+        let preview = cleanPreview(state.latestAssistantText ?? state.latestUserText)
         return CodexThreadItem(
-            id: "claude:\(sessionID)",
+            id: "claude:\(state.sessionID)",
             title: title,
             preview: preview,
-            cwd: cwd,
+            cwd: state.cwd,
             lastActivity: activityDate,
             startedAt: startedAt,
             externalReadAt: nil,
             status: status,
-            turns: turns,
+            turns: state.turns,
             compressionCount: nil,
             source: "claude-code",
             isExplicitUnread: false,
-            tokensUsed: tokens.displayTotal,
-            tokenBreakdown: tokens,
-            model: model
+            tokensUsed: state.tokens.displayTotal,
+            tokenBreakdown: state.tokens,
+            model: state.model
         )
     }
 
@@ -941,80 +1006,148 @@ final class CodexActivityReader {
         return unique(directories)
     }
 
+    /// Reads the bytes appended to `fileURL` since `position`. The bookmark only
+    /// advances past complete lines; a half-written final line comes back as
+    /// `tail` and is parsed transiently until its newline lands.
+    private func appendedContent(fileURL: URL, position: FileScanPosition) -> AppendedContent? {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
+        defer { try? handle.close() }
+        guard let size = try? handle.seekToEnd() else { return nil }
+        var start = position.offset
+        var restarted = false
+        if size < position.size || start > size {
+            start = 0
+            restarted = true
+        }
+        guard size > start else {
+            return AppendedContent(
+                body: "",
+                tail: "",
+                position: FileScanPosition(offset: start, size: size),
+                restarted: restarted
+            )
+        }
+        guard (try? handle.seek(toOffset: start)) != nil,
+              let data = try? handle.read(upToCount: Int(size - start)) else {
+            return nil
+        }
+        guard let lastNewline = data.lastIndex(of: 0x0A) else {
+            return AppendedContent(
+                body: "",
+                tail: String(decoding: data, as: UTF8.self),
+                position: FileScanPosition(offset: start, size: size),
+                restarted: restarted
+            )
+        }
+        let bodyData = data[data.startIndex...lastNewline]
+        let tailData = data[data.index(after: lastNewline)...]
+        return AppendedContent(
+            body: String(decoding: bodyData, as: UTF8.self),
+            tail: String(decoding: tailData, as: UTF8.self),
+            position: FileScanPosition(offset: start + UInt64(bodyData.count), size: size),
+            restarted: restarted
+        )
+    }
+
     private func rolloutSummary(fileURL: URL) -> RolloutSummary? {
-        guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return nil }
-        var summary = RolloutSummary()
-        var previousTokenCounters = TokenBreakdown()
-        text.enumerateLines { line, _ in
-            let eventDate = self.eventDate(from: line)
-            if summary.cwd == nil, line.contains(#""type":"session_meta""#) {
-                summary.cwd = self.extractJSONString(line: line, key: "cwd")
+        let key = fileURL.path
+        var state = rolloutScanCache[key] ?? RolloutScanState()
+        guard let chunk = appendedContent(fileURL: fileURL, position: state.position) else {
+            rolloutScanCache.removeValue(forKey: key)
+            return nil
+        }
+        if chunk.restarted {
+            state = RolloutScanState()
+        }
+        for line in chunk.body.split(separator: "\n", omittingEmptySubsequences: true) {
+            applyRolloutLine(String(line), to: &state)
+        }
+        state.position = chunk.position
+        rolloutScanCache[key] = state
+        guard !chunk.tail.isEmpty else {
+            return state.summary
+        }
+        var transient = state
+        applyRolloutLine(chunk.tail, to: &transient)
+        return transient.summary
+    }
+
+    private func applyRolloutLine(_ line: String, to state: inout RolloutScanState) {
+        // Extracting the event date parses the whole line as JSON; do it lazily so
+        // lines that match no marker below skip that cost entirely.
+        var resolvedEventDate: Date?? = nil
+        func lineEventDate() -> Date? {
+            if resolvedEventDate == nil {
+                resolvedEventDate = .some(eventDate(from: line))
             }
-            if line.contains(#""type":"turn_context""#) {
-                if let cwd = self.extractJSONString(line: line, key: "cwd"),
-                   !cwd.isEmpty {
-                    summary.cwd = cwd
-                }
-                summary.isRunning = true
-                summary.turns += 1
-                summary.lastTaskEventAt = eventDate ?? summary.lastTaskEventAt
-                summary.currentTurnStartedAt = eventDate ?? summary.currentTurnStartedAt
+            return resolvedEventDate ?? nil
+        }
+        if state.summary.cwd == nil, line.contains(#""type":"session_meta""#) {
+            state.summary.cwd = extractJSONString(line: line, key: "cwd")
+        }
+        if line.contains(#""type":"turn_context""#) {
+            if let cwd = extractJSONString(line: line, key: "cwd"),
+               !cwd.isEmpty {
+                state.summary.cwd = cwd
             }
-            if summary.title == nil,
-               line.contains(#""type":"response_item""#),
-               line.contains(#""payload":{"type":"message""#),
-               line.contains(#""type":"message""#),
-               line.contains(#""role":"user""#) {
-                if let candidate = self.userMessageText(from: line),
-                   let title = self.displayTitleCandidate(candidate) {
-                    summary.title = title
-                }
-            }
-            if line.contains(#""type":"response_item""#),
-               line.contains(#""payload":{"type":"message""#),
-               line.contains(#""role":"assistant""#),
-               let candidate = self.assistantMessageText(from: line),
-               let preview = cleanPreview(candidate) {
-                summary.preview = preview
-            }
-            if self.isFinalAssistantMessage(line: line) {
-                summary.isRunning = false
-                summary.lastTaskEventAt = eventDate ?? summary.lastTaskEventAt
-                summary.lastCompletionAt = eventDate ?? summary.lastCompletionAt
-                summary.currentTurnStartedAt = nil
-            }
-            guard line.contains(#""type":"event_msg""#) else { return }
-            if line.contains(#""type":"context_compacted""#) {
-                summary.compressionCount += 1
-            }
-            if line.contains(#""type":"token_count""#),
-               let currentCounters = self.tokenCounters(from: line) {
-                let delta = TokenBreakdown.delta(from: previousTokenCounters, to: currentCounters)
-                previousTokenCounters = currentCounters
-                if delta.hasAny {
-                    summary.tokenBreakdown.add(delta)
-                }
-            }
-            if line.contains(#""type":"task_started""#) {
-                let wasAlreadyRunning = summary.isRunning
-                summary.isRunning = true
-                if !wasAlreadyRunning {
-                    summary.turns += 1
-                }
-                summary.lastTaskEventAt = eventDate ?? summary.lastTaskEventAt
-                summary.currentTurnStartedAt = eventDate ?? summary.currentTurnStartedAt
-            } else if line.contains(#""type":"task_complete""#) || line.contains(#""type":"turn_aborted""#) {
-                summary.isRunning = false
-                summary.lastTaskEventAt = eventDate ?? summary.lastTaskEventAt
-                summary.lastCompletionAt = eventDate ?? summary.lastCompletionAt
-                summary.currentTurnStartedAt = nil
-                if let candidate = self.completedAgentMessageText(from: line),
-                   let preview = cleanPreview(candidate) {
-                    summary.preview = preview
-                }
+            state.summary.isRunning = true
+            state.summary.turns += 1
+            state.summary.lastTaskEventAt = lineEventDate() ?? state.summary.lastTaskEventAt
+            state.summary.currentTurnStartedAt = lineEventDate() ?? state.summary.currentTurnStartedAt
+        }
+        if state.summary.title == nil,
+           line.contains(#""type":"response_item""#),
+           line.contains(#""payload":{"type":"message""#),
+           line.contains(#""type":"message""#),
+           line.contains(#""role":"user""#) {
+            if let candidate = userMessageText(from: line),
+               let title = displayTitleCandidate(candidate) {
+                state.summary.title = title
             }
         }
-        return summary
+        if line.contains(#""type":"response_item""#),
+           line.contains(#""payload":{"type":"message""#),
+           line.contains(#""role":"assistant""#),
+           let candidate = assistantMessageText(from: line),
+           let preview = cleanPreview(candidate) {
+            state.summary.preview = preview
+        }
+        if isFinalAssistantMessage(line: line) {
+            state.summary.isRunning = false
+            state.summary.lastTaskEventAt = lineEventDate() ?? state.summary.lastTaskEventAt
+            state.summary.lastCompletionAt = lineEventDate() ?? state.summary.lastCompletionAt
+            state.summary.currentTurnStartedAt = nil
+        }
+        guard line.contains(#""type":"event_msg""#) else { return }
+        if line.contains(#""type":"context_compacted""#) {
+            state.summary.compressionCount += 1
+        }
+        if line.contains(#""type":"token_count""#),
+           let currentCounters = tokenCounters(from: line) {
+            let delta = TokenBreakdown.delta(from: state.previousTokenCounters, to: currentCounters)
+            state.previousTokenCounters = currentCounters
+            if delta.hasAny {
+                state.summary.tokenBreakdown.add(delta)
+            }
+        }
+        if line.contains(#""type":"task_started""#) {
+            let wasAlreadyRunning = state.summary.isRunning
+            state.summary.isRunning = true
+            if !wasAlreadyRunning {
+                state.summary.turns += 1
+            }
+            state.summary.lastTaskEventAt = lineEventDate() ?? state.summary.lastTaskEventAt
+            state.summary.currentTurnStartedAt = lineEventDate() ?? state.summary.currentTurnStartedAt
+        } else if line.contains(#""type":"task_complete""#) || line.contains(#""type":"turn_aborted""#) {
+            state.summary.isRunning = false
+            state.summary.lastTaskEventAt = lineEventDate() ?? state.summary.lastTaskEventAt
+            state.summary.lastCompletionAt = lineEventDate() ?? state.summary.lastCompletionAt
+            state.summary.currentTurnStartedAt = nil
+            if let candidate = completedAgentMessageText(from: line),
+               let preview = cleanPreview(candidate) {
+                state.summary.preview = preview
+            }
+        }
     }
 
     private func isFinalAssistantMessage(line: String) -> Bool {
@@ -1226,6 +1359,12 @@ final class CodexActivityReader {
 final class ReadStateStore {
     private static let schemaVersion = 2
     private static let readWatermarkTolerance: TimeInterval = 60
+    /// A thread first seen as "unread" may simply be one whose running phase every
+    /// scan missed — scans are periodic and can be starved for minutes under system
+    /// load. Anything active more recently than this is surfaced instead of being
+    /// silently marked read; kept above `runningActivityTimeout` so a turn that
+    /// stalled out still shows up as done.
+    private static let missedActivityGrace: TimeInterval = 15 * 60
     private let fileManager = FileManager.default
     private let fileURL: URL
     private let lock = NSLock()
@@ -1312,6 +1451,15 @@ final class ReadStateStore {
                 let readAt = current.openedAt[item.id] ?? 0
                 guard readAt < item.lastActivity.timeIntervalSince1970 else { continue }
                 if (current.runningSeenAt?[item.id] ?? 0) > 0 {
+                    visible.append(item)
+                } else if Date().timeIntervalSince(item.lastActivity) < Self.missedActivityGrace {
+                    // Recently active but never observed running: the scanner most
+                    // likely sampled between its events. Record it as seen-active so
+                    // it stays visible until the user acts, like any finished thread.
+                    var seenAt = current.runningSeenAt ?? [:]
+                    seenAt[item.id] = item.lastActivity.timeIntervalSince1970
+                    current.runningSeenAt = seenAt
+                    didChange = true
                     visible.append(item)
                 } else {
                     current.openedAt[item.id] = readThroughTime(for: item)
