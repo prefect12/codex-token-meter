@@ -236,11 +236,17 @@ func tooltipRow(for field: TaskHoverField, item: CodexThreadItem) -> ThreadToolt
         guard let cwd = item.cwd, !cwd.isEmpty else { return nil }
         return ThreadTooltipRow("文件夹", cwd)
     case .branch:
-        guard let branch = gitBranchName(for: item.cwd), !branch.isEmpty else { return nil }
-        return ThreadTooltipRow("分支", branch)
+        if let branch = gitBranchName(for: item.cwd), !branch.isEmpty {
+            return ThreadTooltipRow("分支", branch)
+        }
+        guard item.cwd?.isEmpty == false else { return unavailableContextRow("分支", "未知") }
+        return unavailableContextRow("分支", "非 Git 仓库")
     case .worktree:
-        guard let worktree = worktreeName(for: item.cwd), !worktree.isEmpty else { return nil }
-        return ThreadTooltipRow("Worktree", worktree)
+        if let worktree = worktreeName(for: item.cwd), !worktree.isEmpty {
+            return ThreadTooltipRow("Worktree", worktree)
+        }
+        guard item.cwd?.isEmpty == false else { return unavailableContextRow("Worktree", "未知") }
+        return unavailableContextRow("Worktree", gitBranchName(for: item.cwd) == nil ? "普通目录" : "默认工作区")
     case .input:
         guard item.tokenBreakdown.hasDetailedCounters else { return nil }
         return ThreadTooltipRow("输入", compactTokenCount(item.tokenBreakdown.input))
@@ -264,6 +270,10 @@ func tooltipRow(for field: TaskHoverField, item: CodexThreadItem) -> ThreadToolt
         guard let model = item.model, !model.isEmpty else { return nil }
         return ThreadTooltipRow("模型", model)
     }
+}
+
+private func unavailableContextRow(_ label: String, _ value: String) -> ThreadTooltipRow {
+    ThreadTooltipRow(label, value, valueColor: NSColor.white.withAlphaComponent(0.42))
 }
 
 func cleanedTooltipRows(_ rows: [ThreadTooltipRow]) -> [ThreadTooltipRow] {
