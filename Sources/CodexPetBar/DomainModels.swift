@@ -20,6 +20,7 @@ struct CodexThreadItem {
     let compressionCount: Int?
     let source: String
     let isExplicitUnread: Bool
+    let codexUpdatedAt: Date?
     let tokensUsed: Int?
     let tokenBreakdown: TokenBreakdown
     let model: String?

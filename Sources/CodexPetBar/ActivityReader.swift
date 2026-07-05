@@ -14,6 +14,7 @@ private struct ReadStateFile: Codable {
     var openedAt: [String: TimeInterval]
     var runningSeenAt: [String: TimeInterval]?
     var userReadAt: [String: TimeInterval]?
+    var codexUpdatedAtSeen: [String: TimeInterval]?
 }
 
 private struct LoggedThread {
@@ -25,6 +26,7 @@ private struct ThreadStateMetadata {
     let tokensUsed: Int?
     let tokenBreakdown: TokenBreakdown
     let model: String?
+    let updatedAt: Date?
 }
 
 private struct AppServerThreadSnapshot {
@@ -163,6 +165,7 @@ final class CodexActivityReader {
                     compressionCount: mergedCompressionCount(existing.compressionCount, summary.compressionCount),
                     source: preferLoggedStatus ? "\(existing.source)+logs" : existing.source,
                     isExplicitUnread: existing.isExplicitUnread || explicitUnread,
+                    codexUpdatedAt: existing.codexUpdatedAt,
                     tokensUsed: existing.tokensUsed ?? tokenBreakdown.displayTotal,
                     tokenBreakdown: tokenBreakdown,
                     model: existing.model
@@ -188,6 +191,7 @@ final class CodexActivityReader {
                 compressionCount: summary.compressionCount,
                 source: "logs",
                 isExplicitUnread: explicitUnread,
+                codexUpdatedAt: nil,
                 tokensUsed: summary.tokenBreakdown.displayTotal,
                 tokenBreakdown: summary.tokenBreakdown,
                 model: nil
@@ -225,6 +229,7 @@ final class CodexActivityReader {
             compressionCount: item.compressionCount,
             source: item.source,
             isExplicitUnread: item.isExplicitUnread,
+            codexUpdatedAt: metadata.updatedAt ?? item.codexUpdatedAt,
             tokensUsed: item.tokensUsed ?? metadata.tokensUsed,
             tokenBreakdown: item.tokenBreakdown.resolved(with: metadata.tokenBreakdown),
             model: item.model ?? metadata.model
@@ -264,6 +269,7 @@ final class CodexActivityReader {
             compressionCount: compressionCount,
             source: item.source,
             isExplicitUnread: item.isExplicitUnread,
+            codexUpdatedAt: item.codexUpdatedAt,
             tokensUsed: item.tokensUsed ?? tokenBreakdown.displayTotal,
             tokenBreakdown: tokenBreakdown,
             model: item.model
@@ -365,6 +371,8 @@ final class CodexActivityReader {
                     && !isAppServerReadThrough(externalReadAt: externalReadAt, lastActivity: lastActivity)
                 guard let status = appServerThreadStatus(dict, explicitUnread: explicitUnread) else { continue }
                 let tokenBreakdown = tokenBreakdown(from: dict)
+                let codexUpdatedAt = (double(dict["updatedAt"] ?? dict["updated_at"] ?? dict["lastActivityAt"]) ?? double(dict["recencyAt"] ?? dict["recency_at"]))
+                    .map(unixDate(seconds:))
                 items.append(CodexThreadItem(
                     id: id,
                     title: title,
@@ -378,6 +386,7 @@ final class CodexActivityReader {
                     compressionCount: nil,
                     source: "app-server",
                     isExplicitUnread: explicitUnread,
+                    codexUpdatedAt: codexUpdatedAt,
                     tokensUsed: tokenBreakdown.displayTotal,
                     tokenBreakdown: tokenBreakdown,
                     model: string(dict["model"] ?? dict["modelName"])
@@ -600,6 +609,7 @@ final class CodexActivityReader {
             ) ?? String(id.prefix(8))
             let updatedMS = double(row["updated_ms"]) ?? Date().timeIntervalSince1970 * 1000
             let lastActivity = unixDate(seconds: updatedMS)
+            let codexUpdatedAt = unixDate(seconds: updatedMS)
             let externalReadAt = externalReadAtByID[id]
             if isAppServerReadThrough(externalReadAt: externalReadAt, lastActivity: lastActivity) {
                 return nil
@@ -618,6 +628,7 @@ final class CodexActivityReader {
                 compressionCount: nil,
                 source: "state",
                 isExplicitUnread: true,
+                codexUpdatedAt: codexUpdatedAt,
                 tokensUsed: tokenBreakdown.displayTotal,
                 tokenBreakdown: tokenBreakdown,
                 model: string(row["model"])
@@ -644,7 +655,8 @@ final class CodexActivityReader {
             result[id] = ThreadStateMetadata(
                 tokensUsed: tokenBreakdown.displayTotal,
                 tokenBreakdown: tokenBreakdown,
-                model: string(row["model"])
+                model: string(row["model"]),
+                updatedAt: double(row["updated_ms"]).map(unixDate(seconds:))
             )
         }
         return result
@@ -924,6 +936,7 @@ final class CodexActivityReader {
             compressionCount: nil,
             source: "claude-code",
             isExplicitUnread: false,
+            codexUpdatedAt: nil,
             tokensUsed: state.tokens.displayTotal,
             tokenBreakdown: state.tokens,
             model: state.model
@@ -1465,7 +1478,7 @@ final class CodexActivityReader {
 }
 
 final class ReadStateStore {
-    private static let schemaVersion = 4
+    private static let schemaVersion = 5
     private static let readWatermarkTolerance: TimeInterval = 60
     /// A thread first seen as "unread" may simply be one whose running phase every
     /// scan missed — scans are periodic and can be starved for minutes under system
@@ -1475,6 +1488,7 @@ final class ReadStateStore {
     private static let missedActivityGrace: TimeInterval = 15 * 60
     private static let recentCompletionVisibilityWindow: TimeInterval = 60 * 60
     private static let legacyAutoReadSlack: TimeInterval = 90
+    private static let codexOpenUpdatedAtSlack: TimeInterval = 1
     private let fileManager = FileManager.default
     private let fileURL: URL
     private let lock = NSLock()
@@ -1498,7 +1512,8 @@ final class ReadStateStore {
                 didBaselineExistingWaiting: decoded.didBaselineExistingWaiting,
                 openedAt: decoded.openedAt,
                 runningSeenAt: decoded.runningSeenAt ?? [:],
-                userReadAt: decoded.userReadAt
+                userReadAt: decoded.userReadAt,
+                codexUpdatedAtSeen: decoded.codexUpdatedAtSeen ?? [:]
             )
         } else {
             state = ReadStateFile(
@@ -1506,7 +1521,8 @@ final class ReadStateStore {
                 didBaselineExistingWaiting: false,
                 openedAt: [:],
                 runningSeenAt: [:],
-                userReadAt: [:]
+                userReadAt: [:],
+                codexUpdatedAtSeen: [:]
             )
         }
     }
@@ -1547,6 +1563,12 @@ final class ReadStateStore {
                 var userReadAt = current.userReadAt ?? [:]
                 userReadAt[item.id] = timestamp
                 current.userReadAt = userReadAt
+                didChange = true
+            }
+        }
+
+        for item in items {
+            if syncCodexOpenState(for: item, state: &current) {
                 didChange = true
             }
         }
@@ -1656,6 +1678,43 @@ final class ReadStateStore {
             + Self.readWatermarkTolerance
             + Self.legacyAutoReadSlack
         return readAt <= automaticWatermarkCutoff
+    }
+
+    private func syncCodexOpenState(for item: CodexThreadItem, state: inout ReadStateFile) -> Bool {
+        guard let codexUpdatedAt = item.codexUpdatedAt?.timeIntervalSince1970,
+              codexUpdatedAt > 0,
+              item.status == .unread,
+              !item.isExplicitUnread else {
+            return false
+        }
+
+        var didChange = false
+        var seen = state.codexUpdatedAtSeen ?? [:]
+        let previous = seen[item.id]
+        if previous.map({ codexUpdatedAt > $0 }) ?? true {
+            seen[item.id] = codexUpdatedAt
+            state.codexUpdatedAtSeen = seen
+            didChange = true
+        }
+
+        guard let previous,
+              codexUpdatedAt > previous + Self.codexOpenUpdatedAtSlack,
+              codexUpdatedAt + Self.readWatermarkTolerance >= item.lastActivity.timeIntervalSince1970 else {
+            return didChange
+        }
+
+        let timestamp = readThroughTime(for: item, at: Date(timeIntervalSince1970: codexUpdatedAt))
+        if (state.openedAt[item.id] ?? 0) < timestamp {
+            state.openedAt[item.id] = timestamp
+            didChange = true
+        }
+        var userReadAt = state.userReadAt ?? [:]
+        if (userReadAt[item.id] ?? 0) < timestamp {
+            userReadAt[item.id] = timestamp
+            state.userReadAt = userReadAt
+            didChange = true
+        }
+        return didChange
     }
 
     private func readThroughTime(for item: CodexThreadItem, at date: Date = Date()) -> TimeInterval {

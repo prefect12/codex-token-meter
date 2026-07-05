@@ -35,6 +35,7 @@ private func mockTaskBarThreads() -> [CodexThreadItem] {
             compressionCount: nil,
             source: source,
             isExplicitUnread: status == .unread,
+            codexUpdatedAt: nil,
             tokensUsed: 128_000,
             tokenBreakdown: TokenBreakdown(),
             model: "gpt-5-codex"
