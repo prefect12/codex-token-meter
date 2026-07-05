@@ -1554,21 +1554,21 @@ final class ReadStateStore {
         var visible: [CodexThreadItem] = []
         for item in items {
             switch item.status {
-            case .running, .stale, .waiting:
+            case .running, .stale:
+                visible.append(item)
+            case .waiting:
+                let readAt = current.openedAt[item.id] ?? 0
+                let userReadAt = current.userReadAt?[item.id] ?? 0
+                guard max(readAt, userReadAt) < item.lastActivity.timeIntervalSince1970 else { continue }
                 visible.append(item)
             case .unread:
-                if item.isExplicitUnread {
-                    let timestamp = readThroughTime(for: item)
-                    if (current.openedAt[item.id] ?? 0) < timestamp {
-                        current.openedAt[item.id] = timestamp
-                        didChange = true
-                    }
-                    visible.append(item)
-                    continue
-                }
                 let readAt = current.openedAt[item.id] ?? 0
                 let userReadAt = current.userReadAt?[item.id] ?? 0
                 guard userReadAt < item.lastActivity.timeIntervalSince1970 else { continue }
+                if item.isExplicitUnread {
+                    visible.append(item)
+                    continue
+                }
                 if readAt >= item.lastActivity.timeIntervalSince1970,
                    !shouldShowDespiteAutomaticReadWatermark(item, readAt: readAt, state: current) {
                     continue
