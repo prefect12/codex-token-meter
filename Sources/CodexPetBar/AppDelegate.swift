@@ -48,8 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !readInFlight else { return }
         readInFlight = true
         DispatchQueue.global(qos: .utility).async {
-            let items = self.reader.read()
+            let items = self.reader.read(limit: taskBarCandidateThreadLimit)
             let visible = self.readState.visibleThreads(from: items)
+                .sorted(by: stableThreadOrder)
+                .limitedForTaskBar(limit: taskBarVisibleThreadLimit)
             DispatchQueue.main.async {
                 self.readInFlight = false
                 let signature = self.threadsSignature(visible)

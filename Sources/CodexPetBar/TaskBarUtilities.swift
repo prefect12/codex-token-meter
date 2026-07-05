@@ -302,6 +302,8 @@ func tooltipStatusLabel(_ status: ThreadRunStatus) -> String {
 let menuPanelWidth: CGFloat = 420
 let taskBarPopoverMinWidth: CGFloat = 340
 let taskBarPopoverMinHeight: CGFloat = 200
+let taskBarVisibleThreadLimit = 12
+let taskBarCandidateThreadLimit = 48
 let menuPanelBackground = NSColor(calibratedWhite: 0.105, alpha: 0.97)
 let taskBarRowHeight: CGFloat = 92
 let taskBarCompactRowHeight: CGFloat = 72
