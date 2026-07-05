@@ -1893,11 +1893,6 @@ enum DetailsSection: CaseIterable {
     }
 }
 
-private enum StatusBarMetricSelection: Hashable {
-    case metric(StatusBarMetric)
-    case off
-}
-
 final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
     private func centeredRect(for bounds: NSRect) -> NSRect {
         let horizontalPadding: CGFloat = 12
@@ -2142,7 +2137,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var hoveredInsightPeriod: String?
     private var insightListScrollOffset: CGFloat = 0
     private var numberUnitOptionRects: [NumberUnitStyle: NSRect] = [:]
-    private var statusMetricOptionRects: [StatusBarMetricSlot: [StatusBarMetricSelection: NSRect]] = [:]
     private var quotaDisplayStyleRects: [QuotaDisplayStyle: NSRect] = [:]
     private var codexHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
     private var claudeHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
@@ -2191,6 +2185,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private let displayCurrencyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let costYearPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let languagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let statusPrimaryMetricPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let statusSecondaryMetricPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let storageFilterPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let storageSortPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let storageSearchField = NSSearchField()
@@ -2201,6 +2197,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private let profileAPITotalsSwitch = NSSwitch(frame: .zero)
     private let claudeActiveQuotaRefreshSwitch = NSSwitch(frame: .zero)
     private var isUpdatingCostControls = false
+    private var isUpdatingStatusMetricPopups = false
     private var detailsTrackingArea: NSTrackingArea?
 
     var storageSnapshot: StorageSnapshot? {
@@ -2460,7 +2457,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         claudeActiveQuotaRefreshSwitch.action = #selector(claudeActiveQuotaRefreshChanged)
         addSubview(claudeActiveQuotaRefreshSwitch)
 
-        for popup in [paymentCurrencyPopup, displayCurrencyPopup, costYearPopup, languagePopup] {
+        for popup in [paymentCurrencyPopup, displayCurrencyPopup, costYearPopup, languagePopup, statusPrimaryMetricPopup, statusSecondaryMetricPopup] {
             popup.controlSize = .regular
             popup.font = .systemFont(ofSize: 12, weight: .semibold)
             popup.isBordered = false
@@ -2478,12 +2475,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         costYearPopup.removeAllItems()
         languagePopup.removeAllItems()
         languagePopup.addItems(withTitles: AppLanguage.allCases.map(\.displayName))
+        updateStatusMetricPopupsFromSettings()
         costAmountField.setAccessibilityLabel(t(.paymentMonthly))
         paymentStartDayField.setAccessibilityLabel(t(.paymentStartDate))
         paymentCurrencyPopup.setAccessibilityLabel(t(.paymentCurrency))
         displayCurrencyPopup.setAccessibilityLabel(t(.displayCurrency))
         costYearPopup.setAccessibilityLabel(t(.costHistory))
         languagePopup.setAccessibilityLabel(t(.interfaceLanguage))
+        statusPrimaryMetricPopup.setAccessibilityLabel(t(.statusBarMetricOne))
+        statusSecondaryMetricPopup.setAccessibilityLabel(t(.statusBarMetricTwo))
         showHistoricalEmptyWeeksSwitch.setAccessibilityLabel(t(.showPastEmptyWeeks))
         launchAtLoginSwitch.setAccessibilityLabel(t(.launchAtLogin))
         quotaWarningsSwitch.setAccessibilityLabel(t(.quotaWarnings))
@@ -2497,6 +2497,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         costYearPopup.action = #selector(costYearPopupChanged)
         languagePopup.target = self
         languagePopup.action = #selector(languagePopupChanged)
+        statusPrimaryMetricPopup.target = self
+        statusPrimaryMetricPopup.action = #selector(statusPrimaryMetricPopupChanged)
+        statusSecondaryMetricPopup.target = self
+        statusSecondaryMetricPopup.action = #selector(statusSecondaryMetricPopupChanged)
 
         for popup in [storageFilterPopup, storageSortPopup] {
             popup.controlSize = .small
@@ -2538,6 +2542,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func layoutSettingsControls() {
         let visible = selectedSection == .settings
         languagePopup.isHidden = !visible
+        statusPrimaryMetricPopup.isHidden = !visible
+        statusSecondaryMetricPopup.isHidden = !visible
         launchAtLoginSwitch.isHidden = !visible
         showCodexStatusSwitch.isHidden = !visible
         quotaWarningsSwitch.isHidden = !visible
@@ -2549,6 +2555,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(704, content.height - 78))
         let popupWidth = min(300, max(252, rect.width * 0.34))
         languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
+        let statusPopupWidth = min(300, max(252, rect.width * 0.34))
+        statusPrimaryMetricPopup.frame = NSRect(x: rect.maxX - statusPopupWidth - 16, y: rect.minY + 326, width: statusPopupWidth, height: 36)
+        statusSecondaryMetricPopup.frame = NSRect(x: rect.maxX - statusPopupWidth - 16, y: rect.minY + 370, width: statusPopupWidth, height: 36)
         let leftSwitchX = rect.midX - 64
         let rightSwitchX = rect.maxX - 64
         showCodexStatusSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 638, width: 48, height: 24)
@@ -2557,6 +2566,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         profileAPITotalsSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 666, width: 48, height: 24)
         claudeActiveQuotaRefreshSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 420, width: 48, height: 24)
         updateLanguagePopupFromSettings()
+        updateStatusMetricPopupsFromSettings()
         updateSettingsControlsFromSystem()
     }
 
@@ -2577,6 +2587,32 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         quotaWarningsSwitch.state = AppSettings.quotaWarningsEnabled ? .on : .off
         profileAPITotalsSwitch.state = AppSettings.profileAPITotalsEnabled ? .on : .off
         claudeActiveQuotaRefreshSwitch.state = AppSettings.claudeActiveQuotaRefreshEnabled ? .on : .off
+    }
+
+    private func updateStatusMetricPopupsFromSettings() {
+        isUpdatingStatusMetricPopups = true
+        defer { isUpdatingStatusMetricPopups = false }
+
+        let metricTitles = StatusBarMetric.allCases.map(\.title)
+        if statusPrimaryMetricPopup.itemArray.map(\.title) != metricTitles {
+            statusPrimaryMetricPopup.removeAllItems()
+            statusPrimaryMetricPopup.addItems(withTitles: metricTitles)
+        }
+        if let primaryIndex = StatusBarMetric.allCases.firstIndex(of: AppSettings.statusBarPrimaryMetric) {
+            statusPrimaryMetricPopup.selectItem(at: primaryIndex)
+        }
+
+        let secondaryTitles = [t(.statusMetricOff)] + metricTitles
+        if statusSecondaryMetricPopup.itemArray.map(\.title) != secondaryTitles {
+            statusSecondaryMetricPopup.removeAllItems()
+            statusSecondaryMetricPopup.addItems(withTitles: secondaryTitles)
+        }
+        if let secondaryMetric = AppSettings.statusBarSecondaryMetric,
+           let secondaryIndex = StatusBarMetric.allCases.firstIndex(of: secondaryMetric) {
+            statusSecondaryMetricPopup.selectItem(at: secondaryIndex + 1)
+        } else {
+            statusSecondaryMetricPopup.selectItem(at: 0)
+        }
     }
 
     private func updateCostControlsFromSettings() {
@@ -2675,7 +2711,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 targetHeight = 660
             }
         case .settings:
-            targetHeight = 812
+            targetHeight = 838
         case .about:
             targetHeight = 580
         }
@@ -3138,17 +3174,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 onNumberUnitStyleChanged?(style)
                 return
             }
-            for (slot, selections) in statusMetricOptionRects {
-                for (selection, rect) in selections where rect.contains(point) {
-                    switch selection {
-                    case .metric(let metric):
-                        onStatusBarMetricChanged?(slot, metric)
-                    case .off:
-                        onStatusBarMetricChanged?(slot, nil)
-                    }
-                    return
-                }
-            }
             for (style, rect) in quotaDisplayStyleRects where rect.contains(point) {
                 onQuotaDisplayStyleChanged?(style)
                 return
@@ -3252,6 +3277,30 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         onLanguageChanged?(language)
         needsDisplay = true
         needsLayout = true
+    }
+
+    @objc private func statusPrimaryMetricPopupChanged() {
+        guard !isUpdatingStatusMetricPopups,
+              statusPrimaryMetricPopup.indexOfSelectedItem >= 0,
+              StatusBarMetric.allCases.indices.contains(statusPrimaryMetricPopup.indexOfSelectedItem) else { return }
+        let metric = StatusBarMetric.allCases[statusPrimaryMetricPopup.indexOfSelectedItem]
+        onStatusBarMetricChanged?(.first, metric)
+        needsDisplay = true
+    }
+
+    @objc private func statusSecondaryMetricPopupChanged() {
+        guard !isUpdatingStatusMetricPopups,
+              statusSecondaryMetricPopup.indexOfSelectedItem >= 0 else { return }
+        let index = statusSecondaryMetricPopup.indexOfSelectedItem
+        guard index > 0 else {
+            onStatusBarMetricChanged?(.second, nil)
+            needsDisplay = true
+            return
+        }
+        let metricIndex = index - 1
+        guard StatusBarMetric.allCases.indices.contains(metricIndex) else { return }
+        onStatusBarMetricChanged?(.second, StatusBarMetric.allCases[metricIndex])
+        needsDisplay = true
     }
 
     @objc private func showHistoricalEmptyWeeksChanged() {
@@ -3377,7 +3426,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         insightStatusFilterRects.removeAll()
         insightListViewportRect = nil
         numberUnitOptionRects.removeAll()
-        statusMetricOptionRects.removeAll()
         quotaDisplayStyleRects.removeAll()
         sourceOptionRects.removeAll()
         chooseLogFolderRect = nil
@@ -6718,8 +6766,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawSmallButton(t(.logFolderChoose), rect: chooseLogFolderRect!, emphasized: true)
         drawText(t(.logFolderHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 286, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawStatusMetricRow(slot: .first, in: rect, y: rect.minY + 330, includesOff: false)
-        drawStatusMetricRow(slot: .second, in: rect, y: rect.minY + 374, includesOff: true)
+        drawText(t(.statusBarMetricOne), rect: NSRect(x: rect.minX + 16, y: rect.minY + 334, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawInputFieldBackground(statusPrimaryMetricPopup.frame)
+        drawText(t(.statusBarMetricTwo), rect: NSRect(x: rect.minX + 16, y: rect.minY + 378, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawInputFieldBackground(statusSecondaryMetricPopup.frame)
         drawText(t(.claudeActiveRefresh), rect: NSRect(x: rect.minX + 16, y: rect.minY + 422, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         drawText(t(.claudeActiveRefreshHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 446, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
 
@@ -6758,48 +6808,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawText(t(.launchAtLogin), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 640, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 668, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         drawText(t(.profileAPITotals), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 668, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-    }
-
-    private func drawStatusMetricRow(slot: StatusBarMetricSlot, in rect: NSRect, y: CGFloat, includesOff: Bool) {
-        drawText(slot.title, rect: NSRect(x: rect.minX + 16, y: y + 4, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        var selections: [StatusBarMetricSelection] = includesOff ? [.off] : []
-        selections.append(contentsOf: StatusBarMetric.allCases.map { StatusBarMetricSelection.metric($0) })
-
-        let gap: CGFloat = 8
-        let optionStartX = rect.minX + 236
-        let optionAreaWidth = rect.maxX - 16 - optionStartX
-        let offWidth: CGFloat = includesOff ? 82 : 0
-        let metricCount = CGFloat(StatusBarMetric.allCases.count)
-        let metricAreaWidth = includesOff ? optionAreaWidth - offWidth - gap : optionAreaWidth
-        let metricWidth = max(86, floor((metricAreaWidth - gap * CGFloat(max(StatusBarMetric.allCases.count - 1, 0))) / metricCount))
-        let selected = selectedStatusMetricSelection(for: slot)
-        var currentX = optionStartX
-        for selection in selections {
-            let width = selection == .off ? offWidth : metricWidth
-            let optionRect = NSRect(x: currentX, y: y, width: width, height: 36)
-            statusMetricOptionRects[slot, default: [:]][selection] = optionRect
-            drawSelectablePill(statusMetricSelectionTitle(selection), rect: optionRect, selected: selection == selected)
-            currentX = optionRect.maxX + gap
-        }
-    }
-
-    private func selectedStatusMetricSelection(for slot: StatusBarMetricSlot) -> StatusBarMetricSelection {
-        switch slot {
-        case .first:
-            return .metric(AppSettings.statusBarPrimaryMetric)
-        case .second:
-            guard let metric = AppSettings.statusBarSecondaryMetric else { return .off }
-            return .metric(metric)
-        }
-    }
-
-    private func statusMetricSelectionTitle(_ selection: StatusBarMetricSelection) -> String {
-        switch selection {
-        case .metric(let metric):
-            return metric.title
-        case .off:
-            return t(.statusMetricOff)
-        }
     }
 
     private var costUsedColor: NSColor {
