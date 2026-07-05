@@ -1,4 +1,5 @@
 import Cocoa
+import Darwin
 import Foundation
 
 /// A running Codex/Claude turn writes to its transcript every few seconds. Once a
@@ -23,6 +24,7 @@ private struct LoggedThread {
 }
 
 private struct ThreadStateMetadata {
+    let title: String?
     let tokensUsed: Int?
     let tokenBreakdown: TokenBreakdown
     let model: String?
@@ -208,8 +210,8 @@ final class CodexActivityReader {
         }
 
         return Array(byID.values)
-            .map { enrich($0, with: stateMetadata[$0.id]) }
             .map { enrichWithRolloutSummary($0, lookbackHours: max(lookbackHours, 72)) }
+            .map { enrich($0, with: stateMetadata[$0.id]) }
             .sorted(by: stableThreadOrder)
             .limitedForTaskBar(limit: limit)
     }
@@ -218,7 +220,7 @@ final class CodexActivityReader {
         guard let metadata else { return item }
         return CodexThreadItem(
             id: item.id,
-            title: item.title,
+            title: cleanTitle(metadata.title) ?? item.title,
             preview: item.preview,
             cwd: item.cwd,
             lastActivity: item.lastActivity,
@@ -313,14 +315,21 @@ final class CodexActivityReader {
             input.fileHandleForWriting.write(data)
         }
 
-        let deadline = Date().addingTimeInterval(2.0)
-        while process.isRunning && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
-        }
         try? input.fileHandleForWriting.close()
-        if process.isRunning {
+
+        let waitGroup = DispatchGroup()
+        waitGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            process.waitUntilExit()
+            waitGroup.leave()
+        }
+
+        if waitGroup.wait(timeout: .now() + 2.0) == .timedOut {
             process.terminate()
-            Thread.sleep(forTimeInterval: 0.1)
+            if waitGroup.wait(timeout: .now() + 0.25) == .timedOut, process.isRunning {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                _ = waitGroup.wait(timeout: .now() + 0.25)
+            }
         }
         output.fileHandleForReading.readabilityHandler = nil
         outputLock.lock()
@@ -641,7 +650,7 @@ final class CodexActivityReader {
             return [:]
         }
         let sql = """
-        select id, tokens_used, model,
+        select id, title, tokens_used, model,
                coalesce(nullif(updated_at_ms, 0), updated_at * 1000) as updated_ms
         from threads
         where archived = 0
@@ -653,6 +662,7 @@ final class CodexActivityReader {
             guard let id = string(row["id"]) else { continue }
             let tokenBreakdown = TokenBreakdown.totalOnly(intValue(row["tokens_used"]))
             result[id] = ThreadStateMetadata(
+                title: string(row["title"]),
                 tokensUsed: tokenBreakdown.displayTotal,
                 tokenBreakdown: tokenBreakdown,
                 model: string(row["model"]),
@@ -663,38 +673,84 @@ final class CodexActivityReader {
     }
 
     private func runSQLite(databaseURL: URL, sql: String) -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-        process.arguments = ["-batch", "-noheader", "-separator", "\t", databaseURL.path, sql]
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = Pipe()
-        do {
-            try process.run()
-        } catch {
-            return ""
-        }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return "" }
-        return String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard let data = runSQLiteProcess(
+            arguments: ["-batch", "-noheader", "-separator", "\t", databaseURL.path, sql],
+            timeout: 3.0
+        ) else { return "" }
+        return String(data: data, encoding: .utf8) ?? ""
     }
 
     private func runSQLiteJSON(databaseURL: URL, sql: String) -> [[String: Any]] {
+        guard let data = runSQLiteProcess(
+            arguments: ["-json", databaseURL.path, sql],
+            timeout: 3.0
+        ) else { return [] }
+        return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
+    }
+
+    private func runSQLiteProcess(arguments: [String], timeout: TimeInterval) -> Data? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-        process.arguments = ["-json", databaseURL.path, sql]
+        process.arguments = arguments
         let output = Pipe()
+        let errorPipe = Pipe()
+        let outputLock = NSLock()
+        var outputData = Data()
         process.standardOutput = output
-        process.standardError = Pipe()
+        process.standardError = errorPipe
+
+        output.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            outputLock.lock()
+            outputData.append(chunk)
+            outputLock.unlock()
+        }
+        errorPipe.fileHandleForReading.readabilityHandler = { handle in
+            _ = handle.availableData
+        }
+
         do {
             try process.run()
         } catch {
-            return []
+            output.fileHandleForReading.readabilityHandler = nil
+            errorPipe.fileHandleForReading.readabilityHandler = nil
+            return nil
         }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return [] }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
+
+        let waitGroup = DispatchGroup()
+        waitGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            process.waitUntilExit()
+            waitGroup.leave()
+        }
+
+        var timedOut = false
+        if waitGroup.wait(timeout: .now() + timeout) == .timedOut {
+            timedOut = true
+            process.terminate()
+            if waitGroup.wait(timeout: .now() + 0.25) == .timedOut, process.isRunning {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                _ = waitGroup.wait(timeout: .now() + 0.25)
+            }
+        }
+
+        output.fileHandleForReading.readabilityHandler = nil
+        errorPipe.fileHandleForReading.readabilityHandler = nil
+        let trailingOutput = output.fileHandleForReading.readDataToEndOfFile()
+        if !trailingOutput.isEmpty {
+            outputLock.lock()
+            outputData.append(trailingOutput)
+            outputLock.unlock()
+        }
+        outputLock.lock()
+        let data = outputData
+        outputLock.unlock()
+
+        guard !timedOut, process.terminationStatus == 0 else {
+            return nil
+        }
+        return data
     }
 
     private func rolloutURL(threadID: String, lastActivity: Date, lookbackHours: Int) -> URL? {
