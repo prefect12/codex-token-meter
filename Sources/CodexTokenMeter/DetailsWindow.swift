@@ -1834,7 +1834,8 @@ enum DetailsSection: CaseIterable {
     }
 
     var isVisibleInDetailsNavigation: Bool {
-        true
+        // Quota cycles page is hidden until its design is finalized.
+        self != .costs
     }
 
     var visibleFallback: DetailsSection {
@@ -5025,7 +5026,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         let rollouts = AppSettings.logFolderURLs.reduce(0) { $0 + rolloutCount(in: $1, modifiedWithinDays: 14) }
         return [
-            ("Codex CLI", cliPath ?? t(.fileMissing), cliPath == nil ? accentRose : accentTeal),
+            ("Codex CLI", cliPath.map(shortenedPath) ?? t(.fileMissing), cliPath == nil ? accentRose : accentTeal),
             ("auth.json", FileManager.default.fileExists(atPath: authURL.path) ? t(.filePresent) : t(.fileMissing), FileManager.default.fileExists(atPath: authURL.path) ? accentTeal : accentAmber),
             (t(.liveQuota), liveText, snapshot.liveLimits.isEmpty ? accentRose : accentTeal),
             (t(.codexStatus), serviceText, serviceColor),

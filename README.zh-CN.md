@@ -18,34 +18,68 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 
 ## 截图
 
+以下截图使用内置的 `--redact` 渲染模式生成，仓库名和目录均替换为演示数据。
+
 ### 状态栏面板
 
 <p align="center">
-  <img src="docs/images/zh-menu-popover-current.png" alt="AI Token Meter 中文状态栏面板" width="420">
+  <img src="docs/images/zh-menu-popover.webp" alt="AI Token Meter 中文状态栏面板" width="420">
 </p>
 
-### 仓库洞察
-
-<p align="center">
-  <img src="docs/images/zh-details-insights.png" alt="AI Token Meter 中文仓库洞察页面" width="760">
-</p>
+支持 `全部 / Codex / Claude` 与 `24h / 7d / 30d` 切换；双平台剩余额度圆环、5 小时压力对比表、7 天用量柱状图和 API 等价成本一屏看完。
 
 ### 详情概览
 
 <p align="center">
-  <img src="docs/images/zh-details-overview.png" alt="AI Token Meter 中文详情概览" width="760">
+  <img src="docs/images/zh-details-overview.webp" alt="AI Token Meter 中文详情概览" width="760">
 </p>
+
+过去 365 天按来源和模型统计的总量、输入/输出拆分和全年活动热力图。
+
+### 仓库洞察
+
+<p align="center">
+  <img src="docs/images/zh-details-insights.webp" alt="AI Token Meter 中文仓库洞察页面" width="760">
+</p>
+
+Repo 对话体检：按项目定位长线程和上下文压缩压力，给出对话长度分布、压缩分布、活跃天数强度和拆线程建议。
 
 ### 活动日历
 
 <p align="center">
-  <img src="docs/images/zh-details-calendar.png" alt="AI Token Meter 中文活动日历页面" width="760">
+  <img src="docs/images/zh-details-calendar.webp" alt="AI Token Meter 中文活动日历页面" width="760">
 </p>
+
+点击日期查看单日明细：输入/输出/缓存拆分、Codex 与 Claude 占比、当日订阅价值和 API 等价成本；点击格子上方的圆点可看整周汇总。
+
+### 模型
+
+<p align="center">
+  <img src="docs/images/zh-details-models.webp" alt="AI Token Meter 中文模型页面" width="760">
+</p>
+
+按模型聚合的 token 用量、占比条、会话/事件数和逐模型 API 等价成本。
+
+### 空间
+
+<p align="center">
+  <img src="docs/images/zh-details-storage.webp" alt="AI Token Meter 中文空间页面" width="760">
+</p>
+
+按来源、项目和类型追踪本地日志磁盘占用：近 14 天增长、最大项目排行、清理风险构成，并支持导出报告和在访达中打开。
+
+### 设置
+
+<p align="center">
+  <img src="docs/images/zh-details-settings.webp" alt="AI Token Meter 中文设置页面" width="760">
+</p>
+
+界面语言、数字单位、日志目录、状态栏显示与来源、额度样式、首页圆环口径、开机启动等都可配置。
 
 ### 诊断
 
 <p align="center">
-  <img src="docs/images/zh-details-diagnostics.png" alt="AI Token Meter 中文诊断页面" width="760">
+  <img src="docs/images/zh-details-diagnostics.webp" alt="AI Token Meter 中文诊断页面" width="760">
 </p>
 
 <details>
@@ -54,31 +88,37 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 ### Menu Bar Dashboard
 
 <p align="center">
-  <img src="docs/images/en-menu-popover-current.png" alt="AI Token Meter English menu bar dashboard" width="420">
+  <img src="docs/images/en-menu-popover.webp" alt="AI Token Meter English menu bar dashboard" width="420">
 </p>
 
 ### Repository Insights
 
 <p align="center">
-  <img src="docs/images/en-details-insights.png" alt="AI Token Meter English repository insights page" width="760">
+  <img src="docs/images/en-details-insights.webp" alt="AI Token Meter English repository insights page" width="760">
 </p>
 
 ### Details Overview
 
 <p align="center">
-  <img src="docs/images/en-details-overview.png" alt="AI Token Meter English details overview" width="760">
+  <img src="docs/images/en-details-overview.webp" alt="AI Token Meter English details overview" width="760">
 </p>
 
 ### Activity Calendar
 
 <p align="center">
-  <img src="docs/images/en-details-calendar.png" alt="AI Token Meter English activity calendar page" width="760">
+  <img src="docs/images/en-details-calendar.webp" alt="AI Token Meter English activity calendar page" width="760">
+</p>
+
+### Storage
+
+<p align="center">
+  <img src="docs/images/en-details-storage.webp" alt="AI Token Meter English storage page" width="760">
 </p>
 
 ### Diagnostics
 
 <p align="center">
-  <img src="docs/images/en-details-diagnostics.png" alt="AI Token Meter English diagnostics page" width="760">
+  <img src="docs/images/en-details-diagnostics.webp" alt="AI Token Meter English diagnostics page" width="760">
 </p>
 
 </details>
@@ -94,12 +134,13 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
 - 显示缓存命中率圆环。
 - 通过 `status.openai.com` 监控官方 Codex 服务状态，用一个极简的 Codex 状态 chip 展示，并可在设置里开关。
 - 展示 input、output、cached input、fresh input 和 total token。
-- 详情窗口包含概览、洞察、日历、额度周期、模型、设置、诊断和关于页面。
-- 额度周期页面按实际重置时刻切分 Codex / Claude 的 5 小时和周额度周期，展示当前周期进度、匀速对比和每个历史周期的峰值用量。
+- 详情窗口包含概览、日历、洞察、模型、空间、设置、诊断和关于页面。
 - 状态栏首页和详情窗口都会缓存聚合快照，打开或切换时先显示上次结果，再在后台刷新。
 - 洞察页面会按仓库或文件夹聚合本地 Codex 与 Claude Code 对话，标出长线程、上下文压缩压力、活跃 worktree 和拆分新线程的建议。
-- 过去 365 天日历热力图，点击某一天可查看当天用量详情。
-- 模型页面按模型聚合长期 token 用量。
+- 过去 365 天日历热力图，点击日期看单日明细，点击格子上方的圆点看整周汇总。
+- 模型页面按模型聚合长期 token 用量和逐模型 API 等价成本。
+- 空间页面按来源、项目和类型追踪本地日志磁盘占用，展示近 14 天增长和清理风险构成，支持导出报告和在访达中打开。
+- 内置 `--render-dashboard` / `--render-details` 截图渲染，配合 `--redact` 可将仓库名和目录替换为演示数据后公开分享。
 - 诊断页面展示 Codex CLI/auth 状态、实时额度可用性、日志覆盖、可选 API 成本输入和其他工具探测结果。
 - 默认覆盖当前会话、归档会话，以及已设置 `$CODEX_HOME` 时对应的会话目录。
 - 支持 English、简体中文、繁体中文、日本語、Français、Deutsch、Español、한국어。
@@ -138,6 +179,12 @@ AI Token Meter 使用本机数据源：
 
 ## 最近更新
 
+- `0.2.5` 暂时隐藏额度周期页面，等交互设计定稿后再回归；周期数据仍会在本地持续记录，不会丢失历史。
+- 新增 `--redact` 截图渲染模式，导出截图时把仓库名和本机目录替换为演示数据，便于公开分享。
+- 日历热力图的整周汇总从 hover 提示改为可点击的周圆点。
+- 详情页所有页面改为全宽布局，并修复设置页详情渲染高度。
+- 修复模型页占比条重叠问题。
+- 诊断页的 Codex CLI 路径改用 `~` 缩写显示。
 - `0.2.0` 将应用名更新为 AI Token Meter，安装包改为 `/Applications/AI Token Meter.app`，安装脚本会移除旧的 `/Applications/Codex Token Meter.app`，但继续使用旧 App Support 目录保存本地数据。
 - 新增 Codex + Claude 总览首页：顶部双平台剩余额度圆环、平台对比表格、24h/7d/30d 用量柱状图和 Codex/Claude hover 区分。
 - 新增 Claude Code 本地日志扫描，支持 `~/.claude/projects`、`CLAUDE_CONFIG_DIR` 和 `$XDG_CONFIG_HOME/claude/projects` 下的 assistant usage JSONL。
