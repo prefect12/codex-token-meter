@@ -137,7 +137,7 @@ func statusDisplayRank(_ status: ThreadRunStatus) -> Int {
 
 func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -> Bool {
     // Pinned threads float above everything; among themselves they keep the
-    // same status/recency ordering as the rest of the list.
+    // same status/user-selected ordering as the rest of the list.
     let pinned = TaskBarSettings.pinnedThreadIDs
     let lhsPinned = pinned.contains(lhs.id)
     let rhsPinned = pinned.contains(rhs.id)
@@ -146,6 +146,13 @@ func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -> Bool {
     let lhsRank = statusDisplayRank(lhs.status)
     let rhsRank = statusDisplayRank(rhs.status)
     if lhsRank != rhsRank { return lhsRank < rhsRank }
+
+    let sortMode = TaskBarSettings.threadSortMode
+    let lhsPrimary = threadSortTimestamp(lhs, mode: sortMode)
+    let rhsPrimary = threadSortTimestamp(rhs, mode: sortMode)
+    if lhsPrimary != rhsPrimary {
+        return sortMode.sortsAscending ? lhsPrimary < rhsPrimary : lhsPrimary > rhsPrimary
+    }
 
     let lhsActivity = lhs.lastActivity.timeIntervalSince1970
     let rhsActivity = rhs.lastActivity.timeIntervalSince1970
@@ -156,6 +163,15 @@ func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -> Bool {
     if lhsID != rhsID { return lhsID > rhsID }
 
     return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+}
+
+private func threadSortTimestamp(_ item: CodexThreadItem, mode: TaskThreadSortMode) -> TimeInterval {
+    switch mode {
+    case .updatedNewest:
+        return item.lastActivity.timeIntervalSince1970
+    case .startedNewest, .startedOldest:
+        return (item.startedAt ?? item.lastActivity).timeIntervalSince1970
+    }
 }
 
 extension Array where Element == CodexThreadItem {

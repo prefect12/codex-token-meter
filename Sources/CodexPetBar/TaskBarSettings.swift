@@ -39,6 +39,24 @@ enum TaskRowLayoutStyle: String, CaseIterable {
     }
 }
 
+enum TaskThreadSortMode: String, CaseIterable {
+    case updatedNewest
+    case startedNewest
+    case startedOldest
+
+    var title: String {
+        switch self {
+        case .updatedNewest: return "最近更新"
+        case .startedNewest: return "最近开始"
+        case .startedOldest: return "最早开始"
+        }
+    }
+
+    var sortsAscending: Bool {
+        self == .startedOldest
+    }
+}
+
 enum TaskHoverField: String, CaseIterable, Hashable {
     case status
     case input
@@ -108,6 +126,7 @@ enum TaskBarSettings {
     private static let extraCodexHomeFoldersKey = "extraCodexHomeFolders"
     private static let tokenUnitStyleKey = "tokenUnitStyle"
     private static let rowLayoutKey = "taskRowLayout"
+    private static let threadSortModeKey = "threadSortMode"
     private static let statusGroupOrderKey = "statusGroupOrder"
     private static let popoverWidthKey = "popoverWidth"
     private static let popoverHeightKey = "popoverHeight"
@@ -360,6 +379,19 @@ enum TaskBarSettings {
         }
     }
 
+    static var threadSortMode: TaskThreadSortMode {
+        get {
+            guard let rawValue = UserDefaults.standard.string(forKey: threadSortModeKey),
+                  let mode = TaskThreadSortMode(rawValue: rawValue) else {
+                return .updatedNewest
+            }
+            return mode
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: threadSortModeKey)
+        }
+    }
+
     static func clampedPopoverSize(_ size: NSSize) -> NSSize {
         let maxSize = taskBarPopoverMaxResizableSize()
         return NSSize(
@@ -383,7 +415,7 @@ final class TaskBarSettingsWindowController: NSWindowController {
             defer: false
         )
         window.title = "Task Bar 设置"
-        window.contentMinSize = NSSize(width: 680, height: 760)
+        window.contentMinSize = NSSize(width: 680, height: 800)
         window.contentView = contentView
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor(calibratedRed: 0.055, green: 0.066, blue: 0.086, alpha: 1.0)
@@ -422,6 +454,7 @@ private enum TaskBarSettingsSection: CaseIterable {
 
 private enum TaskBarSettingsInfo: CaseIterable {
     case layout
+    case threadSort
     case sourceLabel
     case codexAPI
     case tokenUnit
@@ -429,6 +462,7 @@ private enum TaskBarSettingsInfo: CaseIterable {
     var title: String {
         switch self {
         case .layout: return "信息位置"
+        case .threadSort: return "任务排序"
         case .sourceLabel: return "来源标签"
         case .codexAPI: return "Codex API 来源"
         case .tokenUnit: return "Token 单位"
@@ -439,6 +473,8 @@ private enum TaskBarSettingsInfo: CaseIterable {
         switch self {
         case .layout:
             return "选“左侧”把时间 / 状态 / 平台移到左栏，行更窄、可显示更多任务。"
+        case .threadSort:
+            return "只调整同一状态分组内的任务顺序；置顶任务始终保持在列表最上方。"
         case .sourceLabel:
             return "显示任务来自哪个本地来源：Claude Code 项目日志标为 Claude；Codex app-server、本地 state 或 rollout logs 标为 Codex。"
         case .codexAPI:
@@ -454,7 +490,7 @@ private enum TaskBarSettingsInfo: CaseIterable {
 }
 
 private final class TaskBarSettingsView: NSView {
-    static let preferredSize = NSSize(width: 720, height: 780)
+    static let preferredSize = NSSize(width: 720, height: 824)
 
     private let onSettingsChanged: () -> Void
     private var selectedSection: TaskBarSettingsSection = .settings
@@ -469,6 +505,7 @@ private final class TaskBarSettingsView: NSView {
     private var extraCodexRemoveRects: [Int: NSRect] = [:]
     private var tokenUnitOptionRects: [TaskTokenUnitStyle: NSRect] = [:]
     private var layoutOptionRects: [TaskRowLayoutStyle: NSRect] = [:]
+    private var sortModeOptionRects: [TaskThreadSortMode: NSRect] = [:]
     private var hoverEyeRects: [String: NSRect] = [:]
     private var hoverDeleteSeparatorRects: [String: NSRect] = [:]
     private var hoverAddSeparatorRect: NSRect?
@@ -568,7 +605,7 @@ private final class TaskBarSettingsView: NSView {
             color: NSColor.white.withAlphaComponent(0.56)
         )
 
-        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 230)
+        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 274)
         drawPanel(settingsCard)
         drawText(
             "列表显示",
@@ -601,7 +638,28 @@ private final class TaskBarSettingsView: NSView {
             drawSelectablePill(style.title, rect: optionRect, selected: TaskBarSettings.rowLayout == style)
         }
 
-        let labelPillY = settingsCard.minY + 92
+        let sortPillWidth: CGFloat = 82
+        let sortModes = TaskThreadSortMode.allCases
+        let sortOptionX = settingsCard.maxX - 16 - sortPillWidth * CGFloat(sortModes.count) - pillGap * CGFloat(sortModes.count - 1)
+        let sortPillY = settingsCard.minY + 92
+        sortModeOptionRects.removeAll(keepingCapacity: true)
+        drawSettingLabel(
+            "任务排序",
+            rect: NSRect(x: settingsCard.minX + 16, y: sortPillY + 7, width: sortOptionX - settingsCard.minX - 32, height: 20),
+            info: .threadSort
+        )
+        for (index, mode) in sortModes.enumerated() {
+            let optionRect = NSRect(
+                x: sortOptionX + CGFloat(index) * (sortPillWidth + pillGap),
+                y: sortPillY,
+                width: sortPillWidth,
+                height: pillHeight
+            )
+            sortModeOptionRects[mode] = optionRect
+            drawSelectablePill(mode.title, rect: optionRect, selected: TaskBarSettings.threadSortMode == mode)
+        }
+
+        let labelPillY = settingsCard.minY + 136
         let showRect = NSRect(x: binaryOptionX, y: labelPillY, width: binaryPillWidth, height: pillHeight)
         let hideRect = NSRect(x: showRect.maxX + pillGap, y: labelPillY, width: binaryPillWidth, height: pillHeight)
         platformOptionRects = [true: showRect, false: hideRect]
@@ -613,7 +671,7 @@ private final class TaskBarSettingsView: NSView {
         drawSelectablePill("显示", rect: showRect, selected: TaskBarSettings.showPlatformLabels)
         drawSelectablePill("隐藏", rect: hideRect, selected: !TaskBarSettings.showPlatformLabels)
 
-        let apiPillY = settingsCard.minY + 136
+        let apiPillY = settingsCard.minY + 180
         let apiOnRect = NSRect(x: binaryOptionX, y: apiPillY, width: binaryPillWidth, height: pillHeight)
         let apiOffRect = NSRect(x: apiOnRect.maxX + pillGap, y: apiPillY, width: binaryPillWidth, height: pillHeight)
         codexAPIOptionRects = [true: apiOnRect, false: apiOffRect]
@@ -628,7 +686,7 @@ private final class TaskBarSettingsView: NSView {
         let unitPillWidth: CGFloat = 82
         let unitStyles = TaskTokenUnitStyle.allCases
         let unitOptionX = settingsCard.maxX - 16 - unitPillWidth * CGFloat(unitStyles.count) - pillGap * CGFloat(unitStyles.count - 1)
-        let unitPillY = settingsCard.minY + 180
+        let unitPillY = settingsCard.minY + 224
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
         drawSettingLabel(
             "Token 单位",
@@ -663,6 +721,7 @@ private final class TaskBarSettingsView: NSView {
         clearExtraCodexFolderHitRects()
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
         layoutOptionRects.removeAll(keepingCapacity: true)
+        sortModeOptionRects.removeAll(keepingCapacity: true)
         statusOrderRowRects.removeAll(keepingCapacity: true)
         infoMarkRects.removeAll(keepingCapacity: true)
         clearHoverHitRects()
@@ -704,6 +763,7 @@ private final class TaskBarSettingsView: NSView {
         clearExtraCodexFolderHitRects()
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
         layoutOptionRects.removeAll(keepingCapacity: true)
+        sortModeOptionRects.removeAll(keepingCapacity: true)
         statusOrderRowRects.removeAll(keepingCapacity: true)
         clearHoverHitRects()
 
@@ -778,6 +838,13 @@ private final class TaskBarSettingsView: NSView {
         for (style, rect) in layoutOptionRects where rect.contains(point) {
             guard TaskBarSettings.rowLayout != style else { return }
             TaskBarSettings.rowLayout = style
+            needsDisplay = true
+            onSettingsChanged()
+            return
+        }
+        for (mode, rect) in sortModeOptionRects where rect.contains(point) {
+            guard TaskBarSettings.threadSortMode != mode else { return }
+            TaskBarSettings.threadSortMode = mode
             needsDisplay = true
             onSettingsChanged()
             return
