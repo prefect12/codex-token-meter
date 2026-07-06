@@ -2,7 +2,10 @@ import Cocoa
 import Foundation
 
 private func printThreads() {
-    let items = ReadStateStore().visibleThreads(from: CodexActivityReader().read())
+    let items = ReadStateStore()
+        .visibleThreads(from: CodexActivityReader().read(limit: taskBarCandidateThreadLimit))
+        .sorted(by: stableThreadOrder)
+        .limitedForTaskBar(limit: taskBarVisibleThreadLimit)
     if items.isEmpty {
         print("No running or unread Codex or Claude turns")
         return
@@ -32,6 +35,7 @@ private func mockTaskBarThreads() -> [CodexThreadItem] {
             compressionCount: nil,
             source: source,
             isExplicitUnread: status == .unread,
+            codexUpdatedAt: nil,
             tokensUsed: 128_000,
             tokenBreakdown: TokenBreakdown(),
             model: "gpt-5-codex"

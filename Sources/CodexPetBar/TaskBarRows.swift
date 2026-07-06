@@ -192,9 +192,9 @@ final class ThreadRowView: NSView {
         onOpen(item.id)
     }
 
-    /// Generous hit target around the (small) pin glyph.
+    /// Generous hit target around the pin glyph.
     private var pinHitRect: NSRect {
-        pinIconView.frame.insetBy(dx: -8, dy: -8)
+        pinIconView.frame.insetBy(dx: -6, dy: -6)
     }
 
     private func togglePinTapped() {
@@ -204,7 +204,7 @@ final class ThreadRowView: NSView {
     }
 
     private func updatePinIcon() {
-        let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .medium)
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
         pinIconView.image = NSImage(
             systemSymbolName: isPinned ? "pin.fill" : "pin",
             accessibilityDescription: isPinned ? "取消置顶" : "置顶"
@@ -317,10 +317,7 @@ final class ThreadRowView: NSView {
         let contentX: CGFloat = 26
         let contentWidth = max(120, bounds.width - 18 - contentX)
 
-        titleLabel.frame = NSRect(x: contentX + offset, y: bounds.height - 32, width: contentWidth, height: 20)
-        // Pin floats at the top-right corner on the title line; text keeps its full
-        // width and the pin (hover-only unless pinned) overlays it.
-        pinIconView.frame = NSRect(x: bounds.width - 16 - 12 + offset, y: titleLabel.frame.midY - 6, width: 12, height: 12)
+        layoutTitleAndPin(x: contentX, y: bounds.height - 32, width: contentWidth, offset: offset)
         detailLabel.frame = NSRect(x: contentX + offset, y: 28, width: contentWidth, height: 32)
 
         // Clock symbol sits optically low inside its image box; keep it slightly lower
@@ -341,8 +338,7 @@ final class ThreadRowView: NSView {
         let rightX = contentX + railWidth + railGap
         let rightWidth = max(80, bounds.width - 18 - rightX)
 
-        titleLabel.frame = NSRect(x: rightX + offset, y: bounds.height - 30, width: rightWidth, height: 20)
-        pinIconView.frame = NSRect(x: bounds.width - 16 - 12 + offset, y: titleLabel.frame.midY - 6, width: 12, height: 12)
+        layoutTitleAndPin(x: rightX, y: bounds.height - 30, width: rightWidth, offset: offset)
         detailLabel.frame = NSRect(x: rightX + offset, y: 8, width: rightWidth, height: 32)
 
         // Vertically center however many meta lines are visible (time, status, [source]).
@@ -364,6 +360,20 @@ final class ThreadRowView: NSView {
         if showsSource {
             platformLabel.frame = NSRect(x: contentX + offset, y: lineY, width: railWidth, height: lineHeight)
         }
+    }
+
+    private func layoutTitleAndPin(x: CGFloat, y: CGFloat, width: CGFloat, offset: CGFloat) {
+        let titleX = x + offset
+        let pinX = bounds.width - ThreadRowView.pinTrailingInset - ThreadRowView.pinIconSize + offset
+        let titleWidth = max(0, min(width, pinX - ThreadRowView.titlePinGap - titleX))
+
+        titleLabel.frame = NSRect(x: titleX, y: y, width: titleWidth, height: 20)
+        pinIconView.frame = NSRect(
+            x: pinX,
+            y: titleLabel.frame.midY - ThreadRowView.pinIconSize / 2,
+            width: ThreadRowView.pinIconSize,
+            height: ThreadRowView.pinIconSize
+        )
     }
 
     private func setSwipeOffset(_ offset: CGFloat, animated: Bool) {
@@ -431,6 +441,9 @@ final class ThreadRowView: NSView {
 
     private static let dismissRevealWidth: CGFloat = 86
     private static let dismissThreshold: CGFloat = 58
+    private static let pinIconSize: CGFloat = 16
+    private static let titlePinGap: CGFloat = 8
+    private static let pinTrailingInset: CGFloat = 18
 }
 
 struct ThreadTooltipRow {

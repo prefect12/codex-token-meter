@@ -124,6 +124,7 @@ enum AppLanguage: String, CaseIterable {
 enum StatusDisplayOption: String, CaseIterable {
     case fiveHourPercent
     case weeklyPercent
+    case quotaPercents
     case weeklyTokens
     case dailyTokens
 
@@ -146,6 +147,7 @@ enum StatusDisplayOption: String, CaseIterable {
         switch self {
         case .fiveHourPercent: return t(.statusFiveHourPercent)
         case .weeklyPercent: return t(.statusWeeklyPercent)
+        case .quotaPercents: return t(.statusQuotaPercents)
         case .weeklyTokens: return t(.statusWeeklyTokens)
         case .dailyTokens: return t(.statusDailyTokens)
         }
@@ -155,7 +157,65 @@ enum StatusDisplayOption: String, CaseIterable {
         switch self {
         case .weeklyTokens: return .week
         case .dailyTokens: return .day
-        case .fiveHourPercent, .weeklyPercent: return nil
+        case .fiveHourPercent, .weeklyPercent, .quotaPercents: return nil
+        }
+    }
+}
+
+enum StatusBarMetric: String, CaseIterable {
+    case codexFiveHour
+    case codexWeekly
+    case claudeFiveHour
+    case claudeWeekly
+
+    var title: String {
+        switch self {
+        case .codexFiveHour: return t(.statusCodexFiveHour)
+        case .codexWeekly: return t(.statusCodexWeekly)
+        case .claudeFiveHour: return t(.statusClaudeFiveHour)
+        case .claudeWeekly: return t(.statusClaudeWeekly)
+        }
+    }
+
+    var source: QuotaViewOption {
+        switch self {
+        case .codexFiveHour, .codexWeekly:
+            return .codex
+        case .claudeFiveHour, .claudeWeekly:
+            return .claude
+        }
+    }
+
+    var quotaMetric: HomeQuotaRingMetric {
+        switch self {
+        case .codexFiveHour, .claudeFiveHour:
+            return .fiveHour
+        case .codexWeekly, .claudeWeekly:
+            return .weekly
+        }
+    }
+
+    static func metric(source: QuotaViewOption, quotaMetric: HomeQuotaRingMetric) -> StatusBarMetric {
+        let normalizedSource: QuotaViewOption = source == .claude ? .claude : .codex
+        switch (normalizedSource, quotaMetric) {
+        case (.codex, .fiveHour): return .codexFiveHour
+        case (.codex, .weekly): return .codexWeekly
+        case (.claude, .fiveHour): return .claudeFiveHour
+        case (.claude, .weekly): return .claudeWeekly
+        case (.all, .fiveHour): return .codexFiveHour
+        case (.all, .weekly): return .codexWeekly
+        }
+    }
+}
+
+enum StatusBarMetricSlot: CaseIterable {
+    case first
+    case second
+
+    var title: String {
+        switch self {
+        case .first: return t(.statusBarMetricOne)
+        case .second: return t(.statusBarMetricTwo)
         }
     }
 }
@@ -390,6 +450,13 @@ enum L10nKey {
     case refresh
     case refreshing
     case remaining
+    case resetCredits
+    case resetCreditCountFormat
+    case resetCreditEstimated
+    case resetCreditExpiresAt
+    case resetCreditExpiryUnavailable
+    case resetCreditGrantedAt
+    case resetCreditNoCredits
     case showPastEmptyWeeks
     case showCodexStatus
     case reset
@@ -402,10 +469,18 @@ enum L10nKey {
     case sparkDescription
     case sparkModel
     case statusBarDisplay
+    case statusBarMetricOne
+    case statusBarMetricTwo
     case statusBarSource
+    case statusCodexFiveHour
+    case statusCodexWeekly
     case statusDailyTokens
     case statusDisplayHint
     case statusFiveHourPercent
+    case statusMetricOff
+    case statusClaudeFiveHour
+    case statusClaudeWeekly
+    case statusQuotaPercents
     case statusWeeklyPercent
     case statusWeeklyTokens
     case tokenActivity
@@ -574,7 +649,7 @@ enum L10nKey {
         case .dayValue: return "Day value"
         case .dataSource: return "Data Source"
         case .dataSourceLine1: return "The app reads local Codex logs under ~/.codex and Claude Code logs under ~/.claude/projects."
-        case .dataSourceLine2: return "Totals are local-observed token usage, not an official billing export."
+        case .dataSourceLine2: return "The big \"total\" at the top of the menu bar comes from Codex's official Profile API (account-level usage). The input/output breakdown and every Details view instead sum the input + output observed in local logs. Because the source and accounting differ, the official total is usually larger (wider coverage, and it counts cache writes and more), so a mismatch between the two is expected — not a calculation error."
         case .definitions: return "Definitions"
         case .detectedNotTracked: return "Detected, not counted"
         case .details: return "Details"
@@ -606,8 +681,8 @@ enum L10nKey {
         case .liveQuota: return "Live quota"
         case .liveLimitUnavailable: return "Live limit unavailable"
         case .logFolder: return "Log Folder"
-        case .logFolderHint: return "Default scans sessions and archived_sessions; choosing a folder overrides the scan roots."
-        case .logFolderChoose: return "Choose..."
+        case .logFolderHint: return "Default scans sessions and archived_sessions; added folders extend the scan roots."
+        case .logFolderChoose: return "Add..."
         case .logFolderDefault: return "Default"
         case .logFolderOpen: return "Finder"
         case .loadingAllUsage: return "Scanning all usage..."
@@ -679,6 +754,13 @@ enum L10nKey {
         case .refresh: return "Refresh"
         case .refreshing: return "Refreshing..."
         case .remaining: return "Remaining"
+        case .resetCredits: return "Reset Credits"
+        case .resetCreditCountFormat: return "%d left"
+        case .resetCreditEstimated: return "estimated"
+        case .resetCreditExpiresAt: return "Expires"
+        case .resetCreditExpiryUnavailable: return "Expiry unavailable"
+        case .resetCreditGrantedAt: return "Granted"
+        case .resetCreditNoCredits: return "No credits"
         case .showPastEmptyWeeks: return "Show past empty weeks"
         case .showCodexStatus: return "Show Codex status"
         case .reset: return "Reset"
@@ -691,10 +773,18 @@ enum L10nKey {
         case .sparkDescription: return "Events whose model is GPT-5.3-Codex-Spark."
         case .sparkModel: return "GPT-5.3-Codex-Spark model"
         case .statusBarDisplay: return "Menu Bar Display"
+        case .statusBarMetricOne: return "Menu Bar Number 1"
+        case .statusBarMetricTwo: return "Menu Bar Number 2"
         case .statusBarSource: return "Menu Bar Source"
+        case .statusCodexFiveHour: return "Codex 5h"
+        case .statusCodexWeekly: return "Codex 1w"
         case .statusDailyTokens: return "24h tokens"
-        case .statusDisplayHint: return "Choose what the menu bar item shows and which source it uses."
+        case .statusDisplayHint: return "Choose one or two live quota percentages. Number 2 can be turned off."
         case .statusFiveHourPercent: return "5h %"
+        case .statusMetricOff: return "Off"
+        case .statusClaudeFiveHour: return "Claude 5h"
+        case .statusClaudeWeekly: return "Claude 1w"
+        case .statusQuotaPercents: return "5h | Weekly %"
         case .statusWeeklyPercent: return "Weekly %"
         case .statusWeeklyTokens: return "7d tokens"
         case .tokenActivity: return "Token Activity"
@@ -822,7 +912,7 @@ enum L10nKey {
         case .dayValue: return "当日价值"
         case .dataSource: return "数据来源"
         case .dataSourceLine1: return "应用读取 ~/.codex 下的 Codex 日志，以及 ~/.claude/projects 下的 Claude Code 日志。"
-        case .dataSourceLine2: return "这里是本地观测到的 token 用量，不是官方账单导出。"
+        case .dataSourceLine2: return "菜单栏顶部的“总量”来自 Codex 官方 Profile API（账户级用量）；而输入/输出明细以及详情页各视图，是本地日志观测到的“输入＋输出”汇总。两者数据来源和口径不同，官方总量通常更大（覆盖更全，且计入缓存写入等），因此两个数字对不上属于正常现象，并非计算错误。"
         case .definitions: return "定义"
         case .detectedNotTracked: return "已检测，未计入"
         case .details: return "详情"
@@ -854,8 +944,8 @@ enum L10nKey {
         case .liveQuota: return "实时额度"
         case .liveLimitUnavailable: return "实时限额不可用"
         case .logFolder: return "日志目录"
-        case .logFolderHint: return "默认扫描 sessions 和 archived_sessions；手动选择目录会覆盖默认扫描范围。"
-        case .logFolderChoose: return "选择..."
+        case .logFolderHint: return "默认扫描 sessions 和 archived_sessions；添加的目录会扩展扫描范围，可一次选择多个。"
+        case .logFolderChoose: return "添加..."
         case .logFolderDefault: return "默认"
         case .logFolderOpen: return "Finder"
         case .loadingAllUsage: return "正在扫描全部用量..."
@@ -927,6 +1017,13 @@ enum L10nKey {
         case .refresh: return "刷新"
         case .refreshing: return "刷新中..."
         case .remaining: return "剩余"
+        case .resetCredits: return "重置机会"
+        case .resetCreditCountFormat: return "%d 次"
+        case .resetCreditEstimated: return "估算"
+        case .resetCreditExpiresAt: return "到期"
+        case .resetCreditExpiryUnavailable: return "无法读取过期时间"
+        case .resetCreditGrantedAt: return "获得"
+        case .resetCreditNoCredits: return "暂无可用机会"
         case .showPastEmptyWeeks: return "显示以前的无数据周"
         case .showCodexStatus: return "显示 Codex 状态"
         case .reset: return "重置"
@@ -939,10 +1036,18 @@ enum L10nKey {
         case .sparkDescription: return "模型为 GPT-5.3-Codex-Spark 的事件。"
         case .sparkModel: return "GPT-5.3-Codex-Spark 模型"
         case .statusBarDisplay: return "状态栏显示"
+        case .statusBarMetricOne: return "状态栏数字 1"
+        case .statusBarMetricTwo: return "状态栏数字 2"
         case .statusBarSource: return "状态栏来源"
+        case .statusCodexFiveHour: return "Codex 5h"
+        case .statusCodexWeekly: return "Codex 1周"
         case .statusDailyTokens: return "24h 用量"
-        case .statusDisplayHint: return "选择菜单栏里直接展示的指标和它使用的数据来源。"
+        case .statusDisplayHint: return "选择 1 个或 2 个实时额度百分比；数字 2 可关闭。"
         case .statusFiveHourPercent: return "5h 百分比"
+        case .statusMetricOff: return "关闭"
+        case .statusClaudeFiveHour: return "Claude 5h"
+        case .statusClaudeWeekly: return "Claude 1周"
+        case .statusQuotaPercents: return "5h | 周百分比"
         case .statusWeeklyPercent: return "周百分比"
         case .statusWeeklyTokens: return "7d 用量"
         case .tokenActivity: return "Token 活动"
@@ -1070,7 +1175,7 @@ enum L10nKey {
         case .dayValue: return "当日の価値"
         case .dataSource: return "データソース"
         case .dataSourceLine1: return "このアプリは ~/.codex の Codex ログと ~/.claude/projects の Claude Code ログを読み取ります。"
-        case .dataSourceLine2: return "表示値はローカルで観測した token 使用量であり、公式の請求書エクスポートではありません。"
+        case .dataSourceLine2: return "メニューバー上部の「総量」は Codex 公式 Profile API（アカウント単位の使用量）に基づきます。一方、入出力の内訳と詳細画面は、ローカルログで観測した「入力＋出力」の合計です。データソースと集計基準が異なるため、公式の総量は通常より大きくなり（対象範囲が広く、キャッシュ書き込みなども計上）、両者の数値が一致しないのは想定内で、計算ミスではありません。"
         case .definitions: return "定義"
         case .detectedNotTracked: return "検出済み・未集計"
         case .details: return "詳細"
@@ -1102,8 +1207,8 @@ enum L10nKey {
         case .liveQuota: return "リアルタイム制限"
         case .liveLimitUnavailable: return "リアルタイム制限を取得できません"
         case .logFolder: return "ログフォルダ"
-        case .logFolderHint: return "既定では sessions と archived_sessions をスキャンし、選択したフォルダは既定の範囲を上書きします。"
-        case .logFolderChoose: return "選択..."
+        case .logFolderHint: return "既定では sessions と archived_sessions をスキャンし、追加したフォルダでスキャン範囲を拡張します。複数選択できます。"
+        case .logFolderChoose: return "追加..."
         case .logFolderDefault: return "既定"
         case .logFolderOpen: return "Finder"
         case .loadingAllUsage: return "全体の使用量をスキャン中..."
@@ -1175,6 +1280,13 @@ enum L10nKey {
         case .refresh: return "更新"
         case .refreshing: return "更新中..."
         case .remaining: return "残り"
+        case .resetCredits: return "リセット枠"
+        case .resetCreditCountFormat: return "%d回"
+        case .resetCreditEstimated: return "推定"
+        case .resetCreditExpiresAt: return "期限"
+        case .resetCreditExpiryUnavailable: return "期限を取得できません"
+        case .resetCreditGrantedAt: return "付与"
+        case .resetCreditNoCredits: return "利用可能な枠なし"
         case .showPastEmptyWeeks: return "過去の空週を表示"
         case .showCodexStatus: return "Codex 状態を表示"
         case .reset: return "リセット"
@@ -1187,10 +1299,18 @@ enum L10nKey {
         case .sparkDescription: return "モデルが GPT-5.3-Codex-Spark のイベント。"
         case .sparkModel: return "GPT-5.3-Codex-Spark モデル"
         case .statusBarDisplay: return "メニューバー表示"
+        case .statusBarMetricOne: return "メニューバー数値 1"
+        case .statusBarMetricTwo: return "メニューバー数値 2"
         case .statusBarSource: return "メニューバーソース"
+        case .statusCodexFiveHour: return "Codex 5h"
+        case .statusCodexWeekly: return "Codex 1週"
         case .statusDailyTokens: return "24h 使用量"
-        case .statusDisplayHint: return "メニューバーに表示する指標とソースを選びます。"
+        case .statusDisplayHint: return "ライブ制限の割合を 1 つまたは 2 つ選択します。数値 2 はオフにできます。"
         case .statusFiveHourPercent: return "5h %"
+        case .statusMetricOff: return "オフ"
+        case .statusClaudeFiveHour: return "Claude 5h"
+        case .statusClaudeWeekly: return "Claude 1週"
+        case .statusQuotaPercents: return "5h | 週 %"
         case .statusWeeklyPercent: return "週 %"
         case .statusWeeklyTokens: return "7日使用量"
         case .tokenActivity: return "Token アクティビティ"
@@ -1315,6 +1435,7 @@ func convertCurrency(_ amount: Double, from source: CurrencyCode, to target: Cur
 
 enum AppSettings {
     static let logFolderKey = "sessionLogFolder"
+    static let logFoldersKey = "sessionLogFolders"
     static let monthlyPlanCostKey = "monthlyPlanCost"
     static let paymentCurrencyKey = "paymentCurrency"
     static let displayCurrencyKey = "displayCurrency"
@@ -1330,7 +1451,10 @@ enum AppSettings {
     static let codexHomeRingMetricKey = "codexHomeRingMetric"
     static let claudeHomeRingMetricKey = "claudeHomeRingMetric"
     static let statusBarQuotaSourceKey = "statusBarQuotaSource"
+    static let statusBarPrimaryMetricKey = "statusBarPrimaryMetric"
+    static let statusBarSecondaryMetricKey = "statusBarSecondaryMetric"
     static let claudeActiveQuotaRefreshEnabledKey = "claudeActiveQuotaRefreshEnabled"
+    static let statusBarMetricOffRawValue = "off"
 
     static let fallbackModelLimitID = "codex_bengalfox"
     static let fallbackModelLimitName = "GPT-5.3-Codex-Spark"
@@ -1396,15 +1520,10 @@ enum AppSettings {
     }
 
     static var hasCustomLogFolder: Bool {
-        guard let path = UserDefaults.standard.string(forKey: logFolderKey) else { return false }
-        return !path.isEmpty
+        !customLogFolderURLs.isEmpty
     }
 
     static var logFolderURLs: [URL] {
-        if hasCustomLogFolder {
-            return [logFolderURL]
-        }
-
         var roots = [
             defaultLogFolderURL,
             defaultArchivedLogFolderURL
@@ -1413,20 +1532,15 @@ enum AppSettings {
             roots.append(codexHome.appendingPathComponent("sessions", isDirectory: true))
             roots.append(codexHome.appendingPathComponent("archived_sessions", isDirectory: true))
         }
+        roots.append(contentsOf: customLogFolderURLs)
         return uniqueDirectoryURLs(roots)
     }
 
     static var logFolderDisplayPath: String {
-        if hasCustomLogFolder {
-            return displayPath(for: logFolderURL)
-        }
         return logFolderURLs.map { displayPath(for: $0) }.joined(separator: " + ")
     }
 
     static var logFolderOpenURL: URL {
-        if hasCustomLogFolder {
-            return logFolderURL
-        }
         return logFolderURLs.first { FileManager.default.fileExists(atPath: $0.path) } ?? defaultLogFolderURL
     }
 
@@ -1464,18 +1578,35 @@ enum AppSettings {
 
     static var logFolderURL: URL {
         get {
-            guard let path = UserDefaults.standard.string(forKey: logFolderKey), !path.isEmpty else {
-                return defaultLogFolderURL
-            }
-            return URL(fileURLWithPath: path, isDirectory: true)
+            customLogFolderURLs.last ?? defaultLogFolderURL
         }
         set {
-            UserDefaults.standard.set(newValue.path, forKey: logFolderKey)
+            addLogFolderURLs([newValue])
         }
+    }
+
+    static var customLogFolderURLs: [URL] {
+        let defaults = UserDefaults.standard
+        var paths = defaults.stringArray(forKey: logFoldersKey) ?? []
+        if let legacyPath = defaults.string(forKey: logFolderKey), !legacyPath.isEmpty {
+            paths.append(legacyPath)
+        }
+        return uniqueDirectoryURLs(paths.compactMap { rawPath in
+            let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty else { return nil }
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+        })
+    }
+
+    static func addLogFolderURLs(_ urls: [URL]) {
+        let merged = uniqueDirectoryURLs(customLogFolderURLs + urls)
+        UserDefaults.standard.set(merged.map(\.path), forKey: logFoldersKey)
+        UserDefaults.standard.removeObject(forKey: logFolderKey)
     }
 
     static func resetLogFolder() {
         UserDefaults.standard.removeObject(forKey: logFolderKey)
+        UserDefaults.standard.removeObject(forKey: logFoldersKey)
     }
 
     private static func uniqueDirectoryURLs(_ urls: [URL]) -> [URL] {
@@ -1799,6 +1930,58 @@ enum AppSettings {
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: statusBarQuotaSourceKey)
+        }
+    }
+
+    static var statusBarPrimaryMetric: StatusBarMetric {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: statusBarPrimaryMetricKey),
+                  let metric = StatusBarMetric(rawValue: raw) else {
+                return legacyStatusBarMetrics().first ?? .codexFiveHour
+            }
+            return metric
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: statusBarPrimaryMetricKey)
+        }
+    }
+
+    static var statusBarSecondaryMetric: StatusBarMetric? {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: statusBarSecondaryMetricKey) else {
+                let legacyMetrics = legacyStatusBarMetrics()
+                return legacyMetrics.count > 1 ? legacyMetrics[1] : nil
+            }
+            guard raw != statusBarMetricOffRawValue else { return nil }
+            return StatusBarMetric(rawValue: raw)
+        }
+        set {
+            UserDefaults.standard.set(newValue?.rawValue ?? statusBarMetricOffRawValue, forKey: statusBarSecondaryMetricKey)
+        }
+    }
+
+    static var statusBarMetrics: [StatusBarMetric] {
+        var metrics = [statusBarPrimaryMetric]
+        if let secondary = statusBarSecondaryMetric {
+            metrics.append(secondary)
+        }
+        return metrics
+    }
+
+    private static func legacyStatusBarMetrics() -> [StatusBarMetric] {
+        let source = statusBarQuotaSource
+        switch StatusDisplayOption.current {
+        case .fiveHourPercent:
+            return [StatusBarMetric.metric(source: source, quotaMetric: .fiveHour)]
+        case .weeklyPercent:
+            return [StatusBarMetric.metric(source: source, quotaMetric: .weekly)]
+        case .quotaPercents:
+            return [
+                StatusBarMetric.metric(source: source, quotaMetric: .fiveHour),
+                StatusBarMetric.metric(source: source, quotaMetric: .weekly)
+            ]
+        case .weeklyTokens, .dailyTokens:
+            return [StatusBarMetric.metric(source: source, quotaMetric: .weekly)]
         }
     }
 

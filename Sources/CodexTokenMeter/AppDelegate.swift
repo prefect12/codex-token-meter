@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     private let rateLimitReader = LiveRateLimitReader()
     private let accountUsageReader = AccountUsageReader()
+    private let resetCreditsReader = RateLimitResetCreditsReader()
     private let serviceStatusReader = CodexServiceStatusReader()
     private let localFormatter = DateFormatter()
     private let scanQueue = DispatchQueue(label: "local.codex-token-meter.scan", qos: .utility)
@@ -25,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var reportCache: [ReportCacheKey: TokenReport] = [:]
     private var accountUsage: AccountUsageSnapshot?
     private var liveLimits: [LiveRateLimit] = []
+    private var resetCredits: RateLimitResetCreditsSnapshot?
     private var serviceStatus: CodexServiceStatusSnapshot?
     private var refreshTimer: Timer?
     private var liveRefreshTimer: Timer?
@@ -81,14 +83,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onNumberUnitStyleChanged = { [weak self] style in
             self?.changeNumberUnitStyle(style)
         }
-        detailsController.detailsView.onStatusDisplayChanged = { [weak self] option in
-            guard let self else { return }
-            StatusDisplayOption.current = option
-            detailsController.detailsView.needsDisplay = true
-            updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
-        }
-        detailsController.detailsView.onStatusBarQuotaSourceChanged = { [weak self] source in
-            self?.changeStatusBarQuotaSource(source)
+        detailsController.detailsView.onStatusBarMetricChanged = { [weak self] slot, metric in
+            self?.changeStatusBarMetric(slot: slot, metric: metric)
         }
         detailsController.detailsView.onQuotaDisplayStyleChanged = { [weak self] style in
             self?.changeQuotaDisplayStyle(style)
@@ -270,6 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: cached),
                 liveLimits: liveLimits,
+                resetCredits: resetCredits,
                 serviceStatus: serviceStatus,
                 selectedWindow: selectedWindow,
                 selectedQuota: selectedQuota,
@@ -288,6 +285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: nil),
                 liveLimits: liveLimits,
+                resetCredits: resetCredits,
                 serviceStatus: serviceStatus,
                 selectedWindow: selectedWindow,
                 selectedQuota: selectedQuota,
@@ -324,6 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             accountUsage: accountUsage,
             costReferenceReport: costReferenceReport(quota: quota, fallback: reportCache[key]),
             liveLimits: liveLimits,
+            resetCredits: resetCredits,
             serviceStatus: serviceStatus,
             selectedWindow: window,
             selectedQuota: quota,
@@ -335,6 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatusTitle(report: latestState.report, limits: liveLimits, quota: quota)
         let currentLimits = liveLimits
         let currentAccountUsage = accountUsage
+        let currentResetCredits = resetCredits
 
         scanQueue.async {
             let codexReport: TokenReport?
@@ -354,6 +354,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let accountUsage = quota.usesCodexProfileAPI ? self.readAccountUsageIfNeeded(fallback: currentAccountUsage) : currentAccountUsage
             let freshLimits = forceLive ? combinedLiveLimits(codexReader: self.rateLimitReader) : currentLimits
             let limits = forceLive ? self.mergedLiveLimits(fresh: freshLimits, fallback: currentLimits) : currentLimits
+            let freshResetCredits = forceLive ? self.resetCreditsReader.read() : currentResetCredits
+            let effectiveResetCredits = freshResetCredits ?? currentResetCredits
             let codexLimits = codexTrackedLiveLimits(limits)
             if forceLive, !codexLimits.isEmpty {
                 AppSettings.learnModelLimit(from: codexLimits)
@@ -380,6 +382,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if forceLive, !limits.isEmpty {
                     self.liveLimits = limits
                 }
+                if let freshResetCredits {
+                    self.resetCredits = freshResetCredits
+                }
                 if self.selectedWindow == window && self.selectedQuota == quota {
                     let cachedPlatforms = self.cachedPlatformReports(window: window, quota: quota)
                     let effectiveLimits = forceLive && !limits.isEmpty ? limits : self.liveLimits
@@ -391,6 +396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
                         liveLimits: effectiveLimits,
+                        resetCredits: effectiveResetCredits,
                         serviceStatus: self.serviceStatus,
                         selectedWindow: window,
                         selectedQuota: quota,
@@ -402,6 +408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.dashboardController.dashboardView.update(self.latestState)
                 } else if forceLive, !limits.isEmpty {
                     self.latestState.liveLimits = limits
+                    self.latestState.resetCredits = effectiveResetCredits
                     self.latestState.serviceStatus = self.serviceStatus
                     self.latestState.accountUsage = self.accountUsage
                     self.latestState.profileReport = self.profileReport(window: self.latestState.selectedWindow, quota: self.latestState.selectedQuota, accountUsage: self.accountUsage, localReport: self.latestState.report)
@@ -418,14 +425,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !liveRefreshInFlight else { return }
         liveRefreshInFlight = true
         let currentLimits = liveLimits
+        let currentResetCredits = resetCredits
         liveQueue.async {
             let claudeStore = ClaudeStatuslineStore()
-            _ = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: claudeStore)
-            if allowClaudeActiveRefresh {
+            if allowClaudeActiveRefresh && AppSettings.claudeActiveQuotaRefreshEnabled {
+                _ = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: claudeStore)
                 _ = ClaudeActiveQuotaRefresher.shared.refreshIfNeeded(snapshot: claudeStore.read())
             }
             let freshLimits = combinedLiveLimits(codexReader: self.rateLimitReader, claudeStore: claudeStore)
             let limits = self.mergedLiveLimits(fresh: freshLimits, fallback: currentLimits)
+            let freshResetCredits = self.resetCreditsReader.read()
+            let effectiveResetCredits = freshResetCredits ?? currentResetCredits
             let serviceStatus = self.serviceStatusReader.read()
             let codexLimits = codexTrackedLiveLimits(limits)
             AppSettings.learnModelLimit(from: codexLimits)
@@ -440,6 +450,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.latestState.serviceStatus = serviceStatus
                     self.detailsController.updateServiceStatus(serviceStatus)
                 }
+                if let freshResetCredits {
+                    self.resetCredits = freshResetCredits
+                }
+                self.latestState.resetCredits = effectiveResetCredits
+                self.detailsController.updateResetCredits(effectiveResetCredits)
                 guard !limits.isEmpty else {
                     self.updateStatusTitle(report: self.latestState.report, limits: self.liveLimits, quota: self.latestState.selectedQuota)
                     self.dashboardController.dashboardView.update(self.latestState)
@@ -447,6 +462,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 self.liveLimits = limits
                 self.latestState.liveLimits = limits
+                self.latestState.resetCredits = effectiveResetCredits
                 self.latestState.error = nil
                 self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
                 self.dashboardController.dashboardView.update(self.latestState)
@@ -497,6 +513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
                         liveLimits: self.liveLimits,
+                        resetCredits: self.resetCredits,
                         serviceStatus: self.serviceStatus,
                         selectedWindow: window,
                         selectedQuota: quota,
@@ -590,71 +607,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateStatusTitle(report: TokenReport, limits: [LiveRateLimit], quota: QuotaViewOption) {
         statusItem.length = NSStatusItem.variableLength
         guard let button = statusItem.button else { return }
-        let option = StatusDisplayOption.current
-        let statusQuota = AppSettings.statusBarQuotaSource
-        requestStatusUsageIfNeeded(option: option, quota: statusQuota)
-        let title = statusTitle(report: report, limits: limits, quota: statusQuota, option: option)
-        let pending = latestState.isLoading || statusValueIsPending(option: option, quota: statusQuota, limits: limits)
+        let metrics = AppSettings.statusBarMetrics
+        let title = statusTitle(metrics: metrics, limits: limits)
+        let pending = latestState.isLoading || statusValueIsPending(metrics: metrics, limits: limits)
         button.title = title ?? "--"
         setStatusLoading(pending)
     }
 
-    private func statusTitle(report: TokenReport, limits: [LiveRateLimit], quota: QuotaViewOption, option: StatusDisplayOption) -> String? {
-        let limit = selectedLimit(from: limits, quota: quota)
-        switch option {
-        case .fiveHourPercent:
-            if let live = limit?.primary.remainingPercent {
-                return "\(Int(round(live)))%"
-            }
-        case .weeklyPercent:
-            if let live = limit?.secondary.remainingPercent {
-                return "\(Int(round(live)))%"
-            }
-        case .weeklyTokens:
-            if let usage = statusUsage(window: .week, quota: quota)?.usage, usage.total > 0 {
-                return compact(usage.total)
-            }
-        case .dailyTokens:
-            if let usage = statusUsage(window: .day, quota: quota)?.usage, usage.total > 0 {
-                return compact(usage.total)
-            }
-        }
-        return nil
+    private func statusTitle(metrics: [StatusBarMetric], limits: [LiveRateLimit]) -> String? {
+        let parts = metrics.map { statusMetricText($0, limits: limits) }
+        guard parts.contains(where: { $0 != nil }) else { return nil }
+        return parts.map { $0 ?? "--" }.joined(separator: " | ")
     }
 
-    private func requestStatusUsageIfNeeded(option: StatusDisplayOption, quota: QuotaViewOption) {
-        guard let window = option.requiredReportWindow else { return }
-        let key = ReportCacheKey(window: window, quota: quota)
-        guard reportCache[key] == nil, !activeScans.contains(key) else { return }
-        prewarm(window: window, quota: quota)
-    }
-
-    private func statusValueIsPending(option: StatusDisplayOption, quota: QuotaViewOption, limits: [LiveRateLimit]) -> Bool {
-        switch option {
-        case .fiveHourPercent:
-            return selectedLimit(from: limits, quota: quota)?.primary.remainingPercent == nil && liveRefreshInFlight
-        case .weeklyPercent:
-            return selectedLimit(from: limits, quota: quota)?.secondary.remainingPercent == nil && liveRefreshInFlight
-        case .weeklyTokens, .dailyTokens:
-            guard let window = option.requiredReportWindow else { return false }
-            let key = ReportCacheKey(window: window, quota: quota)
-            return reportCache[key] == nil || activeScans.contains(key)
+    private func statusMetricText(_ metric: StatusBarMetric, limits: [LiveRateLimit]) -> String? {
+        let limit = statusLimit(from: limits, source: metric.source)
+        switch metric.quotaMetric {
+        case .fiveHour:
+            return statusPercentText(limit?.primary.remainingPercent, source: metric.source)
+        case .weekly:
+            return statusPercentText(limit?.secondary.remainingPercent, source: metric.source)
         }
     }
 
-    private func statusUsage(window: WindowOption, quota: QuotaViewOption) -> TokenReport? {
-        let key = ReportCacheKey(window: window, quota: quota)
-        let localReport = reportCache[key] ?? (latestState.selectedWindow == window && latestState.selectedQuota == quota ? latestState.report : nil)
-        if let profileReport = profileReport(window: window, quota: quota, accountUsage: accountUsage, localReport: localReport) {
-            return profileReport
+    private func statusLimit(from limits: [LiveRateLimit], source: QuotaViewOption) -> LiveRateLimit? {
+        limits.first { $0.id == source.liveLimitID }
+    }
+
+    private func statusPercentText(_ percent: Double?, source: QuotaViewOption) -> String? {
+        guard let percent else {
+            return source == .codex ? "0%" : nil
         }
-        if let cached = reportCache[key] {
-            return cached
-        }
-        if latestState.selectedWindow == window && latestState.selectedQuota == quota {
-            return latestState.report
-        }
-        return nil
+        return "\(Int(round(percent)))%"
+    }
+
+    private func statusValueIsPending(metrics: [StatusBarMetric], limits: [LiveRateLimit]) -> Bool {
+        liveRefreshInFlight && metrics.contains { statusMetricText($0, limits: limits) == nil }
     }
 
     private func selectedLimit(from limits: [LiveRateLimit], quota: QuotaViewOption) -> LiveRateLimit? {
@@ -694,10 +682,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.message = t(.logFolderHint)
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.directoryURL = AppSettings.logFolderURL
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        AppSettings.logFolderURL = url
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        AppSettings.addLogFolderURLs(panel.urls)
         reloadScannerFromSettings()
     }
 
@@ -747,8 +735,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
     }
 
-    private func changeStatusBarQuotaSource(_ source: QuotaViewOption) {
-        AppSettings.statusBarQuotaSource = source
+    private func changeStatusBarMetric(slot: StatusBarMetricSlot, metric: StatusBarMetric?) {
+        switch slot {
+        case .first:
+            guard let metric else { return }
+            AppSettings.statusBarPrimaryMetric = metric
+        case .second:
+            AppSettings.statusBarSecondaryMetric = metric
+        }
         detailsController.detailsView.needsDisplay = true
         updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
     }
@@ -891,6 +885,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let limits = liveLimits
         let currentServiceStatus = serviceStatus
         let currentAccountUsage = accountUsage
+        let currentResetCredits = resetCredits
         let updateProgress: (Double, L10nKey) -> Void = { [weak self] fraction, messageKey in
             DispatchQueue.main.async {
                 guard let self, self.detailsLoadGeneration == loadGeneration else { return }
@@ -902,6 +897,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 limits: limits,
                 serviceStatus: currentServiceStatus,
                 currentAccountUsage: currentAccountUsage,
+                currentResetCredits: currentResetCredits,
                 updateProgress: updateProgress
             )
             DetailsSnapshotCacheStore.write(snapshot)
@@ -918,6 +914,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.latestState.accountUsage = nil
                     self.latestState.profileReport = nil
                 }
+                if let resetCredits = snapshot.resetCredits {
+                    self.resetCredits = resetCredits
+                    self.latestState.resetCredits = resetCredits
+                    self.dashboardController.dashboardView.update(self.latestState)
+                }
                 self.detailsController.update(snapshot: snapshot)
             }
         }
@@ -931,11 +932,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let limits = liveLimits
         let currentServiceStatus = serviceStatus
         let currentAccountUsage = accountUsage
+        let currentResetCredits = resetCredits
         scanQueue.async {
             let snapshot = self.buildDetailsSnapshot(
                 limits: limits,
                 serviceStatus: currentServiceStatus,
                 currentAccountUsage: currentAccountUsage,
+                currentResetCredits: currentResetCredits,
                 updateProgress: nil
             )
             DetailsSnapshotCacheStore.write(snapshot)
@@ -945,6 +948,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.accountUsage = accountUsage
                 } else if !AppSettings.profileAPITotalsEnabled {
                     self.accountUsage = nil
+                }
+                if let resetCredits = snapshot.resetCredits {
+                    self.resetCredits = resetCredits
+                    self.latestState.resetCredits = resetCredits
                 }
             }
         }
@@ -958,6 +965,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if let serviceStatus {
             hydrated.serviceStatus = serviceStatus
+        }
+        if let resetCredits {
+            hydrated.resetCredits = resetCredits
         }
         if AppSettings.profileAPITotalsEnabled {
             if let accountUsage {
@@ -973,6 +983,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         limits: [LiveRateLimit],
         serviceStatus: CodexServiceStatusSnapshot?,
         currentAccountUsage: AccountUsageSnapshot?,
+        currentResetCredits: RateLimitResetCreditsSnapshot?,
         updateProgress: ((Double, L10nKey) -> Void)?
     ) -> DetailsSnapshot {
         updateProgress?(0.12, .loadingCodexUsage)
@@ -1000,6 +1011,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateProgress?(0.82, .loadingProfileTotals)
         let costReferenceReport = liveCostReferenceReport(limits: limits)
         let accountUsage = readAccountUsageIfNeeded(fallback: currentAccountUsage)
+        let resetCredits = currentResetCredits ?? resetCreditsReader.read(timeout: 8)
         updateProgress?(0.94, .loadingFinalizing)
         return DetailsSnapshot(
             all: all,
@@ -1014,7 +1026,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             liveLimits: limits,
             serviceStatus: serviceStatus,
             costReferenceReport: costReferenceReport,
-            accountUsage: accountUsage
+            accountUsage: accountUsage,
+            resetCredits: resetCredits
         )
     }
 

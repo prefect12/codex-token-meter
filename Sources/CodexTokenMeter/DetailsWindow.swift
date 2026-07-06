@@ -19,6 +19,7 @@ struct DetailsSnapshot: Codable {
     var serviceStatus: CodexServiceStatusSnapshot?
     var costReferenceReport: TokenReport?
     var accountUsage: AccountUsageSnapshot? = nil
+    var resetCredits: RateLimitResetCreditsSnapshot? = nil
 }
 
 struct DetailsLoadingProgress {
@@ -1791,6 +1792,13 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
         updateDocumentLayout()
     }
 
+    func updateResetCredits(_ resetCredits: RateLimitResetCreditsSnapshot?) {
+        guard var snapshot = detailsView.snapshot else { return }
+        snapshot.resetCredits = resetCredits
+        detailsView.snapshot = snapshot
+        updateDocumentLayout()
+    }
+
     func updateServiceStatus(_ serviceStatus: CodexServiceStatusSnapshot?) {
         guard var snapshot = detailsView.snapshot else { return }
         snapshot.serviceStatus = serviceStatus
@@ -1834,7 +1842,8 @@ enum DetailsSection: CaseIterable {
     }
 
     var isVisibleInDetailsNavigation: Bool {
-        true
+        // Quota cycles page is hidden until its design is finalized.
+        self != .costs
     }
 
     var visibleFallback: DetailsSection {
@@ -2038,17 +2047,17 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 selectedDay = preferredSelectedDay(in: report, fallback: selectedDay)
                 normalizeSelectedInsight(for: insightReport(for: snapshot))
             }
+            updateResetCreditCountdownTimer()
             onPreferredHeightChanged?()
             needsDisplay = true
             needsLayout = true
         }
     }
-    var isLoading = false { didSet { onPreferredHeightChanged?(); needsDisplay = true; needsLayout = true } }
+    var isLoading = false { didSet { updateResetCreditCountdownTimer(); onPreferredHeightChanged?(); needsDisplay = true; needsLayout = true } }
     var loadingProgress = DetailsLoadingProgress.starting { didSet { needsDisplay = true } }
     var onLanguageChanged: ((AppLanguage) -> Void)?
     var onNumberUnitStyleChanged: ((NumberUnitStyle) -> Void)?
-    var onStatusDisplayChanged: ((StatusDisplayOption) -> Void)?
-    var onStatusBarQuotaSourceChanged: ((QuotaViewOption) -> Void)?
+    var onStatusBarMetricChanged: ((StatusBarMetricSlot, StatusBarMetric?) -> Void)?
     var onQuotaDisplayStyleChanged: ((QuotaDisplayStyle) -> Void)?
     var onCodexHomeRingMetricChanged: ((HomeQuotaRingMetric) -> Void)?
     var onClaudeHomeRingMetricChanged: ((HomeQuotaRingMetric) -> Void)?
@@ -2093,11 +2102,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             if selectedSection == .storage {
                 requestStorageScanIfNeeded()
             }
+            updateResetCreditCountdownTimer()
             onPreferredHeightChanged?()
             needsDisplay = true
             needsLayout = true
         }
     }
+    private var resetCreditCountdownTimer: Timer?
+    private var hoveredResetCreditIndex: Int?
+    private var resetCreditHitAreas: [(rect: NSRect, index: Int)] = []
+    private var resetCreditTooltipRows: [RateLimitResetCredit] = []
     private var sidebarItemRects: [DetailsSection: NSRect] = [:]
     private var insightRowRects: [String: NSRect] = [:]
     private var insightWindowRects: [Int: NSRect] = [:]
@@ -2119,6 +2133,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 normalizeSelectedInsight(for: insightReport(for: snapshot))
             }
             onPreferredHeightChanged?()
+            updateResetCreditCountdownTimer()
             needsDisplay = true
             needsLayout = true
         }
@@ -2137,8 +2152,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var hoveredInsightPeriod: String?
     private var insightListScrollOffset: CGFloat = 0
     private var numberUnitOptionRects: [NumberUnitStyle: NSRect] = [:]
-    private var statusOptionRects: [StatusDisplayOption: NSRect] = [:]
-    private var statusQuotaSourceRects: [QuotaViewOption: NSRect] = [:]
     private var quotaDisplayStyleRects: [QuotaDisplayStyle: NSRect] = [:]
     private var codexHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
     private var claudeHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
@@ -2187,6 +2200,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private let displayCurrencyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let costYearPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let languagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let statusPrimaryMetricPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let statusSecondaryMetricPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let storageFilterPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let storageSortPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let storageSearchField = NSSearchField()
@@ -2197,6 +2212,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private let profileAPITotalsSwitch = NSSwitch(frame: .zero)
     private let claudeActiveQuotaRefreshSwitch = NSSwitch(frame: .zero)
     private var isUpdatingCostControls = false
+    private var isUpdatingStatusMetricPopups = false
     private var detailsTrackingArea: NSTrackingArea?
 
     var storageSnapshot: StorageSnapshot? {
@@ -2247,6 +2263,48 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var storageOpenFinderRect: NSRect?
     private var storageExportRect: NSRect?
     private var storageRefreshRect: NSRect?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateResetCreditCountdownTimer()
+    }
+
+    deinit {
+        resetCreditCountdownTimer?.invalidate()
+    }
+
+    private var shouldAnimateResetCreditCountdown: Bool {
+        guard window != nil,
+              !isLoading,
+              selectedSection == .overview,
+              selectedDetailsSource != .claude,
+              let resetCredits = snapshot?.resetCredits,
+              resetCredits.availableCount > 0,
+              resetCredits.nextExpiringAvailableCredit?.expiresAt != nil else {
+            return false
+        }
+        return true
+    }
+
+    private func updateResetCreditCountdownTimer() {
+        if shouldAnimateResetCreditCountdown {
+            guard resetCreditCountdownTimer == nil else { return }
+            let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                guard self.shouldAnimateResetCreditCountdown else {
+                    self.resetCreditCountdownTimer?.invalidate()
+                    self.resetCreditCountdownTimer = nil
+                    return
+                }
+                self.needsDisplay = true
+            }
+            resetCreditCountdownTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        } else {
+            resetCreditCountdownTimer?.invalidate()
+            resetCreditCountdownTimer = nil
+        }
+    }
 
     private func requestStorageScanIfNeeded() {
         guard storageSnapshot == nil, !isStorageScanning else { return }
@@ -2456,7 +2514,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         claudeActiveQuotaRefreshSwitch.action = #selector(claudeActiveQuotaRefreshChanged)
         addSubview(claudeActiveQuotaRefreshSwitch)
 
-        for popup in [paymentCurrencyPopup, displayCurrencyPopup, costYearPopup, languagePopup] {
+        for popup in [paymentCurrencyPopup, displayCurrencyPopup, costYearPopup, languagePopup, statusPrimaryMetricPopup, statusSecondaryMetricPopup] {
             popup.controlSize = .regular
             popup.font = .systemFont(ofSize: 12, weight: .semibold)
             popup.isBordered = false
@@ -2474,12 +2532,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         costYearPopup.removeAllItems()
         languagePopup.removeAllItems()
         languagePopup.addItems(withTitles: AppLanguage.allCases.map(\.displayName))
+        updateStatusMetricPopupsFromSettings()
         costAmountField.setAccessibilityLabel(t(.paymentMonthly))
         paymentStartDayField.setAccessibilityLabel(t(.paymentStartDate))
         paymentCurrencyPopup.setAccessibilityLabel(t(.paymentCurrency))
         displayCurrencyPopup.setAccessibilityLabel(t(.displayCurrency))
         costYearPopup.setAccessibilityLabel(t(.costHistory))
         languagePopup.setAccessibilityLabel(t(.interfaceLanguage))
+        statusPrimaryMetricPopup.setAccessibilityLabel(t(.statusBarMetricOne))
+        statusSecondaryMetricPopup.setAccessibilityLabel(t(.statusBarMetricTwo))
         showHistoricalEmptyWeeksSwitch.setAccessibilityLabel(t(.showPastEmptyWeeks))
         launchAtLoginSwitch.setAccessibilityLabel(t(.launchAtLogin))
         quotaWarningsSwitch.setAccessibilityLabel(t(.quotaWarnings))
@@ -2493,6 +2554,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         costYearPopup.action = #selector(costYearPopupChanged)
         languagePopup.target = self
         languagePopup.action = #selector(languagePopupChanged)
+        statusPrimaryMetricPopup.target = self
+        statusPrimaryMetricPopup.action = #selector(statusPrimaryMetricPopupChanged)
+        statusSecondaryMetricPopup.target = self
+        statusSecondaryMetricPopup.action = #selector(statusSecondaryMetricPopupChanged)
 
         for popup in [storageFilterPopup, storageSortPopup] {
             popup.controlSize = .small
@@ -2534,6 +2599,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func layoutSettingsControls() {
         let visible = selectedSection == .settings
         languagePopup.isHidden = !visible
+        statusPrimaryMetricPopup.isHidden = !visible
+        statusSecondaryMetricPopup.isHidden = !visible
         launchAtLoginSwitch.isHidden = !visible
         showCodexStatusSwitch.isHidden = !visible
         quotaWarningsSwitch.isHidden = !visible
@@ -2545,6 +2612,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(704, content.height - 78))
         let popupWidth = min(300, max(252, rect.width * 0.34))
         languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
+        let statusPopupWidth = min(300, max(252, rect.width * 0.34))
+        statusPrimaryMetricPopup.frame = NSRect(x: rect.maxX - statusPopupWidth - 16, y: rect.minY + 326, width: statusPopupWidth, height: 36)
+        statusSecondaryMetricPopup.frame = NSRect(x: rect.maxX - statusPopupWidth - 16, y: rect.minY + 370, width: statusPopupWidth, height: 36)
         let leftSwitchX = rect.midX - 64
         let rightSwitchX = rect.maxX - 64
         showCodexStatusSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 638, width: 48, height: 24)
@@ -2553,6 +2623,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         profileAPITotalsSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 666, width: 48, height: 24)
         claudeActiveQuotaRefreshSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 420, width: 48, height: 24)
         updateLanguagePopupFromSettings()
+        updateStatusMetricPopupsFromSettings()
         updateSettingsControlsFromSystem()
     }
 
@@ -2573,6 +2644,32 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         quotaWarningsSwitch.state = AppSettings.quotaWarningsEnabled ? .on : .off
         profileAPITotalsSwitch.state = AppSettings.profileAPITotalsEnabled ? .on : .off
         claudeActiveQuotaRefreshSwitch.state = AppSettings.claudeActiveQuotaRefreshEnabled ? .on : .off
+    }
+
+    private func updateStatusMetricPopupsFromSettings() {
+        isUpdatingStatusMetricPopups = true
+        defer { isUpdatingStatusMetricPopups = false }
+
+        let metricTitles = StatusBarMetric.allCases.map(\.title)
+        if statusPrimaryMetricPopup.itemArray.map(\.title) != metricTitles {
+            statusPrimaryMetricPopup.removeAllItems()
+            statusPrimaryMetricPopup.addItems(withTitles: metricTitles)
+        }
+        if let primaryIndex = StatusBarMetric.allCases.firstIndex(of: AppSettings.statusBarPrimaryMetric) {
+            statusPrimaryMetricPopup.selectItem(at: primaryIndex)
+        }
+
+        let secondaryTitles = [t(.statusMetricOff)] + metricTitles
+        if statusSecondaryMetricPopup.itemArray.map(\.title) != secondaryTitles {
+            statusSecondaryMetricPopup.removeAllItems()
+            statusSecondaryMetricPopup.addItems(withTitles: secondaryTitles)
+        }
+        if let secondaryMetric = AppSettings.statusBarSecondaryMetric,
+           let secondaryIndex = StatusBarMetric.allCases.firstIndex(of: secondaryMetric) {
+            statusSecondaryMetricPopup.selectItem(at: secondaryIndex + 1)
+        } else {
+            statusSecondaryMetricPopup.selectItem(at: 0)
+        }
     }
 
     private func updateCostControlsFromSettings() {
@@ -2627,7 +2724,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let targetHeight: CGFloat
         switch selectedSection {
         case .overview:
-            targetHeight = 760
+            // The Claude view hides the Codex reset-credits row (see drawOverview),
+            // so it needs 104pt less height than the Codex/all view.
+            targetHeight = selectedDetailsSource == .claude ? 746 : 850
         case .insights:
             let heatmapHeight: CGFloat = 148
             let topOffset: CGFloat = 78
@@ -2673,7 +2772,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 targetHeight = 660
             }
         case .settings:
-            targetHeight = 812
+            targetHeight = 838
         case .about:
             targetHeight = 580
         }
@@ -2870,6 +2969,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         updateProfileAPIInfoHover(at: point)
         updateContributionDayHover(at: point)
         updateContributionWeekHover(at: point)
+        updateResetCreditHover(at: point)
         updateInsightUsageTimeHover(at: point)
         updateStorageGrowthHover(at: point)
     }
@@ -2906,6 +3006,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hoveredContributionWeekKey = nil
         hoveredInsightHour = nil
         hoveredInsightPeriod = nil
+        hoveredResetCreditIndex = nil
         hoveredStorageCellKey = nil
         hoveredStorageSourceID = nil
         isHoveringDayValueInfo = false
@@ -2937,6 +3038,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         if hoveredInsightPeriod != nil {
             hoveredInsightPeriod = nil
+            shouldRedraw = true
+        }
+        if hoveredResetCreditIndex != nil {
+            hoveredResetCreditIndex = nil
             shouldRedraw = true
         }
         if hoveredStorageCellKey != nil {
@@ -3012,6 +3117,22 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let newKey = match?.key
         if hoveredContributionWeekKey != newKey {
             hoveredContributionWeekKey = newKey
+            needsDisplay = true
+        }
+    }
+
+    private func updateResetCreditHover(at point: CGPoint) {
+        guard selectedSection == .overview else {
+            if hoveredResetCreditIndex != nil {
+                hoveredResetCreditIndex = nil
+                needsDisplay = true
+            }
+            return
+        }
+        let match = resetCreditHitAreas.first { $0.rect.insetBy(dx: -4, dy: -4).contains(point) }
+        let newIndex = match?.index
+        if hoveredResetCreditIndex != newIndex {
+            hoveredResetCreditIndex = newIndex
             needsDisplay = true
         }
     }
@@ -3136,14 +3257,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 onNumberUnitStyleChanged?(style)
                 return
             }
-            for (option, rect) in statusOptionRects where rect.contains(point) {
-                onStatusDisplayChanged?(option)
-                return
-            }
-            for (source, rect) in statusQuotaSourceRects where rect.contains(point) {
-                onStatusBarQuotaSourceChanged?(source)
-                return
-            }
             for (style, rect) in quotaDisplayStyleRects where rect.contains(point) {
                 onQuotaDisplayStyleChanged?(style)
                 return
@@ -3247,6 +3360,30 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         onLanguageChanged?(language)
         needsDisplay = true
         needsLayout = true
+    }
+
+    @objc private func statusPrimaryMetricPopupChanged() {
+        guard !isUpdatingStatusMetricPopups,
+              statusPrimaryMetricPopup.indexOfSelectedItem >= 0,
+              StatusBarMetric.allCases.indices.contains(statusPrimaryMetricPopup.indexOfSelectedItem) else { return }
+        let metric = StatusBarMetric.allCases[statusPrimaryMetricPopup.indexOfSelectedItem]
+        onStatusBarMetricChanged?(.first, metric)
+        needsDisplay = true
+    }
+
+    @objc private func statusSecondaryMetricPopupChanged() {
+        guard !isUpdatingStatusMetricPopups,
+              statusSecondaryMetricPopup.indexOfSelectedItem >= 0 else { return }
+        let index = statusSecondaryMetricPopup.indexOfSelectedItem
+        guard index > 0 else {
+            onStatusBarMetricChanged?(.second, nil)
+            needsDisplay = true
+            return
+        }
+        let metricIndex = index - 1
+        guard StatusBarMetric.allCases.indices.contains(metricIndex) else { return }
+        onStatusBarMetricChanged?(.second, StatusBarMetric.allCases[metricIndex])
+        needsDisplay = true
     }
 
     @objc private func showHistoricalEmptyWeeksChanged() {
@@ -3356,6 +3493,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionDaySummaries.removeAll()
         contributionWeekSummaries.removeAll()
         contributionWeekDotRects.removeAll()
+        resetCreditHitAreas.removeAll()
+        resetCreditTooltipRows.removeAll()
         costHistoryBarRects.removeAll()
         costHistoryRows.removeAll()
         quotaCycleHitAreas.removeAll()
@@ -3372,8 +3511,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         insightStatusFilterRects.removeAll()
         insightListViewportRect = nil
         numberUnitOptionRects.removeAll()
-        statusOptionRects.removeAll()
-        statusQuotaSourceRects.removeAll()
         quotaDisplayStyleRects.removeAll()
         sourceOptionRects.removeAll()
         chooseLogFolderRect = nil
@@ -3438,6 +3575,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         if selectedSection == .calendar {
             drawDayValueInfoTooltip()
             drawProfileAPIInfoTooltip()
+        } else if selectedSection == .overview {
+            drawResetCreditTooltip(container: content)
         } else if selectedSection == .insights {
             drawInsightUsageTimeTooltip()
         } else if selectedSection == .costs {
@@ -3574,8 +3713,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func drawOverview(snapshot: DetailsSnapshot, content: NSRect) {
+        // Reset credits are a Codex-only concept, so hide the row in the Claude view
+        // and pull the panels below it up to fill the gap.
+        let showResetCredits = selectedDetailsSource != .claude
         let cardsY = content.minY + 78
-        let quotaY = cardsY + 98
+        let resetY = cardsY + 98
+        let quotaY = showResetCredits ? resetY + 104 : resetY
         let modelsY = quotaY + 136
         let gridY = modelsY + 146
         let gridReport = calendarReport(for: snapshot)
@@ -3583,6 +3726,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             ? "\(t(.pastYear)) · \(t(.profileAPISource))"
             : t(.pastYear)
         drawMetricCards(snapshot: snapshot, content: content)
+        if showResetCredits {
+            drawResetCreditCountdownRow(snapshot: snapshot, content: content, y: resetY, height: 88)
+        }
         drawQuotaRows(snapshot: snapshot, content: content, y: quotaY, height: 120)
         drawModelRows(snapshot: snapshot, content: content, y: modelsY, height: 130, maxRows: 4)
         let gridHeight = contributionGridPreferredHeight(report: gridReport, width: content.width, compact: true)
@@ -3594,12 +3740,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let gap: CGFloat = 12
         let report = sourceReport(for: snapshot)
         let apiEstimate = APICostEstimator.estimate(report: report)
-        let cards: [(String, String, NSColor)] = [
-            (detailsSourceTitle(.all), compactDashboardTotal(snapshot.all.usage.total), .systemGreen),
-            (t(.codex), compactDashboardTotal(snapshot.codex.usage.total), .systemCyan),
-            (t(.claude), compactDashboardTotal(snapshot.claude.usage.total), .systemOrange),
-            (t(.cache), String(format: "%.0f%%", report.usage.cachePercent), .systemTeal),
-            (t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), accentTeal)
+        let cards: [(title: String, value: String, subtitle: String?, color: NSColor)] = [
+            (detailsSourceTitle(.all), compactDashboardTotal(snapshot.all.usage.total), nil, .systemGreen),
+            (t(.codex), compactDashboardTotal(snapshot.codex.usage.total), nil, .systemCyan),
+            (t(.claude), compactDashboardTotal(snapshot.claude.usage.total), nil, .systemOrange),
+            (t(.cache), String(format: "%.0f%%", report.usage.cachePercent), nil, .systemTeal),
+            (t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), nil, accentTeal)
         ]
         let cardW = (content.width - gap * CGFloat(cards.count - 1)) / CGFloat(cards.count)
         let valueFontSize: CGFloat = cardW < 136 ? 18 : (cardW < 176 ? 21 : 24)
@@ -3607,8 +3753,163 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         for (index, card) in cards.enumerated() {
             let rect = NSRect(x: content.minX + CGFloat(index) * (cardW + gap), y: content.minY + 78, width: cardW, height: 82)
             drawPanel(rect)
-            drawText(card.0, rect: NSRect(x: rect.minX + 14, y: rect.minY + 12, width: rect.width - 28, height: 18), font: .systemFont(ofSize: titleFontSize, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
-            drawText(card.1, rect: NSRect(x: rect.minX + 14, y: rect.minY + 34, width: rect.width - 28, height: 30), font: .monospacedDigitSystemFont(ofSize: valueFontSize, weight: .bold), color: card.2)
+            drawText(card.title, rect: NSRect(x: rect.minX + 14, y: rect.minY + 12, width: rect.width - 28, height: 18), font: .systemFont(ofSize: titleFontSize, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
+            let valueY = card.subtitle == nil ? rect.minY + 34 : rect.minY + 31
+            let valueRect = NSRect(x: rect.minX + 14, y: valueY, width: rect.width - 28, height: 28)
+            let valueFont = metricCardValueFont(text: card.value, maxWidth: valueRect.width, preferredSize: valueFontSize)
+            drawText(card.value, rect: valueRect, font: valueFont, color: card.color)
+            if let subtitle = card.subtitle {
+                drawText(subtitle, rect: NSRect(x: rect.minX + 14, y: rect.minY + 60, width: rect.width - 28, height: 15), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
+            }
+        }
+    }
+
+    private func metricCardValueFont(text: String, maxWidth: CGFloat, preferredSize: CGFloat) -> NSFont {
+        var size = preferredSize
+        while size > 14 {
+            let font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: .bold)
+            if measuredTextWidth(text, font: font) <= maxWidth {
+                return font
+            }
+            size -= 1
+        }
+        return .monospacedDigitSystemFont(ofSize: size, weight: .bold)
+    }
+
+    private func drawResetCreditCountdownRow(snapshot: DetailsSnapshot, content: NSRect, y: CGFloat, height: CGFloat) {
+        let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
+        drawPanel(rect)
+
+        let title = "\(t(.codex)) \(t(.resetCredits))"
+        guard let resetCredits = snapshot.resetCredits else {
+            drawText(title, rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 240, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+            drawText(t(.resetCreditExpiryUnavailable), rect: NSRect(x: rect.minX + 16, y: rect.minY + 42, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        let count = max(0, resetCredits.availableCount)
+        let countText = String(format: t(.resetCreditCountFormat), count)
+        drawText("\(title) · \(countText)", rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 280, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+
+        guard count > 0 else {
+            drawText(t(.resetCreditNoCredits), rect: NSRect(x: rect.minX + 16, y: rect.minY + 42, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        let credits = Array(resetCredits.availableCredits
+            .sorted { ($0.expiresAt ?? .distantFuture) < ($1.expiresAt ?? .distantFuture) }
+            .prefix(3))
+        guard !credits.isEmpty else {
+            drawText(t(.resetCreditExpiryUnavailable), rect: NSRect(x: rect.minX + 16, y: rect.minY + 42, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        let gap: CGFloat = 18
+        let columnY = rect.minY + 36
+        let columnH: CGFloat = 42
+        let columnW = (rect.width - 32 - gap * 2) / 3
+        for index in 0..<3 {
+            let column = NSRect(x: rect.minX + 16 + CGFloat(index) * (columnW + gap), y: columnY, width: columnW, height: columnH)
+            if index > 0 {
+                NSColor.white.withAlphaComponent(0.08).setStroke()
+                let path = NSBezierPath()
+                path.move(to: NSPoint(x: column.minX - gap / 2, y: column.minY + 2))
+                path.line(to: NSPoint(x: column.minX - gap / 2, y: column.maxY - 2))
+                path.stroke()
+            }
+
+            guard index < credits.count, let expiresAt = credits[index].expiresAt else {
+                drawText("#\(index + 1)", rect: NSRect(x: column.minX, y: column.minY, width: column.width, height: 15), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.38))
+                drawText("--", rect: NSRect(x: column.minX, y: column.minY + 18, width: column.width, height: 22), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold), color: NSColor.white.withAlphaComponent(0.35))
+                continue
+            }
+
+            resetCreditTooltipRows.append(credits[index])
+            resetCreditHitAreas.append((rect: column, index: resetCreditTooltipRows.count - 1))
+            if hoveredResetCreditIndex == resetCreditTooltipRows.count - 1 {
+                NSColor.white.withAlphaComponent(0.28).setStroke()
+                let focus = NSBezierPath(roundedRect: column.insetBy(dx: -8, dy: -5), xRadius: 7, yRadius: 7)
+                focus.lineWidth = 1
+                focus.stroke()
+            }
+
+            var meta = "#\(index + 1) · \(t(.resetCreditExpiresAt)) \(Self.resetCreditExpiryFormatter.string(from: expiresAt))"
+            if credits[index].expirationIsEstimated {
+                meta += " · \(t(.resetCreditEstimated))"
+            }
+            let countdown = resetCreditCountdown(to: expiresAt)
+            let countdownFont = metricCardValueFont(text: countdown, maxWidth: column.width, preferredSize: 20)
+            drawText(meta, rect: NSRect(x: column.minX, y: column.minY, width: column.width, height: 15), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
+            drawText(countdown, rect: NSRect(x: column.minX, y: column.minY + 18, width: column.width, height: 24), font: countdownFont, color: resetCreditUrgencyColor(to: expiresAt))
+        }
+    }
+
+    private func resetCreditCountdown(to date: Date, now: Date = Date()) -> String {
+        let seconds = max(0, Int(date.timeIntervalSince(now)))
+        let days = seconds / 86_400
+        let hours = (seconds % 86_400) / 3_600
+        let minutes = (seconds % 3_600) / 60
+        let remainingSeconds = seconds % 60
+
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese:
+            return String(format: "%d天 %02d:%02d:%02d", days, hours, minutes, remainingSeconds)
+        case .japanese:
+            return String(format: "%d日 %02d:%02d:%02d", days, hours, minutes, remainingSeconds)
+        default:
+            return String(format: "%dd %02d:%02d:%02d", days, hours, minutes, remainingSeconds)
+        }
+    }
+
+    private func resetCreditUrgencyColor(to date: Date, now: Date = Date()) -> NSColor {
+        let seconds = date.timeIntervalSince(now)
+        if seconds <= 3 * 86_400 {
+            return accentRose
+        }
+        if seconds <= 14 * 86_400 {
+            return accentAmber
+        }
+        return accentBlue
+    }
+
+    private func drawResetCreditTooltip(container: NSRect) {
+        guard let index = hoveredResetCreditIndex,
+              index >= 0, index < resetCreditTooltipRows.count,
+              let hit = resetCreditHitAreas.first(where: { $0.index == index }) else {
+            return
+        }
+        let credit = resetCreditTooltipRows[index]
+        let grantedText = credit.grantedAt.map { Self.resetCreditFullFormatter.string(from: $0) } ?? "--"
+        let expiresText = credit.expiresAt.map { Self.resetCreditFullFormatter.string(from: $0) } ?? "--"
+        let remainingText = credit.expiresAt.map { resetCreditCountdown(to: $0) } ?? "--"
+        let rows: [(String, String, NSColor)] = [
+            (t(.resetCreditGrantedAt), grantedText, NSColor.white.withAlphaComponent(0.88)),
+            (t(.resetCreditExpiresAt), expiresText, credit.expiresAt.map { resetCreditUrgencyColor(to: $0) } ?? accentAmber),
+            (t(.remaining), remainingText, credit.expiresAt.map { resetCreditUrgencyColor(to: $0) } ?? accentAmber)
+        ]
+
+        let width: CGFloat = 278
+        let height: CGFloat = 84
+        var origin = CGPoint(x: hit.rect.midX - width / 2, y: hit.rect.minY - height - 10)
+        if origin.y < container.minY + 10 {
+            origin.y = hit.rect.maxY + 10
+        }
+        origin.x = max(container.minX + 12, min(origin.x, container.maxX - width - 12))
+        origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
+        let tooltipRect = NSRect(origin: origin, size: NSSize(width: width, height: height))
+
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: tooltipRect, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        let border = NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        border.lineWidth = 1
+        border.stroke()
+
+        drawText("\(t(.resetCredits)) #\(index + 1)", rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.minY + 8, width: tooltipRect.width - 20, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: .white)
+        for (rowIndex, row) in rows.enumerated() {
+            let y = tooltipRect.minY + 30 + CGFloat(rowIndex) * 16
+            drawText(row.0, rect: NSRect(x: tooltipRect.minX + 10, y: y, width: 56, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.5))
+            drawRight(row.1, rect: NSRect(x: tooltipRect.minX + 70, y: y - 1, width: tooltipRect.width - 80, height: 15), color: row.2, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
         }
     }
 
@@ -5025,7 +5326,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         let rollouts = AppSettings.logFolderURLs.reduce(0) { $0 + rolloutCount(in: $1, modifiedWithinDays: 14) }
         return [
-            ("Codex CLI", cliPath ?? t(.fileMissing), cliPath == nil ? accentRose : accentTeal),
+            ("Codex CLI", cliPath.map(shortenedPath) ?? t(.fileMissing), cliPath == nil ? accentRose : accentTeal),
             ("auth.json", FileManager.default.fileExists(atPath: authURL.path) ? t(.filePresent) : t(.fileMissing), FileManager.default.fileExists(atPath: authURL.path) ? accentTeal : accentAmber),
             (t(.liveQuota), liveText, snapshot.liveLimits.isEmpty ? accentRose : accentTeal),
             (t(.codexStatus), serviceText, serviceColor),
@@ -5504,6 +5805,22 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "MM-dd HH:mm"
+        return formatter
+    }()
+
+    private static let resetCreditExpiryFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = appTimeZone()
+        formatter.dateFormat = "MM-dd HH:mm"
+        return formatter
+    }()
+
+    private static let resetCreditFullFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = appTimeZone()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return formatter
     }()
 
@@ -7089,27 +7406,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawSmallButton(t(.logFolderChoose), rect: chooseLogFolderRect!, emphasized: true)
         drawText(t(.logFolderHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 286, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.statusBarDisplay), rect: NSRect(x: rect.minX + 16, y: rect.minY + 334, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let statusY = rect.minY + 330
-        let statusGap: CGFloat = 10
-        let statusOptionW = max(100, (rect.width - 260 - statusGap * CGFloat(StatusDisplayOption.allCases.count - 1)) / CGFloat(StatusDisplayOption.allCases.count))
-        let statusStartX = rect.maxX - 16 - statusOptionW * CGFloat(StatusDisplayOption.allCases.count) - statusGap * CGFloat(StatusDisplayOption.allCases.count - 1)
-        for (index, option) in StatusDisplayOption.allCases.enumerated() {
-            let optionRect = NSRect(x: statusStartX + CGFloat(index) * (statusOptionW + statusGap), y: statusY, width: statusOptionW, height: 36)
-            statusOptionRects[option] = optionRect
-            drawSelectablePill(option.title, rect: optionRect, selected: option == StatusDisplayOption.current)
-        }
-        drawText(t(.statusBarSource), rect: NSRect(x: rect.minX + 16, y: rect.minY + 378, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let statusSourceY = rect.minY + 374
-        let statusSourceGap: CGFloat = 10
-        let statusSourceW: CGFloat = 104
-        let statusSources: [QuotaViewOption] = [.all, .codex, .claude]
-        let statusSourceStartX = rect.maxX - 16 - statusSourceW * CGFloat(statusSources.count) - statusSourceGap * CGFloat(statusSources.count - 1)
-        for (index, source) in statusSources.enumerated() {
-            let optionRect = NSRect(x: statusSourceStartX + CGFloat(index) * (statusSourceW + statusSourceGap), y: statusSourceY, width: statusSourceW, height: 36)
-            statusQuotaSourceRects[source] = optionRect
-            drawSelectablePill(source.shortTitle, rect: optionRect, selected: source == AppSettings.statusBarQuotaSource)
-        }
+        drawText(t(.statusBarMetricOne), rect: NSRect(x: rect.minX + 16, y: rect.minY + 334, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawInputFieldBackground(statusPrimaryMetricPopup.frame)
+        drawText(t(.statusBarMetricTwo), rect: NSRect(x: rect.minX + 16, y: rect.minY + 378, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawInputFieldBackground(statusSecondaryMetricPopup.frame)
         drawText(t(.claudeActiveRefresh), rect: NSRect(x: rect.minX + 16, y: rect.minY + 422, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
         drawText(t(.claudeActiveRefreshHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 446, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
 
@@ -7624,11 +7924,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawText(row.1, rect: NSRect(x: rect.minX + 116, y: y, width: rect.width - 132, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.56))
         }
 
-        let sourceRect = NSRect(x: content.minX, y: rect.maxY + 16, width: content.width, height: 126)
+        let sourceRect = NSRect(x: content.minX, y: rect.maxY + 16, width: content.width, height: 196)
         drawPanel(sourceRect)
         drawText(t(.dataSource), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 16, width: sourceRect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.dataSourceLine1), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 52, width: sourceRect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.58))
-        drawText(t(.dataSourceLine2), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 78, width: sourceRect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+        drawMultilineText(t(.dataSourceLine2), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 80, width: sourceRect.width - 32, height: 104), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.6))
     }
 
     /// Pads sparse "past year" day data to a full 53-week range ending at the

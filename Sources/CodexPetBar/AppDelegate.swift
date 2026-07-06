@@ -48,8 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !readInFlight else { return }
         readInFlight = true
         DispatchQueue.global(qos: .utility).async {
-            let items = self.reader.read()
+            let items = self.reader.read(limit: taskBarCandidateThreadLimit)
             let visible = self.readState.visibleThreads(from: items)
+                .sorted(by: stableThreadOrder)
+                .limitedForTaskBar(limit: taskBarVisibleThreadLimit)
             DispatchQueue.main.async {
                 self.readInFlight = false
                 let signature = self.threadsSignature(visible)
@@ -159,6 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindowController == nil {
             settingsWindowController = TaskBarSettingsWindowController { [weak self] in
                 ThreadHoverPanel.shared.hideAll()
+                self?.refresh()
                 if self?.popover.isShown == true {
                     self?.rebuildPopover()
                 }
@@ -219,11 +222,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ThreadHoverPanel.shared.hideAll()
 
         if let selectedItem, isClaudeThread(selectedItem) {
-            openClaudeApp(fallbackFolder: selectedItem.cwd)
+            openClaudeThread(id: selectedItem.id, fallbackFolder: selectedItem.cwd)
             return
         }
         if id.hasPrefix("claude:") {
-            openClaudeApp(fallbackFolder: nil)
+            openClaudeThread(id: id, fallbackFolder: nil)
             return
         }
 
@@ -231,6 +234,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    /// Claude thread ids are `claude:<session-uuid>`. The desktop app resumes a
+    /// specific CLI session via `claude://resume?session=<uuid>`, mirroring the
+    /// `codex://threads/<id>` deep link. Fall back to just foregrounding the app
+    /// (or the working folder) when we don't have a usable session id.
+    private func openClaudeThread(id: String, fallbackFolder: String?) {
+        let sessionID = id.hasPrefix("claude:") ? String(id.dropFirst("claude:".count)) : id
+        if UUID(uuidString: sessionID) != nil,
+           let url = URL(string: "claude://resume?session=\(sessionID)") {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        openClaudeApp(fallbackFolder: fallbackFolder)
     }
 
     private func openClaudeApp(fallbackFolder: String?) {

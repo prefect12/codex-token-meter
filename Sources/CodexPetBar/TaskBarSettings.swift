@@ -104,6 +104,8 @@ enum TaskHoverLayoutItem: Equatable {
 
 enum TaskBarSettings {
     private static let showPlatformLabelsKey = "showPlatformLabels"
+    private static let includeCodexAPISourceKey = "includeCodexAPISource"
+    private static let extraCodexHomeFoldersKey = "extraCodexHomeFolders"
     private static let tokenUnitStyleKey = "tokenUnitStyle"
     private static let rowLayoutKey = "taskRowLayout"
     private static let statusGroupOrderKey = "statusGroupOrder"
@@ -205,6 +207,57 @@ enum TaskBarSettings {
         set {
             UserDefaults.standard.set(newValue, forKey: showPlatformLabelsKey)
         }
+    }
+
+    static var includeCodexAPISource: Bool {
+        get {
+            guard UserDefaults.standard.object(forKey: includeCodexAPISourceKey) != nil else {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: includeCodexAPISourceKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: includeCodexAPISourceKey)
+        }
+    }
+
+    static var extraCodexHomeFolderPaths: [String] {
+        get {
+            sanitizedFolderPaths(UserDefaults.standard.stringArray(forKey: extraCodexHomeFoldersKey) ?? [])
+        }
+        set {
+            UserDefaults.standard.set(sanitizedFolderPaths(newValue), forKey: extraCodexHomeFoldersKey)
+        }
+    }
+
+    static func addExtraCodexHomeFolderPaths(_ paths: [String]) {
+        extraCodexHomeFolderPaths = extraCodexHomeFolderPaths + paths
+    }
+
+    static func removeExtraCodexHomeFolder(at index: Int) {
+        var paths = extraCodexHomeFolderPaths
+        guard paths.indices.contains(index) else { return }
+        paths.remove(at: index)
+        extraCodexHomeFolderPaths = paths
+    }
+
+    static func clearExtraCodexHomeFolders() {
+        UserDefaults.standard.removeObject(forKey: extraCodexHomeFoldersKey)
+    }
+
+    private static func sanitizedFolderPaths(_ paths: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for rawPath in paths {
+            let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty else { continue }
+            let expanded = (path as NSString).expandingTildeInPath
+            let standardized = (expanded as NSString).standardizingPath
+            guard !seen.contains(standardized) else { continue }
+            seen.insert(standardized)
+            result.append(standardized)
+        }
+        return result
     }
 
     static var tokenUnitStyle: TaskTokenUnitStyle {
@@ -330,7 +383,7 @@ final class TaskBarSettingsWindowController: NSWindowController {
             defer: false
         )
         window.title = "Task Bar 设置"
-        window.contentMinSize = NSSize(width: 680, height: 620)
+        window.contentMinSize = NSSize(width: 680, height: 760)
         window.contentView = contentView
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor(calibratedRed: 0.055, green: 0.066, blue: 0.086, alpha: 1.0)
@@ -370,12 +423,14 @@ private enum TaskBarSettingsSection: CaseIterable {
 private enum TaskBarSettingsInfo: CaseIterable {
     case layout
     case sourceLabel
+    case codexAPI
     case tokenUnit
 
     var title: String {
         switch self {
         case .layout: return "信息位置"
         case .sourceLabel: return "来源标签"
+        case .codexAPI: return "Codex API 来源"
         case .tokenUnit: return "Token 单位"
         }
     }
@@ -386,6 +441,8 @@ private enum TaskBarSettingsInfo: CaseIterable {
             return "选“左侧”把时间 / 状态 / 平台移到左栏，行更窄、可显示更多任务。"
         case .sourceLabel:
             return "显示任务来自哪个本地来源：Claude Code 项目日志标为 Claude；Codex app-server、本地 state 或 rollout logs 标为 Codex。"
+        case .codexAPI:
+            return "开启后同时读取 ~/.codex-api、Codex API.app 和普通 Codex；关闭后只保留普通 Codex 与 Claude 来源。"
         case .tokenUnit:
             return "只影响 hover 中的输入 / 输出等数字；缓存率和金额不变。"
         }
@@ -397,7 +454,7 @@ private enum TaskBarSettingsInfo: CaseIterable {
 }
 
 private final class TaskBarSettingsView: NSView {
-    static let preferredSize = NSSize(width: 720, height: 660)
+    static let preferredSize = NSSize(width: 720, height: 780)
 
     private let onSettingsChanged: () -> Void
     private var selectedSection: TaskBarSettingsSection = .settings
@@ -406,6 +463,10 @@ private final class TaskBarSettingsView: NSView {
     private var infoMarkRects: [TaskBarSettingsInfo: NSRect] = [:]
     private var hoveredInfo: TaskBarSettingsInfo?
     private var platformOptionRects: [Bool: NSRect] = [:]
+    private var codexAPIOptionRects: [Bool: NSRect] = [:]
+    private var extraCodexAddRect: NSRect?
+    private var extraCodexClearRect: NSRect?
+    private var extraCodexRemoveRects: [Int: NSRect] = [:]
     private var tokenUnitOptionRects: [TaskTokenUnitStyle: NSRect] = [:]
     private var layoutOptionRects: [TaskRowLayoutStyle: NSRect] = [:]
     private var hoverEyeRects: [String: NSRect] = [:]
@@ -492,6 +553,7 @@ private final class TaskBarSettingsView: NSView {
 
     private func drawSettingsPage(content: NSRect) {
         clearHoverHitRects()
+        clearExtraCodexFolderHitRects()
         infoMarkRects.removeAll(keepingCapacity: true)
         drawText(
             "任务栏设置",
@@ -506,7 +568,7 @@ private final class TaskBarSettingsView: NSView {
             color: NSColor.white.withAlphaComponent(0.56)
         )
 
-        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 186)
+        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 230)
         drawPanel(settingsCard)
         drawText(
             "列表显示",
@@ -551,10 +613,22 @@ private final class TaskBarSettingsView: NSView {
         drawSelectablePill("显示", rect: showRect, selected: TaskBarSettings.showPlatformLabels)
         drawSelectablePill("隐藏", rect: hideRect, selected: !TaskBarSettings.showPlatformLabels)
 
+        let apiPillY = settingsCard.minY + 136
+        let apiOnRect = NSRect(x: binaryOptionX, y: apiPillY, width: binaryPillWidth, height: pillHeight)
+        let apiOffRect = NSRect(x: apiOnRect.maxX + pillGap, y: apiPillY, width: binaryPillWidth, height: pillHeight)
+        codexAPIOptionRects = [true: apiOnRect, false: apiOffRect]
+        drawSettingLabel(
+            "Codex API 来源",
+            rect: NSRect(x: settingsCard.minX + 16, y: apiPillY + 7, width: binaryOptionX - settingsCard.minX - 32, height: 20),
+            info: .codexAPI
+        )
+        drawSelectablePill("开启", rect: apiOnRect, selected: TaskBarSettings.includeCodexAPISource)
+        drawSelectablePill("关闭", rect: apiOffRect, selected: !TaskBarSettings.includeCodexAPISource)
+
         let unitPillWidth: CGFloat = 82
         let unitStyles = TaskTokenUnitStyle.allCases
         let unitOptionX = settingsCard.maxX - 16 - unitPillWidth * CGFloat(unitStyles.count) - pillGap * CGFloat(unitStyles.count - 1)
-        let unitPillY = settingsCard.minY + 136
+        let unitPillY = settingsCard.minY + 180
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
         drawSettingLabel(
             "Token 单位",
@@ -572,7 +646,10 @@ private final class TaskBarSettingsView: NSView {
             drawSelectablePill(style.title, rect: optionRect, selected: TaskBarSettings.tokenUnitStyle == style)
         }
 
-        let orderCard = NSRect(x: content.minX, y: settingsCard.maxY + 16, width: content.width, height: 208)
+        let foldersCard = NSRect(x: content.minX, y: settingsCard.maxY + 16, width: content.width, height: 158)
+        drawExtraCodexFoldersCard(foldersCard)
+
+        let orderCard = NSRect(x: content.minX, y: foldersCard.maxY + 16, width: content.width, height: 208)
         drawStatusOrderCard(orderCard)
 
         if let hoveredInfo {
@@ -582,6 +659,8 @@ private final class TaskBarSettingsView: NSView {
 
     private func drawHoverPage(content: NSRect) {
         platformOptionRects.removeAll(keepingCapacity: true)
+        codexAPIOptionRects.removeAll(keepingCapacity: true)
+        clearExtraCodexFolderHitRects()
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
         layoutOptionRects.removeAll(keepingCapacity: true)
         statusOrderRowRects.removeAll(keepingCapacity: true)
@@ -621,6 +700,8 @@ private final class TaskBarSettingsView: NSView {
 
     private func drawAboutPage(content: NSRect) {
         platformOptionRects.removeAll(keepingCapacity: true)
+        codexAPIOptionRects.removeAll(keepingCapacity: true)
+        clearExtraCodexFolderHitRects()
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
         layoutOptionRects.removeAll(keepingCapacity: true)
         statusOrderRowRects.removeAll(keepingCapacity: true)
@@ -704,6 +785,29 @@ private final class TaskBarSettingsView: NSView {
         for (showLabels, rect) in platformOptionRects where rect.contains(point) {
             guard TaskBarSettings.showPlatformLabels != showLabels else { return }
             TaskBarSettings.showPlatformLabels = showLabels
+            needsDisplay = true
+            onSettingsChanged()
+            return
+        }
+        for (includeSource, rect) in codexAPIOptionRects where rect.contains(point) {
+            guard TaskBarSettings.includeCodexAPISource != includeSource else { return }
+            TaskBarSettings.includeCodexAPISource = includeSource
+            needsDisplay = true
+            onSettingsChanged()
+            return
+        }
+        if extraCodexAddRect?.contains(point) == true {
+            addExtraCodexFolders()
+            return
+        }
+        if extraCodexClearRect?.contains(point) == true {
+            TaskBarSettings.clearExtraCodexHomeFolders()
+            needsDisplay = true
+            onSettingsChanged()
+            return
+        }
+        for (index, rect) in extraCodexRemoveRects where rect.contains(point) {
+            TaskBarSettings.removeExtraCodexHomeFolder(at: index)
             needsDisplay = true
             onSettingsChanged()
             return
@@ -1079,6 +1183,109 @@ private final class TaskBarSettingsView: NSView {
             ("INPUT", "待输入", NSColor.systemOrange),
             ("DONE", "已完成", NSColor.white.withAlphaComponent(0.45))
         ]
+    }
+
+    private func drawExtraCodexFoldersCard(_ card: NSRect) {
+        drawPanel(card)
+        let paths = TaskBarSettings.extraCodexHomeFolderPaths
+        let addRect = NSRect(x: card.maxX - 88, y: card.minY + 16, width: 72, height: 30)
+        let clearRect = NSRect(x: addRect.minX - 84, y: card.minY + 16, width: 72, height: 30)
+        extraCodexAddRect = addRect
+        extraCodexClearRect = paths.isEmpty ? nil : clearRect
+
+        drawText(
+            "额外 Codex 文件夹",
+            rect: NSRect(x: card.minX + 16, y: card.minY + 16, width: (paths.isEmpty ? addRect.minX : clearRect.minX) - card.minX - 28, height: 22),
+            font: .systemFont(ofSize: 16, weight: .bold),
+            color: .white
+        )
+        if !paths.isEmpty {
+            drawSmallButton("清空", rect: clearRect, emphasized: false)
+        }
+        drawSmallButton("添加", rect: addRect, emphasized: true)
+        drawText(
+            "选择一个或多个 Codex home 目录；每个目录会按 logs_2.sqlite、state_5.sqlite、sessions 和 archived_sessions 读取。",
+            rect: NSRect(x: card.minX + 16, y: card.minY + 42, width: card.width - 32, height: 18),
+            font: .systemFont(ofSize: 12, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.52)
+        )
+
+        let rowX = card.minX + 16
+        let rowW = card.width - 32
+        let rowTop = card.minY + 70
+        let rowHeight: CGFloat = 24
+        let rowGap: CGFloat = 6
+        extraCodexRemoveRects.removeAll(keepingCapacity: true)
+        guard !paths.isEmpty else {
+            inputSurfaceColor.withAlphaComponent(0.62).setFill()
+            let emptyRect = NSRect(x: rowX, y: rowTop, width: rowW, height: rowHeight + 10)
+            NSBezierPath(roundedRect: emptyRect, xRadius: 8, yRadius: 8).fill()
+            borderColor.setStroke()
+            NSBezierPath(roundedRect: emptyRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+            drawText(
+                "未添加额外目录，当前使用默认 Codex / Codex API / Claude 来源。",
+                rect: NSRect(x: emptyRect.minX + 12, y: emptyRect.minY + 8, width: emptyRect.width - 24, height: 16),
+                font: .systemFont(ofSize: 12, weight: .medium),
+                color: NSColor.white.withAlphaComponent(0.48)
+            )
+            return
+        }
+
+        let visiblePaths = Array(paths.prefix(3))
+        for (index, path) in visiblePaths.enumerated() {
+            let row = NSRect(x: rowX, y: rowTop + CGFloat(index) * (rowHeight + rowGap), width: rowW, height: rowHeight)
+            inputSurfaceColor.withAlphaComponent(0.72).setFill()
+            NSBezierPath(roundedRect: row, xRadius: 7, yRadius: 7).fill()
+            borderColor.setStroke()
+            NSBezierPath(roundedRect: row.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7).stroke()
+            let removeRect = NSRect(x: row.maxX - 34, y: row.minY + 2, width: 28, height: row.height - 4)
+            extraCodexRemoveRects[index] = removeRect
+            drawText(
+                abbreviatedPath(path),
+                rect: NSRect(x: row.minX + 12, y: row.minY + 4, width: removeRect.minX - row.minX - 20, height: 16),
+                font: .systemFont(ofSize: 11.5, weight: .medium),
+                color: NSColor.white.withAlphaComponent(0.72)
+            )
+            drawDeleteIcon(in: removeRect, highlighted: false)
+        }
+        if paths.count > visiblePaths.count {
+            drawText(
+                "还有 \(paths.count - visiblePaths.count) 个文件夹已保存。",
+                rect: NSRect(x: rowX + 12, y: rowTop + CGFloat(visiblePaths.count) * (rowHeight + rowGap), width: rowW - 24, height: 16),
+                font: .systemFont(ofSize: 11.5, weight: .medium),
+                color: NSColor.white.withAlphaComponent(0.46)
+            )
+        }
+    }
+
+    private func abbreviatedPath(_ path: String) -> String {
+        let abbreviated = (path as NSString).abbreviatingWithTildeInPath
+        guard abbreviated.count > 72 else { return abbreviated }
+        let prefix = abbreviated.prefix(34)
+        let suffix = abbreviated.suffix(34)
+        return "\(prefix)...\(suffix)"
+    }
+
+    private func addExtraCodexFolders() {
+        let panel = NSOpenPanel()
+        panel.title = "添加 Codex 文件夹"
+        panel.message = "选择一个或多个 Codex home 目录，例如 ~/.codex-api 或自定义 CODEX_HOME。"
+        panel.prompt = "添加"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.canCreateDirectories = false
+        panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        guard panel.runModal() == .OK else { return }
+        TaskBarSettings.addExtraCodexHomeFolderPaths(panel.urls.map(\.path))
+        needsDisplay = true
+        onSettingsChanged()
+    }
+
+    private func clearExtraCodexFolderHitRects() {
+        extraCodexAddRect = nil
+        extraCodexClearRect = nil
+        extraCodexRemoveRects.removeAll(keepingCapacity: true)
     }
 
     private func drawStatusOrderCard(_ card: NSRect) {
