@@ -279,7 +279,22 @@ final class CodexActivityReader {
     }
 
     private func readFromAppServer(limit: Int, unreadThreadIDs: Set<String>) -> AppServerThreadSnapshot {
-        guard let codexPath = codexExecutablePath() else { return AppServerThreadSnapshot() }
+        var merged = AppServerThreadSnapshot()
+        for codexPath in codexExecutablePaths() {
+            let snapshot = readFromAppServer(codexPath: codexPath, limit: limit, unreadThreadIDs: unreadThreadIDs)
+            merged.items.append(contentsOf: snapshot.items)
+            for (id, date) in snapshot.externalReadAtByID {
+                merged.externalReadAtByID[id] = maxOptionalDate(merged.externalReadAtByID[id], date) ?? date
+            }
+        }
+        merged.items = Dictionary(grouping: merged.items, by: \.id)
+            .compactMap { _, items in items.sorted(by: stableThreadOrder).first }
+            .sorted(by: stableThreadOrder)
+            .limitedForTaskBar(limit: limit)
+        return merged
+    }
+
+    private func readFromAppServer(codexPath: String, limit: Int, unreadThreadIDs: Set<String>) -> AppServerThreadSnapshot {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: codexPath)
         process.arguments = ["app-server"]
@@ -537,20 +552,19 @@ final class CodexActivityReader {
     }
 
     private func globalUnreadThreadIDs() -> Set<String> {
-        let fileURL = URL(fileURLWithPath: home)
-            .appendingPathComponent(".codex", isDirectory: true)
-            .appendingPathComponent(".codex-global-state.json")
-        guard let data = try? Data(contentsOf: fileURL),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let atoms = object["electron-persisted-atom-state"] as? [String: Any],
-              let unreadByHost = atoms["unread-thread-ids-by-host-v1"] as? [String: Any] else {
-            return []
-        }
-
         var ids = Set<String>()
-        for value in unreadByHost.values {
-            if let array = value as? [Any] {
-                ids.formUnion(array.compactMap(string))
+        for codexHome in codexHomeURLs() {
+            let fileURL = codexHome.appendingPathComponent(".codex-global-state.json")
+            guard let data = try? Data(contentsOf: fileURL),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let atoms = object["electron-persisted-atom-state"] as? [String: Any],
+                  let unreadByHost = atoms["unread-thread-ids-by-host-v1"] as? [String: Any] else {
+                continue
+            }
+            for value in unreadByHost.values {
+                if let array = value as? [Any] {
+                    ids.formUnion(array.compactMap(string))
+                }
             }
         }
         return ids
@@ -574,9 +588,6 @@ final class CodexActivityReader {
     }
 
     private func recentLoggedThreads(limit: Int, lookbackHours: Int) -> [LoggedThread] {
-        guard let db = logsDatabaseURLs().first(where: { fileManager.fileExists(atPath: $0.path) }) else {
-            return []
-        }
         let since = Int(Date().timeIntervalSince1970) - max(1, lookbackHours) * 3600
         let sql = """
         select thread_id, max(ts)
@@ -587,18 +598,24 @@ final class CodexActivityReader {
         order by max(ts) desc
         limit \(max(1, limit));
         """
-        return runSQLite(databaseURL: db, sql: sql)
-            .split(separator: "\n")
-            .compactMap { line in
-                let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
-                guard parts.count >= 2, let seconds = TimeInterval(parts[1]) else { return nil }
-                return LoggedThread(id: String(parts[0]), lastActivity: Date(timeIntervalSince1970: seconds))
+        return logsDatabaseURLs()
+            .filter { fileManager.fileExists(atPath: $0.path) }
+            .flatMap { db in
+                runSQLite(databaseURL: db, sql: sql)
+                    .split(separator: "\n")
+                    .compactMap { line in
+                        let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
+                        guard parts.count >= 2, let seconds = TimeInterval(parts[1]) else { return nil }
+                        return LoggedThread(id: String(parts[0]), lastActivity: Date(timeIntervalSince1970: seconds))
+                    }
             }
+            .sorted { $0.lastActivity > $1.lastActivity }
+            .prefix(limit)
+            .map { $0 }
     }
 
     private func unreadStateThreads(threadIDs: Set<String>, externalReadAtByID: [String: Date]) -> [CodexThreadItem] {
-        guard !threadIDs.isEmpty,
-              let db = stateDatabaseURLs().first(where: { fileManager.fileExists(atPath: $0.path) }) else {
+        guard !threadIDs.isEmpty else {
             return []
         }
         let ids = threadIDs.map(sqlStringLiteral).joined(separator: ",")
@@ -610,7 +627,10 @@ final class CodexActivityReader {
           and id in (\(ids))
         order by updated_ms desc;
         """
-        return runSQLiteJSON(databaseURL: db, sql: sql).compactMap { row in
+        return stateDatabaseURLs()
+            .filter { fileManager.fileExists(atPath: $0.path) }
+            .flatMap { runSQLiteJSON(databaseURL: $0, sql: sql) }
+            .compactMap { row in
             guard let id = string(row["id"]) else { return nil }
             let title = cleanTitleCandidate(
                 string(row["title"]),
@@ -646,9 +666,6 @@ final class CodexActivityReader {
     }
 
     private func stateThreadMetadata(limit: Int = 300) -> [String: ThreadStateMetadata] {
-        guard let db = stateDatabaseURLs().first(where: { fileManager.fileExists(atPath: $0.path) }) else {
-            return [:]
-        }
         let sql = """
         select id, title, tokens_used, model,
                coalesce(nullif(updated_at_ms, 0), updated_at * 1000) as updated_ms
@@ -658,16 +675,18 @@ final class CodexActivityReader {
         limit \(max(1, limit));
         """
         var result: [String: ThreadStateMetadata] = [:]
-        for row in runSQLiteJSON(databaseURL: db, sql: sql) {
-            guard let id = string(row["id"]) else { continue }
-            let tokenBreakdown = TokenBreakdown.totalOnly(intValue(row["tokens_used"]))
-            result[id] = ThreadStateMetadata(
-                title: string(row["title"]),
-                tokensUsed: tokenBreakdown.displayTotal,
-                tokenBreakdown: tokenBreakdown,
-                model: string(row["model"]),
-                updatedAt: double(row["updated_ms"]).map(unixDate(seconds:))
-            )
+        for db in stateDatabaseURLs() where fileManager.fileExists(atPath: db.path) {
+            for row in runSQLiteJSON(databaseURL: db, sql: sql) {
+                guard let id = string(row["id"]) else { continue }
+                let tokenBreakdown = TokenBreakdown.totalOnly(intValue(row["tokens_used"]))
+                result[id] = ThreadStateMetadata(
+                    title: string(row["title"]),
+                    tokensUsed: tokenBreakdown.displayTotal,
+                    tokenBreakdown: tokenBreakdown,
+                    model: string(row["model"]),
+                    updatedAt: double(row["updated_ms"]).map(unixDate(seconds:))
+                )
+            }
         }
         return result
     }
@@ -1471,15 +1490,28 @@ final class CodexActivityReader {
     }
 
     private func sessionRoots() -> [URL] {
-        let codexHome = URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
-        var roots = [
-            codexHome.appendingPathComponent("sessions", isDirectory: true)
-        ]
+        var roots = codexHomeURLs().flatMap { codexHome in
+            [
+                codexHome.appendingPathComponent("sessions", isDirectory: true),
+                codexHome.appendingPathComponent("archived_sessions", isDirectory: true)
+            ]
+        }
         if let env = ProcessInfo.processInfo.environment["CODEX_HOME"], !env.isEmpty {
             let custom = URL(fileURLWithPath: (env as NSString).expandingTildeInPath, isDirectory: true)
             roots.append(custom.appendingPathComponent("sessions", isDirectory: true))
+            roots.append(custom.appendingPathComponent("archived_sessions", isDirectory: true))
         }
         return unique(roots)
+    }
+
+    private func codexHomeURLs() -> [URL] {
+        var urls = [
+            URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
+        ]
+        if TaskBarSettings.includeCodexAPISource {
+            urls.append(URL(fileURLWithPath: home).appendingPathComponent(".codex-api", isDirectory: true))
+        }
+        return unique(urls)
     }
 
     private func claudeProjectRoots() -> [URL] {
@@ -1509,27 +1541,29 @@ final class CodexActivityReader {
     }
 
     private func logsDatabaseURLs() -> [URL] {
-        let codexHome = URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
-        return [
+        codexHomeURLs().flatMap { codexHome in [
             codexHome.appendingPathComponent("logs_2.sqlite"),
             codexHome.appendingPathComponent("sqlite/logs_2.sqlite")
-        ]
+        ] }
     }
 
     private func stateDatabaseURLs() -> [URL] {
-        let codexHome = URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
-        return [
+        codexHomeURLs().flatMap { codexHome in [
             codexHome.appendingPathComponent("state_5.sqlite"),
             codexHome.appendingPathComponent("sqlite/state_5.sqlite")
-        ]
+        ] }
     }
 
-    private func codexExecutablePath() -> String? {
-        [
+    private func codexExecutablePaths() -> [String] {
+        var paths = [
             "/Applications/Codex.app/Contents/Resources/codex",
             "/opt/homebrew/bin/codex",
             "/usr/local/bin/codex"
-        ].first { fileManager.isExecutableFile(atPath: $0) }
+        ]
+        if TaskBarSettings.includeCodexAPISource {
+            paths.insert("/Applications/Codex API.app/Contents/Resources/codex", at: 0)
+        }
+        return paths.filter { fileManager.isExecutableFile(atPath: $0) }
     }
 }
 

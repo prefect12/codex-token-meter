@@ -128,6 +128,9 @@ Task Bar 读取：
 ~/.codex/logs_2.sqlite
 ~/.codex/state_5.sqlite
 ~/.codex/sessions/**/rollout-*.jsonl
+~/.codex-api/logs_2.sqlite
+~/.codex-api/state_5.sqlite
+~/.codex-api/sessions/**/rollout-*.jsonl
 ~/.claude/projects/**/*.jsonl
 ```
 
