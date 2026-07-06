@@ -428,8 +428,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentResetCredits = resetCredits
         liveQueue.async {
             let claudeStore = ClaudeStatuslineStore()
-            _ = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: claudeStore)
-            if allowClaudeActiveRefresh {
+            if allowClaudeActiveRefresh && AppSettings.claudeActiveQuotaRefreshEnabled {
+                _ = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: claudeStore)
                 _ = ClaudeActiveQuotaRefresher.shared.refreshIfNeeded(snapshot: claudeStore.read())
             }
             let freshLimits = combinedLiveLimits(codexReader: self.rateLimitReader, claudeStore: claudeStore)
@@ -621,17 +621,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func statusMetricText(_ metric: StatusBarMetric, limits: [LiveRateLimit]) -> String? {
-        let limit = selectedLimit(from: limits, quota: metric.source)
+        let limit = statusLimit(from: limits, source: metric.source)
         switch metric.quotaMetric {
         case .fiveHour:
-            return statusPercentText(limit?.primary.remainingPercent)
+            return statusPercentText(limit?.primary.remainingPercent, source: metric.source)
         case .weekly:
-            return statusPercentText(limit?.secondary.remainingPercent)
+            return statusPercentText(limit?.secondary.remainingPercent, source: metric.source)
         }
     }
 
-    private func statusPercentText(_ percent: Double?) -> String? {
-        guard let percent else { return nil }
+    private func statusLimit(from limits: [LiveRateLimit], source: QuotaViewOption) -> LiveRateLimit? {
+        limits.first { $0.id == source.liveLimitID }
+    }
+
+    private func statusPercentText(_ percent: Double?, source: QuotaViewOption) -> String? {
+        guard let percent else {
+            return source == .codex ? "0%" : nil
+        }
         return "\(Int(round(percent)))%"
     }
 

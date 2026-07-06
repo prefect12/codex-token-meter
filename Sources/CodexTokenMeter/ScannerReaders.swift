@@ -1280,14 +1280,44 @@ final class CodexTokenScanner {
     }
 }
 
-final class LiveRateLimitReader {
-    func read(timeout: TimeInterval = 12) -> [LiveRateLimit] {
-        guard let codexPath = Self.codexExecutablePath() else {
-            return []
+private struct CodexAppServerEnvironment {
+    let label: String
+    let variables: [String: String]?
+}
+
+private struct CodexAppServerResponse {
+    let text: String
+    let errorText: String
+    let environmentLabel: String
+}
+
+private enum CodexAppServer {
+    static func candidateEnvironments() -> [CodexAppServerEnvironment] {
+        let current = ProcessInfo.processInfo.environment["CODEX_HOME"]
+            .flatMap { $0.isEmpty ? nil : standardizedHomePath($0) }
+        let defaultHome = AppSettings.defaultCodexHomeURL.standardizedFileURL.path
+        var environments = [CodexAppServerEnvironment(label: "inherited", variables: nil)]
+        if let current, current != defaultHome {
+            var variables = ProcessInfo.processInfo.environment
+            variables["CODEX_HOME"] = defaultHome
+            environments.append(CodexAppServerEnvironment(label: defaultHome, variables: variables))
+        }
+        return environments
+    }
+
+    static func run(
+        messages: [String],
+        timeout: TimeInterval,
+        expectedMarker: Data,
+        environment: CodexAppServerEnvironment
+    ) -> CodexAppServerResponse? {
+        guard let codexPath = LiveRateLimitReader.codexExecutablePath() else {
+            return nil
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: codexPath)
         process.arguments = ["app-server"]
+        process.environment = environment.variables
         let input = Pipe()
         let output = Pipe()
         let error = Pipe()
@@ -1298,7 +1328,7 @@ final class LiveRateLimitReader {
         do {
             try process.run()
         } catch {
-            return []
+            return nil
         }
 
         let outputLock = NSLock()
@@ -1322,24 +1352,19 @@ final class LiveRateLimitReader {
         }
 
         let writer = input.fileHandleForWriting
-        let messages = [
-            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-token-meter","version":"0.2.0"},"capabilities":{}}}"#,
-            #"{"method":"initialized"}"#,
-            #"{"id":2,"method":"account/read","params":{"refreshAuth":false}}"#,
-            #"{"id":3,"method":"account/rateLimits/read"}"#
-        ]
         let requestBody = messages.joined(separator: "\n") + "\n"
         if let data = requestBody.data(using: .utf8) {
             writer.write(data)
         }
 
         let deadline = Date().addingTimeInterval(timeout)
-        let rateLimitsMarker = Data(#""rateLimits""#.utf8)
+        let finalResponseMarker = Data(#""id":3"#.utf8)
         while process.isRunning && Date() < deadline {
             outputLock.lock()
-            let hasRateLimits = outputData.range(of: rateLimitsMarker) != nil
+            let hasExpectedMarker = outputData.range(of: expectedMarker) != nil
+            let hasFinalResponse = outputData.range(of: finalResponseMarker) != nil
             outputLock.unlock()
-            if hasRateLimits {
+            if hasExpectedMarker || hasFinalResponse {
                 break
             }
             Thread.sleep(forTimeInterval: 0.1)
@@ -1355,16 +1380,52 @@ final class LiveRateLimitReader {
         outputLock.lock()
         let data = outputData
         outputLock.unlock()
-        guard let text = String(data: data, encoding: .utf8) else { return [] }
-        if ProcessInfo.processInfo.environment["CODEX_TOKEN_METER_DEBUG_LIVE"] == "1" {
-            errorLock.lock()
-            let errorData = errorData
-            errorLock.unlock()
-            let errorText = String(data: errorData, encoding: .utf8) ?? ""
-            FileHandle.standardError.write(Data("LIVE RAW OUTPUT:\n\(text)\n".utf8))
-            FileHandle.standardError.write(Data("LIVE RAW ERROR:\n\(errorText)\n".utf8))
+        errorLock.lock()
+        let stderrData = errorData
+        errorLock.unlock()
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        return CodexAppServerResponse(
+            text: text,
+            errorText: String(data: stderrData, encoding: .utf8) ?? "",
+            environmentLabel: environment.label
+        )
+    }
+
+    private static func standardizedHomePath(_ path: String) -> String {
+        URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+            .standardizedFileURL
+            .path
+    }
+}
+
+final class LiveRateLimitReader {
+    func read(timeout: TimeInterval = 12) -> [LiveRateLimit] {
+        let messages = [
+            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-token-meter","version":"0.2.0"},"capabilities":{}}}"#,
+            #"{"method":"initialized"}"#,
+            #"{"id":2,"method":"account/read","params":{"refreshAuth":false}}"#,
+            #"{"id":3,"method":"account/rateLimits/read"}"#
+        ]
+        let rateLimitsMarker = Data(#""rateLimits""#.utf8)
+        for environment in CodexAppServer.candidateEnvironments() {
+            guard let response = CodexAppServer.run(
+                messages: messages,
+                timeout: timeout,
+                expectedMarker: rateLimitsMarker,
+                environment: environment
+            ) else {
+                continue
+            }
+            if ProcessInfo.processInfo.environment["CODEX_TOKEN_METER_DEBUG_LIVE"] == "1" {
+                FileHandle.standardError.write(Data("LIVE RAW OUTPUT [\(response.environmentLabel)]:\n\(response.text)\n".utf8))
+                FileHandle.standardError.write(Data("LIVE RAW ERROR [\(response.environmentLabel)]:\n\(response.errorText)\n".utf8))
+            }
+            let limits = parse(response.text)
+            if !limits.isEmpty {
+                return limits
+            }
         }
-        return parse(text)
+        return []
     }
 
     static func codexExecutablePath() -> String? {
@@ -1438,89 +1499,31 @@ final class LiveRateLimitReader {
 
 final class AccountUsageReader {
     func read(timeout: TimeInterval = 12) -> AccountUsageSnapshot? {
-        guard let codexPath = LiveRateLimitReader.codexExecutablePath() else {
-            return nil
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: codexPath)
-        process.arguments = ["app-server"]
-        let input = Pipe()
-        let output = Pipe()
-        let error = Pipe()
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = error
-
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-
-        let outputLock = NSLock()
-        var outputData = Data()
-        output.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            outputLock.lock()
-            outputData.append(chunk)
-            outputLock.unlock()
-        }
-
-        let errorLock = NSLock()
-        var errorData = Data()
-        error.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            errorLock.lock()
-            errorData.append(chunk)
-            errorLock.unlock()
-        }
-
-        let writer = input.fileHandleForWriting
         let messages = [
             #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-token-meter","version":"0.2.0"},"capabilities":{"experimentalApi":true}}}"#,
             #"{"method":"initialized"}"#,
             #"{"id":2,"method":"account/read","params":{"refreshAuth":false}}"#,
             #"{"id":3,"method":"account/usage/read"}"#
         ]
-        let requestBody = messages.joined(separator: "\n") + "\n"
-        if let data = requestBody.data(using: .utf8) {
-            writer.write(data)
-        }
-
-        let deadline = Date().addingTimeInterval(timeout)
         let usageMarker = Data(#""dailyUsageBuckets""#.utf8)
-        while process.isRunning && Date() < deadline {
-            outputLock.lock()
-            let hasUsage = outputData.range(of: usageMarker) != nil
-            outputLock.unlock()
-            if hasUsage {
-                break
+        for environment in CodexAppServer.candidateEnvironments() {
+            guard let response = CodexAppServer.run(
+                messages: messages,
+                timeout: timeout,
+                expectedMarker: usageMarker,
+                environment: environment
+            ) else {
+                continue
             }
-            Thread.sleep(forTimeInterval: 0.1)
+            if ProcessInfo.processInfo.environment["CODEX_TOKEN_METER_DEBUG_PROFILE"] == "1" {
+                FileHandle.standardError.write(Data("PROFILE RAW OUTPUT [\(response.environmentLabel)]:\n\(response.text)\n".utf8))
+                FileHandle.standardError.write(Data("PROFILE RAW ERROR [\(response.environmentLabel)]:\n\(response.errorText)\n".utf8))
+            }
+            if let snapshot = parse(response.text) {
+                return snapshot
+            }
         }
-        try? writer.close()
-        if process.isRunning {
-            process.terminate()
-            Thread.sleep(forTimeInterval: 0.2)
-        }
-
-        output.fileHandleForReading.readabilityHandler = nil
-        error.fileHandleForReading.readabilityHandler = nil
-        outputLock.lock()
-        let data = outputData
-        outputLock.unlock()
-        guard let text = String(data: data, encoding: .utf8) else { return nil }
-        if ProcessInfo.processInfo.environment["CODEX_TOKEN_METER_DEBUG_PROFILE"] == "1" {
-            errorLock.lock()
-            let errorData = errorData
-            errorLock.unlock()
-            let errorText = String(data: errorData, encoding: .utf8) ?? ""
-            FileHandle.standardError.write(Data("PROFILE RAW OUTPUT:\n\(text)\n".utf8))
-            FileHandle.standardError.write(Data("PROFILE RAW ERROR:\n\(errorText)\n".utf8))
-        }
-        return parse(text)
+        return nil
     }
 
     private func parse(_ text: String) -> AccountUsageSnapshot? {
@@ -1674,66 +1677,30 @@ final class RateLimitResetCreditsReader {
     }
 
     private func readAppServerCount(timeout: TimeInterval) -> RateLimitResetCreditsSnapshot? {
-        guard let codexPath = LiveRateLimitReader.codexExecutablePath() else {
-            return nil
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: codexPath)
-        process.arguments = ["app-server"]
-        let input = Pipe()
-        let output = Pipe()
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-
-        let outputLock = NSLock()
-        var outputData = Data()
-        output.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            outputLock.lock()
-            outputData.append(chunk)
-            outputLock.unlock()
-        }
-
-        let writer = input.fileHandleForWriting
         let messages = [
             #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-token-meter","version":"0.2.0"},"capabilities":{}}}"#,
             #"{"method":"initialized"}"#,
             #"{"id":2,"method":"account/read","params":{"refreshAuth":false}}"#,
             #"{"id":3,"method":"account/rateLimits/read"}"#
         ]
-        let requestBody = messages.joined(separator: "\n") + "\n"
-        if let data = requestBody.data(using: .utf8) {
-            writer.write(data)
-        }
-
-        let deadline = Date().addingTimeInterval(timeout)
         let marker = Data(#""rateLimitResetCredits""#.utf8)
-        while process.isRunning && Date() < deadline {
-            outputLock.lock()
-            let hasMarker = outputData.range(of: marker) != nil
-            outputLock.unlock()
-            if hasMarker { break }
-            Thread.sleep(forTimeInterval: 0.1)
+        for environment in CodexAppServer.candidateEnvironments() {
+            guard let response = CodexAppServer.run(
+                messages: messages,
+                timeout: timeout,
+                expectedMarker: marker,
+                environment: environment
+            ) else {
+                continue
+            }
+            if let snapshot = parseAppServerCount(response.text) {
+                return snapshot
+            }
         }
-        try? writer.close()
-        if process.isRunning {
-            process.terminate()
-            Thread.sleep(forTimeInterval: 0.2)
-        }
+        return nil
+    }
 
-        output.fileHandleForReading.readabilityHandler = nil
-        outputLock.lock()
-        let data = outputData
-        outputLock.unlock()
-        guard let text = String(data: data, encoding: .utf8) else { return nil }
+    private func parseAppServerCount(_ text: String) -> RateLimitResetCreditsSnapshot? {
         for line in text.split(separator: "\n") {
             guard let data = String(line).data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
