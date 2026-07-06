@@ -62,7 +62,8 @@ enum DetailsSnapshotCacheStore {
             liveLimits: snapshot.liveLimits,
             serviceStatus: snapshot.serviceStatus,
             costReferenceReport: snapshot.costReferenceReport.map(sanitized),
-            accountUsage: snapshot.accountUsage
+            accountUsage: snapshot.accountUsage,
+            resetCredits: snapshot.resetCredits
         )
     }
 
