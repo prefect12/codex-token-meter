@@ -118,6 +118,7 @@ AI Token Meter 读取：
 ~/.codex/archived_sessions/rollout-*.jsonl
 $CODEX_HOME/sessions/**/rollout-*.jsonl
 $CODEX_HOME/archived_sessions/rollout-*.jsonl
+设置中添加的额外 Codex rollout 目录
 ~/.claude/projects/**/*.jsonl
 ~/Library/Application Support/Codex Token Meter/
 ```

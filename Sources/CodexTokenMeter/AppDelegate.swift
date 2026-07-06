@@ -676,10 +676,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.message = t(.logFolderHint)
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.directoryURL = AppSettings.logFolderURL
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        AppSettings.logFolderURL = url
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        AppSettings.addLogFolderURLs(panel.urls)
         reloadScannerFromSettings()
     }
 
