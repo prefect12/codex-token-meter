@@ -659,8 +659,8 @@ enum L10nKey {
         case .liveQuota: return "Live quota"
         case .liveLimitUnavailable: return "Live limit unavailable"
         case .logFolder: return "Log Folder"
-        case .logFolderHint: return "Default scans sessions and archived_sessions; choosing a folder overrides the scan roots."
-        case .logFolderChoose: return "Choose..."
+        case .logFolderHint: return "Default scans sessions and archived_sessions; added folders extend the scan roots."
+        case .logFolderChoose: return "Add..."
         case .logFolderDefault: return "Default"
         case .logFolderOpen: return "Finder"
         case .loadingAllUsage: return "Scanning all usage..."
@@ -911,8 +911,8 @@ enum L10nKey {
         case .liveQuota: return "实时额度"
         case .liveLimitUnavailable: return "实时限额不可用"
         case .logFolder: return "日志目录"
-        case .logFolderHint: return "默认扫描 sessions 和 archived_sessions；手动选择目录会覆盖默认扫描范围。"
-        case .logFolderChoose: return "选择..."
+        case .logFolderHint: return "默认扫描 sessions 和 archived_sessions；添加的目录会扩展扫描范围，可一次选择多个。"
+        case .logFolderChoose: return "添加..."
         case .logFolderDefault: return "默认"
         case .logFolderOpen: return "Finder"
         case .loadingAllUsage: return "正在扫描全部用量..."
@@ -1163,8 +1163,8 @@ enum L10nKey {
         case .liveQuota: return "リアルタイム制限"
         case .liveLimitUnavailable: return "リアルタイム制限を取得できません"
         case .logFolder: return "ログフォルダ"
-        case .logFolderHint: return "既定では sessions と archived_sessions をスキャンし、選択したフォルダは既定の範囲を上書きします。"
-        case .logFolderChoose: return "選択..."
+        case .logFolderHint: return "既定では sessions と archived_sessions をスキャンし、追加したフォルダでスキャン範囲を拡張します。複数選択できます。"
+        case .logFolderChoose: return "追加..."
         case .logFolderDefault: return "既定"
         case .logFolderOpen: return "Finder"
         case .loadingAllUsage: return "全体の使用量をスキャン中..."
@@ -1391,6 +1391,7 @@ func convertCurrency(_ amount: Double, from source: CurrencyCode, to target: Cur
 
 enum AppSettings {
     static let logFolderKey = "sessionLogFolder"
+    static let logFoldersKey = "sessionLogFolders"
     static let monthlyPlanCostKey = "monthlyPlanCost"
     static let paymentCurrencyKey = "paymentCurrency"
     static let displayCurrencyKey = "displayCurrency"
@@ -1475,15 +1476,10 @@ enum AppSettings {
     }
 
     static var hasCustomLogFolder: Bool {
-        guard let path = UserDefaults.standard.string(forKey: logFolderKey) else { return false }
-        return !path.isEmpty
+        !customLogFolderURLs.isEmpty
     }
 
     static var logFolderURLs: [URL] {
-        if hasCustomLogFolder {
-            return [logFolderURL]
-        }
-
         var roots = [
             defaultLogFolderURL,
             defaultArchivedLogFolderURL
@@ -1492,20 +1488,15 @@ enum AppSettings {
             roots.append(codexHome.appendingPathComponent("sessions", isDirectory: true))
             roots.append(codexHome.appendingPathComponent("archived_sessions", isDirectory: true))
         }
+        roots.append(contentsOf: customLogFolderURLs)
         return uniqueDirectoryURLs(roots)
     }
 
     static var logFolderDisplayPath: String {
-        if hasCustomLogFolder {
-            return displayPath(for: logFolderURL)
-        }
         return logFolderURLs.map { displayPath(for: $0) }.joined(separator: " + ")
     }
 
     static var logFolderOpenURL: URL {
-        if hasCustomLogFolder {
-            return logFolderURL
-        }
         return logFolderURLs.first { FileManager.default.fileExists(atPath: $0.path) } ?? defaultLogFolderURL
     }
 
@@ -1543,18 +1534,35 @@ enum AppSettings {
 
     static var logFolderURL: URL {
         get {
-            guard let path = UserDefaults.standard.string(forKey: logFolderKey), !path.isEmpty else {
-                return defaultLogFolderURL
-            }
-            return URL(fileURLWithPath: path, isDirectory: true)
+            customLogFolderURLs.last ?? defaultLogFolderURL
         }
         set {
-            UserDefaults.standard.set(newValue.path, forKey: logFolderKey)
+            addLogFolderURLs([newValue])
         }
+    }
+
+    static var customLogFolderURLs: [URL] {
+        let defaults = UserDefaults.standard
+        var paths = defaults.stringArray(forKey: logFoldersKey) ?? []
+        if let legacyPath = defaults.string(forKey: logFolderKey), !legacyPath.isEmpty {
+            paths.append(legacyPath)
+        }
+        return uniqueDirectoryURLs(paths.compactMap { rawPath in
+            let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty else { return nil }
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+        })
+    }
+
+    static func addLogFolderURLs(_ urls: [URL]) {
+        let merged = uniqueDirectoryURLs(customLogFolderURLs + urls)
+        UserDefaults.standard.set(merged.map(\.path), forKey: logFoldersKey)
+        UserDefaults.standard.removeObject(forKey: logFolderKey)
     }
 
     static func resetLogFolder() {
         UserDefaults.standard.removeObject(forKey: logFolderKey)
+        UserDefaults.standard.removeObject(forKey: logFoldersKey)
     }
 
     private static func uniqueDirectoryURLs(_ urls: [URL]) -> [URL] {
