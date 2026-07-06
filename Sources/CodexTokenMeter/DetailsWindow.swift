@@ -3779,13 +3779,35 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let gap: CGFloat = 12
         let report = sourceReport(for: snapshot)
         let apiEstimate = APICostEstimator.estimate(report: report)
-        let cards: [(title: String, value: String, subtitle: String?, color: NSColor)] = [
-            (detailsSourceTitle(.all), compactDashboardTotal(snapshot.all.usage.total), nil, .systemGreen),
-            (t(.codex), compactDashboardTotal(snapshot.codex.usage.total), nil, .systemCyan),
-            (t(.claude), compactDashboardTotal(snapshot.claude.usage.total), nil, .systemOrange),
-            (t(.cache), String(format: "%.0f%%", report.usage.cachePercent), nil, .systemTeal),
-            (t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), nil, accentTeal)
-        ]
+        let displayCurrency = AppSettings.displayCurrency(for: selectedDetailsSource)
+        let apiMoney = compactMoney(convertCurrency(apiEstimate.usdValue, from: .usd, to: displayCurrency), currency: displayCurrency)
+        let cards: [(title: String, value: String, subtitle: String?, color: NSColor)]
+        switch selectedDetailsSource {
+        case .all:
+            cards = [
+                (detailsSourceTitle(.all), compactDashboardTotal(snapshot.all.usage.total), nil, .systemGreen),
+                (t(.codex), compactDashboardTotal(snapshot.codex.usage.total), nil, .systemCyan),
+                (t(.claude), compactDashboardTotal(snapshot.claude.usage.total), nil, .systemOrange),
+                (t(.cache), String(format: "%.0f%%", report.usage.cachePercent), nil, .systemTeal),
+                (t(.apiEquivalent), apiMoney, nil, accentTeal)
+            ]
+        case .codex:
+            cards = [
+                (t(.codex), compactDashboardTotal(report.usage.total), nil, .systemCyan),
+                (t(.input), compactDashboardMetric(report.usage.input), nil, .systemGreen),
+                (t(.output), compactDashboardMetric(report.usage.output), nil, .systemOrange),
+                (t(.cache), String(format: "%.0f%%", report.usage.cachePercent), nil, .systemTeal),
+                (t(.apiEquivalent), apiMoney, nil, accentTeal)
+            ]
+        case .claude:
+            cards = [
+                (t(.claude), compactDashboardTotal(report.usage.total), nil, .systemOrange),
+                (t(.input), compactDashboardMetric(report.usage.input), nil, .systemGreen),
+                (t(.output), compactDashboardMetric(report.usage.output), nil, .systemCyan),
+                (t(.cache), String(format: "%.0f%%", report.usage.cachePercent), nil, .systemTeal),
+                (t(.apiEquivalent), apiMoney, nil, accentTeal)
+            ]
+        }
         let cardW = (content.width - gap * CGFloat(cards.count - 1)) / CGFloat(cards.count)
         let valueFontSize: CGFloat = cardW < 136 ? 18 : (cardW < 176 ? 21 : 24)
         let titleFontSize: CGFloat = cardW < 136 ? 11 : 12
@@ -3956,11 +3978,23 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
         drawPanel(rect)
         drawText(t(.quotaViews), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
-        let rows = [
-            (t(.all), t(.allDescription), snapshot.all),
-            (t(.codex), t(.codexDescription), snapshot.codex),
-            (t(.claude), t(.claudeDescription), snapshot.claude)
-        ]
+        let rows: [(String, String, TokenReport)]
+        switch selectedDetailsSource {
+        case .all:
+            rows = [
+                (t(.all), t(.allDescription), snapshot.all),
+                (t(.codex), t(.codexDescription), snapshot.codex),
+                (t(.claude), t(.claudeDescription), snapshot.claude)
+            ]
+        case .codex:
+            rows = [
+                (t(.codex), t(.codexDescription), snapshot.codex)
+            ]
+        case .claude:
+            rows = [
+                (t(.claude), t(.claudeDescription), snapshot.claude)
+            ]
+        }
         let outputW: CGFloat = 92
         let inputW: CGFloat = 104
         let totalW: CGFloat = 104
