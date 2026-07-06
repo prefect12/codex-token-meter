@@ -450,6 +450,13 @@ enum L10nKey {
     case refresh
     case refreshing
     case remaining
+    case resetCredits
+    case resetCreditCountFormat
+    case resetCreditEstimated
+    case resetCreditExpiresAt
+    case resetCreditExpiryUnavailable
+    case resetCreditGrantedAt
+    case resetCreditNoCredits
     case showPastEmptyWeeks
     case showCodexStatus
     case reset
@@ -725,6 +732,13 @@ enum L10nKey {
         case .refresh: return "Refresh"
         case .refreshing: return "Refreshing..."
         case .remaining: return "Remaining"
+        case .resetCredits: return "Reset Credits"
+        case .resetCreditCountFormat: return "%d left"
+        case .resetCreditEstimated: return "estimated"
+        case .resetCreditExpiresAt: return "Expires"
+        case .resetCreditExpiryUnavailable: return "Expiry unavailable"
+        case .resetCreditGrantedAt: return "Granted"
+        case .resetCreditNoCredits: return "No credits"
         case .showPastEmptyWeeks: return "Show past empty weeks"
         case .showCodexStatus: return "Show Codex status"
         case .reset: return "Reset"
@@ -970,6 +984,13 @@ enum L10nKey {
         case .refresh: return "刷新"
         case .refreshing: return "刷新中..."
         case .remaining: return "剩余"
+        case .resetCredits: return "重置机会"
+        case .resetCreditCountFormat: return "%d 次"
+        case .resetCreditEstimated: return "估算"
+        case .resetCreditExpiresAt: return "到期"
+        case .resetCreditExpiryUnavailable: return "无法读取过期时间"
+        case .resetCreditGrantedAt: return "获得"
+        case .resetCreditNoCredits: return "暂无可用机会"
         case .showPastEmptyWeeks: return "显示以前的无数据周"
         case .showCodexStatus: return "显示 Codex 状态"
         case .reset: return "重置"
@@ -1215,6 +1236,13 @@ enum L10nKey {
         case .refresh: return "更新"
         case .refreshing: return "更新中..."
         case .remaining: return "残り"
+        case .resetCredits: return "リセット枠"
+        case .resetCreditCountFormat: return "%d回"
+        case .resetCreditEstimated: return "推定"
+        case .resetCreditExpiresAt: return "期限"
+        case .resetCreditExpiryUnavailable: return "期限を取得できません"
+        case .resetCreditGrantedAt: return "付与"
+        case .resetCreditNoCredits: return "利用可能な枠なし"
         case .showPastEmptyWeeks: return "過去の空週を表示"
         case .showCodexStatus: return "Codex 状態を表示"
         case .reset: return "リセット"

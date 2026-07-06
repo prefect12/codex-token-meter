@@ -686,6 +686,7 @@ struct DashboardState {
     var accountUsage: AccountUsageSnapshot?
     var costReferenceReport: TokenReport?
     var liveLimits: [LiveRateLimit] = []
+    var resetCredits: RateLimitResetCreditsSnapshot?
     var serviceStatus: CodexServiceStatusSnapshot?
     var selectedWindow: WindowOption = .week
     var selectedQuota: QuotaViewOption = .all

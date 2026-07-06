@@ -129,6 +129,38 @@ struct LiveRateLimit: Codable {
     let capturedAt: Date?
 }
 
+struct RateLimitResetCredit: Codable {
+    let status: String
+    let grantedAt: Date?
+    let expiresAt: Date?
+    let expirationIsEstimated: Bool
+
+    var isAvailable: Bool {
+        status.lowercased() == "available"
+    }
+}
+
+struct RateLimitResetCreditsSnapshot: Codable {
+    let availableCount: Int
+    let totalEarnedCount: Int?
+    let credits: [RateLimitResetCredit]
+    let readAt: Date
+    let source: String
+
+    var availableCredits: [RateLimitResetCredit] {
+        credits.filter(\.isAvailable)
+    }
+
+    var nextExpiringAvailableCredit: RateLimitResetCredit? {
+        availableCredits
+            .filter { ($0.expiresAt ?? .distantFuture) > Date() }
+            .sorted {
+                ($0.expiresAt ?? .distantFuture) < ($1.expiresAt ?? .distantFuture)
+            }
+            .first
+    }
+}
+
 struct ClaudeStatuslineWindow {
     let usedPercent: Double
     let resetsAt: Date?

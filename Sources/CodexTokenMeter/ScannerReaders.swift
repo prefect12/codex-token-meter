@@ -1561,3 +1561,230 @@ final class AccountUsageReader {
         return nil
     }
 }
+
+final class RateLimitResetCreditsReader {
+    private let authURL: URL
+    private let endpointURL: URL
+    private let isoWithFractional = ISO8601DateFormatter()
+    private let isoBasic = ISO8601DateFormatter()
+
+    init(
+        authURL: URL = AppSettings.defaultCodexHomeURL.appendingPathComponent("auth.json"),
+        endpointURL: URL = URL(string: "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits")!
+    ) {
+        self.authURL = authURL
+        self.endpointURL = endpointURL
+        isoWithFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        isoBasic.formatOptions = [.withInternetDateTime]
+    }
+
+    func read(timeout: TimeInterval = 12) -> RateLimitResetCreditsSnapshot? {
+        if let token = accessToken(),
+           let privateSnapshot = readPrivateEndpoint(accessToken: token, timeout: timeout) {
+            return privateSnapshot
+        }
+        return readAppServerCount(timeout: min(timeout, 8))
+    }
+
+    private func accessToken() -> String? {
+        guard let data = try? Data(contentsOf: authURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        if let tokens = object["tokens"] as? [String: Any],
+           let token = tokens["access_token"] as? String,
+           !token.isEmpty {
+            return token
+        }
+        if let token = object["access_token"] as? String, !token.isEmpty {
+            return token
+        }
+        return nil
+    }
+
+    private func readPrivateEndpoint(accessToken: String, timeout: TimeInterval) -> RateLimitResetCreditsSnapshot? {
+        var request = URLRequest(url: endpointURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = timeout
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("AI Token Meter local reader", forHTTPHeaderField: "User-Agent")
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = timeout
+        let session = URLSession(configuration: configuration)
+        let semaphore = DispatchSemaphore(value: 0)
+        var responseData: Data?
+        var statusCode = 0
+
+        let task = session.dataTask(with: request) { data, response, _ in
+            responseData = data
+            statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            semaphore.signal()
+        }
+        task.resume()
+        if semaphore.wait(timeout: .now() + timeout + 1) == .timedOut {
+            task.cancel()
+        }
+        session.invalidateAndCancel()
+
+        guard statusCode == 200, let responseData else {
+            return nil
+        }
+        return parsePrivateResponse(responseData)
+    }
+
+    private func parsePrivateResponse(_ data: Data) -> RateLimitResetCreditsSnapshot? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let creditsRaw = object["credits"] as? [[String: Any]]
+            ?? object["data"] as? [[String: Any]]
+            ?? []
+        let credits = creditsRaw.compactMap(parseCredit)
+        let availableCount = int(object["available_count"] ?? object["availableCount"])
+            ?? credits.filter(\.isAvailable).count
+        let totalEarnedCount = int(object["total_earned_count"] ?? object["totalEarnedCount"])
+        return RateLimitResetCreditsSnapshot(
+            availableCount: max(0, availableCount),
+            totalEarnedCount: totalEarnedCount,
+            credits: credits.sorted {
+                ($0.expiresAt ?? .distantFuture) < ($1.expiresAt ?? .distantFuture)
+            },
+            readAt: Date(),
+            source: "chatgpt-wham"
+        )
+    }
+
+    private func parseCredit(_ dict: [String: Any]) -> RateLimitResetCredit? {
+        let status = dict["status"] as? String ?? "available"
+        let grantedAt = parseDate(dict["granted_at"] ?? dict["grantedAt"])
+        let explicitExpiresAt = parseDate(dict["expires_at"] ?? dict["expiresAt"])
+        let expiresAt = explicitExpiresAt ?? grantedAt?.addingTimeInterval(30 * 24 * 60 * 60)
+        guard grantedAt != nil || expiresAt != nil else {
+            return nil
+        }
+        return RateLimitResetCredit(
+            status: status,
+            grantedAt: grantedAt,
+            expiresAt: expiresAt,
+            expirationIsEstimated: explicitExpiresAt == nil && grantedAt != nil
+        )
+    }
+
+    private func readAppServerCount(timeout: TimeInterval) -> RateLimitResetCreditsSnapshot? {
+        guard let codexPath = LiveRateLimitReader.codexExecutablePath() else {
+            return nil
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: codexPath)
+        process.arguments = ["app-server"]
+        let input = Pipe()
+        let output = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        let outputLock = NSLock()
+        var outputData = Data()
+        output.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            outputLock.lock()
+            outputData.append(chunk)
+            outputLock.unlock()
+        }
+
+        let writer = input.fileHandleForWriting
+        let messages = [
+            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-token-meter","version":"0.2.0"},"capabilities":{}}}"#,
+            #"{"method":"initialized"}"#,
+            #"{"id":2,"method":"account/read","params":{"refreshAuth":false}}"#,
+            #"{"id":3,"method":"account/rateLimits/read"}"#
+        ]
+        let requestBody = messages.joined(separator: "\n") + "\n"
+        if let data = requestBody.data(using: .utf8) {
+            writer.write(data)
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        let marker = Data(#""rateLimitResetCredits""#.utf8)
+        while process.isRunning && Date() < deadline {
+            outputLock.lock()
+            let hasMarker = outputData.range(of: marker) != nil
+            outputLock.unlock()
+            if hasMarker { break }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        try? writer.close()
+        if process.isRunning {
+            process.terminate()
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+
+        output.fileHandleForReading.readabilityHandler = nil
+        outputLock.lock()
+        let data = outputData
+        outputLock.unlock()
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        for line in text.split(separator: "\n") {
+            guard let data = String(line).data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let result = object["result"] as? [String: Any],
+                  let resetCredits = result["rateLimitResetCredits"] as? [String: Any],
+                  let availableCount = int(resetCredits["availableCount"] ?? resetCredits["available_count"]) else {
+                continue
+            }
+            return RateLimitResetCreditsSnapshot(
+                availableCount: max(0, availableCount),
+                totalEarnedCount: nil,
+                credits: [],
+                readAt: Date(),
+                source: "codex-app-server"
+            )
+        }
+        return nil
+    }
+
+    private func parseDate(_ raw: Any?) -> Date? {
+        if let value = raw as? Date {
+            return value
+        }
+        if let value = raw as? Double, value > 0 {
+            return Date(timeIntervalSince1970: value > 1_000_000_000_000 ? value / 1000 : value)
+        }
+        if let value = raw as? Int, value > 0 {
+            let seconds = Double(value)
+            return Date(timeIntervalSince1970: seconds > 1_000_000_000_000 ? seconds / 1000 : seconds)
+        }
+        guard let string = raw as? String, !string.isEmpty else {
+            return nil
+        }
+        if let date = isoWithFractional.date(from: string) {
+            return date
+        }
+        if let date = isoBasic.date(from: string) {
+            return date
+        }
+        if let seconds = Double(string), seconds > 0 {
+            return Date(timeIntervalSince1970: seconds > 1_000_000_000_000 ? seconds / 1000 : seconds)
+        }
+        return nil
+    }
+
+    private func int(_ value: Any?) -> Int? {
+        if value == nil || value is NSNull { return nil }
+        if let value = value as? Int { return value }
+        if let value = value as? Int64 { return Int(value) }
+        if let value = value as? Double { return Int(value) }
+        if let value = value as? String { return Int(value) }
+        return nil
+    }
+}

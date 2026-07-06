@@ -205,6 +205,7 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
         report = scanReport(window: window, source: quota, codexScanner: scanner, claudeScanner: claudeScanner)
     }
     let liveLimits = combinedLiveLimits()
+    let resetCredits = RateLimitResetCreditsReader().read(timeout: 8)
     let serviceStatus = CodexServiceStatusReader().read()
     let accountUsage = AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
     let profileReport = AppSettings.profileAPITotalsEnabled
@@ -233,6 +234,7 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
         accountUsage: accountUsage,
         costReferenceReport: nil,
         liveLimits: liveLimits,
+        resetCredits: resetCredits,
         serviceStatus: serviceStatus,
         selectedWindow: window,
         selectedQuota: quota,
@@ -257,6 +259,7 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let source = requestedDetailsSource(from: arguments) ?? .all
     let isInsightsSection = section == .insights
     let accountUsage = !isInsightsSection && AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
+    let resetCredits = isInsightsSection ? nil : RateLimitResetCreditsReader().read(timeout: 8)
     let codex: TokenReport
     let claude: TokenReport
     if isInsightsSection {
@@ -301,7 +304,8 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         liveLimits: isInsightsSection ? [] : combinedLiveLimits(),
         serviceStatus: isInsightsSection ? nil : CodexServiceStatusReader().read(),
         costReferenceReport: source == .codex ? codex : all,
-        accountUsage: accountUsage
+        accountUsage: accountUsage,
+        resetCredits: resetCredits
     )
     if redactor != nil {
         snapshot = redactor!.redact(snapshot)

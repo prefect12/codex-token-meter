@@ -19,6 +19,7 @@ struct DetailsSnapshot: Codable {
     var serviceStatus: CodexServiceStatusSnapshot?
     var costReferenceReport: TokenReport?
     var accountUsage: AccountUsageSnapshot? = nil
+    var resetCredits: RateLimitResetCreditsSnapshot? = nil
 }
 
 struct DetailsLoadingProgress {
@@ -1791,6 +1792,13 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
         updateDocumentLayout()
     }
 
+    func updateResetCredits(_ resetCredits: RateLimitResetCreditsSnapshot?) {
+        guard var snapshot = detailsView.snapshot else { return }
+        snapshot.resetCredits = resetCredits
+        detailsView.snapshot = snapshot
+        updateDocumentLayout()
+    }
+
     func updateServiceStatus(_ serviceStatus: CodexServiceStatusSnapshot?) {
         guard var snapshot = detailsView.snapshot else { return }
         snapshot.serviceStatus = serviceStatus
@@ -2039,12 +2047,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 selectedDay = preferredSelectedDay(in: report, fallback: selectedDay)
                 normalizeSelectedInsight(for: insightReport(for: snapshot))
             }
+            updateResetCreditCountdownTimer()
             onPreferredHeightChanged?()
             needsDisplay = true
             needsLayout = true
         }
     }
-    var isLoading = false { didSet { onPreferredHeightChanged?(); needsDisplay = true; needsLayout = true } }
+    var isLoading = false { didSet { updateResetCreditCountdownTimer(); onPreferredHeightChanged?(); needsDisplay = true; needsLayout = true } }
     var loadingProgress = DetailsLoadingProgress.starting { didSet { needsDisplay = true } }
     var onLanguageChanged: ((AppLanguage) -> Void)?
     var onNumberUnitStyleChanged: ((NumberUnitStyle) -> Void)?
@@ -2093,11 +2102,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             if selectedSection == .storage {
                 requestStorageScanIfNeeded()
             }
+            updateResetCreditCountdownTimer()
             onPreferredHeightChanged?()
             needsDisplay = true
             needsLayout = true
         }
     }
+    private var resetCreditCountdownTimer: Timer?
+    private var hoveredResetCreditIndex: Int?
+    private var resetCreditHitAreas: [(rect: NSRect, index: Int)] = []
+    private var resetCreditTooltipRows: [RateLimitResetCredit] = []
     private var sidebarItemRects: [DetailsSection: NSRect] = [:]
     private var insightRowRects: [String: NSRect] = [:]
     private var insightWindowRects: [Int: NSRect] = [:]
@@ -2248,6 +2262,47 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var storageOpenFinderRect: NSRect?
     private var storageExportRect: NSRect?
     private var storageRefreshRect: NSRect?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateResetCreditCountdownTimer()
+    }
+
+    deinit {
+        resetCreditCountdownTimer?.invalidate()
+    }
+
+    private var shouldAnimateResetCreditCountdown: Bool {
+        guard window != nil,
+              !isLoading,
+              selectedSection == .overview,
+              let resetCredits = snapshot?.resetCredits,
+              resetCredits.availableCount > 0,
+              resetCredits.nextExpiringAvailableCredit?.expiresAt != nil else {
+            return false
+        }
+        return true
+    }
+
+    private func updateResetCreditCountdownTimer() {
+        if shouldAnimateResetCreditCountdown {
+            guard resetCreditCountdownTimer == nil else { return }
+            let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                guard self.shouldAnimateResetCreditCountdown else {
+                    self.resetCreditCountdownTimer?.invalidate()
+                    self.resetCreditCountdownTimer = nil
+                    return
+                }
+                self.needsDisplay = true
+            }
+            resetCreditCountdownTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        } else {
+            resetCreditCountdownTimer?.invalidate()
+            resetCreditCountdownTimer = nil
+        }
+    }
 
     private func requestStorageScanIfNeeded() {
         guard storageSnapshot == nil, !isStorageScanning else { return }
@@ -2667,7 +2722,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let targetHeight: CGFloat
         switch selectedSection {
         case .overview:
-            targetHeight = 760
+            targetHeight = 850
         case .insights:
             let heatmapHeight: CGFloat = 148
             let topOffset: CGFloat = 78
@@ -2908,6 +2963,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         updateProfileAPIInfoHover(at: point)
         updateContributionDayHover(at: point)
         updateContributionWeekHover(at: point)
+        updateResetCreditHover(at: point)
         updateInsightUsageTimeHover(at: point)
         updateStorageGrowthHover(at: point)
     }
@@ -2944,6 +3000,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hoveredContributionWeekKey = nil
         hoveredInsightHour = nil
         hoveredInsightPeriod = nil
+        hoveredResetCreditIndex = nil
         hoveredStorageCellKey = nil
         hoveredStorageSourceID = nil
         isHoveringDayValueInfo = false
@@ -2975,6 +3032,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         if hoveredInsightPeriod != nil {
             hoveredInsightPeriod = nil
+            shouldRedraw = true
+        }
+        if hoveredResetCreditIndex != nil {
+            hoveredResetCreditIndex = nil
             shouldRedraw = true
         }
         if hoveredStorageCellKey != nil {
@@ -3050,6 +3111,22 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let newKey = match?.key
         if hoveredContributionWeekKey != newKey {
             hoveredContributionWeekKey = newKey
+            needsDisplay = true
+        }
+    }
+
+    private func updateResetCreditHover(at point: CGPoint) {
+        guard selectedSection == .overview else {
+            if hoveredResetCreditIndex != nil {
+                hoveredResetCreditIndex = nil
+                needsDisplay = true
+            }
+            return
+        }
+        let match = resetCreditHitAreas.first { $0.rect.insetBy(dx: -4, dy: -4).contains(point) }
+        let newIndex = match?.index
+        if hoveredResetCreditIndex != newIndex {
+            hoveredResetCreditIndex = newIndex
             needsDisplay = true
         }
     }
@@ -3410,6 +3487,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionDaySummaries.removeAll()
         contributionWeekSummaries.removeAll()
         contributionWeekDotRects.removeAll()
+        resetCreditHitAreas.removeAll()
+        resetCreditTooltipRows.removeAll()
         costHistoryBarRects.removeAll()
         costHistoryRows.removeAll()
         quotaCycleHitAreas.removeAll()
@@ -3490,6 +3569,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         if selectedSection == .calendar {
             drawDayValueInfoTooltip()
             drawProfileAPIInfoTooltip()
+        } else if selectedSection == .overview {
+            drawResetCreditTooltip(container: content)
         } else if selectedSection == .insights {
             drawInsightUsageTimeTooltip()
         } else if selectedSection == .costs {
@@ -3627,7 +3708,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     private func drawOverview(snapshot: DetailsSnapshot, content: NSRect) {
         let cardsY = content.minY + 78
-        let quotaY = cardsY + 98
+        let resetY = cardsY + 98
+        let quotaY = resetY + 104
         let modelsY = quotaY + 136
         let gridY = modelsY + 146
         let gridReport = calendarReport(for: snapshot)
@@ -3635,6 +3717,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             ? "\(t(.pastYear)) · \(t(.profileAPISource))"
             : t(.pastYear)
         drawMetricCards(snapshot: snapshot, content: content)
+        drawResetCreditCountdownRow(snapshot: snapshot, content: content, y: resetY, height: 88)
         drawQuotaRows(snapshot: snapshot, content: content, y: quotaY, height: 120)
         drawModelRows(snapshot: snapshot, content: content, y: modelsY, height: 130, maxRows: 4)
         let gridHeight = contributionGridPreferredHeight(report: gridReport, width: content.width, compact: true)
@@ -3646,12 +3729,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let gap: CGFloat = 12
         let report = sourceReport(for: snapshot)
         let apiEstimate = APICostEstimator.estimate(report: report)
-        let cards: [(String, String, NSColor)] = [
-            (detailsSourceTitle(.all), compactDashboardTotal(snapshot.all.usage.total), .systemGreen),
-            (t(.codex), compactDashboardTotal(snapshot.codex.usage.total), .systemCyan),
-            (t(.claude), compactDashboardTotal(snapshot.claude.usage.total), .systemOrange),
-            (t(.cache), String(format: "%.0f%%", report.usage.cachePercent), .systemTeal),
-            (t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), accentTeal)
+        let cards: [(title: String, value: String, subtitle: String?, color: NSColor)] = [
+            (detailsSourceTitle(.all), compactDashboardTotal(snapshot.all.usage.total), nil, .systemGreen),
+            (t(.codex), compactDashboardTotal(snapshot.codex.usage.total), nil, .systemCyan),
+            (t(.claude), compactDashboardTotal(snapshot.claude.usage.total), nil, .systemOrange),
+            (t(.cache), String(format: "%.0f%%", report.usage.cachePercent), nil, .systemTeal),
+            (t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), nil, accentTeal)
         ]
         let cardW = (content.width - gap * CGFloat(cards.count - 1)) / CGFloat(cards.count)
         let valueFontSize: CGFloat = cardW < 136 ? 18 : (cardW < 176 ? 21 : 24)
@@ -3659,8 +3742,162 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         for (index, card) in cards.enumerated() {
             let rect = NSRect(x: content.minX + CGFloat(index) * (cardW + gap), y: content.minY + 78, width: cardW, height: 82)
             drawPanel(rect)
-            drawText(card.0, rect: NSRect(x: rect.minX + 14, y: rect.minY + 12, width: rect.width - 28, height: 18), font: .systemFont(ofSize: titleFontSize, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
-            drawText(card.1, rect: NSRect(x: rect.minX + 14, y: rect.minY + 34, width: rect.width - 28, height: 30), font: .monospacedDigitSystemFont(ofSize: valueFontSize, weight: .bold), color: card.2)
+            drawText(card.title, rect: NSRect(x: rect.minX + 14, y: rect.minY + 12, width: rect.width - 28, height: 18), font: .systemFont(ofSize: titleFontSize, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
+            let valueY = card.subtitle == nil ? rect.minY + 34 : rect.minY + 31
+            let valueRect = NSRect(x: rect.minX + 14, y: valueY, width: rect.width - 28, height: 28)
+            let valueFont = metricCardValueFont(text: card.value, maxWidth: valueRect.width, preferredSize: valueFontSize)
+            drawText(card.value, rect: valueRect, font: valueFont, color: card.color)
+            if let subtitle = card.subtitle {
+                drawText(subtitle, rect: NSRect(x: rect.minX + 14, y: rect.minY + 60, width: rect.width - 28, height: 15), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
+            }
+        }
+    }
+
+    private func metricCardValueFont(text: String, maxWidth: CGFloat, preferredSize: CGFloat) -> NSFont {
+        var size = preferredSize
+        while size > 14 {
+            let font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: .bold)
+            if measuredTextWidth(text, font: font) <= maxWidth {
+                return font
+            }
+            size -= 1
+        }
+        return .monospacedDigitSystemFont(ofSize: size, weight: .bold)
+    }
+
+    private func drawResetCreditCountdownRow(snapshot: DetailsSnapshot, content: NSRect, y: CGFloat, height: CGFloat) {
+        let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
+        drawPanel(rect)
+
+        guard let resetCredits = snapshot.resetCredits else {
+            drawText(t(.resetCredits), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 180, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+            drawText(t(.resetCreditExpiryUnavailable), rect: NSRect(x: rect.minX + 16, y: rect.minY + 42, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        let count = max(0, resetCredits.availableCount)
+        let countText = String(format: t(.resetCreditCountFormat), count)
+        drawText("\(t(.resetCredits)) · \(countText)", rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 220, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+
+        guard count > 0 else {
+            drawText(t(.resetCreditNoCredits), rect: NSRect(x: rect.minX + 16, y: rect.minY + 42, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        let credits = Array(resetCredits.availableCredits
+            .sorted { ($0.expiresAt ?? .distantFuture) < ($1.expiresAt ?? .distantFuture) }
+            .prefix(3))
+        guard !credits.isEmpty else {
+            drawText(t(.resetCreditExpiryUnavailable), rect: NSRect(x: rect.minX + 16, y: rect.minY + 42, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            return
+        }
+
+        let gap: CGFloat = 18
+        let columnY = rect.minY + 36
+        let columnH: CGFloat = 42
+        let columnW = (rect.width - 32 - gap * 2) / 3
+        for index in 0..<3 {
+            let column = NSRect(x: rect.minX + 16 + CGFloat(index) * (columnW + gap), y: columnY, width: columnW, height: columnH)
+            if index > 0 {
+                NSColor.white.withAlphaComponent(0.08).setStroke()
+                let path = NSBezierPath()
+                path.move(to: NSPoint(x: column.minX - gap / 2, y: column.minY + 2))
+                path.line(to: NSPoint(x: column.minX - gap / 2, y: column.maxY - 2))
+                path.stroke()
+            }
+
+            guard index < credits.count, let expiresAt = credits[index].expiresAt else {
+                drawText("#\(index + 1)", rect: NSRect(x: column.minX, y: column.minY, width: column.width, height: 15), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.38))
+                drawText("--", rect: NSRect(x: column.minX, y: column.minY + 18, width: column.width, height: 22), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold), color: NSColor.white.withAlphaComponent(0.35))
+                continue
+            }
+
+            resetCreditTooltipRows.append(credits[index])
+            resetCreditHitAreas.append((rect: column, index: resetCreditTooltipRows.count - 1))
+            if hoveredResetCreditIndex == resetCreditTooltipRows.count - 1 {
+                NSColor.white.withAlphaComponent(0.28).setStroke()
+                let focus = NSBezierPath(roundedRect: column.insetBy(dx: -8, dy: -5), xRadius: 7, yRadius: 7)
+                focus.lineWidth = 1
+                focus.stroke()
+            }
+
+            var meta = "#\(index + 1) · \(t(.resetCreditExpiresAt)) \(Self.resetCreditExpiryFormatter.string(from: expiresAt))"
+            if credits[index].expirationIsEstimated {
+                meta += " · \(t(.resetCreditEstimated))"
+            }
+            let countdown = resetCreditCountdown(to: expiresAt)
+            let countdownFont = metricCardValueFont(text: countdown, maxWidth: column.width, preferredSize: 20)
+            drawText(meta, rect: NSRect(x: column.minX, y: column.minY, width: column.width, height: 15), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
+            drawText(countdown, rect: NSRect(x: column.minX, y: column.minY + 18, width: column.width, height: 24), font: countdownFont, color: resetCreditUrgencyColor(to: expiresAt))
+        }
+    }
+
+    private func resetCreditCountdown(to date: Date, now: Date = Date()) -> String {
+        let seconds = max(0, Int(date.timeIntervalSince(now)))
+        let days = seconds / 86_400
+        let hours = (seconds % 86_400) / 3_600
+        let minutes = (seconds % 3_600) / 60
+        let remainingSeconds = seconds % 60
+
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese:
+            return String(format: "%d天 %02d:%02d:%02d", days, hours, minutes, remainingSeconds)
+        case .japanese:
+            return String(format: "%d日 %02d:%02d:%02d", days, hours, minutes, remainingSeconds)
+        default:
+            return String(format: "%dd %02d:%02d:%02d", days, hours, minutes, remainingSeconds)
+        }
+    }
+
+    private func resetCreditUrgencyColor(to date: Date, now: Date = Date()) -> NSColor {
+        let seconds = date.timeIntervalSince(now)
+        if seconds <= 3 * 86_400 {
+            return accentRose
+        }
+        if seconds <= 14 * 86_400 {
+            return accentAmber
+        }
+        return accentBlue
+    }
+
+    private func drawResetCreditTooltip(container: NSRect) {
+        guard let index = hoveredResetCreditIndex,
+              index >= 0, index < resetCreditTooltipRows.count,
+              let hit = resetCreditHitAreas.first(where: { $0.index == index }) else {
+            return
+        }
+        let credit = resetCreditTooltipRows[index]
+        let grantedText = credit.grantedAt.map { Self.resetCreditFullFormatter.string(from: $0) } ?? "--"
+        let expiresText = credit.expiresAt.map { Self.resetCreditFullFormatter.string(from: $0) } ?? "--"
+        let remainingText = credit.expiresAt.map { resetCreditCountdown(to: $0) } ?? "--"
+        let rows: [(String, String, NSColor)] = [
+            (t(.resetCreditGrantedAt), grantedText, NSColor.white.withAlphaComponent(0.88)),
+            (t(.resetCreditExpiresAt), expiresText, credit.expiresAt.map { resetCreditUrgencyColor(to: $0) } ?? accentAmber),
+            (t(.remaining), remainingText, credit.expiresAt.map { resetCreditUrgencyColor(to: $0) } ?? accentAmber)
+        ]
+
+        let width: CGFloat = 278
+        let height: CGFloat = 84
+        var origin = CGPoint(x: hit.rect.midX - width / 2, y: hit.rect.minY - height - 10)
+        if origin.y < container.minY + 10 {
+            origin.y = hit.rect.maxY + 10
+        }
+        origin.x = max(container.minX + 12, min(origin.x, container.maxX - width - 12))
+        origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
+        let tooltipRect = NSRect(origin: origin, size: NSSize(width: width, height: height))
+
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: tooltipRect, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        let border = NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        border.lineWidth = 1
+        border.stroke()
+
+        drawText("\(t(.resetCredits)) #\(index + 1)", rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.minY + 8, width: tooltipRect.width - 20, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: .white)
+        for (rowIndex, row) in rows.enumerated() {
+            let y = tooltipRect.minY + 30 + CGFloat(rowIndex) * 16
+            drawText(row.0, rect: NSRect(x: tooltipRect.minX + 10, y: y, width: 56, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.5))
+            drawRight(row.1, rect: NSRect(x: tooltipRect.minX + 70, y: y - 1, width: tooltipRect.width - 80, height: 15), color: row.2, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
         }
     }
 
@@ -5536,6 +5773,22 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "MM-dd HH:mm"
+        return formatter
+    }()
+
+    private static let resetCreditExpiryFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = appTimeZone()
+        formatter.dateFormat = "MM-dd HH:mm"
+        return formatter
+    }()
+
+    private static let resetCreditFullFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = appTimeZone()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return formatter
     }()
 
