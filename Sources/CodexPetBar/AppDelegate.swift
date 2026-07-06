@@ -161,6 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindowController == nil {
             settingsWindowController = TaskBarSettingsWindowController { [weak self] in
                 ThreadHoverPanel.shared.hideAll()
+                self?.refresh()
                 if self?.popover.isShown == true {
                     self?.rebuildPopover()
                 }

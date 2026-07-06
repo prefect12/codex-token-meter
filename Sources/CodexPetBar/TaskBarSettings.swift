@@ -104,6 +104,7 @@ enum TaskHoverLayoutItem: Equatable {
 
 enum TaskBarSettings {
     private static let showPlatformLabelsKey = "showPlatformLabels"
+    private static let includeCodexAPISourceKey = "includeCodexAPISource"
     private static let tokenUnitStyleKey = "tokenUnitStyle"
     private static let rowLayoutKey = "taskRowLayout"
     private static let statusGroupOrderKey = "statusGroupOrder"
@@ -204,6 +205,18 @@ enum TaskBarSettings {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: showPlatformLabelsKey)
+        }
+    }
+
+    static var includeCodexAPISource: Bool {
+        get {
+            guard UserDefaults.standard.object(forKey: includeCodexAPISourceKey) != nil else {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: includeCodexAPISourceKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: includeCodexAPISourceKey)
         }
     }
 
@@ -370,12 +383,14 @@ private enum TaskBarSettingsSection: CaseIterable {
 private enum TaskBarSettingsInfo: CaseIterable {
     case layout
     case sourceLabel
+    case codexAPI
     case tokenUnit
 
     var title: String {
         switch self {
         case .layout: return "信息位置"
         case .sourceLabel: return "来源标签"
+        case .codexAPI: return "Codex API 来源"
         case .tokenUnit: return "Token 单位"
         }
     }
@@ -386,6 +401,8 @@ private enum TaskBarSettingsInfo: CaseIterable {
             return "选“左侧”把时间 / 状态 / 平台移到左栏，行更窄、可显示更多任务。"
         case .sourceLabel:
             return "显示任务来自哪个本地来源：Claude Code 项目日志标为 Claude；Codex app-server、本地 state 或 rollout logs 标为 Codex。"
+        case .codexAPI:
+            return "开启后同时读取 ~/.codex-api、Codex API.app 和普通 Codex；关闭后只保留普通 Codex 与 Claude 来源。"
         case .tokenUnit:
             return "只影响 hover 中的输入 / 输出等数字；缓存率和金额不变。"
         }
@@ -406,6 +423,7 @@ private final class TaskBarSettingsView: NSView {
     private var infoMarkRects: [TaskBarSettingsInfo: NSRect] = [:]
     private var hoveredInfo: TaskBarSettingsInfo?
     private var platformOptionRects: [Bool: NSRect] = [:]
+    private var codexAPIOptionRects: [Bool: NSRect] = [:]
     private var tokenUnitOptionRects: [TaskTokenUnitStyle: NSRect] = [:]
     private var layoutOptionRects: [TaskRowLayoutStyle: NSRect] = [:]
     private var hoverEyeRects: [String: NSRect] = [:]
@@ -506,7 +524,7 @@ private final class TaskBarSettingsView: NSView {
             color: NSColor.white.withAlphaComponent(0.56)
         )
 
-        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 186)
+        let settingsCard = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 230)
         drawPanel(settingsCard)
         drawText(
             "列表显示",
@@ -551,10 +569,22 @@ private final class TaskBarSettingsView: NSView {
         drawSelectablePill("显示", rect: showRect, selected: TaskBarSettings.showPlatformLabels)
         drawSelectablePill("隐藏", rect: hideRect, selected: !TaskBarSettings.showPlatformLabels)
 
+        let apiPillY = settingsCard.minY + 136
+        let apiOnRect = NSRect(x: binaryOptionX, y: apiPillY, width: binaryPillWidth, height: pillHeight)
+        let apiOffRect = NSRect(x: apiOnRect.maxX + pillGap, y: apiPillY, width: binaryPillWidth, height: pillHeight)
+        codexAPIOptionRects = [true: apiOnRect, false: apiOffRect]
+        drawSettingLabel(
+            "Codex API 来源",
+            rect: NSRect(x: settingsCard.minX + 16, y: apiPillY + 7, width: binaryOptionX - settingsCard.minX - 32, height: 20),
+            info: .codexAPI
+        )
+        drawSelectablePill("开启", rect: apiOnRect, selected: TaskBarSettings.includeCodexAPISource)
+        drawSelectablePill("关闭", rect: apiOffRect, selected: !TaskBarSettings.includeCodexAPISource)
+
         let unitPillWidth: CGFloat = 82
         let unitStyles = TaskTokenUnitStyle.allCases
         let unitOptionX = settingsCard.maxX - 16 - unitPillWidth * CGFloat(unitStyles.count) - pillGap * CGFloat(unitStyles.count - 1)
-        let unitPillY = settingsCard.minY + 136
+        let unitPillY = settingsCard.minY + 180
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
         drawSettingLabel(
             "Token 单位",
@@ -582,6 +612,7 @@ private final class TaskBarSettingsView: NSView {
 
     private func drawHoverPage(content: NSRect) {
         platformOptionRects.removeAll(keepingCapacity: true)
+        codexAPIOptionRects.removeAll(keepingCapacity: true)
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
         layoutOptionRects.removeAll(keepingCapacity: true)
         statusOrderRowRects.removeAll(keepingCapacity: true)
@@ -621,6 +652,7 @@ private final class TaskBarSettingsView: NSView {
 
     private func drawAboutPage(content: NSRect) {
         platformOptionRects.removeAll(keepingCapacity: true)
+        codexAPIOptionRects.removeAll(keepingCapacity: true)
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
         layoutOptionRects.removeAll(keepingCapacity: true)
         statusOrderRowRects.removeAll(keepingCapacity: true)
@@ -704,6 +736,13 @@ private final class TaskBarSettingsView: NSView {
         for (showLabels, rect) in platformOptionRects where rect.contains(point) {
             guard TaskBarSettings.showPlatformLabels != showLabels else { return }
             TaskBarSettings.showPlatformLabels = showLabels
+            needsDisplay = true
+            onSettingsChanged()
+            return
+        }
+        for (includeSource, rect) in codexAPIOptionRects where rect.contains(point) {
+            guard TaskBarSettings.includeCodexAPISource != includeSource else { return }
+            TaskBarSettings.includeCodexAPISource = includeSource
             needsDisplay = true
             onSettingsChanged()
             return
