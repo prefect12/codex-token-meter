@@ -2133,6 +2133,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 normalizeSelectedInsight(for: insightReport(for: snapshot))
             }
             onPreferredHeightChanged?()
+            updateResetCreditCountdownTimer()
             needsDisplay = true
             needsLayout = true
         }
@@ -2276,6 +2277,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         guard window != nil,
               !isLoading,
               selectedSection == .overview,
+              selectedDetailsSource != .claude,
               let resetCredits = snapshot?.resetCredits,
               resetCredits.availableCount > 0,
               resetCredits.nextExpiringAvailableCredit?.expiresAt != nil else {
@@ -2722,7 +2724,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let targetHeight: CGFloat
         switch selectedSection {
         case .overview:
-            targetHeight = 850
+            // The Claude view hides the Codex reset-credits row (see drawOverview),
+            // so it needs 104pt less height than the Codex/all view.
+            targetHeight = selectedDetailsSource == .claude ? 746 : 850
         case .insights:
             let heatmapHeight: CGFloat = 148
             let topOffset: CGFloat = 78
@@ -3707,9 +3711,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func drawOverview(snapshot: DetailsSnapshot, content: NSRect) {
+        // Reset credits are a Codex-only concept, so hide the row in the Claude view
+        // and pull the panels below it up to fill the gap.
+        let showResetCredits = selectedDetailsSource != .claude
         let cardsY = content.minY + 78
         let resetY = cardsY + 98
-        let quotaY = resetY + 104
+        let quotaY = showResetCredits ? resetY + 104 : resetY
         let modelsY = quotaY + 136
         let gridY = modelsY + 146
         let gridReport = calendarReport(for: snapshot)
@@ -3717,7 +3724,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             ? "\(t(.pastYear)) · \(t(.profileAPISource))"
             : t(.pastYear)
         drawMetricCards(snapshot: snapshot, content: content)
-        drawResetCreditCountdownRow(snapshot: snapshot, content: content, y: resetY, height: 88)
+        if showResetCredits {
+            drawResetCreditCountdownRow(snapshot: snapshot, content: content, y: resetY, height: 88)
+        }
         drawQuotaRows(snapshot: snapshot, content: content, y: quotaY, height: 120)
         drawModelRows(snapshot: snapshot, content: content, y: modelsY, height: 130, maxRows: 4)
         let gridHeight = contributionGridPreferredHeight(report: gridReport, width: content.width, compact: true)
@@ -3769,15 +3778,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
         drawPanel(rect)
 
+        let title = "\(t(.codex)) \(t(.resetCredits))"
         guard let resetCredits = snapshot.resetCredits else {
-            drawText(t(.resetCredits), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 180, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+            drawText(title, rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 240, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
             drawText(t(.resetCreditExpiryUnavailable), rect: NSRect(x: rect.minX + 16, y: rect.minY + 42, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
             return
         }
 
         let count = max(0, resetCredits.availableCount)
         let countText = String(format: t(.resetCreditCountFormat), count)
-        drawText("\(t(.resetCredits)) · \(countText)", rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 220, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+        drawText("\(title) · \(countText)", rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 280, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
 
         guard count > 0 else {
             drawText(t(.resetCreditNoCredits), rect: NSRect(x: rect.minX + 16, y: rect.minY + 42, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
