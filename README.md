@@ -22,6 +22,22 @@
 
 详情页截图使用内置的 `--redact` 渲染模式生成，仓库名和目录均替换为演示数据。
 
+### Task Bar 总览
+
+<p align="center">
+  <img src="docs/images/task-bar-release.webp" alt="Task Bar popover" width="420">
+</p>
+
+Task Bar 把 Codex 和 Claude Code 任务合在一个小面板里，支持 `All / Running / Waiting / Done` 筛选。行内会显示任务状态、来源、标题、最近摘要和未读/等待状态，适合在多个 Codex 线程和 Claude 会话之间快速切换。
+
+### Task Bar Hover
+
+<p align="center">
+  <img src="docs/images/task-bar-hover-release.webp" alt="Task Bar row hover token detail" width="560">
+</p>
+
+任务行 hover 会显示该任务的可解释 token 摘要：状态、输入、输出、缓存率、对话轮次、压缩次数和模型。只有日志里能拆出来的字段才会展示；如果来源只提供总量，不会伪造输入/输出拆分。
+
 ### AI Token Meter 总览
 
 <p align="center">
@@ -85,22 +101,6 @@ Repo 对话体检：按项目和文件夹定位长线程，统计对话长度分
 </p>
 
 界面语言、数字单位、日志目录、状态栏显示与来源、额度样式（圆环/子弹图）、首页圆环口径（5 小时/周额度）、开机启动、额度提醒和 Profile API 总量等都可配置。
-
-### Task Bar 总览
-
-<p align="center">
-  <img src="docs/images/task-bar-release.webp" alt="Task Bar popover" width="420">
-</p>
-
-Task Bar 把 Codex 和 Claude Code 任务合在一个小面板里，支持 `All / Running / Waiting / Done` 筛选。行内会显示任务状态、来源、标题、最近摘要和未读/等待状态，适合在多个 Codex 线程和 Claude 会话之间快速切换。
-
-### Task Bar Hover
-
-<p align="center">
-  <img src="docs/images/task-bar-hover-release.webp" alt="Task Bar row hover token detail" width="560">
-</p>
-
-任务行 hover 会显示该任务的可解释 token 摘要：状态、输入、输出、缓存率、对话轮次、压缩次数和模型。只有日志里能拆出来的字段才会展示；如果来源只提供总量，不会伪造输入/输出拆分。
 
 ## 当前版本
 
