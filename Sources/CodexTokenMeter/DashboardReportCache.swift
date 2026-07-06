@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Dashboard Report Cache
 
 enum DashboardReportCacheStore {
-    private static let version = 1
+    private static let version = 2
 
     private struct Entry: Codable {
         let windowHours: Int

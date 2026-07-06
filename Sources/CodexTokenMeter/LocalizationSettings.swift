@@ -1465,6 +1465,10 @@ enum AppSettings {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex", isDirectory: true)
     }
 
+    static var defaultCodexAPIHomeURL: URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex-api", isDirectory: true)
+    }
+
     static var defaultClaudeHomeURL: URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude", isDirectory: true)
     }
@@ -1526,7 +1530,9 @@ enum AppSettings {
     static var logFolderURLs: [URL] {
         var roots = [
             defaultLogFolderURL,
-            defaultArchivedLogFolderURL
+            defaultArchivedLogFolderURL,
+            defaultCodexAPIHomeURL.appendingPathComponent("sessions", isDirectory: true),
+            defaultCodexAPIHomeURL.appendingPathComponent("archived_sessions", isDirectory: true)
         ]
         if let codexHome = environmentCodexHomeURL {
             roots.append(codexHome.appendingPathComponent("sessions", isDirectory: true))
