@@ -131,6 +131,7 @@ Task Bar 读取：
 ~/.codex-api/logs_2.sqlite
 ~/.codex-api/state_5.sqlite
 ~/.codex-api/sessions/**/rollout-*.jsonl
+设置中添加的额外 Codex 文件夹下的 logs_2.sqlite / state_5.sqlite / sessions / archived_sessions
 ~/.claude/projects/**/*.jsonl
 ```
 

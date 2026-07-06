@@ -1511,6 +1511,9 @@ final class CodexActivityReader {
         if TaskBarSettings.includeCodexAPISource {
             urls.append(URL(fileURLWithPath: home).appendingPathComponent(".codex-api", isDirectory: true))
         }
+        urls.append(contentsOf: TaskBarSettings.extraCodexHomeFolderPaths.map { path in
+            URL(fileURLWithPath: path, isDirectory: true)
+        })
         return unique(urls)
     }
 
