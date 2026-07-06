@@ -7624,11 +7624,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawText(row.1, rect: NSRect(x: rect.minX + 116, y: y, width: rect.width - 132, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.56))
         }
 
-        let sourceRect = NSRect(x: content.minX, y: rect.maxY + 16, width: content.width, height: 126)
+        let sourceRect = NSRect(x: content.minX, y: rect.maxY + 16, width: content.width, height: 196)
         drawPanel(sourceRect)
         drawText(t(.dataSource), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 16, width: sourceRect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.dataSourceLine1), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 52, width: sourceRect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.58))
-        drawText(t(.dataSourceLine2), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 78, width: sourceRect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+        drawMultilineText(t(.dataSourceLine2), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 80, width: sourceRect.width - 32, height: 104), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.6))
     }
 
     /// Pads sparse "past year" day data to a full 53-week range ending at the
