@@ -2095,6 +2095,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             if selectedSection != .overview {
                 hoveredContributionDay = nil
             }
+            if selectedSection != .models {
+                hoveredModelUsageRowIndex = nil
+                modelUsageHoverRows.removeAll(keepingCapacity: true)
+            }
             if selectedSection != .storage {
                 hoveredStorageCellKey = nil
                 hoveredStorageSourceID = nil
@@ -2176,6 +2180,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var quotaCycleHitAreas: [(rect: NSRect, index: Int)] = []
     private var quotaCycleTooltipRows: [QuotaCycleRowModel] = []
     private var hoveredQuotaCycleIndex: Int?
+    private var modelUsageHoverRows: [ModelUsageHoverRow] = []
+    private var hoveredModelUsageRowIndex: Int?
     private var hoveredCostOverviewInfo: CostOverviewInfo?
     private var isHoveringDayValueInfo = false
     private var isHoveringProfileAPIInfo = false
@@ -2249,6 +2255,18 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let title: String
         let rows: [(StorageCategoryID, Int64)]
         let total: Int64
+    }
+
+    private struct ModelUsageHoverRow {
+        let rect: NSRect
+        let title: String
+        let subtitle: String?
+        let usage: Usage
+        let shareText: String?
+        let sessions: Int?
+        let events: Int?
+        let apiCostText: String?
+        let apiCostColor: NSColor
     }
 
     private var storageSortOption: StorageSortOption = .size
@@ -2969,6 +2987,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         updateContributionWeekHover(at: point)
         updateResetCreditHover(at: point)
         updateInsightUsageTimeHover(at: point)
+        updateModelUsageRowHover(at: point)
         updateStorageGrowthHover(at: point)
     }
 
@@ -3005,6 +3024,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hoveredInsightHour = nil
         hoveredInsightPeriod = nil
         hoveredResetCreditIndex = nil
+        hoveredModelUsageRowIndex = nil
         hoveredStorageCellKey = nil
         hoveredStorageSourceID = nil
         isHoveringDayValueInfo = false
@@ -3040,6 +3060,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         if hoveredResetCreditIndex != nil {
             hoveredResetCreditIndex = nil
+            shouldRedraw = true
+        }
+        if hoveredModelUsageRowIndex != nil {
+            hoveredModelUsageRowIndex = nil
             shouldRedraw = true
         }
         if hoveredStorageCellKey != nil {
@@ -3131,6 +3155,21 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let newIndex = match?.index
         if hoveredResetCreditIndex != newIndex {
             hoveredResetCreditIndex = newIndex
+            needsDisplay = true
+        }
+    }
+
+    private func updateModelUsageRowHover(at point: CGPoint) {
+        guard selectedSection == .models else {
+            if hoveredModelUsageRowIndex != nil {
+                hoveredModelUsageRowIndex = nil
+                needsDisplay = true
+            }
+            return
+        }
+        let newIndex = modelUsageHoverRows.firstIndex { $0.rect.insetBy(dx: -3, dy: -2).contains(point) }
+        if hoveredModelUsageRowIndex != newIndex {
+            hoveredModelUsageRowIndex = newIndex
             needsDisplay = true
         }
     }
@@ -3579,6 +3618,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawInsightUsageTimeTooltip()
         } else if selectedSection == .costs {
             drawQuotaCycleTooltip(container: content)
+        } else if selectedSection == .models {
+            drawModelUsageRowTooltip(container: content)
         }
     }
 
@@ -3935,6 +3976,23 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawRight(t(.output), rect: NSRect(x: outputX, y: headerY, width: outputW, height: 14), color: NSColor.white.withAlphaComponent(0.38), font: .systemFont(ofSize: 10, weight: .bold))
         for (index, row) in rows.enumerated() {
             let y = rect.minY + 52 + CGFloat(index) * 22
+            let rowRect = NSRect(x: rect.minX + 10, y: y - 2, width: rect.width - 20, height: 21)
+            let rowIndex = modelUsageHoverRows.count
+            modelUsageHoverRows.append(ModelUsageHoverRow(
+                rect: rowRect,
+                title: row.0,
+                subtitle: row.1,
+                usage: row.2.usage,
+                shareText: nil,
+                sessions: row.2.sessions,
+                events: row.2.events,
+                apiCostText: nil,
+                apiCostColor: accentTeal
+            ))
+            if hoveredModelUsageRowIndex == rowIndex {
+                NSColor.white.withAlphaComponent(0.055).setFill()
+                NSBezierPath(roundedRect: rowRect, xRadius: 5, yRadius: 5).fill()
+            }
             drawText(row.0, rect: NSRect(x: rect.minX + 16, y: y, width: 90, height: 18), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
             drawText(row.1, rect: NSRect(x: descriptionX, y: y, width: descriptionW, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.45))
             drawRight(compactDashboardMetric(row.2.usage.total), rect: NSRect(x: totalX, y: y, width: totalW, height: 18), color: .white)
@@ -4010,11 +4068,32 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         for (index, model) in models.enumerated() {
             let y = rect.minY + 82 + CGFloat(index) * 20
             let color = modelShareColor(index)
+            let share = totalTokens > 0 ? Double(model.usage.total) / Double(totalTokens) * 100 : 0
+            let shareText = share > 0 && share < 0.1 ? "<0.1%" : String(format: "%.1f%%", share)
+            let estimate = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
+            let moneyText = estimate.hasPricedUsage
+                ? compactMoney(convertCurrency(estimate.usdValue, from: .usd, to: displayCurrency), currency: displayCurrency)
+                : "—"
+            let rowRect = NSRect(x: rect.minX + 10, y: y - 2, width: rect.width - 20, height: 19)
+            let rowIndex = modelUsageHoverRows.count
+            modelUsageHoverRows.append(ModelUsageHoverRow(
+                rect: rowRect,
+                title: model.name,
+                subtitle: nil,
+                usage: model.usage,
+                shareText: shareText,
+                sessions: model.sessions,
+                events: model.events,
+                apiCostText: estimate.hasPricedUsage ? displayAPIMoney(estimate.usdValue, source: selectedDetailsSource) : nil,
+                apiCostColor: estimate.hasPricedUsage ? accentTeal : NSColor.white.withAlphaComponent(0.38)
+            ))
+            if hoveredModelUsageRowIndex == rowIndex {
+                NSColor.white.withAlphaComponent(0.055).setFill()
+                NSBezierPath(roundedRect: rowRect, xRadius: 5, yRadius: 5).fill()
+            }
             color.setFill()
             NSBezierPath(ovalIn: NSRect(x: rect.minX + 16, y: y + 5, width: 8, height: 8)).fill()
             drawText(model.name, rect: NSRect(x: nameX, y: y, width: nameW, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: .white)
-            let share = totalTokens > 0 ? Double(model.usage.total) / Double(totalTokens) * 100 : 0
-            let shareText = share > 0 && share < 0.1 ? "<0.1%" : String(format: "%.1f%%", share)
             drawRight(shareText, rect: NSRect(x: shareX, y: y, width: shareW, height: 18), color: NSColor.white.withAlphaComponent(0.62), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
             drawRight(compact(model.usage.total), rect: NSRect(x: totalX, y: y, width: totalW, height: 18), color: .white)
             drawRight(compact(model.usage.input), rect: NSRect(x: inputX, y: y, width: inputW, height: 18), color: NSColor.white.withAlphaComponent(0.58))
@@ -4023,11 +4102,66 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 drawRight("\(model.sessions)", rect: NSRect(x: sessionsX, y: y, width: sessionsW, height: 18), color: NSColor.white.withAlphaComponent(0.52))
                 drawRight("\(model.events)", rect: NSRect(x: eventsX, y: y, width: eventsW, height: 18), color: NSColor.white.withAlphaComponent(0.52))
             }
-            let estimate = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
-            let moneyText = estimate.hasPricedUsage
-                ? compactMoney(convertCurrency(estimate.usdValue, from: .usd, to: displayCurrency), currency: displayCurrency)
-                : "—"
             drawRight(moneyText, rect: NSRect(x: moneyX, y: y, width: moneyW, height: 18), color: estimate.hasPricedUsage ? accentTeal.withAlphaComponent(0.92) : NSColor.white.withAlphaComponent(0.34), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
+        }
+    }
+
+    private func exactTokenText(_ value: Int64) -> String {
+        format(value)
+    }
+
+    private func drawModelUsageRowTooltip(container: NSRect) {
+        guard let hoveredModelUsageRowIndex,
+              modelUsageHoverRows.indices.contains(hoveredModelUsageRowIndex) else {
+            return
+        }
+        let row = modelUsageHoverRows[hoveredModelUsageRowIndex]
+        var lines: [(String, String, NSColor)] = [
+            (t(.total), exactTokenText(row.usage.total), NSColor.white.withAlphaComponent(0.9)),
+            (t(.input), exactTokenText(row.usage.input), NSColor.white.withAlphaComponent(0.78)),
+            (t(.output), exactTokenText(row.usage.output), NSColor.white.withAlphaComponent(0.78))
+        ]
+        if let shareText = row.shareText {
+            lines.append(("%", shareText, NSColor.white.withAlphaComponent(0.74)))
+        }
+        if let sessions = row.sessions {
+            lines.append((t(.sessions), "\(sessions)", NSColor.white.withAlphaComponent(0.72)))
+        }
+        if let events = row.events {
+            lines.append((t(.events), "\(events)", NSColor.white.withAlphaComponent(0.72)))
+        }
+        if let apiCostText = row.apiCostText {
+            lines.append((t(.apiEquivalent), apiCostText, row.apiCostColor))
+        }
+
+        let width: CGFloat = 274
+        let headerHeight: CGFloat = row.subtitle == nil ? 31 : 49
+        let height = headerHeight + CGFloat(lines.count) * 16 + 10
+        let gap: CGFloat = 10
+        var origin = CGPoint(x: row.rect.midX - width / 2, y: row.rect.maxY + gap)
+        if origin.y + height > container.maxY - 10 {
+            origin.y = row.rect.minY - height - gap
+        }
+        origin.x = max(container.minX + 12, min(origin.x, container.maxX - width - 12))
+        origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
+        let tooltipRect = NSRect(origin: origin, size: NSSize(width: width, height: height))
+
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: tooltipRect, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        let border = NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        border.lineWidth = 1
+        border.stroke()
+
+        drawTruncatedText(row.title, rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.minY + 8, width: tooltipRect.width - 20, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: .white)
+        if let subtitle = row.subtitle {
+            drawTruncatedText(subtitle, rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.minY + 27, width: tooltipRect.width - 20, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+        }
+        let firstLineY = tooltipRect.minY + headerHeight
+        for (index, line) in lines.enumerated() {
+            let y = firstLineY + CGFloat(index) * 16
+            drawText(line.0, rect: NSRect(x: tooltipRect.minX + 10, y: y, width: 92, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.5))
+            drawRight(line.1, rect: NSRect(x: tooltipRect.minX + 104, y: y - 1, width: tooltipRect.width - 114, height: 15), color: line.2, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
         }
     }
 
@@ -4094,6 +4228,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func drawModelsPage(snapshot: DetailsSnapshot, content: NSRect) {
+        modelUsageHoverRows.removeAll(keepingCapacity: true)
         drawQuotaRows(snapshot: snapshot, content: content, y: content.minY + 78, height: 128)
         drawModelsTable(snapshot: snapshot, content: content, y: content.minY + 222, height: 296, maxRows: 10)
         let noteRect = NSRect(x: content.minX, y: content.minY + 534, width: content.width, height: min(76, content.maxY - (content.minY + 534)))
