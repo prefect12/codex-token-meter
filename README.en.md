@@ -179,6 +179,7 @@ If you run work through Codex CLI or the Codex app with API-based authentication
 
 ## Recent Updates
 
+- `0.2.6` adds Codex reset-credit countdowns in the details overview, including per-credit granted/expiry hover details; Task Bar also includes the latest title/status/count visibility fixes from the 0.1.6 bundle.
 - `0.2.5` temporarily hides the quota-cycles page until its interaction design is finalized; cycle data is still recorded locally so history is preserved.
 - Added the `--redact` screenshot-rendering mode that replaces repository names and local directories with demo data for public sharing.
 - Calendar weekly summaries moved from hover tooltips to clickable week dots.

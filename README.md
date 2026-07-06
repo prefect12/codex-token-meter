@@ -13,8 +13,8 @@
 
 | App | 安装包 | 安装位置 |
 | --- | --- | --- |
-| AI Token Meter | `AI-Token-Meter-0.2.5.dmg` | `/Applications/AI Token Meter.app` |
-| Task Bar | `Task-Bar-0.1.3.dmg` | `/Applications/Task Bar.app` |
+| AI Token Meter | `AI-Token-Meter-0.2.6.dmg` | `/Applications/AI Token Meter.app` |
+| Task Bar | `Task-Bar-0.1.6.dmg` | `/Applications/Task Bar.app` |
 
 如果只安装 AI Token Meter，就只会得到 token / 额度面板；Task Bar 是独立状态栏 app，需要下载并安装 `Task-Bar-*.dmg`。
 
@@ -106,8 +106,8 @@ Task Bar 把 Codex 和 Claude Code 任务合在一个小面板里，支持 `All 
 
 | App | Version | Build | Bundle |
 | --- | --- | --- | --- |
-| AI Token Meter | `0.2.5` | `19` | `/Applications/AI Token Meter.app` |
-| Task Bar | `0.1.3` | `4` | `/Applications/Task Bar.app` |
+| AI Token Meter | `0.2.6` | `20` | `/Applications/AI Token Meter.app` |
+| Task Bar | `0.1.6` | `7` | `/Applications/Task Bar.app` |
 
 ## 数据来源
 
@@ -203,7 +203,7 @@ Task Bar 读取：
 输出：
 
 ```text
-dist/AI-Token-Meter-0.2.5.dmg
+dist/AI-Token-Meter-0.2.6.dmg
 ```
 
 打包 Task Bar：
@@ -215,7 +215,7 @@ dist/AI-Token-Meter-0.2.5.dmg
 输出：
 
 ```text
-dist/Task-Bar-0.1.3.dmg
+dist/Task-Bar-0.1.6.dmg
 ```
 
 ## 命令行检查
