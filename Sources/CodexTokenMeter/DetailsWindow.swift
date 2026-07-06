@@ -2024,6 +2024,74 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         case usageTime
     }
 
+    private enum SettingsSubsection: CaseIterable {
+        case appearance
+        case data
+        case quota
+        case system
+
+        var title: String {
+            switch AppLanguage.current {
+            case .chinese, .traditionalChinese:
+                switch self {
+                case .appearance: return "外观显示"
+                case .data: return "数据来源"
+                case .quota: return "额度提醒"
+                case .system: return "系统"
+                }
+            case .japanese:
+                switch self {
+                case .appearance: return "表示"
+                case .data: return "データソース"
+                case .quota: return "制限と通知"
+                case .system: return "システム"
+                }
+            default:
+                switch self {
+                case .appearance: return "Appearance"
+                case .data: return "Data Sources"
+                case .quota: return "Quota & Alerts"
+                case .system: return "System"
+                }
+            }
+        }
+
+        var subtitle: String {
+            switch AppLanguage.current {
+            case .chinese, .traditionalChinese:
+                switch self {
+                case .appearance: return "语言、单位和状态栏"
+                case .data: return "日志目录和 API 总量"
+                case .quota: return "额度显示和提醒"
+                case .system: return "启动行为"
+                }
+            case .japanese:
+                switch self {
+                case .appearance: return "言語、単位、メニューバー"
+                case .data: return "ログルートと API 合計"
+                case .quota: return "制限表示と通知"
+                case .system: return "起動動作"
+                }
+            default:
+                switch self {
+                case .appearance: return "Language, units, and menu bar"
+                case .data: return "Log roots and API totals"
+                case .quota: return "Quota visuals and warnings"
+                case .system: return "Startup behavior"
+                }
+            }
+        }
+
+        var symbolName: String {
+            switch self {
+            case .appearance: return "slider.horizontal.3"
+            case .data: return "externaldrive"
+            case .quota: return "bell.badge"
+            case .system: return "power"
+            }
+        }
+    }
+
     private enum InsightStatusFilter: CaseIterable, Hashable {
         case all
         case frequentCompression
@@ -2145,6 +2213,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var insightListContentHeight: CGFloat = 0
     private var isInsightSortAscending = false
     private var selectedInsightDetailMode: InsightDetailMode = .usageHabits
+    private var selectedSettingsSubsection: SettingsSubsection = .appearance {
+        didSet {
+            guard selectedSettingsSubsection != oldValue else { return }
+            window?.makeFirstResponder(nil)
+            layoutSettingsControls()
+            needsDisplay = true
+            needsLayout = true
+        }
+    }
     private var insightHourRects: [Int: NSRect] = [:]
     private var insightHourBarRects: [Int: NSRect] = [:]
     private var insightPeriodRects: [String: NSRect] = [:]
@@ -2155,6 +2232,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var quotaDisplayStyleRects: [QuotaDisplayStyle: NSRect] = [:]
     private var codexHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
     private var claudeHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
+    private var settingsSubsectionRects: [SettingsSubsection: NSRect] = [:]
     private var chooseLogFolderRect: NSRect?
     private var resetLogFolderRect: NSRect?
     private var openLogFolderRect: NSRect?
@@ -2350,6 +2428,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private let detailsSidebarWidth: CGFloat = 200
+    private let settingsContentTopOffset: CGFloat = 78
+    private let settingsPanelHeight: CGFloat = 548
+    private let settingsBottomPadding: CGFloat = 56
+    private let settingsSubnavWidth: CGFloat = 172
 
     private var showsDetailsSourceSelector: Bool {
         switch selectedSection {
@@ -2360,8 +2442,32 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
+    private func settingsPanelRect(in content: NSRect) -> NSRect {
+        NSRect(
+            x: content.minX,
+            y: content.minY + settingsContentTopOffset,
+            width: content.width,
+            height: settingsPanelHeight
+        )
+    }
+
+    private func settingsPageRect(in panel: NSRect) -> NSRect {
+        NSRect(
+            x: panel.minX + settingsSubnavWidth + 34,
+            y: panel.minY + 4,
+            width: max(0, panel.width - settingsSubnavWidth - 34),
+            height: panel.height - 8
+        )
+    }
+
     private func sectionContent(for section: DetailsSection, in bounds: NSRect, sidebarWidth: CGFloat) -> NSRect {
-        NSRect(x: sidebarWidth + 28, y: 28, width: bounds.width - sidebarWidth - 56, height: bounds.height - 56)
+        let full = NSRect(x: sidebarWidth + 28, y: 28, width: bounds.width - sidebarWidth - 56, height: bounds.height - 56)
+        switch section {
+        case .settings:
+            return NSRect(x: full.minX, y: full.minY, width: min(full.width, 920), height: full.height)
+        default:
+            return full
+        }
     }
 
     private var visibleCostControlFrames: [NSRect] {
@@ -2598,30 +2704,30 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     private func layoutSettingsControls() {
         let visible = selectedSection == .settings
-        languagePopup.isHidden = !visible
-        statusPrimaryMetricPopup.isHidden = !visible
-        statusSecondaryMetricPopup.isHidden = !visible
-        launchAtLoginSwitch.isHidden = !visible
-        showCodexStatusSwitch.isHidden = !visible
-        quotaWarningsSwitch.isHidden = !visible
-        profileAPITotalsSwitch.isHidden = !visible
-        claudeActiveQuotaRefreshSwitch.isHidden = !visible
+        languagePopup.isHidden = !(visible && selectedSettingsSubsection == .appearance)
+        statusPrimaryMetricPopup.isHidden = !(visible && selectedSettingsSubsection == .appearance)
+        statusSecondaryMetricPopup.isHidden = !(visible && selectedSettingsSubsection == .appearance)
+        launchAtLoginSwitch.isHidden = !(visible && selectedSettingsSubsection == .system)
+        showCodexStatusSwitch.isHidden = !(visible && selectedSettingsSubsection == .quota)
+        quotaWarningsSwitch.isHidden = !(visible && selectedSettingsSubsection == .quota)
+        profileAPITotalsSwitch.isHidden = !(visible && selectedSettingsSubsection == .data)
+        claudeActiveQuotaRefreshSwitch.isHidden = !(visible && selectedSettingsSubsection == .data)
         guard visible else { return }
 
         let content = sectionContent(for: .settings, in: bounds, sidebarWidth: detailsSidebarWidth)
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(704, content.height - 78))
-        let popupWidth = min(300, max(252, rect.width * 0.34))
-        languagePopup.frame = NSRect(x: rect.maxX - popupWidth - 16, y: rect.minY + 48, width: popupWidth, height: 36)
-        let statusPopupWidth = min(300, max(252, rect.width * 0.34))
-        statusPrimaryMetricPopup.frame = NSRect(x: rect.maxX - statusPopupWidth - 16, y: rect.minY + 326, width: statusPopupWidth, height: 36)
-        statusSecondaryMetricPopup.frame = NSRect(x: rect.maxX - statusPopupWidth - 16, y: rect.minY + 370, width: statusPopupWidth, height: 36)
-        let leftSwitchX = rect.midX - 64
-        let rightSwitchX = rect.maxX - 64
-        showCodexStatusSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 638, width: 48, height: 24)
-        launchAtLoginSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 638, width: 48, height: 24)
-        quotaWarningsSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 666, width: 48, height: 24)
-        profileAPITotalsSwitch.frame = NSRect(x: rightSwitchX, y: rect.minY + 666, width: 48, height: 24)
-        claudeActiveQuotaRefreshSwitch.frame = NSRect(x: leftSwitchX, y: rect.minY + 420, width: 48, height: 24)
+        let rect = settingsPanelRect(in: content)
+        let pageRect = settingsPageRect(in: rect)
+        let controlWidth = min(300, max(224, pageRect.width * 0.40))
+        let controlX = pageRect.maxX - controlWidth
+        let switchX = pageRect.maxX - 50
+        languagePopup.frame = NSRect(x: controlX, y: pageRect.minY + 70, width: controlWidth, height: 36)
+        statusPrimaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 224, width: controlWidth, height: 36)
+        statusSecondaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 294, width: controlWidth, height: 36)
+        profileAPITotalsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 210, width: 48, height: 24)
+        claudeActiveQuotaRefreshSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 300, width: 48, height: 24)
+        showCodexStatusSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 306, width: 48, height: 24)
+        quotaWarningsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 390, width: 48, height: 24)
+        launchAtLoginSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 76, width: 48, height: 24)
         updateLanguagePopupFromSettings()
         updateStatusMetricPopupsFromSettings()
         updateSettingsControlsFromSystem()
@@ -2770,7 +2876,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 targetHeight = 660
             }
         case .settings:
-            targetHeight = 838
+            targetHeight = settingsContentTopOffset + settingsPanelHeight + settingsBottomPadding
         case .about:
             targetHeight = 580
         }
@@ -3251,6 +3357,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
         }
         if selectedSection == .settings {
+            for (subsection, rect) in settingsSubsectionRects where rect.contains(point) {
+                selectedSettingsSubsection = subsection
+                return
+            }
             for (style, rect) in numberUnitOptionRects where rect.contains(point) {
                 onNumberUnitStyleChanged?(style)
                 return
@@ -3510,6 +3620,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         insightListViewportRect = nil
         numberUnitOptionRects.removeAll()
         quotaDisplayStyleRects.removeAll()
+        settingsSubsectionRects.removeAll()
         sourceOptionRects.removeAll()
         chooseLogFolderRect = nil
         resetLogFolderRect = nil
@@ -6990,87 +7101,174 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func drawSettingsPage(content: NSRect) {
+        numberUnitOptionRects.removeAll()
+        quotaDisplayStyleRects.removeAll()
         codexHomeRingMetricRects.removeAll()
         claudeHomeRingMetricRects.removeAll()
-        let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: min(704, content.height - 78))
-        drawPanel(rect)
-        drawText(t(.language), rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
-        drawText(t(.interfaceLanguage), rect: NSRect(x: rect.minX + 16, y: rect.minY + 56, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawInputFieldBackground(languagePopup.frame)
+        settingsSubsectionRects.removeAll()
+        chooseLogFolderRect = nil
+        resetLogFolderRect = nil
+        openLogFolderRect = nil
 
-        drawText(t(.languageHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 104, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        let rect = settingsPanelRect(in: content)
+        drawSettingsSubnavigation(in: rect)
 
-        drawText(t(.numberUnits), rect: NSRect(x: rect.minX + 16, y: rect.minY + 138, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let unitOptionW: CGFloat = 132
-        let optionH: CGFloat = 38
-        let gap: CGFloat = 12
-        let unitY = rect.minY + 130
-        let availableUnitStyles = NumberUnitStyle.availableCases
-        let unitStartX = rect.maxX - 16 - unitOptionW * CGFloat(availableUnitStyles.count) - gap * CGFloat(max(availableUnitStyles.count - 1, 0))
-        for (index, style) in availableUnitStyles.enumerated() {
-            let optionRect = NSRect(x: unitStartX + CGFloat(index) * (unitOptionW + gap), y: unitY, width: unitOptionW, height: optionH)
+        let page = settingsPageRect(in: rect)
+        drawSettingsPageHeader(in: page)
+        switch selectedSettingsSubsection {
+        case .appearance:
+            drawAppearanceSettings(in: page)
+        case .data:
+            drawDataSettings(in: page)
+        case .quota:
+            drawQuotaSettings(in: page)
+        case .system:
+            drawSystemSettings(in: page)
+        }
+    }
+
+    private func drawSettingsSubnavigation(in rect: NSRect) {
+        let navRect = NSRect(x: rect.minX, y: rect.minY + 2, width: settingsSubnavWidth, height: rect.height - 4)
+        NSColor.white.withAlphaComponent(0.08).setFill()
+        NSRect(x: rect.minX + settingsSubnavWidth + 16, y: rect.minY + 2, width: 1, height: rect.height - 4).fill()
+
+        let title = AppLanguage.current == .english ? "Settings" : (AppLanguage.current == .japanese ? "設定分類" : "设置分类")
+        drawText(title, rect: NSRect(x: navRect.minX, y: navRect.minY, width: navRect.width - 8, height: 18), font: .systemFont(ofSize: 12, weight: .bold), color: NSColor.white.withAlphaComponent(0.46))
+
+        let itemHeight: CGFloat = 52
+        let gap: CGFloat = 10
+        var y = navRect.minY + 34
+        for subsection in SettingsSubsection.allCases {
+            let itemRect = NSRect(x: navRect.minX, y: y, width: navRect.width - 12, height: itemHeight)
+            settingsSubsectionRects[subsection] = itemRect
+            let selected = subsection == selectedSettingsSubsection
+            (selected ? accentBlue.withAlphaComponent(0.70) : NSColor.clear).setFill()
+            NSBezierPath(roundedRect: itemRect, xRadius: 8, yRadius: 8).fill()
+            let textColor = selected ? NSColor.white : NSColor.white.withAlphaComponent(0.76)
+            drawSymbolIcon(subsection.symbolName, in: NSRect(x: itemRect.minX + 12, y: itemRect.minY + 18, width: 18, height: 18), color: textColor.withAlphaComponent(selected ? 0.96 : 0.58), pointSize: 12)
+            drawText(subsection.title, rect: NSRect(x: itemRect.minX + 38, y: itemRect.minY + 10, width: itemRect.width - 48, height: 18), font: .systemFont(ofSize: 12, weight: .bold), color: textColor)
+            drawText(subsection.subtitle, rect: NSRect(x: itemRect.minX + 38, y: itemRect.minY + 30, width: itemRect.width - 48, height: 16), font: .systemFont(ofSize: 9, weight: .semibold), color: textColor.withAlphaComponent(selected ? 0.64 : 0.42))
+            y += itemHeight + gap
+        }
+    }
+
+    private func drawSettingsPageHeader(in page: NSRect) {
+        drawText(selectedSettingsSubsection.title, rect: NSRect(x: page.minX, y: page.minY, width: page.width, height: 24), font: .systemFont(ofSize: 18, weight: .bold), color: .white)
+        drawText(selectedSettingsSubsection.subtitle, rect: NSRect(x: page.minX, y: page.minY + 28, width: page.width, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        NSColor.white.withAlphaComponent(0.08).setFill()
+        NSRect(x: page.minX, y: page.minY + 56, width: page.width, height: 1).fill()
+    }
+
+    private func drawAppearanceSettings(in page: NSRect) {
+        let labelW = min(220, page.width * 0.35)
+        let optionX = page.minX + labelW + 22
+        let optionW = page.maxX - optionX
+
+        drawSettingText(title: t(.interfaceLanguage), hint: t(.languageHint), x: page.minX, y: page.minY + 76, width: labelW)
+
+        drawSettingText(title: t(.numberUnits), hint: t(.numberUnitsHint), x: page.minX, y: page.minY + 152, width: labelW)
+        let unitStyles = NumberUnitStyle.availableCases
+        let unitRects = segmentedRects(count: unitStyles.count, in: NSRect(x: optionX, y: page.minY + 146, width: optionW, height: 36), preferredWidth: 132)
+        for (index, style) in unitStyles.enumerated() {
+            let optionRect = unitRects[index]
             numberUnitOptionRects[style] = optionRect
             drawSelectablePill(style.title, rect: optionRect, selected: style == NumberUnitStyle.effective)
         }
-        drawText(t(.numberUnitsHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 186, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.logFolder), rect: NSRect(x: rect.minX + 16, y: rect.minY + 218, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let pathRect = NSRect(x: rect.minX + 16, y: rect.minY + 246, width: rect.width - 300, height: 34)
+        let statusTextW = max(labelW, statusPrimaryMetricPopup.frame.minX - page.minX - 12)
+        drawSettingText(title: t(.statusBarMetricOne), hint: t(.statusDisplayHint), x: page.minX, y: page.minY + 230, width: statusTextW)
+        drawSettingText(title: t(.statusBarMetricTwo), hint: "", x: page.minX, y: page.minY + 300, width: statusTextW)
+    }
+
+    private func drawDataSettings(in page: NSRect) {
+        drawSettingText(title: t(.logFolder), hint: t(.logFolderHint), x: page.minX, y: page.minY + 76, width: page.width)
+        let logButtonY = page.minY + 128
+        let buttonGap: CGFloat = 12
+        let openW: CGFloat = 78
+        let resetW: CGFloat = 76
+        let chooseW: CGFloat = 108
+        let buttonTotalW = openW + resetW + chooseW + buttonGap * 2
+        let buttonStartX = page.maxX - buttonTotalW
+        openLogFolderRect = NSRect(x: buttonStartX, y: logButtonY, width: openW, height: 34)
+        resetLogFolderRect = NSRect(x: openLogFolderRect!.maxX + buttonGap, y: logButtonY, width: resetW, height: 34)
+        chooseLogFolderRect = NSRect(x: resetLogFolderRect!.maxX + buttonGap, y: logButtonY, width: chooseW, height: 34)
+        let pathRect = NSRect(x: page.minX, y: logButtonY, width: max(120, buttonStartX - page.minX - 16), height: 34)
         NSColor.black.withAlphaComponent(0.14).setFill()
         NSBezierPath(roundedRect: pathRect, xRadius: 7, yRadius: 7).fill()
-        drawText(AppSettings.logFolderDisplayPath, rect: pathRect.insetBy(dx: 12, dy: 9), font: .monospacedSystemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.62))
-
-        let logButtonY = rect.minY + 246
-        openLogFolderRect = NSRect(x: rect.maxX - 284, y: logButtonY, width: 76, height: 34)
-        resetLogFolderRect = NSRect(x: rect.maxX - 196, y: logButtonY, width: 72, height: 34)
-        chooseLogFolderRect = NSRect(x: rect.maxX - 112, y: logButtonY, width: 96, height: 34)
+        drawTruncatedText(AppSettings.logFolderDisplayPath, rect: pathRect.insetBy(dx: 12, dy: 9), font: .monospacedSystemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.62))
         drawSmallButton(t(.logs), rect: openLogFolderRect!, emphasized: false)
         drawSmallButton(t(.logFolderDefault), rect: resetLogFolderRect!, emphasized: false)
         drawSmallButton(t(.logFolderChoose), rect: chooseLogFolderRect!, emphasized: true)
-        drawText(t(.logFolderHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 286, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.statusBarMetricOne), rect: NSRect(x: rect.minX + 16, y: rect.minY + 334, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawInputFieldBackground(statusPrimaryMetricPopup.frame)
-        drawText(t(.statusBarMetricTwo), rect: NSRect(x: rect.minX + 16, y: rect.minY + 378, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawInputFieldBackground(statusSecondaryMetricPopup.frame)
-        drawText(t(.claudeActiveRefresh), rect: NSRect(x: rect.minX + 16, y: rect.minY + 422, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.claudeActiveRefreshHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 446, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
+        drawSwitchSetting(title: t(.profileAPITotals), hint: t(.profileAPITotalsHint), switchFrame: profileAPITotalsSwitch.frame, page: page, y: page.minY + 210)
+        drawSwitchSetting(title: t(.claudeActiveRefresh), hint: t(.claudeActiveRefreshHint), switchFrame: claudeActiveQuotaRefreshSwitch.frame, page: page, y: page.minY + 300)
+    }
 
-        drawText(t(.quotaDisplayStyle), rect: NSRect(x: rect.minX + 16, y: rect.minY + 476, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let quotaStyleY = rect.minY + 472
-        let quotaStyleGap: CGFloat = 10
-        let quotaStyleW: CGFloat = 116
-        let quotaStyleStartX = rect.maxX - 16 - quotaStyleW * CGFloat(QuotaDisplayStyle.allCases.count) - quotaStyleGap * CGFloat(QuotaDisplayStyle.allCases.count - 1)
+    private func drawQuotaSettings(in page: NSRect) {
+        let labelW = min(220, page.width * 0.34)
+        let optionX = page.minX + labelW + 22
+        let optionW = page.maxX - optionX
+
+        drawSettingText(title: t(.quotaDisplayStyle), hint: t(.quotaDisplayHint), x: page.minX, y: page.minY + 76, width: labelW)
+        let quotaStyleRects = segmentedRects(count: QuotaDisplayStyle.allCases.count, in: NSRect(x: optionX, y: page.minY + 70, width: optionW, height: 36), preferredWidth: 122)
         for (index, style) in QuotaDisplayStyle.allCases.enumerated() {
-            let optionRect = NSRect(x: quotaStyleStartX + CGFloat(index) * (quotaStyleW + quotaStyleGap), y: quotaStyleY, width: quotaStyleW, height: 36)
+            let optionRect = quotaStyleRects[index]
             quotaDisplayStyleRects[style] = optionRect
             drawSelectablePill(style.title, rect: optionRect, selected: style == QuotaDisplayStyle.current)
         }
-        drawText(t(.quotaDisplayHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 518, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
-        drawText(t(.codexHomeRing), rect: NSRect(x: rect.minX + 16, y: rect.minY + 542, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.claudeHomeRing), rect: NSRect(x: rect.minX + 16, y: rect.minY + 580, width: 220, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        let homeMetricW: CGFloat = 116
-        let homeMetricGap: CGFloat = 10
-        let homeMetricStartX = rect.maxX - 16 - homeMetricW * CGFloat(HomeQuotaRingMetric.allCases.count) - homeMetricGap * CGFloat(HomeQuotaRingMetric.allCases.count - 1)
+        drawSettingText(title: t(.codexHomeRing), hint: t(.quotaHomeRingHint), x: page.minX, y: page.minY + 150, width: labelW)
+        drawSettingText(title: t(.claudeHomeRing), hint: "", x: page.minX, y: page.minY + 220, width: labelW)
+        let homeMetricRects = segmentedRects(count: HomeQuotaRingMetric.allCases.count, in: NSRect(x: optionX, y: page.minY + 144, width: optionW, height: 36), preferredWidth: 122)
+        let claudeMetricRects = segmentedRects(count: HomeQuotaRingMetric.allCases.count, in: NSRect(x: optionX, y: page.minY + 214, width: optionW, height: 36), preferredWidth: 122)
         for (index, metric) in HomeQuotaRingMetric.allCases.enumerated() {
-            let codexRect = NSRect(x: homeMetricStartX + CGFloat(index) * (homeMetricW + homeMetricGap), y: rect.minY + 538, width: homeMetricW, height: 36)
+            let codexRect = homeMetricRects[index]
             codexHomeRingMetricRects[metric] = codexRect
             drawSelectablePill(metric.title, rect: codexRect, selected: metric == AppSettings.codexHomeRingMetric)
-
-            let claudeRect = NSRect(x: homeMetricStartX + CGFloat(index) * (homeMetricW + homeMetricGap), y: rect.minY + 576, width: homeMetricW, height: 36)
+            let claudeRect = claudeMetricRects[index]
             claudeHomeRingMetricRects[metric] = claudeRect
             drawSelectablePill(metric.title, rect: claudeRect, selected: metric == AppSettings.claudeHomeRingMetric)
         }
-        drawText(t(.quotaHomeRingHint), rect: NSRect(x: rect.minX + 16, y: rect.minY + 612, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
 
-        let leftSwitchLabelW = max(120, showCodexStatusSwitch.frame.minX - rect.minX - 24)
-        let rightSwitchLabelX = rect.midX + 18
-        let rightSwitchLabelW = max(120, launchAtLoginSwitch.frame.minX - rightSwitchLabelX - 8)
-        drawText(t(.showCodexStatus), rect: NSRect(x: rect.minX + 16, y: rect.minY + 640, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.launchAtLogin), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 640, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.quotaWarnings), rect: NSRect(x: rect.minX + 16, y: rect.minY + 668, width: leftSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-        drawText(t(.profileAPITotals), rect: NSRect(x: rightSwitchLabelX, y: rect.minY + 668, width: rightSwitchLabelW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawSwitchSetting(title: t(.showCodexStatus), hint: codexStatusSettingHint, switchFrame: showCodexStatusSwitch.frame, page: page, y: page.minY + 306)
+        drawSwitchSetting(title: t(.quotaWarnings), hint: t(.quotaWarningsHint), switchFrame: quotaWarningsSwitch.frame, page: page, y: page.minY + 390)
+    }
+
+    private func drawSystemSettings(in page: NSRect) {
+        drawSwitchSetting(title: t(.launchAtLogin), hint: t(.launchAtLoginHint), switchFrame: launchAtLoginSwitch.frame, page: page, y: page.minY + 76)
+    }
+
+    private func drawSettingText(title: String, hint: String, x: CGFloat, y: CGFloat, width: CGFloat) {
+        drawText(title, rect: NSRect(x: x, y: y, width: width, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        if !hint.isEmpty {
+            drawMultilineText(hint, rect: NSRect(x: x, y: y + 23, width: width, height: 34), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+        }
+    }
+
+    private func drawSwitchSetting(title: String, hint: String, switchFrame: NSRect, page: NSRect, y: CGFloat) {
+        let textW = max(120, switchFrame.minX - page.minX - 12)
+        drawText(title, rect: NSRect(x: page.minX, y: y, width: textW, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
+        drawMultilineText(hint, rect: NSRect(x: page.minX, y: y + 23, width: textW, height: 32), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+    }
+
+    private func segmentedRects(count: Int, in rect: NSRect, preferredWidth: CGFloat) -> [NSRect] {
+        guard count > 0 else { return [] }
+        let gap: CGFloat = 10
+        let availableWidth = rect.width - gap * CGFloat(max(0, count - 1))
+        let optionWidth = min(preferredWidth, max(82, availableWidth / CGFloat(count)))
+        let totalWidth = optionWidth * CGFloat(count) + gap * CGFloat(max(0, count - 1))
+        let startX = rect.maxX - totalWidth
+        return (0..<count).map { index in
+            NSRect(x: startX + CGFloat(index) * (optionWidth + gap), y: rect.minY, width: optionWidth, height: rect.height)
+        }
+    }
+
+    private var codexStatusSettingHint: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "可用时在弹窗里显示 OpenAI Codex 服务状态。"
+        case .japanese: return "利用可能な場合、ポップオーバーに Codex サービス状態を表示します。"
+        default: return "Shows the OpenAI Codex service chip in the popover when available."
+        }
     }
 
     private var costUsedColor: NSColor {
