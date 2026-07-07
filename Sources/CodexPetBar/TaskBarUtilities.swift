@@ -250,7 +250,7 @@ func tooltipRow(for field: TaskHoverField, item: CodexThreadItem) -> ThreadToolt
         return ThreadTooltipRow("状态", tooltipStatusLabel(item.status), valueColor: statusColor(item.status), emphasized: true)
     case .folder:
         guard let cwd = item.cwd, !cwd.isEmpty else { return nil }
-        return ThreadTooltipRow("文件夹", cwd)
+        return ThreadTooltipRow("项目", shortFolderName(cwd))
     case .branch:
         if let branch = gitBranchName(for: item.cwd), !branch.isEmpty {
             return ThreadTooltipRow("分支", branch)
@@ -702,8 +702,37 @@ func removingPluginMarkdownLinks(from value: String) -> String {
 
 func shortFolderName(_ value: String?) -> String {
     guard let value, !value.isEmpty else { return "unknown" }
-    let last = URL(fileURLWithPath: value).lastPathComponent
+    let path = URL(fileURLWithPath: value, isDirectory: true).standardizedFileURL.path
+    if let projectName = codexWorktreeProjectName(from: path) ?? gitRepositoryFolderName(for: path) {
+        return projectName
+    }
+    let last = URL(fileURLWithPath: path, isDirectory: true).lastPathComponent
     return last.isEmpty ? value : last
+}
+
+private func codexWorktreeProjectName(from path: String) -> String? {
+    let components = path.split(separator: "/").map(String.init)
+    guard let codexIndex = components.firstIndex(of: ".codex"),
+          components.indices.contains(codexIndex + 3),
+          components[codexIndex + 1] == "worktrees" else {
+        return nil
+    }
+    let projectName = components[codexIndex + 3]
+    return projectName.isEmpty ? nil : projectName
+}
+
+private func gitRepositoryFolderName(for path: String) -> String? {
+    let fileManager = FileManager.default
+    var folderURL = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+    while true {
+        if fileManager.fileExists(atPath: folderURL.appendingPathComponent(".git").path) {
+            let name = folderURL.lastPathComponent
+            return name.isEmpty ? nil : name
+        }
+        let parentURL = folderURL.deletingLastPathComponent()
+        guard parentURL.path != folderURL.path else { return nil }
+        folderURL = parentURL
+    }
 }
 
 func unique(_ urls: [URL]) -> [URL] {
