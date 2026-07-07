@@ -1293,14 +1293,12 @@ private struct CodexAppServerResponse {
 
 private enum CodexAppServer {
     static func candidateEnvironments() -> [CodexAppServerEnvironment] {
-        let current = ProcessInfo.processInfo.environment["CODEX_HOME"]
-            .flatMap { $0.isEmpty ? nil : standardizedHomePath($0) }
-        let defaultHome = AppSettings.defaultCodexHomeURL.standardizedFileURL.path
-        var environments = [CodexAppServerEnvironment(label: "inherited", variables: nil)]
-        if let current, current != defaultHome {
+        var environments: [CodexAppServerEnvironment] = []
+        for source in AppSettings.codexAPISourceHomeURLs {
+            let home = standardizedHomePath(source.path)
             var variables = ProcessInfo.processInfo.environment
-            variables["CODEX_HOME"] = defaultHome
-            environments.append(CodexAppServerEnvironment(label: defaultHome, variables: variables))
+            variables["CODEX_HOME"] = home
+            environments.append(CodexAppServerEnvironment(label: home, variables: variables))
         }
         return environments
     }

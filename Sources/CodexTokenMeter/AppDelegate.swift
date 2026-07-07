@@ -103,6 +103,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onChooseLogFolder = { [weak self] in self?.chooseLogFolder() }
         detailsController.detailsView.onResetLogFolder = { [weak self] in self?.resetLogFolder() }
         detailsController.detailsView.onOpenLogFolder = { [weak self] in self?.openSessionsFolder() }
+        detailsController.detailsView.onChooseCodexAPISource = { [weak self] in self?.chooseCodexAPISource() }
+        detailsController.detailsView.onResetCodexAPISources = { [weak self] in self?.resetCodexAPISources() }
+        detailsController.detailsView.onOpenCodexAPISource = { [weak self] in self?.openCodexAPISource() }
         detailsController.detailsView.onLaunchAtLoginChanged = { [weak self] isOn in self?.changeLaunchAtLogin(isOn) }
         detailsController.detailsView.onShowCodexStatusChanged = { [weak self] isOn in self?.changeShowCodexStatus(isOn) }
         detailsController.detailsView.onQuotaWarningsChanged = { [weak self] isOn in self?.changeQuotaWarnings(isOn) }
@@ -694,6 +697,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         reloadScannerFromSettings()
     }
 
+    private func openCodexAPISource() {
+        NSWorkspace.shared.open(AppSettings.codexAPISourceOpenURL)
+    }
+
+    private func chooseCodexAPISource() {
+        let panel = NSOpenPanel()
+        panel.title = t(.codexAPISources)
+        panel.message = t(.codexAPISourcesHint)
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.directoryURL = AppSettings.codexAPISourceOpenURL
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        AppSettings.setCodexAPISourceHomeURLs(panel.urls)
+        reloadOfficialAPISourcesFromSettings()
+    }
+
+    private func resetCodexAPISources() {
+        AppSettings.resetCodexAPISourceHomeURLs()
+        reloadOfficialAPISourcesFromSettings()
+    }
+
     private func changePlanCost(_ value: Double, source: QuotaViewOption) {
         guard source != .all else { return }
         AppSettings.setMonthlyPlanCost(value, for: source)
@@ -827,6 +852,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DetailsSnapshotCacheStore.remove()
         detailsController.detailsView.needsDisplay = true
         refresh(forceLive: false)
+    }
+
+    private func reloadOfficialAPISourcesFromSettings() {
+        liveLimits = []
+        accountUsage = nil
+        resetCredits = nil
+        latestState.liveLimits = []
+        latestState.accountUsage = nil
+        latestState.profileReport = nil
+        latestState.resetCredits = nil
+        detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
+        refresh(forceLive: true)
     }
 
     private func changeClaudeActiveQuotaRefresh(_ value: Bool) {

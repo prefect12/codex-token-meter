@@ -2136,6 +2136,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var onChooseLogFolder: (() -> Void)?
     var onResetLogFolder: (() -> Void)?
     var onOpenLogFolder: (() -> Void)?
+    var onChooseCodexAPISource: (() -> Void)?
+    var onResetCodexAPISources: (() -> Void)?
+    var onOpenCodexAPISource: (() -> Void)?
     var onShowHistoricalEmptyWeeksChanged: ((Bool) -> Void)?
     var onLaunchAtLoginChanged: ((Bool) -> Void)?
     var onShowCodexStatusChanged: ((Bool) -> Void)?
@@ -2240,6 +2243,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var chooseLogFolderRect: NSRect?
     private var resetLogFolderRect: NSRect?
     private var openLogFolderRect: NSRect?
+    private var chooseCodexAPISourceRect: NSRect?
+    private var resetCodexAPISourceRect: NSRect?
+    private var openCodexAPISourceRect: NSRect?
     private var contributionDayRects: [String: NSRect] = [:]
     private var contributionDaySummaries: [String: ContributionDaySummary] = [:]
     private var hoveredContributionDay: String?
@@ -2741,8 +2747,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         languagePopup.frame = NSRect(x: controlX, y: pageRect.minY + 70, width: controlWidth, height: 36)
         statusPrimaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 224, width: controlWidth, height: 36)
         statusSecondaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 294, width: controlWidth, height: 36)
-        profileAPITotalsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 210, width: 48, height: 24)
-        claudeActiveQuotaRefreshSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 300, width: 48, height: 24)
+        profileAPITotalsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 320, width: 48, height: 24)
+        claudeActiveQuotaRefreshSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 390, width: 48, height: 24)
         showCodexStatusSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 306, width: 48, height: 24)
         quotaWarningsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 390, width: 48, height: 24)
         launchAtLoginSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 76, width: 48, height: 24)
@@ -3430,6 +3436,18 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 onOpenLogFolder?()
                 return
             }
+            if chooseCodexAPISourceRect?.contains(point) == true {
+                onChooseCodexAPISource?()
+                return
+            }
+            if resetCodexAPISourceRect?.contains(point) == true {
+                onResetCodexAPISources?()
+                return
+            }
+            if openCodexAPISourceRect?.contains(point) == true {
+                onOpenCodexAPISource?()
+                return
+            }
         }
         if selectedSection == .costs,
            showHistoricalEmptyWeeksToggleRect?.insetBy(dx: -8, dy: -6).contains(point) == true {
@@ -3666,6 +3684,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         chooseLogFolderRect = nil
         resetLogFolderRect = nil
         openLogFolderRect = nil
+        chooseCodexAPISourceRect = nil
+        resetCodexAPISourceRect = nil
+        openCodexAPISourceRect = nil
         storageGrowthCells.removeAll()
         storageSourceRowRects.removeAll()
         storageSourceMenuRects.removeAll()
@@ -7655,6 +7676,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         chooseLogFolderRect = nil
         resetLogFolderRect = nil
         openLogFolderRect = nil
+        chooseCodexAPISourceRect = nil
+        resetCodexAPISourceRect = nil
+        openCodexAPISourceRect = nil
 
         let rect = settingsPanelRect(in: content)
         drawSettingsSubnavigation(in: rect)
@@ -7746,8 +7770,21 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawSmallButton(t(.logFolderDefault), rect: resetLogFolderRect!, emphasized: false)
         drawSmallButton(t(.logFolderChoose), rect: chooseLogFolderRect!, emphasized: true)
 
-        drawSwitchSetting(title: t(.profileAPITotals), hint: t(.profileAPITotalsHint), switchFrame: profileAPITotalsSwitch.frame, page: page, y: page.minY + 210)
-        drawSwitchSetting(title: t(.claudeActiveRefresh), hint: t(.claudeActiveRefreshHint), switchFrame: claudeActiveQuotaRefreshSwitch.frame, page: page, y: page.minY + 300)
+        drawSettingText(title: t(.codexAPISources), hint: t(.codexAPISourcesHint), x: page.minX, y: page.minY + 186, width: page.width)
+        let apiButtonY = page.minY + 238
+        openCodexAPISourceRect = NSRect(x: buttonStartX, y: apiButtonY, width: openW, height: 34)
+        resetCodexAPISourceRect = NSRect(x: openCodexAPISourceRect!.maxX + buttonGap, y: apiButtonY, width: resetW, height: 34)
+        chooseCodexAPISourceRect = NSRect(x: resetCodexAPISourceRect!.maxX + buttonGap, y: apiButtonY, width: chooseW, height: 34)
+        let apiPathRect = NSRect(x: page.minX, y: apiButtonY, width: max(120, buttonStartX - page.minX - 16), height: 34)
+        NSColor.black.withAlphaComponent(0.14).setFill()
+        NSBezierPath(roundedRect: apiPathRect, xRadius: 7, yRadius: 7).fill()
+        drawTruncatedText(AppSettings.codexAPISourceDisplayPath, rect: apiPathRect.insetBy(dx: 12, dy: 9), font: .monospacedSystemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.62))
+        drawSmallButton(t(.logFolderOpen), rect: openCodexAPISourceRect!, emphasized: false)
+        drawSmallButton(t(.logFolderDefault), rect: resetCodexAPISourceRect!, emphasized: false)
+        drawSmallButton(t(.codexAPISourcesChoose), rect: chooseCodexAPISourceRect!, emphasized: true)
+
+        drawSwitchSetting(title: t(.profileAPITotals), hint: t(.profileAPITotalsHint), switchFrame: profileAPITotalsSwitch.frame, page: page, y: page.minY + 320)
+        drawSwitchSetting(title: t(.claudeActiveRefresh), hint: t(.claudeActiveRefreshHint), switchFrame: claudeActiveQuotaRefreshSwitch.frame, page: page, y: page.minY + 390)
     }
 
     private func drawQuotaSettings(in page: NSRect) {

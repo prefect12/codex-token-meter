@@ -1432,13 +1432,15 @@ final class DashboardView: NSView {
     func update(_ state: DashboardState) {
         self.state = state
         let report = state.report
+        let totalReport = state.selectedQuota.usesCodexProfileAPI ? (state.profileReport ?? report) : report
         applyLanguage()
         titleLabel.stringValue = "AI Token Meter"
         let displayLimit = selectedLimit(from: state.liveLimits, quota: state.selectedQuota)
-        let headerUsagePercent = subscriptionUsagePercent(for: state)
         subtitleLabel.stringValue = state.selectedQuota.fallbackTitle
-        totalLabel.stringValue = dashboardPercent(headerUsagePercent)
-        detailLabel.stringValue = "\(state.selectedWindow.title) · \(t(.usageRate))"
+        totalLabel.stringValue = compactDashboardTotal(totalReport.usage.total)
+        detailLabel.stringValue = state.profileReport != nil && state.selectedQuota.usesCodexProfileAPI
+            ? "\(state.selectedWindow.title) · \(t(.profileAPISource))"
+            : state.selectedWindow.title
         usageLabel.stringValue = "\(compactDashboardMetric(report.usage.input)) \(t(.inShort))  |  \(compactDashboardMetric(report.usage.output)) \(t(.outShort))"
         refreshLabel.stringValue = state.isLoading ? t(.refreshing) : "\(t(.updated)) \(relative(report.scannedAt))  |  \(t(.next)) \(relative(state.nextRefreshAt))"
         let apiEstimate = APICostEstimator.estimate(report: report)
@@ -1546,7 +1548,7 @@ final class DashboardView: NSView {
         } else {
             costLabel.stringValue = ""
         }
-        updateAccessibilityLabels(report: report, headerUsagePercent: headerUsagePercent)
+        updateAccessibilityLabels(report: report, totalReport: totalReport)
         needsLayout = true
         needsDisplay = true
         onPreferredSizeChanged?(preferredPopoverSize)
@@ -1815,46 +1817,15 @@ final class DashboardView: NSView {
         return image
     }
 
-    private func updateAccessibilityLabels(report: TokenReport, headerUsagePercent: Double) {
+    private func updateAccessibilityLabels(report: TokenReport, totalReport: TokenReport) {
         titleLabel.setAccessibilityLabel("AI Token Meter")
         subtitleLabel.setAccessibilityLabel(subtitleLabel.stringValue)
-        totalLabel.setAccessibilityLabel("\(t(.usageRate)) \(dashboardPercent(headerUsagePercent))")
+        totalLabel.setAccessibilityLabel("\(t(.total)) \(compactDashboardTotal(totalReport.usage.total))")
         usageLabel.setAccessibilityLabel("\(t(.input)) \(compactDashboardMetric(report.usage.input)), \(t(.output)) \(compactDashboardMetric(report.usage.output))")
         sessionsLabel.setAccessibilityLabel(sessionsLabel.stringValue)
         refreshLabel.setAccessibilityLabel(refreshLabel.stringValue)
         quotaSegment.setAccessibilityLabel(t(.quotaViews))
         segment.setAccessibilityLabel(t(.usageWindow))
-    }
-
-    private func subscriptionUsagePercent(for state: DashboardState) -> Double {
-        guard let limit = subscriptionLimit(from: state.liveLimits, quota: state.selectedQuota),
-              let estimator = CostEstimator(
-                report: state.report,
-                limit: limit,
-                quotaReferenceReport: state.costReferenceReport,
-                monthlyCost: AppSettings.monthlyPlanCost(for: state.selectedQuota),
-                paymentStartDay: AppSettings.paymentStartDay(for: state.selectedQuota)
-              ) else {
-            return 0
-        }
-        if state.selectedWindow == .week {
-            return estimator.weeklyBudget > 0 ? estimator.weeklyUsedValue() / estimator.weeklyBudget * 100 : 0
-        }
-        return estimator.quotaPercent(for: state.report.usage)
-    }
-
-    private func subscriptionLimit(from limits: [LiveRateLimit], quota: QuotaViewOption) -> LiveRateLimit? {
-        switch quota {
-        case .all, .codex:
-            return costEstimateLimit(from: limits)
-        case .claude:
-            return limits.first { $0.id == QuotaViewOption.claude.liveLimitID }
-        }
-    }
-
-    private func dashboardPercent(_ percent: Double) -> String {
-        let clamped = min(999, max(0, percent))
-        return "\(Int(round(clamped)))%"
     }
 
     private func displayedRemainingPercent(_ window: RateWindow?, target: QuotaViewOption) -> Double {

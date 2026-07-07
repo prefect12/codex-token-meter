@@ -341,6 +341,9 @@ enum L10nKey {
     case codexStatusPartialOutage
     case codexStatusResolved
     case codexStatusUnavailable
+    case codexAPISources
+    case codexAPISourcesHint
+    case codexAPISourcesChoose
     case codexHomeRing
     case dayValue
     case dataSource
@@ -644,6 +647,9 @@ enum L10nKey {
         case .codexStatusOperational: return "Operational"
         case .codexStatusPartialOutage: return "Partial Outage"
         case .codexStatusResolved: return "Resolved"
+        case .codexAPISources: return "Codex API sources"
+        case .codexAPISourcesHint: return "CODEX_HOME roots used for official live quota, Profile API totals, and reset credits. They do not change local log scanning."
+        case .codexAPISourcesChoose: return "Choose..."
         case .codexHomeRing: return "Codex home ring"
         case .codexStatusUnavailable: return "Status unavailable"
         case .dayValue: return "Day value"
@@ -908,6 +914,9 @@ enum L10nKey {
         case .codexStatusPartialOutage: return "部分中断"
         case .codexStatusResolved: return "已恢复"
         case .codexStatusUnavailable: return "状态暂不可用"
+        case .codexAPISources: return "Codex 官方接口来源"
+        case .codexAPISourcesHint: return "用于读取官方实时额度、Profile API 总量和重置机会的 CODEX_HOME 根目录；不影响本地日志扫描。"
+        case .codexAPISourcesChoose: return "选择..."
         case .codexHomeRing: return "Codex 首页圆环"
         case .dayValue: return "当日价值"
         case .dataSource: return "数据来源"
@@ -1171,6 +1180,9 @@ enum L10nKey {
         case .codexStatusPartialOutage: return "一部停止"
         case .codexStatusResolved: return "復旧済み"
         case .codexStatusUnavailable: return "状態を取得できません"
+        case .codexAPISources: return "Codex API ソース"
+        case .codexAPISourcesHint: return "公式のライブ制限、Profile API 合計、リセット機会を読む CODEX_HOME ルートです。ローカルログのスキャンには影響しません。"
+        case .codexAPISourcesChoose: return "選択..."
         case .codexHomeRing: return "Codex ホームリング"
         case .dayValue: return "当日の価値"
         case .dataSource: return "データソース"
@@ -1436,6 +1448,7 @@ func convertCurrency(_ amount: Double, from source: CurrencyCode, to target: Cur
 enum AppSettings {
     static let logFolderKey = "sessionLogFolder"
     static let logFoldersKey = "sessionLogFolders"
+    static let codexAPISourceHomesKey = "codexAPISourceHomes"
     static let monthlyPlanCostKey = "monthlyPlanCost"
     static let paymentCurrencyKey = "paymentCurrency"
     static let displayCurrencyKey = "displayCurrency"
@@ -1544,6 +1557,55 @@ enum AppSettings {
 
     static var logFolderDisplayPath: String {
         return logFolderURLs.map { displayPath(for: $0) }.joined(separator: " + ")
+    }
+
+    static var defaultCodexAPISourceHomeURLs: [URL] {
+        var roots: [URL] = []
+        if let codexHome = environmentCodexHomeURL {
+            roots.append(codexHome)
+        }
+        roots.append(defaultCodexAPIHomeURL)
+        roots.append(defaultCodexHomeURL)
+        return uniqueDirectoryURLs(roots)
+    }
+
+    static var codexAPISourceHomeURLs: [URL] {
+        let custom = customCodexAPISourceHomeURLs
+        return custom.isEmpty ? defaultCodexAPISourceHomeURLs : custom
+    }
+
+    static var customCodexAPISourceHomeURLs: [URL] {
+        let paths = UserDefaults.standard.stringArray(forKey: codexAPISourceHomesKey) ?? []
+        return uniqueDirectoryURLs(paths.compactMap { rawPath in
+            let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty else { return nil }
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+        })
+    }
+
+    static var hasCustomCodexAPISourceHomes: Bool {
+        !customCodexAPISourceHomeURLs.isEmpty
+    }
+
+    static var codexAPISourceDisplayPath: String {
+        codexAPISourceHomeURLs.map { displayPath(for: $0) }.joined(separator: " + ")
+    }
+
+    static var codexAPISourceOpenURL: URL {
+        codexAPISourceHomeURLs.first { FileManager.default.fileExists(atPath: $0.path) } ?? defaultCodexHomeURL
+    }
+
+    static func setCodexAPISourceHomeURLs(_ urls: [URL]) {
+        let selected = uniqueDirectoryURLs(urls)
+        if selected.isEmpty {
+            resetCodexAPISourceHomeURLs()
+        } else {
+            UserDefaults.standard.set(selected.map(\.path), forKey: codexAPISourceHomesKey)
+        }
+    }
+
+    static func resetCodexAPISourceHomeURLs() {
+        UserDefaults.standard.removeObject(forKey: codexAPISourceHomesKey)
     }
 
     static var logFolderOpenURL: URL {
