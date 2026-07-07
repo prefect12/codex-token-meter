@@ -230,10 +230,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        guard let url = URL(string: "codex://threads/\(id)") else {
+        if let selectedItem, isCodexAPIThread(selectedItem) {
+            openCodexAPIThread(id: selectedItem.id)
+            return
+        }
+
+        openCodexThread(id: id)
+    }
+
+    /// Both Codex and the local Codex API app can register `codex:`. A Task Bar
+    /// Codex row represents a desktop thread, so send the URL to Codex.app
+    /// explicitly instead of relying on LaunchServices' current default handler.
+    private func openCodexThread(id: String) {
+        guard let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "codex://threads/\(encodedID)") else {
+            return
+        }
+        if let appURL = codexDesktopAppURL() {
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: configuration) { _, error in
+                if error != nil {
+                    NSWorkspace.shared.open(url)
+                }
+            }
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    private func codexDesktopAppURL() -> URL? {
+        let applicationsURL = URL(fileURLWithPath: "/Applications/Codex.app", isDirectory: true)
+        if FileManager.default.fileExists(atPath: applicationsURL.path) {
+            return applicationsURL
+        }
+        guard let registeredURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex"),
+              FileManager.default.fileExists(atPath: registeredURL.path) else {
+            return nil
+        }
+        return registeredURL
+    }
+
+    private func openCodexAPIThread(id: String) {
+        guard let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "codex-api://threads/\(encodedID)") else {
+            return
+        }
+        if let appURL = codexAPIAppURL() {
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: configuration) { _, error in
+                if error != nil {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func codexAPIAppURL() -> URL? {
+        let userApplicationsURL = URL(fileURLWithPath: "\(NSHomeDirectory())/Applications/Codex API.app", isDirectory: true)
+        if FileManager.default.fileExists(atPath: userApplicationsURL.path) {
+            return userApplicationsURL
+        }
+        let applicationsURL = URL(fileURLWithPath: "/Applications/Codex API.app", isDirectory: true)
+        if FileManager.default.fileExists(atPath: applicationsURL.path) {
+            return applicationsURL
+        }
+        guard let registeredURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex.api.local"),
+              FileManager.default.fileExists(atPath: registeredURL.path) else {
+            return nil
+        }
+        return registeredURL
     }
 
     /// Claude thread ids are `claude:<session-uuid>`. The desktop app resumes a

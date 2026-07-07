@@ -357,13 +357,26 @@ func isClaudeThread(_ item: CodexThreadItem) -> Bool {
     item.source == "claude-code" || item.id.hasPrefix("claude:")
 }
 
+func isCodexAPIThread(_ item: CodexThreadItem) -> Bool {
+    item.source.contains("codex-api")
+}
+
 func sourceLabel(_ item: CodexThreadItem) -> String {
-    isClaudeThread(item) ? "Claude" : "Codex"
+    if isClaudeThread(item) {
+        return "Claude"
+    }
+    if isCodexAPIThread(item) {
+        return "Codex API"
+    }
+    return "Codex"
 }
 
 func sourceColor(_ item: CodexThreadItem) -> NSColor {
     if isClaudeThread(item) {
         return NSColor(calibratedRed: 0.91, green: 0.48, blue: 0.28, alpha: 1)
+    }
+    if isCodexAPIThread(item) {
+        return NSColor(calibratedRed: 0.36, green: 0.78, blue: 0.88, alpha: 1)
     }
     return NSColor(calibratedRed: 0.45, green: 0.58, blue: 1.0, alpha: 1)
 }
