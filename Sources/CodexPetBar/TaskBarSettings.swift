@@ -476,9 +476,9 @@ private enum TaskBarSettingsInfo: CaseIterable {
         case .threadSort:
             return "只调整同一状态分组内的任务顺序；置顶任务始终保持在列表最上方。"
         case .sourceLabel:
-            return "显示任务来自哪个本地来源：Claude Code 项目日志标为 Claude；Codex app-server、本地 state 或 rollout logs 标为 Codex。"
+            return "显示任务来自哪个本地来源：Claude Code 项目日志标为 Claude；普通 Codex 标为 Codex；API 专用来源标为 Codex API。"
         case .codexAPI:
-            return "开启后同时读取 ~/.codex-api、Codex API.app 和普通 Codex；关闭后只保留普通 Codex 与 Claude 来源。"
+            return "默认自动读取 ~/.codex-api 和 Codex API.app；任务会标为 Codex API，点击会打开 Codex API。"
         case .tokenUnit:
             return "只影响 hover 中的输入 / 输出等数字；缓存率和金额不变。"
         }
