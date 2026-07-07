@@ -22,7 +22,15 @@ private func printThreads() {
 
 private func mockTaskBarThreads() -> [CodexThreadItem] {
     func item(id: String, title: String, preview: String, status: ThreadRunStatus, ago: TimeInterval, source: String) -> CodexThreadItem {
-        CodexThreadItem(
+        let breakdown = TokenBreakdown(
+            input: 2_387_000,
+            cachedInput: 2_305_000,
+            output: 99_270,
+            reasoningOutput: 21_800,
+            total: 2_486_270,
+            hasDetailedCounters: true
+        )
+        return CodexThreadItem(
             id: id,
             title: title,
             preview: preview,
@@ -32,12 +40,12 @@ private func mockTaskBarThreads() -> [CodexThreadItem] {
             externalReadAt: nil,
             status: status,
             turns: 12,
-            compressionCount: nil,
+            compressionCount: 1,
             source: source,
             isExplicitUnread: status == .unread,
             codexUpdatedAt: nil,
-            tokensUsed: 128_000,
-            tokenBreakdown: TokenBreakdown(),
+            tokensUsed: breakdown.displayTotal,
+            tokenBreakdown: breakdown,
             model: "gpt-5-codex"
         )
     }
@@ -46,6 +54,18 @@ private func mockTaskBarThreads() -> [CodexThreadItem] {
         item(id: "claude:2", title: "这个看起来不太对，帮忙看看呀 @ 杨工", preview: "已经跨过 18:54 的大批次，累计 23034 条，时间跳到现在。", status: .running, ago: 7333, source: "claude-code"),
         item(id: "codex:3", title: "帮我安装最新的 main 的 codex bar", preview: "我会同时压三处：header 高度/字号、列表字号、底部按钮宽度。顶部间距也从上一版收紧。", status: .running, ago: 9201, source: "codex")
     ]
+}
+
+private func writePNG(_ view: NSView, to path: String) throws {
+    view.layoutSubtreeIfNeeded()
+    guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+        throw NSError(domain: "TaskBar", code: 1, userInfo: [NSLocalizedDescriptionKey: "render failed: no bitmap rep"])
+    }
+    view.cacheDisplay(in: view.bounds, to: rep)
+    guard let data = rep.representation(using: .png, properties: [:]) else {
+        throw NSError(domain: "TaskBar", code: 2, userInfo: [NSLocalizedDescriptionKey: "render failed: no png data"])
+    }
+    try data.write(to: URL(fileURLWithPath: path))
 }
 
 private func renderTaskBar(to path: String) {
@@ -99,18 +119,32 @@ private func renderTaskBar(to path: String) {
     content.frame = NSRect(origin: .zero, size: size)
     content.layoutSubtreeIfNeeded()
 
-    guard let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
-        print("render failed: no bitmap rep")
-        return
-    }
-    content.cacheDisplay(in: content.bounds, to: rep)
-    guard let data = rep.representation(using: .png, properties: [:]) else {
-        print("render failed: no png data")
-        return
-    }
     do {
-        try data.write(to: URL(fileURLWithPath: path))
-        print("wrote \(path) (\(Int(size.width))x\(Int(size.height)))")
+        if let hoverArg = CommandLine.arguments.first(where: { $0.hasPrefix("--hover-row=") }),
+           let hoverIndex = Int(hoverArg.dropFirst("--hover-row=".count)),
+           mock.indices.contains(hoverIndex) {
+            let tooltip = ThreadTooltipView()
+            tooltip.rows = tooltipRows(for: mock[hoverIndex])
+            let tooltipSize = tooltip.preferredSize
+            let compositeSize = NSSize(width: max(size.width, 560), height: size.height)
+            let composite = NSView(frame: NSRect(origin: .zero, size: compositeSize))
+            composite.wantsLayer = true
+            composite.layer?.backgroundColor = NSColor.clear.cgColor
+            content.frame = NSRect(origin: .zero, size: size)
+            tooltip.frame = NSRect(
+                x: min(compositeSize.width - tooltipSize.width - 18, 210),
+                y: max(18, compositeSize.height - tooltipSize.height - 78),
+                width: tooltipSize.width,
+                height: tooltipSize.height
+            )
+            composite.addSubview(content)
+            composite.addSubview(tooltip)
+            try writePNG(composite, to: path)
+            print("wrote \(path) (\(Int(compositeSize.width))x\(Int(compositeSize.height)))")
+        } else {
+            try writePNG(content, to: path)
+            print("wrote \(path) (\(Int(size.width))x\(Int(size.height)))")
+        }
     } catch {
         print("render failed: \(error)")
     }

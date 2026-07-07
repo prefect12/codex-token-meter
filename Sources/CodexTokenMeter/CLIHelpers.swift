@@ -248,6 +248,14 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
     let preferredSize = view.preferredPopoverSize
     view.frame = NSRect(origin: .zero, size: preferredSize)
     view.layoutSubtreeIfNeeded()
+    if let chartHoverIndex = arguments
+        .compactMap({ argument -> Int? in
+            guard argument.hasPrefix("--hover-chart-index=") else { return nil }
+            return Int(argument.dropFirst("--hover-chart-index=".count))
+        })
+        .first {
+        view.setChartRenderHover(index: chartHoverIndex)
+    }
     try writePNG(of: view, to: outputURL)
     return outputURL
 }
@@ -340,6 +348,16 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         })
         .first {
         view.selectCalendarWeek(startDay: weekStart)
+    }
+    if arguments.contains("--hover-reset-credit-header") {
+        view.setResetCreditRenderHover(index: nil, header: true)
+    } else if let resetCreditIndex = arguments
+        .compactMap({ argument -> Int? in
+            guard argument.hasPrefix("--hover-reset-credit=") else { return nil }
+            return Int(argument.dropFirst("--hover-reset-credit=".count))
+        })
+        .first {
+        view.setResetCreditRenderHover(index: resetCreditIndex)
     }
     if section == .storage {
         let storage = StorageScanner.scan()

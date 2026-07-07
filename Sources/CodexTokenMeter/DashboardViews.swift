@@ -396,6 +396,21 @@ final class UsageChartView: NSView {
         needsDisplay = true
     }
 
+    /// Debug hook for README screenshot rendering.
+    func setRenderHover(index: Int?) {
+        guard let index else {
+            hoveredIndex = nil
+            hoverPoint = nil
+            needsDisplay = true
+            return
+        }
+        let count = selectedWindow == .day ? continuousHours().count : days.count
+        guard count > 0 else { return }
+        hoveredIndex = min(max(index, 0), count - 1)
+        hoverPoint = CGPoint(x: bounds.midX, y: bounds.midY)
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         NSColor.white.withAlphaComponent(0.06).setFill()
         bounds.fill()
@@ -1566,6 +1581,11 @@ final class DashboardView: NSView {
             styleActionButton(button, titleKey: key)
             button.toolTip = t(key)
         }
+    }
+
+    /// Debug hook for README screenshot rendering.
+    func setChartRenderHover(index: Int?) {
+        dayChart.setRenderHover(index: index)
     }
 
     override func draw(_ dirtyRect: NSRect) {

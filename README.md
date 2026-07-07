@@ -13,8 +13,8 @@
 
 | App | 安装包 | 安装位置 |
 | --- | --- | --- |
-| AI Token Meter | `AI-Token-Meter-0.2.6.dmg` | `/Applications/AI Token Meter.app` |
-| Task Bar | `Task-Bar-0.1.6.dmg` | `/Applications/Task Bar.app` |
+| AI Token Meter | `AI-Token-Meter-0.2.7.dmg` | `/Applications/AI Token Meter.app` |
+| Task Bar | `Task-Bar-0.1.7.dmg` | `/Applications/Task Bar.app` |
 
 如果只安装 AI Token Meter，就只会得到 token / 额度面板；Task Bar 是独立状态栏 app，需要下载并安装 `Task-Bar-*.dmg`。
 
@@ -52,7 +52,15 @@ AI Token Meter 的状态栏面板支持 `全部 / Codex / Claude` 和 `24h / 7d 
   <img src="docs/images/ai-token-meter-hover-release.webp" alt="AI Token Meter calendar hover detail" width="420">
 </p>
 
-日历柱状图 hover 会显示单日拆分：Codex、Claude、输入、输出、缓存、新输入、占月额度、当日订阅价值估算和 API 等价成本。Profile API 可用时，30 天窗口会优先展示 Profile API 聚合总量；本地日志仍用于补充日历、模型和成本拆分。
+日历柱状图、模型行和详情卡片的 hover 会显示可解释拆分：Codex、Claude、输入、输出、缓存、新输入、占月额度、订阅价值估算、API 等价成本、会话数和事件数。Profile API 可用时，30 天窗口会优先展示 Profile API 聚合总量；本地日志仍用于补充日历、模型和成本拆分。
+
+### Codex 重置机会
+
+<p align="center">
+  <img src="docs/images/ai-token-meter-reset-credits.webp" alt="AI Token Meter Codex reset credits countdown" width="760">
+</p>
+
+详情概览会显示 Codex reset credits 的剩余次数和逐条倒计时；hover 每条重置机会可查看获得时间、到期时间和剩余时间，hover 标题可查看这批数据的获取时间。
 
 ### 详情窗口 · 概览
 
@@ -60,7 +68,7 @@ AI Token Meter 的状态栏面板支持 `全部 / Codex / Claude` 和 `24h / 7d 
   <img src="docs/images/zh-details-overview.webp" alt="AI Token Meter 详情概览页" width="760">
 </p>
 
-过去 365 天按来源（全部 / Codex / Claude）和模型统计的总量、输入/输出拆分、缓存命中率、API 等价成本，以及全年活动热力图。
+过去 365 天按来源（全部 / Codex / Claude）和模型统计的总量、输入/输出拆分、缓存命中率、API 等价成本、Codex 重置机会倒计时，以及全年活动热力图。
 
 ### 详情窗口 · 仓库洞察
 
@@ -106,8 +114,8 @@ Repo 对话体检：按项目和文件夹定位长线程，统计对话长度分
 
 | App | Version | Build | Bundle |
 | --- | --- | --- | --- |
-| AI Token Meter | `0.2.6` | `20` | `/Applications/AI Token Meter.app` |
-| Task Bar | `0.1.6` | `7` | `/Applications/Task Bar.app` |
+| AI Token Meter | `0.2.7` | `21` | `/Applications/AI Token Meter.app` |
+| Task Bar | `0.1.7` | `8` | `/Applications/Task Bar.app` |
 
 ## 数据来源
 
@@ -116,6 +124,8 @@ AI Token Meter 读取：
 ```text
 ~/.codex/sessions/**/rollout-*.jsonl
 ~/.codex/archived_sessions/rollout-*.jsonl
+~/.codex-api/sessions/**/rollout-*.jsonl
+~/.codex-api/archived_sessions/rollout-*.jsonl
 $CODEX_HOME/sessions/**/rollout-*.jsonl
 $CODEX_HOME/archived_sessions/rollout-*.jsonl
 设置中添加的额外 Codex rollout 目录
@@ -144,6 +154,7 @@ Task Bar 读取：
 
 - **额度视图**：支持 `All / Codex / Claude` 平台筛选，以及 `24h / 7d / 30d` 时间窗口。
 - **剩余额度**：读取 Codex live rate limits 和 Claude statusline，可显示 5 小时、周/月剩余额度与重置时间。
+- **重置机会**：读取 Codex reset credits，在详情概览显示剩余次数、逐条倒计时，并通过 hover 展示获得时间、到期时间、剩余时间和获取时间。
 - **token 明细**：汇总 input、output、cached input、fresh input、total、cache hit rate、会话数和轮次。
 - **详情窗口**：包含概览、日历、仓库洞察、模型、空间、设置、诊断和关于页面。
 - **仓库洞察**：按项目定位长线程和上下文压缩压力，附对话长度/压缩分布和拆线程建议。
@@ -157,7 +168,8 @@ Task Bar 读取：
 
 - **任务收件箱**：在状态栏显示需要关注的任务数量，减少在多个窗口里找线程。
 - **状态分组**：按 `All / Running / Waiting / Done` 过滤，区分运行中、等待输入、已完成未读和长时间运行。
-- **多来源合并**：读取 Codex app-server、Codex rollout logs、Claude Code JSONL，并尽量合并同一任务的状态。
+- **多来源合并**：读取 Codex app-server、`.codex` / `.codex-api` / 额外 Codex 文件夹、Codex rollout logs、Claude Code JSONL，并尽量合并同一任务的状态。
+- **排序设置**：支持按最近更新、最近开始或最早开始排序线程。
 - **行内摘要**：展示来源、标题、最近输出摘要、运行时间和未读状态。
 - **hover 详情**：能显示 token、缓存率、轮次、压缩次数和模型，字段以本机日志实际可解释的数据为准。
 - **快速清理**：支持滑动移除已处理项，并在设置里调整分组顺序和显示偏好。
@@ -208,7 +220,7 @@ Task Bar 读取：
 输出：
 
 ```text
-dist/AI-Token-Meter-0.2.6.dmg
+dist/AI-Token-Meter-0.2.7.dmg
 ```
 
 打包 Task Bar：
@@ -220,7 +232,7 @@ dist/AI-Token-Meter-0.2.6.dmg
 输出：
 
 ```text
-dist/Task-Bar-0.1.6.dmg
+dist/Task-Bar-0.1.7.dmg
 ```
 
 ## 命令行检查
@@ -243,8 +255,11 @@ Task Bar：
 
 ```bash
 "./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" -appLanguage zh -numberUnitStyle chinese --render-dashboard=/tmp/ai-token-meter-release.png
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" -appLanguage zh -numberUnitStyle chinese --render-dashboard=/tmp/ai-token-meter-hover-release.png --hover-chart-index=6
 "./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/zh-details-insights.png --section=insights --redact
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/ai-token-meter-reset-credits.png --section=overview --redact --hover-reset-credit=0
 "./build/Task Bar.app/Contents/MacOS/TaskBar" --render-taskbar=/tmp/task-bar-release.png
+"./build/Task Bar.app/Contents/MacOS/TaskBar" --render-taskbar=/tmp/task-bar-hover-release.png --hover-row=0
 cwebp -q 90 /tmp/zh-details-insights.png -o docs/images/zh-details-insights.webp
 ```
 

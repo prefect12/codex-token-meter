@@ -3491,6 +3491,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         needsDisplay = true
     }
 
+    /// Debug hook for README screenshot rendering.
+    func setResetCreditRenderHover(index: Int?, header: Bool = false) {
+        hoveredResetCreditIndex = index
+        isHoveringResetCreditHeader = header
+        needsDisplay = true
+    }
+
     private func preferredSelectedDay(in report: TokenReport, fallback: String?) -> String? {
         if let global = AppSettings.selectedCalendarDay,
            report.byDay.contains(where: { $0.day == global }) {
@@ -9209,8 +9216,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let copy = AppLanguage.current.storageCopy
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "ai-token-meter-storage-report.md"
-        panel.beginSheetModal(for: window) { [weak self] response in
-            guard response == .OK, let url = panel.url, let self else { return }
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
             var lines: [String] = []
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "en_US_POSIX")

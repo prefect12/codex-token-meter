@@ -552,7 +552,7 @@ final class ThreadHoverPanel {
     }
 }
 
-private final class ThreadTooltipView: NSView {
+final class ThreadTooltipView: NSView {
     var rows: [ThreadTooltipRow] = [] {
         didSet { needsDisplay = true }
     }

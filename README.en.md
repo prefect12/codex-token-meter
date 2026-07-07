@@ -11,10 +11,13 @@ It reads your local Codex session logs and Claude Code project logs directly:
 ~/.codex/archived_sessions/rollout-*.jsonl
 $CODEX_HOME/sessions/**/rollout-*.jsonl
 $CODEX_HOME/archived_sessions/rollout-*.jsonl
+~/.codex-api/sessions/**/rollout-*.jsonl
+~/.codex-api/archived_sessions/rollout-*.jsonl
+extra Codex rollout folders configured in Settings
 ~/.claude/projects/**/*.jsonl
 ```
 
-When available, it also reads live quota data from the local Codex runtime, including the 5-hour window, weekly window, reset time, and remaining percentage.
+When available, it also reads live quota data from the local Codex runtime, including the 5-hour window, weekly window, reset time, remaining percentage, and Codex reset credits.
 
 ## Screenshots
 
@@ -34,7 +37,15 @@ Switch between `All / Codex / Claude` and `24h / 7d / 30d`. Platform quota rings
   <img src="docs/images/en-details-overview.webp" alt="AI Token Meter details overview" width="760">
 </p>
 
-365-day totals by source and model, input/output breakdown, and a full-year activity heatmap.
+365-day totals by source and model, input/output breakdown, Codex reset-credit countdowns, and a full-year activity heatmap.
+
+### Codex Reset Credits
+
+<p align="center">
+  <img src="docs/images/ai-token-meter-reset-credits.webp" alt="AI Token Meter Codex reset credits countdown" width="760">
+</p>
+
+The overview shows how many Codex reset credits remain and a per-credit countdown. Hover a credit to inspect granted time, expiry time, and remaining time; hover the header to see when the data was fetched.
 
 ### Repository Insights
 
@@ -129,6 +140,7 @@ Interface language, number units, log folders, status-bar display and source, qu
 - Compact popover with `24h / 7d / 30d` windows.
 - `All / Codex / Claude` source switching, plus model-limit and non-model-limit views inside Codex usage.
 - The `All` dashboard shows Codex / Claude weekly quota rings, 5-hour pressure, input/output, status links, and time-window usage bars.
+- The overview shows Codex reset credits with per-credit countdowns and hover details.
 - The Claude view can use Claude Code statusline `rate_limits` for official 5-hour and 7-day usage percentages; without that hook it still shows local-log usage.
 - Live 5-hour and weekly quota pacing, with either ring or bullet-style display.
 - Cache hit-rate ring.
@@ -145,17 +157,18 @@ Interface language, number units, log folders, status-bar display and source, qu
 - Default scan coverage for current sessions, archived sessions, and `CODEX_HOME` when that environment variable is set.
 - Localized UI for English, Simplified Chinese, Traditional Chinese, Japanese, French, German, Spanish, and Korean.
 - Language-aware number units: English uses `K / M / B`; Chinese uses `万 / 亿`.
-- Configurable Codex log folder, menu bar display mode, quota display style, Codex status chip, launch at login, and low-quota notifications.
+- Configurable Codex log folder, Codex API sources, menu bar display mode, quota display style, Codex status chip, launch at login, and low-quota notifications.
 - Manual refresh, local log folder shortcut, and CLI inspection mode.
 
 ## Data And Calculation Model
 
 AI Token Meter uses local data sources:
 
-- **Token usage** comes from local Codex session logs and Claude Code project logs. Codex scans `~/.codex/sessions`, `~/.codex/archived_sessions`, and matching `sessions` / `archived_sessions` folders under `$CODEX_HOME` when that environment variable is set. If you choose a custom log folder in Settings, that folder overrides the default Codex roots. Codex scans `token_count` events, reads `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`, and `total_tokens`, then calculates the delta between adjacent cumulative counters. Claude Code scans `*.jsonl` assistant usage records under `CLAUDE_CONFIG_DIR`, `$XDG_CONFIG_HOME/claude/projects`, and `~/.claude/projects`; reads `input_tokens`, `cache_creation_input_tokens`, `cache_creation.ephemeral_5m_input_tokens`, `cache_creation.ephemeral_1h_input_tokens`, `cache_read_input_tokens`, and `output_tokens`; keeps the final/largest token snapshot for the same message; then aggregates by hour, day, session, model, and repository.
+- **Token usage** comes from local Codex session logs and Claude Code project logs. Codex scans `~/.codex/sessions`, `~/.codex/archived_sessions`, `~/.codex-api/sessions`, `~/.codex-api/archived_sessions`, and matching `sessions` / `archived_sessions` folders under `$CODEX_HOME` when that environment variable is set. Extra Codex rollout folders configured in Settings are appended to that scan set. Codex scans `token_count` events, reads `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`, and `total_tokens`, then calculates the delta between adjacent cumulative counters. Claude Code scans `*.jsonl` assistant usage records under `CLAUDE_CONFIG_DIR`, `$XDG_CONFIG_HOME/claude/projects`, and `~/.claude/projects`; reads `input_tokens`, `cache_creation_input_tokens`, `cache_creation.ephemeral_5m_input_tokens`, `cache_creation.ephemeral_1h_input_tokens`, `cache_read_input_tokens`, and `output_tokens`; keeps the final/largest token snapshot for the same message; then aggregates by hour, day, session, model, and repository.
 - **Dashboard cache** stores local aggregate reports for `24h / 7d / 30d` and `All / Codex / Claude` in `dashboard-report-cache.json`. On launch or window switching, the menu dashboard shows the last aggregate first and refreshes in the background. Raw log content is not cached there.
 - **Details cache** stores the aggregate snapshot needed by the 365-day overview, calendar, cost, model, and repository-insight pages in `details-snapshot-cache.json`. Opening the details window shows the last snapshot first, then recomputes in the background and replaces it. The cache removes top-session paths and real repository paths, keeping only display names and aggregate statistics.
-- **Live quota percentages** come from the local Codex runtime for Codex and from optional Claude Code statusline capture for Claude. The app starts `codex app-server`, calls `account/rateLimits/read`, and reads fields such as `usedPercent` and `resetsAt` for the 5-hour and weekly windows. Claude can use `--claude-statusline` to capture official `rate_limits` from Claude Code statusline JSON. Remaining quota in the menu bar and quota rings is displayed as `100 - usedPercent`. The app learns the current non-Codex model-level quota window from the Codex live response instead of relying only on the historical Spark ID.
+- **Live quota percentages** come from the local Codex runtime for Codex and from optional Claude Code statusline capture for Claude. The app starts `codex app-server`, calls `account/rateLimits/read`, and reads fields such as `usedPercent` and `resetsAt` for the 5-hour and weekly windows. Codex API sources are configurable in Settings and are used for official live quota, Profile API totals, and reset credits without changing local log scanning. Claude can use `--claude-statusline` to capture official `rate_limits` from Claude Code statusline JSON. Remaining quota in the menu bar and quota rings is displayed as `100 - usedPercent`. The app learns the current non-Codex model-level quota window from the Codex live response instead of relying only on the historical Spark ID.
+- **Codex reset credits** are read through the local Codex runtime. The overview shows the available count and per-credit countdowns. Hovering a credit shows granted time, expiry time, and remaining time; hovering the header shows when the data was fetched.
 - **Cache percentage** comes from local token detail and is calculated as `cached_input_tokens / input_tokens * 100`.
 - **Cost estimates** are not official billing. Codex and Claude each keep their own monthly plan cost, payment currency, display currency, and payment start date, defaulting from the legacy `$200` setting. Weekly budget is `that platform's monthly plan cost * 12 / 52`. Current-week used value prefers that platform's live weekly `usedPercent`. Historical days and weeks are estimated from local token usage, historical peaks, and recorded weekly quota percentages. The All cost view converts the Codex and Claude monthly plans from their own payment currencies into the selected display currency before summing them.
 - **API-equivalent cost** is a separate estimate. It answers: "if this same local token usage had been billed directly through API-style token pricing, roughly how much would it cost?" The app prices recognized models by token type: fresh input, cached input, and output. Current built-in rates use the official API prices for GPT-5.5, GPT-5.4, and GPT-5.4 mini, the token-based Codex rate-card equivalent for GPT-5.3-Codex / GPT-5.2-style Codex models, and official Claude Opus / Sonnet / Haiku API prices. `reasoning_output_tokens` is not added again because local `total_tokens` already equals input plus output in Codex token-count events. Total-only Profile API rows without a model label use a GPT-5.5 fresh-input fallback so single-day API totals still show a realistic amount. Unknown model labels are left unpriced and reduce the displayed priced-token coverage.
@@ -179,6 +192,8 @@ If you run work through Codex CLI or the Codex app with API-based authentication
 
 ## Recent Updates
 
+- `0.2.7` refreshes every README screenshot, adds Codex reset-credit UI and hover-data documentation, and includes configurable Codex API sources, multiple Codex log roots, model-row hover details, source-scoped details overview totals, reset-credit fetch-time hover, grouped settings layout, and Task Bar thread sorting.
+- `Task Bar 0.1.7` supports `.codex-api` and extra Codex folders, merges app-server/state/log SQLite/sessions/archived sessions across multiple Codex homes, and adds thread sort settings.
 - `0.2.6` adds Codex reset-credit countdowns in the details overview, including per-credit granted/expiry hover details; Task Bar also includes the latest title/status/count visibility fixes from the 0.1.6 bundle.
 - `0.2.5` temporarily hides the quota-cycles page until its interaction design is finalized; cycle data is still recorded locally so history is preserved.
 - Added the `--redact` screenshot-rendering mode that replaces repository names and local directories with demo data for public sharing.
@@ -235,8 +250,11 @@ At runtime, the app reads:
 ```text
 ~/.codex/sessions
 ~/.codex/archived_sessions
+~/.codex-api/sessions
+~/.codex-api/archived_sessions
 $CODEX_HOME/sessions
 $CODEX_HOME/archived_sessions
+extra Codex rollout folders configured in Settings
 ~/Library/Application Support/Codex Token Meter/ParsedRollouts
 ~/Library/Application Support/Codex Token Meter/api-usage.json
 ```

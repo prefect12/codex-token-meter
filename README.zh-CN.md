@@ -11,10 +11,13 @@ AI Token Meter 是一个原生 macOS 状态栏工具，用来查看本机 Codex 
 ~/.codex/archived_sessions/rollout-*.jsonl
 $CODEX_HOME/sessions/**/rollout-*.jsonl
 $CODEX_HOME/archived_sessions/rollout-*.jsonl
+~/.codex-api/sessions/**/rollout-*.jsonl
+~/.codex-api/archived_sessions/rollout-*.jsonl
+设置中添加的额外 Codex rollout 目录
 ~/.claude/projects/**/*.jsonl
 ```
 
-在可用时，它还会通过本机 Codex 运行时读取实时限额信息，例如 5 小时窗口、周窗口、重置时间和剩余比例。
+在可用时，它还会通过本机 Codex 运行时读取实时限额信息，例如 5 小时窗口、周窗口、重置时间、剩余比例和 Codex reset credits。
 
 ## 截图
 
@@ -34,7 +37,15 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
   <img src="docs/images/zh-details-overview.webp" alt="AI Token Meter 中文详情概览" width="760">
 </p>
 
-过去 365 天按来源和模型统计的总量、输入/输出拆分和全年活动热力图。
+过去 365 天按来源和模型统计的总量、输入/输出拆分、Codex 重置机会倒计时和全年活动热力图。
+
+### Codex 重置机会
+
+<p align="center">
+  <img src="docs/images/ai-token-meter-reset-credits.webp" alt="AI Token Meter Codex 重置机会倒计时" width="760">
+</p>
+
+详情概览会显示 Codex reset credits 的剩余次数和逐条倒计时；hover 每条重置机会可查看获得时间、到期时间和剩余时间，hover 标题可查看这批数据的获取时间。
 
 ### 仓库洞察
 
@@ -129,6 +140,7 @@ Repo 对话体检：按项目定位长线程和上下文压缩压力，给出对
 - 弹窗支持 `24h / 7d / 30d` 时间窗口切换。
 - 支持 `All / Codex / Claude` 数据源切换，以及 Codex 内部的模型限额/非模型限额视图。
 - `All` 首页展示 Codex / Claude 双平台周额度圆环、5 小时压力、输入/输出、状态入口和按时间窗口聚合的柱状图。
+- 详情概览展示 Codex reset credits 的剩余次数、逐条倒计时和 hover 明细。
 - Claude 视图可通过 Claude Code statusline 读取官方 5 小时/7 天使用百分比；未配置时仍显示本地日志统计。
 - 显示 5 小时和周额度节奏，可在圆环和子弹图样式之间切换。
 - 显示缓存命中率圆环。
@@ -145,17 +157,18 @@ Repo 对话体检：按项目定位长线程和上下文压缩压力，给出对
 - 默认覆盖当前会话、归档会话，以及已设置 `$CODEX_HOME` 时对应的会话目录。
 - 支持 English、简体中文、繁体中文、日本語、Français、Deutsch、Español、한국어。
 - 数字单位会跟随界面语言：英文使用 `K / M / B`，中文使用 `万 / 亿`。
-- 可配置 Codex 日志目录、状态栏显示内容、额度展示样式、Codex 状态 chip 开关、开机启动和低额度提醒。
+- 可配置 Codex 日志目录、Codex API 来源、状态栏显示内容、额度展示样式、Codex 状态 chip 开关、开机启动和低额度提醒。
 - 支持手动刷新、打开本地日志目录和命令行统计检查。
 
 ## 数据与计算口径
 
 AI Token Meter 使用本机数据源：
 
-- **token 用量**：来自本地 Codex 会话日志和 Claude Code 项目日志。Codex 默认扫描 `~/.codex/sessions`、`~/.codex/archived_sessions`，以及设置了 `$CODEX_HOME` 时其中的 `sessions` / `archived_sessions` 目录。如果在设置里手动选择日志目录，该目录会覆盖默认 Codex 扫描范围。Codex 扫描 `token_count` 事件，读取 `input_tokens`、`cached_input_tokens`、`output_tokens`、`reasoning_output_tokens` 和 `total_tokens`，再用相邻累计值的差值计算本次新增 token。Claude Code 扫描 `CLAUDE_CONFIG_DIR`、`$XDG_CONFIG_HOME/claude/projects` 和 `~/.claude/projects` 下的 `*.jsonl` assistant usage 记录，读取 `input_tokens`、`cache_creation_input_tokens`、`cache_creation.ephemeral_5m_input_tokens`、`cache_creation.ephemeral_1h_input_tokens`、`cache_read_input_tokens` 和 `output_tokens`，保留同一 message 的最终/最大 token 快照，并按小时、日期、会话、模型和仓库聚合。
+- **token 用量**：来自本地 Codex 会话日志和 Claude Code 项目日志。Codex 默认扫描 `~/.codex/sessions`、`~/.codex/archived_sessions`、`~/.codex-api/sessions`、`~/.codex-api/archived_sessions`，以及设置了 `$CODEX_HOME` 时其中的 `sessions` / `archived_sessions` 目录；设置里添加的额外 Codex rollout 目录会追加到扫描范围。Codex 扫描 `token_count` 事件，读取 `input_tokens`、`cached_input_tokens`、`output_tokens`、`reasoning_output_tokens` 和 `total_tokens`，再用相邻累计值的差值计算本次新增 token。Claude Code 扫描 `CLAUDE_CONFIG_DIR`、`$XDG_CONFIG_HOME/claude/projects` 和 `~/.claude/projects` 下的 `*.jsonl` assistant usage 记录，读取 `input_tokens`、`cache_creation_input_tokens`、`cache_creation.ephemeral_5m_input_tokens`、`cache_creation.ephemeral_1h_input_tokens`、`cache_read_input_tokens` 和 `output_tokens`，保留同一 message 的最终/最大 token 快照，并按小时、日期、会话、模型和仓库聚合。
 - **仪表盘缓存**：状态栏首页会把 `24h / 7d / 30d` 的 `全部 / Codex / Claude` 聚合结果缓存到本地 `dashboard-report-cache.json`。下次启动或切换窗口时会先展示上次聚合结果，再在后台刷新，不缓存原始日志内容。
 - **详情页缓存**：详情窗口会把 365 天总览、日历、金额、模型和仓库洞察所需的聚合快照缓存到本地 `details-snapshot-cache.json`。打开详情页时先显示上次快照，再后台重算并替换；缓存会移除 top session 路径和仓库真实路径，只保留展示名与统计值。
-- **实时额度比例**：Codex 来自本机 Codex 运行时。应用启动 `codex app-server`，调用 `account/rateLimits/read`，读取 5 小时窗口和周窗口的 `usedPercent`、`resetsAt` 等信息。Claude 可通过 `--claude-statusline` 捕获 Claude Code statusline JSON 中的官方 `rate_limits`。状态栏和圆环里的剩余额度按 `100 - usedPercent` 显示。应用会从 Codex 实时返回里学习当前非 Codex 的模型级限额窗口，不再只依赖历史 Spark ID。
+- **实时额度比例**：Codex 来自本机 Codex 运行时。应用启动 `codex app-server`，调用 `account/rateLimits/read`，读取 5 小时窗口和周窗口的 `usedPercent`、`resetsAt` 等信息。Codex API 来源可在设置里配置，用于官方 live quota、Profile API totals 和 reset credits，不改变本地日志扫描范围。Claude 可通过 `--claude-statusline` 捕获 Claude Code statusline JSON 中的官方 `rate_limits`。状态栏和圆环里的剩余额度按 `100 - usedPercent` 显示。应用会从 Codex 实时返回里学习当前非 Codex 的模型级限额窗口，不再只依赖历史 Spark ID。
+- **Codex reset credits**：应用通过本机 Codex runtime 读取 reset credits，在详情概览展示剩余次数和逐条倒计时。hover 单条重置机会会显示获得时间、到期时间和剩余时间；hover 标题会显示数据获取时间。
 - **缓存比例**：来自本地 token 明细，计算方式是 `cached_input_tokens / input_tokens * 100`。
 - **金额估算**：不是官方账单。Codex 和 Claude 各自保存月付金额、付款币种、展示币种和付费开始日期，默认沿用旧的 `$200` 设置；周预算按对应平台的 `月付金额 * 12 / 52` 计算。本周已用金额优先使用该平台实时周 `usedPercent` 换算，历史日期和历史周则按本地 token 用量、历史峰值和已记录的周额度比例估算。`全部` 金额页会把 Codex / Claude 的月费按各自付款币种折算到展示币种后合计。
 - **API 等价成本**：这是另一套独立估算，用来回答“如果这些本地 token 直接按 API token 计费，大约会花多少钱”。应用会按可识别模型分别计价 fresh input、cached input 和 output。当前内置价格使用 GPT-5.5、GPT-5.4、GPT-5.4 mini 的官方 API 单价，GPT-5.3-Codex / GPT-5.2 风格 Codex 模型的 token-based Codex rate card 等价口径，以及 Claude Opus / Sonnet / Haiku 的官方 API 单价。`reasoning_output_tokens` 不会再次叠加，因为本地 Codex `token_count` 事件里的 `total_tokens` 已经等于 input 加 output。没有模型标签但有总 token 的 Profile API 单日数据，会按 GPT-5.5 fresh input fallback 估算，避免有覆盖率时金额仍为 0。无法识别模型标签的记录不会被强行估价，并会降低界面中的 priced-token 覆盖率。
@@ -179,6 +192,8 @@ AI Token Meter 使用本机数据源：
 
 ## 最近更新
 
+- `0.2.7` 更新所有 README 截图，补充 Codex reset credits 展示与 hover 数据说明；新增可配置 Codex API 来源、多 Codex 日志目录、模型行 hover 明细、详情概览按来源过滤、reset credit 获取时间 hover、设置页分组重排和 Task Bar 线程排序。
+- `Task Bar 0.1.7` 支持 `.codex-api` 与额外 Codex 文件夹，合并多个 Codex home 的 app-server、state/log SQLite、sessions 和 archived sessions，并新增线程排序设置。
 - `0.2.6` 在详情页总览新增 Codex reset credit 倒计时，并支持逐条 hover 查看获得时间、到期时间和剩余时间；Task Bar 同步包含 0.1.6 包里的标题、状态和计数可见性修复。
 - `0.2.5` 暂时隐藏额度周期页面，等交互设计定稿后再回归；周期数据仍会在本地持续记录，不会丢失历史。
 - 新增 `--redact` 截图渲染模式，导出截图时把仓库名和本机目录替换为演示数据，便于公开分享。
@@ -235,8 +250,11 @@ AI Token Meter 使用本机数据源：
 ```text
 ~/.codex/sessions
 ~/.codex/archived_sessions
+~/.codex-api/sessions
+~/.codex-api/archived_sessions
 $CODEX_HOME/sessions
 $CODEX_HOME/archived_sessions
+设置中添加的额外 Codex rollout 目录
 ~/Library/Application Support/Codex Token Meter/ParsedRollouts
 ~/Library/Application Support/Codex Token Meter/api-usage.json
 ```
