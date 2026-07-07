@@ -80,7 +80,7 @@ enum TaskHoverField: String, CaseIterable, Hashable {
         case .turns: return "对话轮次"
         case .compression: return "压缩次数"
         case .model: return "模型"
-        case .folder: return "文件夹"
+        case .folder: return "项目"
         case .branch: return "分支"
         case .worktree: return "Worktree"
         }
