@@ -2185,6 +2185,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
     private var resetCreditCountdownTimer: Timer?
     private var hoveredResetCreditIndex: Int?
+    private var isHoveringResetCreditHeader = false
+    private var resetCreditHeaderHitArea: NSRect?
+    private var resetCreditFetchedAtText: String?
     private var resetCreditHitAreas: [(rect: NSRect, index: Int)] = []
     private var resetCreditTooltipRows: [RateLimitResetCredit] = []
     private var sidebarItemRects: [DetailsSection: NSRect] = [:]
@@ -3138,6 +3141,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hoveredInsightHour = nil
         hoveredInsightPeriod = nil
         hoveredResetCreditIndex = nil
+        isHoveringResetCreditHeader = false
         hoveredModelUsageRowIndex = nil
         hoveredStorageCellKey = nil
         hoveredStorageSourceID = nil
@@ -3174,6 +3178,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         if hoveredResetCreditIndex != nil {
             hoveredResetCreditIndex = nil
+            shouldRedraw = true
+        }
+        if isHoveringResetCreditHeader {
+            isHoveringResetCreditHeader = false
             shouldRedraw = true
         }
         if hoveredModelUsageRowIndex != nil {
@@ -3259,16 +3267,19 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     private func updateResetCreditHover(at point: CGPoint) {
         guard selectedSection == .overview else {
-            if hoveredResetCreditIndex != nil {
+            if hoveredResetCreditIndex != nil || isHoveringResetCreditHeader {
                 hoveredResetCreditIndex = nil
+                isHoveringResetCreditHeader = false
                 needsDisplay = true
             }
             return
         }
         let match = resetCreditHitAreas.first { $0.rect.insetBy(dx: -4, dy: -4).contains(point) }
         let newIndex = match?.index
-        if hoveredResetCreditIndex != newIndex {
+        let newHeaderHover = resetCreditHeaderHitArea?.contains(point) == true
+        if hoveredResetCreditIndex != newIndex || isHoveringResetCreditHeader != newHeaderHover {
             hoveredResetCreditIndex = newIndex
+            isHoveringResetCreditHeader = newHeaderHover
             needsDisplay = true
         }
     }
@@ -3660,6 +3671,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionDaySummaries.removeAll()
         contributionWeekSummaries.removeAll()
         contributionWeekDotRects.removeAll()
+        resetCreditHeaderHitArea = nil
+        resetCreditFetchedAtText = nil
         resetCreditHitAreas.removeAll()
         resetCreditTooltipRows.removeAll()
         costHistoryBarRects.removeAll()
@@ -3984,7 +3997,17 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
         let count = max(0, resetCredits.availableCount)
         let countText = String(format: t(.resetCreditCountFormat), count)
-        drawText("\(title) · \(countText)", rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 280, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+        let titleText = "\(title) · \(countText)"
+        let titleRect = NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 280, height: 20)
+        resetCreditHeaderHitArea = titleRect.insetBy(dx: -8, dy: -5)
+        resetCreditFetchedAtText = String(format: t(.resetCreditFetchedAtFormat), Self.resetCreditFullFormatter.string(from: resetCredits.readAt))
+        if isHoveringResetCreditHeader, let headerHitArea = resetCreditHeaderHitArea {
+            NSColor.white.withAlphaComponent(0.18).setStroke()
+            let focus = NSBezierPath(roundedRect: headerHitArea, xRadius: 7, yRadius: 7)
+            focus.lineWidth = 1
+            focus.stroke()
+        }
+        drawText(titleText, rect: titleRect, font: .systemFont(ofSize: 15, weight: .bold), color: .white)
 
         guard count > 0 else {
             drawText(t(.resetCreditNoCredits), rect: NSRect(x: rect.minX + 16, y: rect.minY + 42, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
@@ -4068,6 +4091,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func drawResetCreditTooltip(container: NSRect) {
+        if isHoveringResetCreditHeader,
+           let hit = resetCreditHeaderHitArea,
+           let fetchedAtText = resetCreditFetchedAtText {
+            drawResetCreditHeaderTooltip(hit: hit, text: fetchedAtText, container: container)
+            return
+        }
         guard let index = hoveredResetCreditIndex,
               index >= 0, index < resetCreditTooltipRows.count,
               let hit = resetCreditHitAreas.first(where: { $0.index == index }) else {
@@ -4106,6 +4135,27 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawText(row.0, rect: NSRect(x: tooltipRect.minX + 10, y: y, width: 56, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.5))
             drawRight(row.1, rect: NSRect(x: tooltipRect.minX + 70, y: y - 1, width: tooltipRect.width - 80, height: 15), color: row.2, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
         }
+    }
+
+    private func drawResetCreditHeaderTooltip(hit: NSRect, text: String, container: NSRect) {
+        let width: CGFloat = 254
+        let height: CGFloat = 42
+        var origin = CGPoint(x: hit.minX, y: hit.maxY + 8)
+        if origin.y + height > container.maxY - 10 {
+            origin.y = hit.minY - height - 8
+        }
+        origin.x = max(container.minX + 12, min(origin.x, container.maxX - width - 12))
+        origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
+        let tooltipRect = NSRect(origin: origin, size: NSSize(width: width, height: height))
+
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: tooltipRect, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        let border = NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        border.lineWidth = 1
+        border.stroke()
+
+        drawText(text, rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.minY + 13, width: tooltipRect.width - 20, height: 16), font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.9))
     }
 
     private func drawQuotaRows(snapshot: DetailsSnapshot, content: NSRect, y: CGFloat, height: CGFloat) {

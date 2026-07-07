@@ -460,6 +460,7 @@ enum L10nKey {
     case resetCreditExpiryUnavailable
     case resetCreditGrantedAt
     case resetCreditNoCredits
+    case resetCreditFetchedAtFormat
     case showPastEmptyWeeks
     case showCodexStatus
     case reset
@@ -767,6 +768,7 @@ enum L10nKey {
         case .resetCreditExpiryUnavailable: return "Expiry unavailable"
         case .resetCreditGrantedAt: return "Granted"
         case .resetCreditNoCredits: return "No credits"
+        case .resetCreditFetchedAtFormat: return "Fetched %@"
         case .showPastEmptyWeeks: return "Show past empty weeks"
         case .showCodexStatus: return "Show Codex status"
         case .reset: return "Reset"
@@ -1033,6 +1035,7 @@ enum L10nKey {
         case .resetCreditExpiryUnavailable: return "无法读取过期时间"
         case .resetCreditGrantedAt: return "获得"
         case .resetCreditNoCredits: return "暂无可用机会"
+        case .resetCreditFetchedAtFormat: return "获取于 %@"
         case .showPastEmptyWeeks: return "显示以前的无数据周"
         case .showCodexStatus: return "显示 Codex 状态"
         case .reset: return "重置"
@@ -1299,6 +1302,7 @@ enum L10nKey {
         case .resetCreditExpiryUnavailable: return "期限を取得できません"
         case .resetCreditGrantedAt: return "付与"
         case .resetCreditNoCredits: return "利用可能な枠なし"
+        case .resetCreditFetchedAtFormat: return "取得 %@"
         case .showPastEmptyWeeks: return "過去の空週を表示"
         case .showCodexStatus: return "Codex 状態を表示"
         case .reset: return "リセット"
