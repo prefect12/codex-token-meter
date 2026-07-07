@@ -8386,28 +8386,46 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     /// Pads sparse "past year" day data to a full 53-week range ending at the
-    /// last data day, so the contribution grid keeps GitHub-style fixed-size
-    /// cells instead of stretching a handful of days across the panel.
+    /// current calendar week's last slot, so the grid keeps fixed weekday rows
+    /// while future dates stay blank.
     private func paddedContributionDays(_ days: [DayUsage]) -> [DayUsage] {
         let totalDays = 53 * 7
         let formatter = dayFormatter()
-        guard days.count < totalDays,
-              let lastDay = days.last?.day,
-              let firstDay = days.first?.day,
-              let lastDate = formatter.date(from: lastDay),
-              let firstDate = formatter.date(from: firstDay),
-              let windowStart = appCalendar().date(byAdding: .day, value: -(totalDays - 1), to: lastDate),
-              firstDate >= windowStart else { return days }
+        let calendar = appCalendar()
+        let today = calendar.startOfDay(for: Date())
+        let windowEnd = contributionWeekEnd(for: today, calendar: calendar)
+        guard let windowStart = calendar.date(byAdding: .day, value: -(totalDays - 1), to: windowEnd) else {
+            return days
+        }
         var byKey: [String: DayUsage] = [:]
-        for day in days { byKey[day.day] = day }
+        for day in days {
+            guard let date = formatter.date(from: day.day),
+                  date >= windowStart,
+                  date <= windowEnd else { continue }
+            byKey[day.day] = day
+        }
         var padded: [DayUsage] = []
         padded.reserveCapacity(totalDays)
         for offset in stride(from: totalDays - 1, through: 0, by: -1) {
-            guard let date = appCalendar().date(byAdding: .day, value: -offset, to: lastDate) else { continue }
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: windowEnd) else { continue }
             let key = formatter.string(from: date)
             padded.append(byKey[key] ?? DayUsage(day: key, usage: Usage(), turns: 0))
         }
         return padded
+    }
+
+    private func contributionWeekEnd(for date: Date, calendar: Calendar) -> Date {
+        let day = calendar.startOfDay(for: date)
+        guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: day)?.start,
+              let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart) else {
+            return day
+        }
+        return weekEnd
+    }
+
+    private func isFutureContributionDay(_ day: String, formatter: DateFormatter, calendar: Calendar, today: Date) -> Bool {
+        guard let date = formatter.date(from: day) else { return false }
+        return calendar.compare(date, to: today, toGranularity: .day) == .orderedDescending
     }
 
     /// Aggregates the padded contribution days into the same 7-day columns the
@@ -8415,15 +8433,23 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func contributionWeekColumns(in report: TokenReport) -> [ContributionWeekSummary] {
         let days = paddedContributionDays(report.byDay)
         guard !days.isEmpty else { return [] }
+        let formatter = dayFormatter()
+        let calendar = appCalendar()
+        let today = calendar.startOfDay(for: Date())
         var result: [ContributionWeekSummary] = []
         var index = 0
         while index < days.count {
             let slice = Array(days[index..<min(index + 7, days.count)])
+            let visibleDays = slice.filter { !isFutureContributionDay($0.day, formatter: formatter, calendar: calendar, today: today) }
+            guard !visibleDays.isEmpty else {
+                index += 7
+                continue
+            }
             var usage = Usage()
             var turns = 0
             var activeDays = 0
             var total: Int64 = 0
-            for day in slice {
+            for day in visibleDays {
                 usage.add(day.usage)
                 turns += day.turns
                 total += day.usage.total
@@ -8432,14 +8458,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 }
             }
             result.append(ContributionWeekSummary(
-                key: slice.first?.day ?? "",
-                startDay: slice.first?.day ?? "",
-                endDay: slice.last?.day ?? "",
+                key: visibleDays.first?.day ?? "",
+                startDay: visibleDays.first?.day ?? "",
+                endDay: visibleDays.last?.day ?? "",
                 usage: usage,
                 total: total,
                 activeDays: activeDays,
                 turns: turns,
-                days: slice,
+                days: visibleDays,
                 hitRect: .zero,
                 cellRects: []
             ))
@@ -8464,6 +8490,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let days = paddedContributionDays(report.byDay)
 
         let maxTotal = max(days.map { $0.usage.total }.max() ?? 1, 1)
+        let formatter = dayFormatter()
+        let calendar = appCalendar()
+        let today = calendar.startOfDay(for: Date())
         let useCalendarGrid = !compact || days.count > 90
         let enableDayHover = selectedSection == .overview && compact
         let enableWeekSelection = selectedSection == .calendar && !compact && useCalendarGrid
@@ -8496,6 +8525,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         for (index, day) in days.enumerated() {
             let col = useCalendarGrid ? index / 7 : index % columns
             let row = useCalendarGrid ? index % 7 : index / columns
+            let isFuture = isFutureContributionDay(day.day, formatter: formatter, calendar: calendar, today: today)
+            guard !isFuture else { continue }
             let cell = NSRect(x: startX + CGFloat(col) * (square + gap), y: startY + CGFloat(row) * (square + gap), width: square, height: square)
             cells.append((day: day, rect: cell, column: col))
             if day.usage.total > 0 || day.turns > 0 {
@@ -8817,7 +8848,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         var lastMonth: String?
         var lastLabelX = -CGFloat.greatestFiniteMagnitude
         let minimumGap: CGFloat = compact ? 42 : 50
+        let formatter = dayFormatter()
+        let calendar = appCalendar()
+        let today = calendar.startOfDay(for: Date())
         for (index, day) in days.enumerated() {
+            guard !isFutureContributionDay(day.day, formatter: formatter, calendar: calendar, today: today) else { continue }
             let month = String(day.day.prefix(7))
             guard month != lastMonth else { continue }
             lastMonth = month
