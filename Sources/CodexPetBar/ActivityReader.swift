@@ -21,6 +21,7 @@ private struct ReadStateFile: Codable {
 private struct LoggedThread {
     let id: String
     let lastActivity: Date
+    let isCodexAPI: Bool
 }
 
 private struct ThreadStateMetadata {
@@ -165,7 +166,9 @@ final class CodexActivityReader {
                     status: preferLoggedStatus ? status : existing.status,
                     turns: max(existing.turns, summary.turns),
                     compressionCount: mergedCompressionCount(existing.compressionCount, summary.compressionCount),
-                    source: preferLoggedStatus ? "\(existing.source)+logs" : existing.source,
+                    source: preferLoggedStatus
+                        ? mergedSource(existing.source, fallback: logged.isCodexAPI ? "codex-api-logs" : "logs")
+                        : existing.source,
                     isExplicitUnread: existing.isExplicitUnread || explicitUnread,
                     codexUpdatedAt: existing.codexUpdatedAt,
                     tokensUsed: existing.tokensUsed ?? tokenBreakdown.displayTotal,
@@ -191,7 +194,7 @@ final class CodexActivityReader {
                 status: status,
                 turns: summary.turns,
                 compressionCount: summary.compressionCount,
-                source: "logs",
+                source: logged.isCodexAPI ? "codex-api-logs" : "logs",
                 isExplicitUnread: explicitUnread,
                 codexUpdatedAt: nil,
                 tokensUsed: summary.tokenBreakdown.displayTotal,
@@ -351,10 +354,15 @@ final class CodexActivityReader {
         let data = outputData
         outputLock.unlock()
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return AppServerThreadSnapshot() }
-        return parseAppServerThreads(text: text, limit: limit, unreadThreadIDs: unreadThreadIDs)
+        return parseAppServerThreads(
+            text: text,
+            limit: limit,
+            unreadThreadIDs: unreadThreadIDs,
+            source: isCodexAPIExecutable(codexPath) ? "codex-api-app-server" : "app-server"
+        )
     }
 
-    private func parseAppServerThreads(text: String, limit: Int, unreadThreadIDs: Set<String>) -> AppServerThreadSnapshot {
+    private func parseAppServerThreads(text: String, limit: Int, unreadThreadIDs: Set<String>, source: String) -> AppServerThreadSnapshot {
         var items: [CodexThreadItem] = []
         var externalReadAtByID: [String: Date] = [:]
         var threadDictionaries: [[String: Any]] = []
@@ -408,7 +416,7 @@ final class CodexActivityReader {
                     status: status,
                     turns: turnCount(from: dict["turns"] ?? dict["turnCount"]),
                     compressionCount: nil,
-                    source: "app-server",
+                    source: source,
                     isExplicitUnread: explicitUnread,
                     codexUpdatedAt: codexUpdatedAt,
                     tokensUsed: tokenBreakdown.displayTotal,
@@ -606,7 +614,11 @@ final class CodexActivityReader {
                     .compactMap { line in
                         let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
                         guard parts.count >= 2, let seconds = TimeInterval(parts[1]) else { return nil }
-                        return LoggedThread(id: String(parts[0]), lastActivity: Date(timeIntervalSince1970: seconds))
+                        return LoggedThread(
+                            id: String(parts[0]),
+                            lastActivity: Date(timeIntervalSince1970: seconds),
+                            isCodexAPI: isCodexAPIDatabaseURL(db)
+                        )
                     }
             }
             .sorted { $0.lastActivity > $1.lastActivity }
@@ -629,40 +641,42 @@ final class CodexActivityReader {
         """
         return stateDatabaseURLs()
             .filter { fileManager.fileExists(atPath: $0.path) }
-            .flatMap { runSQLiteJSON(databaseURL: $0, sql: sql) }
-            .compactMap { row in
-            guard let id = string(row["id"]) else { return nil }
-            let title = cleanTitleCandidate(
-                string(row["title"]),
-                string(row["preview"])
-            ) ?? String(id.prefix(8))
-            let updatedMS = double(row["updated_ms"]) ?? Date().timeIntervalSince1970 * 1000
-            let lastActivity = unixDate(seconds: updatedMS)
-            let codexUpdatedAt = unixDate(seconds: updatedMS)
-            let externalReadAt = externalReadAtByID[id]
-            if isAppServerReadThrough(externalReadAt: externalReadAt, lastActivity: lastActivity) {
-                return nil
+            .flatMap { db in
+                let source = isCodexAPIDatabaseURL(db) ? "codex-api-state" : "state"
+                return runSQLiteJSON(databaseURL: db, sql: sql).compactMap { row -> CodexThreadItem? in
+                    guard let id = string(row["id"]) else { return nil }
+                    let title = cleanTitleCandidate(
+                        string(row["title"]),
+                        string(row["preview"])
+                    ) ?? String(id.prefix(8))
+                    let updatedMS = double(row["updated_ms"]) ?? Date().timeIntervalSince1970 * 1000
+                    let lastActivity = unixDate(seconds: updatedMS)
+                    let codexUpdatedAt = unixDate(seconds: updatedMS)
+                    let externalReadAt = externalReadAtByID[id]
+                    if isAppServerReadThrough(externalReadAt: externalReadAt, lastActivity: lastActivity) {
+                        return nil
+                    }
+                    let tokenBreakdown = TokenBreakdown.totalOnly(intValue(row["tokens_used"]))
+                    return CodexThreadItem(
+                        id: id,
+                        title: title,
+                        preview: cleanPreview(string(row["preview"])),
+                        cwd: string(row["cwd"]),
+                        lastActivity: lastActivity,
+                        startedAt: nil,
+                        externalReadAt: externalReadAt,
+                        status: .unread,
+                        turns: 0,
+                        compressionCount: nil,
+                        source: source,
+                        isExplicitUnread: true,
+                        codexUpdatedAt: codexUpdatedAt,
+                        tokensUsed: tokenBreakdown.displayTotal,
+                        tokenBreakdown: tokenBreakdown,
+                        model: string(row["model"])
+                    )
+                }
             }
-            let tokenBreakdown = TokenBreakdown.totalOnly(intValue(row["tokens_used"]))
-            return CodexThreadItem(
-                id: id,
-                title: title,
-                preview: cleanPreview(string(row["preview"])),
-                cwd: string(row["cwd"]),
-                lastActivity: lastActivity,
-                startedAt: nil,
-                externalReadAt: externalReadAt,
-                status: .unread,
-                turns: 0,
-                compressionCount: nil,
-                source: "state",
-                isExplicitUnread: true,
-                codexUpdatedAt: codexUpdatedAt,
-                tokensUsed: tokenBreakdown.displayTotal,
-                tokenBreakdown: tokenBreakdown,
-                model: string(row["model"])
-            )
-        }
     }
 
     private func stateThreadMetadata(limit: Int = 300) -> [String: ThreadStateMetadata] {
@@ -1564,9 +1578,24 @@ final class CodexActivityReader {
             "/usr/local/bin/codex"
         ]
         if TaskBarSettings.includeCodexAPISource {
-            paths.insert("/Applications/Codex API.app/Contents/Resources/codex", at: 0)
+            paths.insert(contentsOf: [
+                "\(home)/Applications/Codex API.app/Contents/Resources/codex",
+                "/Applications/Codex API.app/Contents/Resources/codex"
+            ], at: 0)
         }
         return paths.filter { fileManager.isExecutableFile(atPath: $0) }
+    }
+
+    private func isCodexAPIExecutable(_ path: String) -> Bool {
+        path.contains("/Codex API.app/")
+    }
+
+    private func isCodexAPIDatabaseURL(_ url: URL) -> Bool {
+        url.path.contains("/.codex-api/")
+    }
+
+    private func mergedSource(_ source: String, fallback: String) -> String {
+        source.contains("codex-api") || fallback.contains("codex-api") ? "codex-api" : "\(source)+\(fallback)"
     }
 }
 
