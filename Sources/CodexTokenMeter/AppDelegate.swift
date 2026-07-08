@@ -746,8 +746,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func changeDisplayCurrency(_ currency: CurrencyCode, source: QuotaViewOption) {
-        guard source != .all else { return }
-        AppSettings.setDisplayCurrency(currency, for: source)
+        if source == .all {
+            for option in QuotaViewOption.allCases {
+                AppSettings.setDisplayCurrency(currency, for: option)
+            }
+        } else {
+            AppSettings.setDisplayCurrency(currency, for: source)
+        }
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)

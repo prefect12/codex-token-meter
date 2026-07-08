@@ -2732,6 +2732,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func layoutSettingsControls() {
         let visible = selectedSection == .settings
         languagePopup.isHidden = !(visible && selectedSettingsSubsection == .appearance)
+        displayCurrencyPopup.isHidden = !(visible && selectedSettingsSubsection == .appearance)
         statusPrimaryMetricPopup.isHidden = !(visible && selectedSettingsSubsection == .appearance)
         statusSecondaryMetricPopup.isHidden = !(visible && selectedSettingsSubsection == .appearance)
         launchAtLoginSwitch.isHidden = !(visible && selectedSettingsSubsection == .system)
@@ -2748,14 +2749,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let controlX = pageRect.maxX - controlWidth
         let switchX = pageRect.maxX - 50
         languagePopup.frame = NSRect(x: controlX, y: pageRect.minY + 70, width: controlWidth, height: 36)
-        statusPrimaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 224, width: controlWidth, height: 36)
-        statusSecondaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 294, width: controlWidth, height: 36)
+        displayCurrencyPopup.frame = NSRect(x: controlX, y: pageRect.minY + 146, width: controlWidth, height: 36)
+        statusPrimaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 300, width: controlWidth, height: 36)
+        statusSecondaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 370, width: controlWidth, height: 36)
         profileAPITotalsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 320, width: 48, height: 24)
         claudeActiveQuotaRefreshSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 390, width: 48, height: 24)
         showCodexStatusSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 306, width: 48, height: 24)
         quotaWarningsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 390, width: 48, height: 24)
         launchAtLoginSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 76, width: 48, height: 24)
         updateLanguagePopupFromSettings()
+        updateDisplayCurrencyPopupFromSettings()
         updateStatusMetricPopupsFromSettings()
         updateSettingsControlsFromSystem()
     }
@@ -2767,6 +2770,17 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         if let index = AppLanguage.allCases.firstIndex(of: AppLanguage.current) {
             languagePopup.selectItem(at: index)
+        }
+    }
+
+    private func updateDisplayCurrencyPopupFromSettings() {
+        let titles = CurrencyCode.allCases.map(\.displayTitle)
+        if displayCurrencyPopup.itemArray.map(\.title) != titles {
+            displayCurrencyPopup.removeAllItems()
+            displayCurrencyPopup.addItems(withTitles: titles)
+        }
+        if let index = CurrencyCode.allCases.firstIndex(of: AppSettings.displayCurrency(for: .all)) {
+            displayCurrencyPopup.selectItem(at: index)
         }
     }
 
@@ -3514,10 +3528,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     @objc private func displayCurrencyPopupChanged() {
-        guard !isUpdatingCostControls,
-              selectedDetailsSource != .all,
-              displayCurrencyPopup.indexOfSelectedItem >= 0 else { return }
+        guard displayCurrencyPopup.indexOfSelectedItem >= 0 else { return }
         let currency = CurrencyCode.allCases[displayCurrencyPopup.indexOfSelectedItem]
+        if selectedSection == .settings && selectedSettingsSubsection == .appearance {
+            onDisplayCurrencyChanged?(currency, .all)
+            needsDisplay = true
+            return
+        }
+        guard !isUpdatingCostControls,
+              selectedDetailsSource != .all else { return }
         onDisplayCurrencyChanged?(currency, selectedDetailsSource)
         needsDisplay = true
     }
@@ -7786,9 +7805,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
         drawSettingText(title: t(.interfaceLanguage), hint: t(.languageHint), x: page.minX, y: page.minY + 76, width: labelW)
 
-        drawSettingText(title: t(.numberUnits), hint: t(.numberUnitsHint), x: page.minX, y: page.minY + 152, width: labelW)
+        drawSettingText(title: t(.displayCurrency), hint: t(.displayCurrencyHint), x: page.minX, y: page.minY + 152, width: labelW)
+
+        drawSettingText(title: t(.numberUnits), hint: t(.numberUnitsHint), x: page.minX, y: page.minY + 228, width: labelW)
         let unitStyles = NumberUnitStyle.availableCases
-        let unitRects = segmentedRects(count: unitStyles.count, in: NSRect(x: optionX, y: page.minY + 146, width: optionW, height: 36), preferredWidth: 132)
+        let unitRects = segmentedRects(count: unitStyles.count, in: NSRect(x: optionX, y: page.minY + 222, width: optionW, height: 36), preferredWidth: 132)
         for (index, style) in unitStyles.enumerated() {
             let optionRect = unitRects[index]
             numberUnitOptionRects[style] = optionRect
@@ -7796,8 +7817,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
 
         let statusTextW = max(labelW, statusPrimaryMetricPopup.frame.minX - page.minX - 12)
-        drawSettingText(title: t(.statusBarMetricOne), hint: t(.statusDisplayHint), x: page.minX, y: page.minY + 230, width: statusTextW)
-        drawSettingText(title: t(.statusBarMetricTwo), hint: "", x: page.minX, y: page.minY + 300, width: statusTextW)
+        drawSettingText(title: t(.statusBarMetricOne), hint: t(.statusDisplayHint), x: page.minX, y: page.minY + 306, width: statusTextW)
+        drawSettingText(title: t(.statusBarMetricTwo), hint: "", x: page.minX, y: page.minY + 376, width: statusTextW)
     }
 
     private func drawDataSettings(in page: NSRect) {

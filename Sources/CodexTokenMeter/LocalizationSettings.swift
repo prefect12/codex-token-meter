@@ -357,6 +357,7 @@ enum L10nKey {
     case diagnosticsSubtitle
     case disabled
     case displayCurrency
+    case displayCurrencyHint
     case dayValueHint
     case displayEquivalent
     case enabled
@@ -665,6 +666,7 @@ enum L10nKey {
         case .diagnosticsSubtitle: return "Data sources, warnings, and tool coverage"
         case .disabled: return "Disabled"
         case .displayCurrency: return "Display currency"
+        case .displayCurrencyHint: return "Controls money displays in the dashboard and details."
         case .dayValueHint: return "Estimated by converting that day's token usage into money based on your plan price, not official billing."
         case .displayEquivalent: return "Display equivalent"
         case .enabled: return "Enabled"
@@ -932,6 +934,7 @@ enum L10nKey {
         case .diagnosticsSubtitle: return "数据源、提醒和工具覆盖"
         case .disabled: return "已关闭"
         case .displayCurrency: return "展示币种"
+        case .displayCurrencyHint: return "控制概览和详情里的金额显示币种。"
         case .dayValueHint: return "按你的套餐价格，把当天 token 开销折算成金额的估算值，不是官方账单。"
         case .displayEquivalent: return "展示折合"
         case .enabled: return "已开启"
@@ -1199,6 +1202,7 @@ enum L10nKey {
         case .diagnosticsSubtitle: return "データソース、通知、ツール範囲"
         case .disabled: return "無効"
         case .displayCurrency: return "表示通貨"
+        case .displayCurrencyHint: return "ダッシュボードと詳細の金額表示に使う通貨です。"
         case .dayValueHint: return "プラン料金を基準に、その日の token 使用量を金額換算した推定値であり、公式請求ではありません。"
         case .displayEquivalent: return "表示換算"
         case .enabled: return "有効"
