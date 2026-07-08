@@ -13,7 +13,7 @@
 
 | App | 安装包 | 安装位置 |
 | --- | --- | --- |
-| AI Token Meter | `AI-Token-Meter-0.2.8.dmg` | `/Applications/AI Token Meter.app` |
+| AI Token Meter | `AI-Token-Meter-0.2.9.dmg` | `/Applications/AI Token Meter.app` |
 | Task Bar | `Task-Bar-0.1.10.dmg` | `/Applications/Task Bar.app` |
 
 如果只安装 AI Token Meter，就只会得到 token / 额度面板；Task Bar 是独立状态栏 app，需要下载并安装 `Task-Bar-*.dmg`。
@@ -106,7 +106,7 @@ Repo 对话体检：按项目和文件夹定位长线程，统计对话长度分
 
 | App | Version | Build | Bundle |
 | --- | --- | --- | --- |
-| AI Token Meter | `0.2.8` | `22` | `/Applications/AI Token Meter.app` |
+| AI Token Meter | `0.2.9` | `23` | `/Applications/AI Token Meter.app` |
 | Task Bar | `0.1.10` | `11` | `/Applications/Task Bar.app` |
 
 ## 数据来源
@@ -208,7 +208,7 @@ Task Bar 读取：
 输出：
 
 ```text
-dist/AI-Token-Meter-0.2.6.dmg
+dist/AI-Token-Meter-0.2.9.dmg
 ```
 
 打包 Task Bar：
@@ -220,7 +220,7 @@ dist/AI-Token-Meter-0.2.6.dmg
 输出：
 
 ```text
-dist/Task-Bar-0.1.6.dmg
+dist/Task-Bar-0.1.10.dmg
 ```
 
 ## 命令行检查
