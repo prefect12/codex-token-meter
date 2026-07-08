@@ -19,6 +19,64 @@ private struct ReadStateFile: Codable {
     var runningSeenAt: [String: TimeInterval]?
     var userReadAt: [String: TimeInterval]?
     var codexUpdatedAtSeen: [String: TimeInterval]?
+    var codexUnreadSeenAt: [String: TimeInterval]?
+}
+
+private enum CodexUnreadStateRead {
+    case missing
+    case unavailable
+    case unreadIDs(Set<String>)
+}
+
+private func configuredCodexHomeURLs(home: String = NSHomeDirectory()) -> [URL] {
+    var urls = [
+        URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
+    ]
+    if TaskBarSettings.includeCodexAPISource {
+        urls.append(URL(fileURLWithPath: home).appendingPathComponent(".codex-api", isDirectory: true))
+    }
+    urls.append(contentsOf: TaskBarSettings.extraCodexHomeFolderPaths.map { path in
+        URL(fileURLWithPath: path, isDirectory: true)
+    })
+    return unique(urls)
+}
+
+private func readCodexUnreadState(in codexHome: URL) -> CodexUnreadStateRead {
+    let fileURL = codexHome.appendingPathComponent(".codex-global-state.json")
+    guard FileManager.default.fileExists(atPath: fileURL.path) else {
+        return .missing
+    }
+    guard let data = try? Data(contentsOf: fileURL),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let atoms = object["electron-persisted-atom-state"] as? [String: Any],
+          let unreadByHost = atoms["unread-thread-ids-by-host-v1"] as? [String: Any] else {
+        return .unavailable
+    }
+
+    var ids = Set<String>()
+    for value in unreadByHost.values {
+        if let array = value as? [Any] {
+            ids.formUnion(array.compactMap(string))
+        }
+    }
+    return .unreadIDs(ids)
+}
+
+private func currentCodexUnreadThreadIDs(home: String = NSHomeDirectory()) -> Set<String>? {
+    var ids = Set<String>()
+    var didReadAnyState = false
+    for codexHome in configuredCodexHomeURLs(home: home) {
+        switch readCodexUnreadState(in: codexHome) {
+        case .missing:
+            continue
+        case .unavailable:
+            return nil
+        case .unreadIDs(let value):
+            didReadAnyState = true
+            ids.formUnion(value)
+        }
+    }
+    return didReadAnyState ? ids : nil
 }
 
 private struct LoggedThread {
@@ -623,22 +681,7 @@ final class CodexActivityReader {
     }
 
     private func globalUnreadThreadIDs() -> Set<String> {
-        var ids = Set<String>()
-        for codexHome in codexHomeURLs() {
-            let fileURL = codexHome.appendingPathComponent(".codex-global-state.json")
-            guard let data = try? Data(contentsOf: fileURL),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let atoms = object["electron-persisted-atom-state"] as? [String: Any],
-                  let unreadByHost = atoms["unread-thread-ids-by-host-v1"] as? [String: Any] else {
-                continue
-            }
-            for value in unreadByHost.values {
-                if let array = value as? [Any] {
-                    ids.formUnion(array.compactMap(string))
-                }
-            }
-        }
-        return ids
+        currentCodexUnreadThreadIDs(home: home) ?? []
     }
 
     private func firstArray(in object: [String: Any], keys: [String]) -> [Any] {
@@ -1804,16 +1847,7 @@ final class CodexActivityReader {
     }
 
     private func codexHomeURLs() -> [URL] {
-        var urls = [
-            URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
-        ]
-        if TaskBarSettings.includeCodexAPISource {
-            urls.append(URL(fileURLWithPath: home).appendingPathComponent(".codex-api", isDirectory: true))
-        }
-        urls.append(contentsOf: TaskBarSettings.extraCodexHomeFolderPaths.map { path in
-            URL(fileURLWithPath: path, isDirectory: true)
-        })
-        return unique(urls)
+        configuredCodexHomeURLs(home: home)
     }
 
     private func claudeProjectRoots() -> [URL] {
@@ -1889,7 +1923,8 @@ final class CodexActivityReader {
 }
 
 final class ReadStateStore {
-    private static let schemaVersion = 6
+    private static let schemaVersion = 7
+    private static let userReadAtSchemaVersion = 6
     private static let readWatermarkTolerance: TimeInterval = 60
     /// A thread first seen as "unread" may simply be one whose running phase every
     /// scan missed — scans are periodic and can be starved for minutes under system
@@ -1926,8 +1961,9 @@ final class ReadStateStore {
                 runningSeenAt: decoded.runningSeenAt ?? [:],
                 // Older builds also wrote external/Codex-open read watermarks here,
                 // so only trust it after schema 6 where it means a Task Bar action.
-                userReadAt: decodedSchemaVersion >= Self.schemaVersion ? decoded.userReadAt : [:],
-                codexUpdatedAtSeen: decoded.codexUpdatedAtSeen ?? [:]
+                userReadAt: decodedSchemaVersion >= Self.userReadAtSchemaVersion ? decoded.userReadAt : [:],
+                codexUpdatedAtSeen: decoded.codexUpdatedAtSeen ?? [:],
+                codexUnreadSeenAt: decoded.codexUnreadSeenAt ?? [:]
             )
         } else {
             state = ReadStateFile(
@@ -1936,7 +1972,8 @@ final class ReadStateStore {
                 openedAt: [:],
                 runningSeenAt: [:],
                 userReadAt: [:],
-                codexUpdatedAtSeen: [:]
+                codexUpdatedAtSeen: [:],
+                codexUnreadSeenAt: [:]
             )
         }
     }
@@ -1962,6 +1999,7 @@ final class ReadStateStore {
             }
         }
         current.runningSeenAt = runningSeenAt
+        syncCodexUnreadMarkers(&current, items: items, didChange: &didChange)
 
         for item in items where !item.isExplicitUnread {
             guard let externalReadAt = item.externalReadAt,
@@ -1995,11 +2033,8 @@ final class ReadStateStore {
                 let readAt = current.openedAt[item.id] ?? 0
                 let userReadAt = current.userReadAt?[item.id] ?? 0
                 guard userReadAt < item.lastActivity.timeIntervalSince1970 else { continue }
-                if shouldShowCompletedThread(item, state: current) {
-                    visible.append(item)
-                    continue
-                }
                 if item.isExplicitUnread {
+                    visible.append(item)
                     continue
                 }
                 if readAt >= item.lastActivity.timeIntervalSince1970,
@@ -2065,6 +2100,38 @@ final class ReadStateStore {
         state.didBaselineExistingWaiting = true
         saveLocked()
         lock.unlock()
+    }
+
+    private func syncCodexUnreadMarkers(_ current: inout ReadStateFile, items: [CodexThreadItem], didChange: inout Bool) {
+        guard let unreadIDs = currentCodexUnreadThreadIDs() else { return }
+
+        var seenAt = current.codexUnreadSeenAt ?? [:]
+        let itemsByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let now = Date()
+        for id in Array(seenAt.keys) where !unreadIDs.contains(id) {
+            seenAt.removeValue(forKey: id)
+            guard let item = itemsByID[id] else {
+                didChange = true
+                continue
+            }
+            let timestamp = readThroughTime(for: item, at: now)
+            if (current.openedAt[id] ?? 0) < timestamp {
+                current.openedAt[id] = timestamp
+                didChange = true
+            }
+            var userReadAt = current.userReadAt ?? [:]
+            if (userReadAt[id] ?? 0) < timestamp {
+                userReadAt[id] = timestamp
+                current.userReadAt = userReadAt
+                didChange = true
+            }
+        }
+
+        for id in unreadIDs where seenAt[id] == nil {
+            seenAt[id] = now.timeIntervalSince1970
+            didChange = true
+        }
+        current.codexUnreadSeenAt = seenAt
     }
 
     private func shouldBaselineAsRead(_ item: CodexThreadItem, state: ReadStateFile) -> Bool {
