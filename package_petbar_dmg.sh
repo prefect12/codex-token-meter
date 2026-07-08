@@ -15,7 +15,7 @@ mkdir -p "$STAGE" "$DIST"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 
-codesign --force --deep --sign - "$STAGE/Task Bar.app"
+codesign --force --deep --sign "AudioWhisperDev" "$STAGE/Task Bar.app"
 rm -f "$DMG"
 hdiutil create -volname "Task Bar" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
 hdiutil verify "$DMG"

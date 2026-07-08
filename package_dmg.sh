@@ -15,7 +15,7 @@ mkdir -p "$STAGE" "$DIST"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 
-codesign --force --deep --sign - "$STAGE/AI Token Meter.app"
+codesign --force --deep --sign "AudioWhisperDev" "$STAGE/AI Token Meter.app"
 rm -f "$DMG"
 hdiutil create -volname "AI Token Meter" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
 hdiutil verify "$DMG"

@@ -22,6 +22,7 @@ rm -rf "$DEST"
 rm -rf "$OLD_DEST"
 rm -rf "$OLDER_DEST"
 cp -R "$APP" "$DEST"
+codesign --force --deep --sign "AudioWhisperDev" "$DEST"
 open "$DEST"
 
 echo "$DEST"
