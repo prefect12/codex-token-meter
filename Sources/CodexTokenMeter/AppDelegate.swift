@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let quota = QuotaViewOption.option(from: rawQuota) {
             selectedQuota = quota
         }
+        liveLimits = LiveRateLimitCacheStore.read()
 
         NSApp.applicationIconImage = NSImage(named: "LogoHeader")
         popover.contentViewController = dashboardController
@@ -359,12 +360,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let limits = forceLive ? self.mergedLiveLimits(fresh: freshLimits, fallback: currentLimits) : currentLimits
             let freshResetCredits = forceLive ? self.resetCreditsReader.read() : currentResetCredits
             let effectiveResetCredits = freshResetCredits ?? currentResetCredits
-            let codexLimits = codexTrackedLiveLimits(limits)
-            if forceLive, !codexLimits.isEmpty {
-                AppSettings.learnModelLimit(from: codexLimits)
-                CostHistoryStore.shared.record(limits: codexLimits)
-                QuotaCycleStore.shared.record(limits: limits)
-                QuotaWarningManager.shared.evaluate(limits: codexLimits)
+            let freshCodexLimits = codexTrackedLiveLimits(freshLimits)
+            if forceLive, !limits.isEmpty {
+                LiveRateLimitCacheStore.write(limits)
+            }
+            if forceLive, !freshCodexLimits.isEmpty {
+                AppSettings.learnModelLimit(from: freshCodexLimits)
+                CostHistoryStore.shared.record(limits: freshCodexLimits)
+                QuotaCycleStore.shared.record(limits: freshLimits)
+                QuotaWarningManager.shared.evaluate(limits: freshCodexLimits)
             }
             let nextRefresh = Date().addingTimeInterval(self.refreshInterval)
             DispatchQueue.main.async {
@@ -440,11 +444,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let freshResetCredits = self.resetCreditsReader.read()
             let effectiveResetCredits = freshResetCredits ?? currentResetCredits
             let serviceStatus = self.serviceStatusReader.read()
-            let codexLimits = codexTrackedLiveLimits(limits)
-            AppSettings.learnModelLimit(from: codexLimits)
-            CostHistoryStore.shared.record(limits: codexLimits)
-            QuotaCycleStore.shared.record(limits: limits)
-            QuotaWarningManager.shared.evaluate(limits: codexLimits)
+            let freshCodexLimits = codexTrackedLiveLimits(freshLimits)
+            if !limits.isEmpty {
+                LiveRateLimitCacheStore.write(limits)
+            }
+            if !freshCodexLimits.isEmpty {
+                AppSettings.learnModelLimit(from: freshCodexLimits)
+                CostHistoryStore.shared.record(limits: freshCodexLimits)
+                QuotaCycleStore.shared.record(limits: freshLimits)
+                QuotaWarningManager.shared.evaluate(limits: freshCodexLimits)
+            }
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             DispatchQueue.main.async {
                 self.liveRefreshInFlight = false
@@ -638,9 +647,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func statusPercentText(_ percent: Double?, source: QuotaViewOption) -> String? {
-        guard let percent else {
-            return source == .codex ? "0%" : nil
-        }
+        guard let percent else { return nil }
         return "\(Int(round(percent)))%"
     }
 
@@ -651,9 +658,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func selectedLimit(from limits: [LiveRateLimit], quota: QuotaViewOption) -> LiveRateLimit? {
         if let exact = limits.first(where: { $0.id == quota.liveLimitID }) {
             return exact
-        }
-        if quota == .all || quota == .codex {
-            return limits.first { $0.id == QuotaViewOption.codex.liveLimitID } ?? limits.first
         }
         return nil
     }
@@ -863,6 +867,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveLimits = []
         accountUsage = nil
         resetCredits = nil
+        LiveRateLimitCacheStore.remove()
         latestState.liveLimits = []
         latestState.accountUsage = nil
         latestState.profileReport = nil

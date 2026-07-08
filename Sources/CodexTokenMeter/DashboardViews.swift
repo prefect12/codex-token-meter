@@ -1052,10 +1052,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
     }
 
     private func codexLimit(from limits: [LiveRateLimit]) -> LiveRateLimit? {
-        if let exact = limits.first(where: { $0.id == QuotaViewOption.codex.liveLimitID }) {
-            return exact
-        }
-        return limits.first { $0.id != QuotaViewOption.claude.liveLimitID }
+        limits.first { $0.id == QuotaViewOption.codex.liveLimitID }
     }
 
     private func drawRingBlock(title: String, target: QuotaViewOption, limit: LiveRateLimit?, metric: HomeQuotaRingMetric, center: NSPoint) {
@@ -1244,14 +1241,6 @@ final class PlatformQuotaRingsOverviewView: NSView {
 
     private func ringTooltip(title: String, target: QuotaViewOption, window: RateWindow?, metric: HomeQuotaRingMetric, capturedAt: Date?) -> String {
         guard let window else {
-            if target == .codex {
-                return [
-                    "\(title) \(metric.title)",
-                    "圈内数字：实际剩余 0%",
-                    "重置：--",
-                    "数据更新：--"
-                ].joined(separator: "\n")
-            }
             return "\(title) \(metric.title)\n\(t(.liveLimitUnavailable))"
         }
         var lines = [
@@ -1288,9 +1277,6 @@ final class PlatformQuotaRingsOverviewView: NSView {
         if let limit {
             lines.append("5h \(t(.remaining)) \(Int(round(limit.primary.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(limit.primary.resetsAt))")
             lines.append("\(t(.weeklyLeft)) \(Int(round(limit.secondary.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(limit.secondary.resetsAt))")
-        } else if target == .codex {
-            lines.append("5h \(t(.remaining)) 0% · \(t(.reset)) --")
-            lines.append("\(t(.weeklyLeft)) 0% · \(t(.reset)) --")
         } else {
             lines.append(t(.liveLimitUnavailable))
         }
@@ -1326,15 +1312,12 @@ final class PlatformQuotaRingsOverviewView: NSView {
 
     private func displayedRemainingPercent(_ window: RateWindow?, target: QuotaViewOption) -> Double {
         guard let window else {
-            return target == .codex ? 0 : -1
+            return -1
         }
         return window.remainingPercent
     }
 
     private func displayedRemainingColor(_ window: RateWindow?, target: QuotaViewOption, percent: Double) -> NSColor {
-        if window == nil && target == .codex {
-            return NSColor.white.withAlphaComponent(0.88)
-        }
         return colorForRemaining(percent: percent)
     }
 
@@ -1830,15 +1813,12 @@ final class DashboardView: NSView {
 
     private func displayedRemainingPercent(_ window: RateWindow?, target: QuotaViewOption) -> Double {
         guard let window else {
-            return target == .codex ? 0 : -1
+            return -1
         }
         return window.remainingPercent
     }
 
     private func displayedRemainingColor(_ window: RateWindow?, target: QuotaViewOption, percent: Double) -> NSColor {
-        if window == nil && target == .codex {
-            return NSColor.white.withAlphaComponent(0.88)
-        }
         return colorForRemaining(percent: percent)
     }
 
@@ -1862,9 +1842,6 @@ final class DashboardView: NSView {
     private func selectedLimit(from limits: [LiveRateLimit], quota: QuotaViewOption) -> LiveRateLimit? {
         if let exact = limits.first(where: { $0.id == quota.liveLimitID }) {
             return exact
-        }
-        if quota == .all || quota == .codex {
-            return limits.first { $0.id == QuotaViewOption.codex.liveLimitID } ?? limits.first
         }
         return nil
     }

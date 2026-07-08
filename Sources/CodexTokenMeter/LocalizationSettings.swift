@@ -1644,6 +1644,10 @@ enum AppSettings {
         appSupportDirectoryURL.appendingPathComponent("details-snapshot-cache.json")
     }
 
+    static var liveLimitsCacheURL: URL {
+        appSupportDirectoryURL.appendingPathComponent("live-limits-cache.json")
+    }
+
     static var claudeStatuslineCaptureURL: URL {
         appSupportDirectoryURL.appendingPathComponent("claude-statusline.json")
     }

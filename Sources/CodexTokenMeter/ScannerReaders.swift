@@ -1468,30 +1468,38 @@ final class LiveRateLimitReader {
         }
 
         let name = dict["limitName"] as? String ?? dict["limit_name"] as? String ?? id
+        guard let primary = window(from: primaryDict),
+              let secondary = window(from: secondaryDict) else {
+            return nil
+        }
         return LiveRateLimit(
             id: id,
             name: name,
-            primary: window(from: primaryDict),
-            secondary: window(from: secondaryDict),
+            primary: primary,
+            secondary: secondary,
             planType: dict["planType"] as? String ?? dict["plan_type"] as? String,
             capturedAt: Date()
         )
     }
 
-    private func window(from dict: [String: Any]) -> RateWindow {
-        let used = double(dict["usedPercent"] ?? dict["used_percent"])
-        let minutes = Int(double(dict["windowDurationMins"] ?? dict["window_minutes"]))
-        let resetSeconds = double(dict["resetsAt"] ?? dict["resets_at"])
+    private func window(from dict: [String: Any]) -> RateWindow? {
+        guard let used = optionalDouble(dict["usedPercent"] ?? dict["used_percent"] ?? dict["usedPercentage"] ?? dict["used_percentage"]),
+              used.isFinite else {
+            return nil
+        }
+        let minutes = Int(optionalDouble(dict["windowDurationMins"] ?? dict["window_minutes"] ?? dict["windowDurationMinutes"]) ?? 0)
+        guard minutes > 0 else { return nil }
+        let resetSeconds = optionalDouble(dict["resetsAt"] ?? dict["resets_at"]) ?? 0
         let resetDate = resetSeconds > 0 ? Date(timeIntervalSince1970: resetSeconds) : nil
         return RateWindow(usedPercent: used, windowMinutes: minutes, resetsAt: resetDate)
     }
 
-    private func double(_ value: Any?) -> Double {
+    private func optionalDouble(_ value: Any?) -> Double? {
         if let value = value as? Double { return value }
         if let value = value as? Int { return Double(value) }
         if let value = value as? Int64 { return Double(value) }
-        if let value = value as? String { return Double(value) ?? 0 }
-        return 0
+        if let value = value as? String { return Double(value) }
+        return nil
     }
 }
 

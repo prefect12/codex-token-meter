@@ -193,6 +193,60 @@ func liveRateLimitIsStale(_ limit: LiveRateLimit?) -> Bool {
     limit?.planType == "official-statusline-stale"
 }
 
+enum LiveRateLimitCacheStore {
+    private static let version = 1
+
+    private struct Payload: Codable {
+        let version: Int
+        let writtenAt: Date
+        let limits: [LiveRateLimit]
+    }
+
+    static func read() -> [LiveRateLimit] {
+        let url = AppSettings.liveLimitsCacheURL
+        guard let data = try? Data(contentsOf: url),
+              let payload = try? JSONDecoder().decode(Payload.self, from: data),
+              payload.version == version else {
+            return []
+        }
+        return sanitized(payload.limits)
+    }
+
+    static func write(_ limits: [LiveRateLimit]) {
+        let limits = sanitized(limits)
+        guard !limits.isEmpty else { return }
+        let payload = Payload(version: version, writtenAt: Date(), limits: limits)
+        do {
+            try FileManager.default.createDirectory(at: AppSettings.appSupportDirectoryURL, withIntermediateDirectories: true)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(payload)
+            try data.write(to: AppSettings.liveLimitsCacheURL, options: .atomic)
+        } catch {
+            NSLog("AI Token Meter live limits cache write failed: \(error.localizedDescription)")
+        }
+    }
+
+    static func remove() {
+        try? FileManager.default.removeItem(at: AppSettings.liveLimitsCacheURL)
+    }
+
+    private static func sanitized(_ limits: [LiveRateLimit]) -> [LiveRateLimit] {
+        var byID: [String: LiveRateLimit] = [:]
+        for limit in limits where isUsable(limit) {
+            byID[limit.id] = limit
+        }
+        return byID.values.sorted { $0.id < $1.id }
+    }
+
+    private static func isUsable(_ limit: LiveRateLimit) -> Bool {
+        limit.primary.usedPercent.isFinite
+            && limit.secondary.usedPercent.isFinite
+            && limit.primary.windowMinutes > 0
+            && limit.secondary.windowMinutes > 0
+    }
+}
+
 final class ClaudeStatuslineStore {
     private static let ttlSeconds: TimeInterval = 10 * 60
     private let url: URL
