@@ -231,7 +231,7 @@ enum TaskBarSettings {
     static var includeCodexAPISource: Bool {
         get {
             guard UserDefaults.standard.object(forKey: includeCodexAPISourceKey) != nil else {
-                return true
+                return false
             }
             return UserDefaults.standard.bool(forKey: includeCodexAPISourceKey)
         }
@@ -478,7 +478,7 @@ private enum TaskBarSettingsInfo: CaseIterable {
         case .sourceLabel:
             return "显示任务来自哪个本地来源：Claude Code 项目日志标为 Claude；普通 Codex 标为 Codex；API 专用来源标为 Codex API。"
         case .codexAPI:
-            return "默认自动读取 ~/.codex-api 和 Codex API.app；任务会标为 Codex API，点击会打开 Codex API。"
+            return "开启后才读取 ~/.codex-api 和 Codex API.app；任务会标为 Codex API，点击会打开 Codex API。默认关闭，避免普通 Codex 任务跳到 API 客户端。"
         case .tokenUnit:
             return "只影响 hover 中的输入 / 输出等数字；缓存率和金额不变。"
         }
