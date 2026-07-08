@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var readInFlight = false
     private var selectedTab: TaskBarTab = .all
     private var lastThreadsSignature = ""
+    private var lastStatusIconSignature = ""
+    private let refreshInterval: TimeInterval = 5
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -28,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         configureStatusButton()
         refresh()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh()
         }
         animationTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { [weak self] _ in
@@ -44,11 +46,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ThreadHoverPanel.shared.hideAll()
     }
 
-    private func refresh() {
+    private func refresh(includeRolloutEnrichment: Bool = false) {
         guard !readInFlight else { return }
         readInFlight = true
         DispatchQueue.global(qos: .utility).async {
-            let items = self.reader.read(limit: taskBarCandidateThreadLimit)
+            let items = self.reader.read(
+                limit: taskBarCandidateThreadLimit,
+                includeRolloutEnrichment: includeRolloutEnrichment
+            )
             let visible = self.readState.visibleThreads(from: items)
                 .sorted(by: stableThreadOrder)
                 .limitedForTaskBar(limit: taskBarVisibleThreadLimit)
@@ -87,13 +92,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let actionNeededCount = waitingCount + unreadCount
         let totalCount = runningCount + actionNeededCount
         let statusIconStatus: ThreadRunStatus = waitingCount > 0 ? .waiting : (unreadCount > 0 ? .unread : .running)
-        statusItem.button?.image = icon.image(status: statusIconStatus, showsRedDot: actionNeededCount > 0)
+        let showsRedDot = actionNeededCount > 0
+        let title = totalCount > 0 ? " \(totalCount)" : ""
+        let signature = "\(runningCount)|\(waitingCount)|\(unreadCount)|\(statusIconStatus)|\(showsRedDot)|\(title)"
+        guard signature != lastStatusIconSignature else { return }
+        lastStatusIconSignature = signature
+
+        statusItem.button?.image = icon.image(status: statusIconStatus, showsRedDot: showsRedDot)
         statusItem.button?.imagePosition = .imageLeading
-        if totalCount > 0 {
-            statusItem.button?.title = " \(totalCount)"
-        } else {
-            statusItem.button?.title = ""
-        }
+        statusItem.button?.title = title
     }
 
     @objc private func togglePopover() {
@@ -105,7 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildPopover()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
-        refresh()
+        refresh(includeRolloutEnrichment: true)
     }
 
     private func rebuildPopover() {

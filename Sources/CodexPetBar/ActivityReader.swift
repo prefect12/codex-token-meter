@@ -8,6 +8,9 @@ import Foundation
 /// Kept generous so a long, quiet tool call (e.g. a multi-minute build) is not
 /// mistaken for a dead session.
 private let runningActivityTimeout: TimeInterval = 10 * 60
+private let rolloutHeaderScanLimit = 4_096
+private let rolloutPayloadParseByteLimit = 200_000
+private let rolloutTailScanByteLimit: UInt64 = 512 * 1024
 
 private struct ReadStateFile: Codable {
     var schemaVersion: Int?
@@ -24,8 +27,14 @@ private struct LoggedThread {
     let isCodexAPI: Bool
 }
 
+private struct LoggedRolloutThread {
+    let logged: LoggedThread
+    let fileURL: URL
+}
+
 private struct ThreadStateMetadata {
     let title: String?
+    let cwd: String?
     let tokensUsed: Int?
     let tokenBreakdown: TokenBreakdown
     let model: String?
@@ -35,6 +44,32 @@ private struct ThreadStateMetadata {
 private struct AppServerThreadSnapshot {
     var items: [CodexThreadItem] = []
     var externalReadAtByID: [String: Date] = [:]
+}
+
+private struct CachedAppServerSnapshot {
+    let snapshot: AppServerThreadSnapshot
+    let readAt: Date
+}
+
+private struct SQLiteQueryCacheEntry {
+    let signature: String
+    let data: Data
+}
+
+private struct RolloutDirectoryCacheEntry {
+    let signature: String
+    let urlsByThreadID: [String: URL]
+}
+
+private struct CachedStateMetadata {
+    let metadata: [String: ThreadStateMetadata]
+    let readAt: Date
+}
+
+private struct CachedUnreadThreads {
+    let key: String
+    let items: [CodexThreadItem]
+    let readAt: Date
 }
 
 private struct RolloutSummary {
@@ -50,6 +85,7 @@ private struct RolloutSummary {
     var currentTurnStartedAt: Date?
     var tokenBreakdown = TokenBreakdown()
     var compressionCount = 0
+    var sawActivity = false
 }
 
 /// Byte-offset bookmark into a JSONL file that is only ever appended to.
@@ -110,12 +146,23 @@ final class CodexActivityReader {
     private let home = NSHomeDirectory()
     private var rolloutScanCache: [String: RolloutScanState] = [:]
     private var claudeScanCache: [String: ClaudeScanState] = [:]
+    private var rolloutURLCacheByThreadID: [String: URL] = [:]
+    private var rolloutDirectoryCache: [String: RolloutDirectoryCacheEntry] = [:]
+    private var sqliteQueryCache: [String: SQLiteQueryCacheEntry] = [:]
+    private var appServerCacheByPath: [String: CachedAppServerSnapshot] = [:]
+    private var stateMetadataCache: CachedStateMetadata?
+    private var unreadThreadsCache: CachedUnreadThreads?
+    private let appServerCacheTTL: TimeInterval = 120
+    private let sqliteSupplementCacheTTL: TimeInterval = 30
 
-    func read(limit: Int = 12, lookbackHours: Int = 12) -> [CodexThreadItem] {
+    func read(limit: Int = 12, lookbackHours: Int = 12, includeRolloutEnrichment: Bool = false) -> [CodexThreadItem] {
         // Safety valve only: entries are tiny, but an unbounded map over months of
         // uptime should not grow forever. Dropping everything just re-parses once.
         if rolloutScanCache.count > 2048 { rolloutScanCache.removeAll() }
         if claudeScanCache.count > 2048 { claudeScanCache.removeAll() }
+        if rolloutURLCacheByThreadID.count > 4096 { rolloutURLCacheByThreadID.removeAll() }
+        if rolloutDirectoryCache.count > 256 { rolloutDirectoryCache.removeAll() }
+        if sqliteQueryCache.count > 64 { sqliteQueryCache.removeAll() }
         var byID: [String: CodexThreadItem] = [:]
         let unreadThreadIDs = globalUnreadThreadIDs()
         let stateMetadata = stateThreadMetadata()
@@ -124,9 +171,15 @@ final class CodexActivityReader {
             byID[item.id] = item
         }
 
-        for logged in recentLoggedThreads(limit: max(limit * 3, 18), lookbackHours: lookbackHours) {
-            let rollout = rolloutURL(threadID: logged.id, lastActivity: logged.lastActivity, lookbackHours: lookbackHours)
-            let summary = rollout.flatMap(rolloutSummary)
+        let loggedRollouts = recentRolloutThreads(limit: max(limit * 3, 18), lookbackHours: lookbackHours)
+        let loggedCandidates: [(logged: LoggedThread, rolloutURL: URL?)] = loggedRollouts.isEmpty
+            ? recentLoggedThreads(limit: max(limit * 3, 18), lookbackHours: lookbackHours).map { logged in
+                (logged, rolloutURL(threadID: logged.id, lastActivity: logged.lastActivity, lookbackHours: lookbackHours))
+            }
+            : loggedRollouts.map { ($0.logged, $0.fileURL) }
+        for candidate in loggedCandidates {
+            let logged = candidate.logged
+            let summary = candidate.rolloutURL.flatMap { rolloutSummary(fileURL: $0, tailOnly: true) }
             guard let summary, summary.turns > 0 else { continue }
             let activityDate: Date
             if summary.isWaitingForInput {
@@ -212,8 +265,11 @@ final class CodexActivityReader {
             byID[item.id] = item
         }
 
-        return Array(byID.values)
-            .map { enrichWithRolloutSummary($0, lookbackHours: max(lookbackHours, 72)) }
+        let values = Array(byID.values)
+        let enrichedValues = includeRolloutEnrichment
+            ? values.map { enrichWithRolloutSummary($0, lookbackHours: max(lookbackHours, 72), tailOnly: true) }
+            : values
+        return enrichedValues
             .map { enrich($0, with: stateMetadata[$0.id]) }
             .sorted(by: stableThreadOrder)
             .limitedForTaskBar(limit: limit)
@@ -225,7 +281,7 @@ final class CodexActivityReader {
             id: item.id,
             title: cleanTitle(metadata.title) ?? item.title,
             preview: item.preview,
-            cwd: item.cwd,
+            cwd: item.cwd ?? metadata.cwd,
             lastActivity: item.lastActivity,
             startedAt: item.startedAt,
             externalReadAt: item.externalReadAt,
@@ -241,9 +297,9 @@ final class CodexActivityReader {
         )
     }
 
-    private func enrichWithRolloutSummary(_ item: CodexThreadItem, lookbackHours: Int) -> CodexThreadItem {
+    private func enrichWithRolloutSummary(_ item: CodexThreadItem, lookbackHours: Int, tailOnly: Bool) -> CodexThreadItem {
         guard let rollout = rolloutURL(threadID: item.id, lastActivity: item.lastActivity, lookbackHours: lookbackHours),
-              let summary = rolloutSummary(fileURL: rollout) else {
+              let summary = rolloutSummary(fileURL: rollout, tailOnly: tailOnly) else {
             return item
         }
         let shouldUseSummaryTokens = !item.tokenBreakdown.hasDetailedCounters && summary.tokenBreakdown.hasDetailedCounters
@@ -298,6 +354,11 @@ final class CodexActivityReader {
     }
 
     private func readFromAppServer(codexPath: String, limit: Int, unreadThreadIDs: Set<String>) -> AppServerThreadSnapshot {
+        let now = Date()
+        if let cached = appServerCacheByPath[codexPath],
+           now.timeIntervalSince(cached.readAt) < appServerCacheTTL {
+            return cached.snapshot
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: codexPath)
         process.arguments = ["app-server"]
@@ -354,12 +415,14 @@ final class CodexActivityReader {
         let data = outputData
         outputLock.unlock()
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return AppServerThreadSnapshot() }
-        return parseAppServerThreads(
+        let snapshot = parseAppServerThreads(
             text: text,
             limit: limit,
             unreadThreadIDs: unreadThreadIDs,
             source: isCodexAPIExecutable(codexPath) ? "codex-api-app-server" : "app-server"
         )
+        appServerCacheByPath[codexPath] = CachedAppServerSnapshot(snapshot: snapshot, readAt: now)
+        return snapshot
     }
 
     private func parseAppServerThreads(text: String, limit: Int, unreadThreadIDs: Set<String>, source: String) -> AppServerThreadSnapshot {
@@ -626,9 +689,50 @@ final class CodexActivityReader {
             .map { $0 }
     }
 
+    private func recentRolloutThreads(limit: Int, lookbackHours: Int) -> [LoggedRolloutThread] {
+        let cutoff = Date().addingTimeInterval(-TimeInterval(max(1, lookbackHours)) * 3600)
+        var byID: [String: LoggedRolloutThread] = [:]
+        for root in sessionRoots() {
+            for directory in candidateRolloutDirectories(root: root, around: Date()) {
+                for (threadID, url) in rolloutURLsByThreadID(in: directory) {
+                    let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                    let lastActivity = values?.contentModificationDate ?? .distantPast
+                    guard lastActivity >= cutoff else { continue }
+                    let logged = LoggedThread(
+                        id: threadID,
+                        lastActivity: lastActivity,
+                        isCodexAPI: isCodexAPIURL(url)
+                    )
+                    let entry = LoggedRolloutThread(logged: logged, fileURL: url)
+                    if let existing = byID[threadID] {
+                        if entry.logged.lastActivity > existing.logged.lastActivity {
+                            byID[threadID] = entry
+                        }
+                    } else {
+                        byID[threadID] = entry
+                    }
+                    rolloutURLCacheByThreadID[threadID] = url
+                }
+            }
+        }
+        return byID.values
+            .sorted { $0.logged.lastActivity > $1.logged.lastActivity }
+            .prefix(max(1, limit))
+            .map { $0 }
+    }
+
     private func unreadStateThreads(threadIDs: Set<String>, externalReadAtByID: [String: Date]) -> [CodexThreadItem] {
         guard !threadIDs.isEmpty else {
             return []
+        }
+        let cacheKey = threadIDs.sorted().map { id in
+            "\(id):\(externalReadAtByID[id]?.timeIntervalSince1970 ?? 0)"
+        }.joined(separator: ";")
+        let now = Date()
+        if let cached = unreadThreadsCache,
+           cached.key == cacheKey,
+           now.timeIntervalSince(cached.readAt) < sqliteSupplementCacheTTL {
+            return cached.items
         }
         let ids = threadIDs.map(sqlStringLiteral).joined(separator: ",")
         let sql = """
@@ -639,7 +743,7 @@ final class CodexActivityReader {
           and id in (\(ids))
         order by updated_ms desc;
         """
-        return stateDatabaseURLs()
+        let items = stateDatabaseURLs()
             .filter { fileManager.fileExists(atPath: $0.path) }
             .flatMap { db in
                 let source = isCodexAPIDatabaseURL(db) ? "codex-api-state" : "state"
@@ -677,11 +781,18 @@ final class CodexActivityReader {
                     )
                 }
             }
+        unreadThreadsCache = CachedUnreadThreads(key: cacheKey, items: items, readAt: now)
+        return items
     }
 
     private func stateThreadMetadata(limit: Int = 300) -> [String: ThreadStateMetadata] {
+        let now = Date()
+        if let cached = stateMetadataCache,
+           now.timeIntervalSince(cached.readAt) < sqliteSupplementCacheTTL {
+            return cached.metadata
+        }
         let sql = """
-        select id, title, tokens_used, model,
+        select id, title, cwd, tokens_used, model,
                coalesce(nullif(updated_at_ms, 0), updated_at * 1000) as updated_ms
         from threads
         where archived = 0
@@ -695,6 +806,7 @@ final class CodexActivityReader {
                 let tokenBreakdown = TokenBreakdown.totalOnly(intValue(row["tokens_used"]))
                 result[id] = ThreadStateMetadata(
                     title: string(row["title"]),
+                    cwd: string(row["cwd"]),
                     tokensUsed: tokenBreakdown.displayTotal,
                     tokenBreakdown: tokenBreakdown,
                     model: string(row["model"]),
@@ -702,12 +814,15 @@ final class CodexActivityReader {
                 )
             }
         }
+        stateMetadataCache = CachedStateMetadata(metadata: result, readAt: now)
         return result
     }
 
     private func runSQLite(databaseURL: URL, sql: String) -> String {
         guard let data = runSQLiteProcess(
             arguments: ["-batch", "-noheader", "-separator", "\t", databaseURL.path, sql],
+            cacheKey: "text|\(databaseURL.path)|\(sql)",
+            databaseURL: databaseURL,
             timeout: 3.0
         ) else { return "" }
         return String(data: data, encoding: .utf8) ?? ""
@@ -716,12 +831,18 @@ final class CodexActivityReader {
     private func runSQLiteJSON(databaseURL: URL, sql: String) -> [[String: Any]] {
         guard let data = runSQLiteProcess(
             arguments: ["-json", databaseURL.path, sql],
+            cacheKey: "json|\(databaseURL.path)|\(sql)",
+            databaseURL: databaseURL,
             timeout: 3.0
         ) else { return [] }
         return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
 
-    private func runSQLiteProcess(arguments: [String], timeout: TimeInterval) -> Data? {
+    private func runSQLiteProcess(arguments: [String], cacheKey: String, databaseURL: URL, timeout: TimeInterval) -> Data? {
+        let signature = sqliteFileSignature(databaseURL)
+        if let cached = sqliteQueryCache[cacheKey], cached.signature == signature {
+            return cached.data
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
         process.arguments = arguments
@@ -783,30 +904,80 @@ final class CodexActivityReader {
         guard !timedOut, process.terminationStatus == 0 else {
             return nil
         }
+        sqliteQueryCache[cacheKey] = SQLiteQueryCacheEntry(signature: signature, data: data)
         return data
+    }
+
+    private func sqliteFileSignature(_ databaseURL: URL) -> String {
+        let base = databaseURL.path
+        return [base, "\(base)-wal", "\(base)-shm"]
+            .map(fileSignatureComponent)
+            .joined(separator: "|")
+    }
+
+    private func fileSignatureComponent(_ path: String) -> String {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: path) else {
+            return "\(path):missing"
+        }
+        let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        return "\(path):\(size):\(modified)"
     }
 
     private func rolloutURL(threadID: String, lastActivity: Date, lookbackHours: Int) -> URL? {
         let cutoff = Date().addingTimeInterval(-TimeInterval(max(1, lookbackHours)) * 3600)
-        for root in sessionRoots() {
-            for directory in candidateRolloutDirectories(root: root, around: lastActivity) {
-                guard let urls = try? fileManager.contentsOfDirectory(
-                    at: directory,
-                    includingPropertiesForKeys: [.contentModificationDateKey],
-                    options: [.skipsHiddenFiles]
-                ) else { continue }
-                for url in urls where url.lastPathComponent.hasPrefix("rollout-")
-                    && url.pathExtension == "jsonl"
-                    && url.lastPathComponent.contains(threadID) {
-                    let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-                    if let modified = values?.contentModificationDate, modified < cutoff {
-                        continue
-                    }
-                    return url
-                }
+        if let cached = rolloutURLCacheByThreadID[threadID],
+           fileManager.fileExists(atPath: cached.path) {
+            let values = try? cached.resourceValues(forKeys: [.contentModificationDateKey])
+            if values?.contentModificationDate.map({ $0 >= cutoff }) ?? true {
+                return cached
             }
         }
+        for root in sessionRoots() {
+            for directory in candidateRolloutDirectories(root: root, around: lastActivity) {
+                guard let url = rolloutURLsByThreadID(in: directory)[threadID] else {
+                    continue
+                }
+                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                if let modified = values?.contentModificationDate, modified < cutoff {
+                    continue
+                }
+                rolloutURLCacheByThreadID[threadID] = url
+                return url
+            }
+        }
+        rolloutURLCacheByThreadID.removeValue(forKey: threadID)
         return nil
+    }
+
+    private func rolloutURLsByThreadID(in directory: URL) -> [String: URL] {
+        let path = directory.path
+        let signature = fileSignatureComponent(path)
+        if let cached = rolloutDirectoryCache[path], cached.signature == signature {
+            return cached.urlsByThreadID
+        }
+        guard let urls = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            rolloutDirectoryCache.removeValue(forKey: path)
+            return [:]
+        }
+        var byThreadID: [String: URL] = [:]
+        for url in urls {
+            guard let threadID = rolloutThreadID(fromFilename: url.lastPathComponent) else { continue }
+            byThreadID[threadID] = url
+        }
+        rolloutDirectoryCache[path] = RolloutDirectoryCacheEntry(signature: signature, urlsByThreadID: byThreadID)
+        return byThreadID
+    }
+
+    private func rolloutThreadID(fromFilename filename: String) -> String? {
+        guard filename.hasPrefix("rollout-"), filename.hasSuffix(".jsonl") else { return nil }
+        let stem = filename.dropLast(".jsonl".count)
+        guard stem.count >= 36 else { return nil }
+        return String(stem.suffix(36))
     }
 
     private func readClaudeThreads(limit: Int, lookbackHours: Int) -> [CodexThreadItem] {
@@ -1126,7 +1297,7 @@ final class CodexActivityReader {
     /// Reads the bytes appended to `fileURL` since `position`. The bookmark only
     /// advances past complete lines; a half-written final line comes back as
     /// `tail` and is parsed transiently until its newline lands.
-    private func appendedContent(fileURL: URL, position: FileScanPosition) -> AppendedContent? {
+    private func appendedContent(fileURL: URL, position: FileScanPosition, initialReadLimit: UInt64? = nil) -> AppendedContent? {
         guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
         defer { try? handle.close() }
         guard let size = try? handle.seekToEnd() else { return nil }
@@ -1134,6 +1305,13 @@ final class CodexActivityReader {
         var restarted = false
         if size < position.size || start > size {
             start = 0
+            restarted = true
+        }
+        if start == 0,
+           position.size == 0,
+           let initialReadLimit,
+           size > initialReadLimit {
+            start = size - initialReadLimit
             restarted = true
         }
         guard size > start else {
@@ -1148,16 +1326,38 @@ final class CodexActivityReader {
               let data = try? handle.read(upToCount: Int(size - start)) else {
             return nil
         }
-        guard let lastNewline = data.lastIndex(of: 0x0A) else {
+        var bodyStart = data.startIndex
+        if start > 0 {
+            guard let firstNewline = data.firstIndex(of: 0x0A) else {
+                return AppendedContent(
+                    body: "",
+                    tail: "",
+                    position: FileScanPosition(offset: size, size: size),
+                    restarted: restarted
+                )
+            }
+            bodyStart = data.index(after: firstNewline)
+            start += UInt64(data.distance(from: data.startIndex, to: bodyStart))
+        }
+        guard bodyStart < data.endIndex else {
             return AppendedContent(
                 body: "",
-                tail: String(decoding: data, as: UTF8.self),
+                tail: "",
                 position: FileScanPosition(offset: start, size: size),
                 restarted: restarted
             )
         }
-        let bodyData = data[data.startIndex...lastNewline]
-        let tailData = data[data.index(after: lastNewline)...]
+        let readableData = data[bodyStart...]
+        guard let lastNewline = readableData.lastIndex(of: 0x0A) else {
+            return AppendedContent(
+                body: "",
+                tail: start == 0 ? String(decoding: readableData, as: UTF8.self) : "",
+                position: FileScanPosition(offset: start, size: size),
+                restarted: restarted
+            )
+        }
+        let bodyData = readableData[readableData.startIndex...lastNewline]
+        let tailData = readableData[data.index(after: lastNewline)...]
         return AppendedContent(
             body: String(decoding: bodyData, as: UTF8.self),
             tail: String(decoding: tailData, as: UTF8.self),
@@ -1166,10 +1366,11 @@ final class CodexActivityReader {
         )
     }
 
-    private func rolloutSummary(fileURL: URL) -> RolloutSummary? {
+    private func rolloutSummary(fileURL: URL, tailOnly: Bool) -> RolloutSummary? {
         let key = fileURL.path
         var state = rolloutScanCache[key] ?? RolloutScanState()
-        guard let chunk = appendedContent(fileURL: fileURL, position: state.position) else {
+        let initialReadLimit = tailOnly ? rolloutTailScanByteLimit : nil
+        guard let chunk = appendedContent(fileURL: fileURL, position: state.position, initialReadLimit: initialReadLimit) else {
             rolloutScanCache.removeValue(forKey: key)
             return nil
         }
@@ -1180,13 +1381,23 @@ final class CodexActivityReader {
             applyRolloutLine(String(line), to: &state)
         }
         state.position = chunk.position
+        finalizeTailOnlySummary(&state.summary)
         rolloutScanCache[key] = state
         guard !chunk.tail.isEmpty else {
             return state.summary
         }
         var transient = state
         applyRolloutLine(chunk.tail, to: &transient)
+        finalizeTailOnlySummary(&transient.summary)
         return transient.summary
+    }
+
+    private func finalizeTailOnlySummary(_ summary: inout RolloutSummary) {
+        guard summary.turns == 0, summary.sawActivity else { return }
+        summary.turns = 1
+        guard summary.lastCompletionAt == nil, !summary.isWaitingForInput else { return }
+        summary.isRunning = true
+        summary.currentTurnStartedAt = summary.currentTurnStartedAt ?? summary.lastTaskEventAt
     }
 
     private func clearInteractiveWaiting(_ state: inout RolloutScanState) {
@@ -1196,20 +1407,25 @@ final class CodexActivityReader {
     }
 
     private func applyRolloutLine(_ line: String, to state: inout RolloutScanState) {
+        let header = rolloutLineHeader(line)
         // Extracting the event date parses the whole line as JSON; do it lazily so
         // lines that match no marker below skip that cost entirely.
         var resolvedEventDate: Date?? = nil
         func lineEventDate() -> Date? {
             if resolvedEventDate == nil {
-                resolvedEventDate = .some(eventDate(from: line))
+                resolvedEventDate = .some(eventDate(fromHeader: header, line: line))
             }
             return resolvedEventDate ?? nil
         }
-        if state.summary.cwd == nil, line.contains(#""type":"session_meta""#) {
-            state.summary.cwd = extractJSONString(line: line, key: "cwd")
+        if isActivityHeader(header) {
+            state.summary.sawActivity = true
+            state.summary.lastTaskEventAt = lineEventDate() ?? state.summary.lastTaskEventAt
         }
-        if line.contains(#""type":"turn_context""#) {
-            if let cwd = extractJSONString(line: line, key: "cwd"),
+        if state.summary.cwd == nil, header.contains(#""type":"session_meta""#) {
+            state.summary.cwd = extractJSONString(line: header, key: "cwd")
+        }
+        if header.contains(#""type":"turn_context""#) {
+            if let cwd = extractJSONString(line: header, key: "cwd"),
                !cwd.isEmpty {
                 state.summary.cwd = cwd
             }
@@ -1220,26 +1436,23 @@ final class CodexActivityReader {
             state.summary.currentTurnStartedAt = lineEventDate() ?? state.summary.currentTurnStartedAt
         }
         if state.summary.title == nil,
-           line.contains(#""type":"response_item""#),
-           line.contains(#""payload":{"type":"message""#),
-           line.contains(#""type":"message""#),
-           line.contains(#""role":"user""#) {
+           isResponseMessageHeader(header, role: "user"),
+           lineFitsRolloutPayloadParseLimit(line) {
             if let candidate = userMessageText(from: line),
                let title = displayTitleCandidate(candidate) {
                 state.summary.title = title
             }
         }
-        if isUserMessage(line: line) {
+        if isResponseMessageHeader(header, role: "user") {
             clearInteractiveWaiting(&state)
         }
-        if line.contains(#""type":"response_item""#),
-           line.contains(#""payload":{"type":"message""#),
-           line.contains(#""role":"assistant""#),
+        if isResponseMessageHeader(header, role: "assistant"),
+           lineFitsRolloutPayloadParseLimit(line),
            let candidate = assistantMessageText(from: line),
            let preview = cleanPreview(candidate) {
             state.summary.preview = preview
         }
-        if let call = functionCallInfo(from: line),
+        if let call = functionCallInfo(fromHeader: header),
            isInteractiveUserInputTool(call.name) {
             state.summary.isRunning = true
             state.summary.isWaitingForInput = true
@@ -1251,9 +1464,9 @@ final class CodexActivityReader {
             let waitingAt = lineEventDate() ?? state.summary.lastTaskEventAt ?? state.summary.currentTurnStartedAt
             state.summary.lastWaitingAt = waitingAt ?? state.summary.lastWaitingAt
             state.summary.lastTaskEventAt = waitingAt ?? state.summary.lastTaskEventAt
-        } else if isFunctionCallOutput(line: line),
+        } else if isFunctionCallOutput(header: header),
                   state.summary.isWaitingForInput {
-            let callID = functionCallOutputID(from: line)
+            let callID = functionCallOutputID(fromHeader: header)
             let matchesPendingCall = callID.map {
                 state.pendingInteractiveCallIDs.contains($0)
                     || (state.pendingInteractiveCallWithoutID && state.pendingInteractiveCallIDs.isEmpty)
@@ -1272,18 +1485,19 @@ final class CodexActivityReader {
                 state.summary.lastTaskEventAt = lineEventDate() ?? state.summary.lastTaskEventAt
             }
         }
-        if isFinalAssistantMessage(line: line) {
+        if isResponseMessageHeader(header, role: "assistant"),
+           (header.contains(#""phase":"final""#) || (lineFitsRolloutPayloadParseLimit(line) && isFinalAssistantMessage(line: line))) {
             state.summary.isRunning = false
             clearInteractiveWaiting(&state)
             state.summary.lastTaskEventAt = lineEventDate() ?? state.summary.lastTaskEventAt
             state.summary.lastCompletionAt = lineEventDate() ?? state.summary.lastCompletionAt
             state.summary.currentTurnStartedAt = nil
         }
-        guard line.contains(#""type":"event_msg""#) else { return }
-        if line.contains(#""type":"context_compacted""#) {
+        guard header.contains(#""type":"event_msg""#) else { return }
+        if header.contains(#""payload":{"type":"context_compacted""#) {
             state.summary.compressionCount += 1
         }
-        if line.contains(#""type":"token_count""#),
+        if header.contains(#""payload":{"type":"token_count""#),
            let currentCounters = tokenCounters(from: line) {
             let delta = TokenBreakdown.delta(from: state.previousTokenCounters, to: currentCounters)
             state.previousTokenCounters = currentCounters
@@ -1291,7 +1505,7 @@ final class CodexActivityReader {
                 state.summary.tokenBreakdown.add(delta)
             }
         }
-        if line.contains(#""type":"task_started""#) {
+        if header.contains(#""payload":{"type":"task_started""#) {
             let wasAlreadyRunning = state.summary.isRunning
             state.summary.isRunning = true
             clearInteractiveWaiting(&state)
@@ -1300,7 +1514,7 @@ final class CodexActivityReader {
             }
             state.summary.lastTaskEventAt = lineEventDate() ?? state.summary.lastTaskEventAt
             state.summary.currentTurnStartedAt = lineEventDate() ?? state.summary.currentTurnStartedAt
-        } else if line.contains(#""type":"task_complete""#) || line.contains(#""type":"turn_aborted""#) {
+        } else if header.contains(#""payload":{"type":"task_complete""#) || header.contains(#""payload":{"type":"turn_aborted""#) {
             state.summary.isRunning = false
             clearInteractiveWaiting(&state)
             state.summary.lastTaskEventAt = lineEventDate() ?? state.summary.lastTaskEventAt
@@ -1311,6 +1525,44 @@ final class CodexActivityReader {
                 state.summary.preview = preview
             }
         }
+    }
+
+    private func rolloutLineHeader(_ line: String) -> String {
+        String(line.prefix(rolloutHeaderScanLimit))
+    }
+
+    private func isActivityHeader(_ header: String) -> Bool {
+        header.contains(#""type":"turn_context""#)
+            || header.contains(#""type":"response_item""#)
+            || header.contains(#""type":"event_msg""#)
+    }
+
+    private func lineFitsRolloutPayloadParseLimit(_ line: String) -> Bool {
+        line.utf8.prefix(rolloutPayloadParseByteLimit + 1).count <= rolloutPayloadParseByteLimit
+    }
+
+    private func isResponseMessageHeader(_ header: String, role: String) -> Bool {
+        header.contains(#""type":"response_item""#)
+            && header.contains(#""payload":{"type":"message""#)
+            && header.contains(#""role":"\#(role)""#)
+    }
+
+    private func functionCallInfo(fromHeader header: String) -> (name: String, callID: String?)? {
+        guard header.contains(#""type":"response_item""#),
+              header.contains(#""payload":{"type":"function_call""#),
+              let name = extractJSONString(line: header, key: "name") else {
+            return nil
+        }
+        return (name, extractJSONString(line: header, key: "call_id") ?? extractJSONString(line: header, key: "id"))
+    }
+
+    private func isFunctionCallOutput(header: String) -> Bool {
+        header.contains(#""type":"response_item""#)
+            && header.contains(#""payload":{"type":"function_call_output""#)
+    }
+
+    private func functionCallOutputID(fromHeader header: String) -> String? {
+        extractJSONString(line: header, key: "call_id") ?? extractJSONString(line: header, key: "id")
     }
 
     private func isUserMessage(line: String) -> Bool {
@@ -1401,6 +1653,20 @@ final class CodexActivityReader {
         }
         guard let timestamp = string(object["timestamp"]) else { return nil }
         return iso8601Date(timestamp)
+    }
+
+    private func eventDate(fromHeader header: String, line: String) -> Date? {
+        if let completedAt = extractJSONNumber(line: header, key: "completed_at") {
+            return unixDate(seconds: completedAt)
+        }
+        if let startedAt = extractJSONNumber(line: header, key: "started_at") {
+            return unixDate(seconds: startedAt)
+        }
+        if let timestamp = extractJSONString(line: header, key: "timestamp") {
+            return iso8601Date(timestamp)
+        }
+        guard lineFitsRolloutPayloadParseLimit(line) else { return nil }
+        return eventDate(from: line)
     }
 
     private func userMessageText(from line: String) -> String? {
@@ -1503,6 +1769,25 @@ final class CodexActivityReader {
         return value.isEmpty ? nil : value
     }
 
+    private func extractJSONNumber(line: String, key: String) -> Double? {
+        let pattern = "\"\(key)\":"
+        guard let keyRange = line.range(of: pattern) else { return nil }
+        var index = keyRange.upperBound
+        var value = ""
+        while index < line.endIndex {
+            let character = line[index]
+            if character.isNumber || character == "." || character == "-" {
+                value.append(character)
+            } else if !value.isEmpty {
+                break
+            } else if character != " " {
+                break
+            }
+            index = line.index(after: index)
+        }
+        return Double(value)
+    }
+
     private func sessionRoots() -> [URL] {
         var roots = codexHomeURLs().flatMap { codexHome in
             [
@@ -1594,13 +1879,17 @@ final class CodexActivityReader {
         url.path.contains("/.codex-api/")
     }
 
+    private func isCodexAPIURL(_ url: URL) -> Bool {
+        url.path.contains("/.codex-api/")
+    }
+
     private func mergedSource(_ source: String, fallback: String) -> String {
         source.contains("codex-api") || fallback.contains("codex-api") ? "codex-api" : "\(source)+\(fallback)"
     }
 }
 
 final class ReadStateStore {
-    private static let schemaVersion = 5
+    private static let schemaVersion = 6
     private static let readWatermarkTolerance: TimeInterval = 60
     /// A thread first seen as "unread" may simply be one whose running phase every
     /// scan missed — scans are periodic and can be starved for minutes under system
@@ -1629,12 +1918,15 @@ final class ReadStateStore {
         let readableURL = sourceURLs.first { FileManager.default.fileExists(atPath: $0.path) } ?? fileURL
         if let data = try? Data(contentsOf: readableURL),
            let decoded = try? JSONDecoder().decode(ReadStateFile.self, from: data) {
+            let decodedSchemaVersion = decoded.schemaVersion ?? 0
             state = ReadStateFile(
-                schemaVersion: decoded.schemaVersion ?? Self.schemaVersion,
+                schemaVersion: decodedSchemaVersion,
                 didBaselineExistingWaiting: decoded.didBaselineExistingWaiting,
                 openedAt: decoded.openedAt,
                 runningSeenAt: decoded.runningSeenAt ?? [:],
-                userReadAt: decoded.userReadAt,
+                // Older builds also wrote external/Codex-open read watermarks here,
+                // so only trust it after schema 6 where it means a Task Bar action.
+                userReadAt: decodedSchemaVersion >= Self.schemaVersion ? decoded.userReadAt : [:],
                 codexUpdatedAtSeen: decoded.codexUpdatedAtSeen ?? [:]
             )
         } else {
@@ -1681,12 +1973,6 @@ final class ReadStateStore {
                 current.openedAt[item.id] = timestamp
                 didChange = true
             }
-            if (current.userReadAt?[item.id] ?? 0) < timestamp {
-                var userReadAt = current.userReadAt ?? [:]
-                userReadAt[item.id] = timestamp
-                current.userReadAt = userReadAt
-                didChange = true
-            }
         }
 
         for item in items {
@@ -1709,9 +1995,11 @@ final class ReadStateStore {
                 let readAt = current.openedAt[item.id] ?? 0
                 let userReadAt = current.userReadAt?[item.id] ?? 0
                 guard userReadAt < item.lastActivity.timeIntervalSince1970 else { continue }
-                if item.isExplicitUnread {
-                    guard shouldShowCompletedThread(item, state: current) else { continue }
+                if shouldShowCompletedThread(item, state: current) {
                     visible.append(item)
+                    continue
+                }
+                if item.isExplicitUnread {
                     continue
                 }
                 if readAt >= item.lastActivity.timeIntervalSince1970,
@@ -1826,12 +2114,6 @@ final class ReadStateStore {
         let timestamp = readThroughTime(for: item, at: Date(timeIntervalSince1970: codexUpdatedAt))
         if (state.openedAt[item.id] ?? 0) < timestamp {
             state.openedAt[item.id] = timestamp
-            didChange = true
-        }
-        var userReadAt = state.userReadAt ?? [:]
-        if (userReadAt[item.id] ?? 0) < timestamp {
-            userReadAt[item.id] = timestamp
-            state.userReadAt = userReadAt
             didChange = true
         }
         return didChange

@@ -1,6 +1,12 @@
 import Cocoa
 import Foundation
 
+private let shortFolderNameCache: NSCache<NSString, NSString> = {
+    let cache = NSCache<NSString, NSString>()
+    cache.countLimit = 1024
+    return cache
+}()
+
 private func summaryText(runningCount: Int, waitingCount: Int, unreadCount: Int) -> String {
     if runningCount == 0 && waitingCount == 0 && unreadCount == 0 {
         return "All caught up"
@@ -702,12 +708,20 @@ func removingPluginMarkdownLinks(from value: String) -> String {
 
 func shortFolderName(_ value: String?) -> String {
     guard let value, !value.isEmpty else { return "unknown" }
-    let path = URL(fileURLWithPath: value, isDirectory: true).standardizedFileURL.path
-    if let projectName = codexWorktreeProjectName(from: path) ?? gitRepositoryFolderName(for: path) {
-        return projectName
+    let path = (value as NSString).standardizingPath
+    let cacheKey = path as NSString
+    if let cached = shortFolderNameCache.object(forKey: cacheKey) {
+        return cached as String
     }
-    let last = URL(fileURLWithPath: path, isDirectory: true).lastPathComponent
-    return last.isEmpty ? value : last
+    let resolved: String
+    if let projectName = codexWorktreeProjectName(from: path) ?? gitRepositoryFolderName(for: path) {
+        resolved = projectName
+    } else {
+        let last = (path as NSString).lastPathComponent
+        resolved = last.isEmpty ? value : last
+    }
+    shortFolderNameCache.setObject(resolved as NSString, forKey: cacheKey)
+    return resolved
 }
 
 private func codexWorktreeProjectName(from path: String) -> String? {
@@ -723,16 +737,19 @@ private func codexWorktreeProjectName(from path: String) -> String? {
 
 private func gitRepositoryFolderName(for path: String) -> String? {
     let fileManager = FileManager.default
-    var folderURL = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
-    while true {
-        if fileManager.fileExists(atPath: folderURL.appendingPathComponent(".git").path) {
-            let name = folderURL.lastPathComponent
+    var folder = (path as NSString).standardizingPath
+    var checkedDepth = 0
+    while !folder.isEmpty, checkedDepth < 64 {
+        if fileManager.fileExists(atPath: (folder as NSString).appendingPathComponent(".git")) {
+            let name = (folder as NSString).lastPathComponent
             return name.isEmpty ? nil : name
         }
-        let parentURL = folderURL.deletingLastPathComponent()
-        guard parentURL.path != folderURL.path else { return nil }
-        folderURL = parentURL
+        let parent = (folder as NSString).deletingLastPathComponent
+        guard parent != folder else { return nil }
+        folder = parent
+        checkedDepth += 1
     }
+    return nil
 }
 
 func unique(_ urls: [URL]) -> [URL] {
