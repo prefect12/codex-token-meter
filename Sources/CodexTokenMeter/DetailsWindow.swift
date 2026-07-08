@@ -1223,7 +1223,6 @@ private struct StorageCopy {
     let revealInFinder: String
     let copyPath: String
     let scanningLabel: String
-    let rescanBannerFormat: String
     let scannedAtFormat: String
     let totalLabel: String
     let noProjectsHint: String
@@ -1555,7 +1554,6 @@ private extension AppLanguage {
                 revealInFinder: "在 Finder 中显示",
                 copyPath: "复制路径",
                 scanningLabel: "正在扫描本地占用…",
-                rescanBannerFormat: "正在后台重新扫描… 当前显示 %@ 的结果",
                 scannedAtFormat: "扫描于 %@",
                 totalLabel: "合计",
                 noProjectsHint: "暂无可归因的项目数据。",
@@ -1603,7 +1601,6 @@ private extension AppLanguage {
                 revealInFinder: "在 Finder 中顯示",
                 copyPath: "複製路徑",
                 scanningLabel: "正在掃描本地佔用…",
-                rescanBannerFormat: "正在背景重新掃描… 目前顯示 %@ 的結果",
                 scannedAtFormat: "掃描於 %@",
                 totalLabel: "合計",
                 noProjectsHint: "暫無可歸因的專案資料。",
@@ -1651,7 +1648,6 @@ private extension AppLanguage {
                 revealInFinder: "Finder に表示",
                 copyPath: "パスをコピー",
                 scanningLabel: "ローカル使用量をスキャン中…",
-                rescanBannerFormat: "バックグラウンドで再スキャン中… %@ 時点の結果を表示",
                 scannedAtFormat: "スキャン: %@",
                 totalLabel: "合計",
                 noProjectsHint: "プロジェクトデータがありません。",
@@ -1699,7 +1695,6 @@ private extension AppLanguage {
                 revealInFinder: "Reveal in Finder",
                 copyPath: "Copy path",
                 scanningLabel: "Scanning local usage…",
-                rescanBannerFormat: "Rescanning in background… showing results from %@",
                 scannedAtFormat: "Scanned at %@",
                 totalLabel: "Total",
                 noProjectsHint: "No attributable project data yet.",
@@ -8912,7 +8907,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     // MARK: - Storage page
 
     private struct StoragePageLayout {
-        var banner: NSRect?
         var toolbar: NSRect
         var cards: NSRect
         var source: NSRect
@@ -8926,11 +8920,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func storagePageLayout(content: NSRect) -> StoragePageLayout {
         let wide = content.width >= 900
         var y = content.minY + 78
-        var banner: NSRect?
-        if isStorageScanning, storageSnapshot != nil {
-            banner = NSRect(x: content.minX, y: y, width: content.width, height: 34)
-            y += 44
-        }
         let toolbar = NSRect(x: content.minX, y: y, width: content.width, height: 28)
         y = toolbar.maxY + 12
         let cards = NSRect(x: content.minX, y: y, width: content.width, height: 84)
@@ -8966,7 +8955,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         let footer = NSRect(x: content.minX, y: y, width: content.width, height: 36)
         return StoragePageLayout(
-            banner: banner,
             toolbar: toolbar,
             cards: cards,
             source: source,
@@ -9305,30 +9293,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             return
         }
         let layout = storagePageLayout(content: content)
-        if let banner = layout.banner {
-            drawStorageBanner(snap: snap, copy: copy, rect: banner)
-        }
         drawStorageStatCards(snap: snap, copy: copy, rect: layout.cards)
         drawStorageSourcePanel(snap: snap, copy: copy, rect: layout.source)
         drawStorageProjectsPanel(snap: snap, copy: copy, rect: layout.projects)
         drawStorageGrowthChart(snap: snap, copy: copy, rect: layout.growth)
         drawStorageRiskPanel(snap: snap, copy: copy, rect: layout.risk)
         drawStorageFooter(snap: snap, copy: copy, rect: layout.footer)
-    }
-
-    private func drawStorageBanner(snap: StorageSnapshot, copy: StorageCopy, rect: NSRect) {
-        accentBlue.withAlphaComponent(0.10).setFill()
-        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
-        accentBlue.withAlphaComponent(0.32).setStroke()
-        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
-        let dot = NSRect(x: rect.minX + 14, y: rect.midY - 4, width: 8, height: 8)
-        accentBlue.setFill()
-        NSBezierPath(ovalIn: dot).fill()
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH:mm"
-        let text = String(format: copy.rescanBannerFormat, formatter.string(from: snap.scannedAt))
-        drawText(text, rect: NSRect(x: rect.minX + 32, y: rect.midY - 8, width: rect.width - 48, height: 16), font: .systemFont(ofSize: 11.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.78))
     }
 
     private func drawStorageStatCards(snap: StorageSnapshot, copy: StorageCopy, rect: NSRect) {
@@ -9650,9 +9620,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "HH:mm"
-        let status = isStorageScanning
-            ? copy.scanningLabel
-            : String(format: copy.scannedAtFormat, formatter.string(from: snap.scannedAt))
+        let status = String(format: copy.scannedAtFormat, formatter.string(from: snap.scannedAt))
         let caveatText = "⚠︎ \(copy.caveat)  ·  \(status)"
         drawTruncatedText(caveatText, rect: NSRect(x: rect.minX, y: rect.minY + 10, width: max(60, x - rect.minX - 12), height: 16), font: .systemFont(ofSize: 10.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
     }
