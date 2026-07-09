@@ -1420,11 +1420,14 @@ final class DashboardView: NSView {
         titleLabel.stringValue = "AI Token Meter"
         let displayLimit = selectedLimit(from: state.liveLimits, quota: state.selectedQuota)
         subtitleLabel.stringValue = state.selectedQuota.fallbackTitle
-        totalLabel.stringValue = compactDashboardTotal(totalReport.usage.total)
+        totalLabel.stringValue = headerTotalSummary(totalReport.usage.total)
         detailLabel.stringValue = state.profileReport != nil && state.selectedQuota.usesCodexProfileAPI
             ? "\(state.selectedWindow.title) · \(t(.profileAPISource))"
             : state.selectedWindow.title
-        usageLabel.stringValue = "\(compactDashboardMetric(report.usage.input)) \(t(.inShort))  |  \(compactDashboardMetric(report.usage.output)) \(t(.outShort))"
+        usageLabel.stringValue = headerUsageSummary(input: report.usage.input, output: report.usage.output)
+        totalLabel.isHidden = false
+        detailLabel.isHidden = false
+        usageLabel.isHidden = false
         refreshLabel.stringValue = state.isLoading ? t(.refreshing) : "\(t(.updated)) \(relative(report.scannedAt))  |  \(t(.next)) \(relative(state.nextRefreshAt))"
         let apiEstimate = APICostEstimator.estimate(report: report)
         let externalAPI = ExternalAPICostStore.read()
@@ -1575,17 +1578,64 @@ final class DashboardView: NSView {
         }
     }
 
-    private func layoutHeader(in content: NSRect, totalWidth: CGFloat, quotaSegmentWidth: CGFloat, usageOffset: CGFloat) {
-        let totalX = content.maxX - totalWidth
+    private func layoutHeader(in content: NSRect, totalWidth baseTotalWidth: CGFloat, quotaSegmentWidth: CGFloat, usageOffset: CGFloat) {
         let titleX = content.minX + 28
+        let minimumTitleWidth: CGFloat = 146
+        let maximumTotalWidth = max(baseTotalWidth, content.maxX - titleX - minimumTitleWidth - 12)
+        let totalFont = fittedHeaderTotalFont(maxWidth: maximumTotalWidth - 8)
+        totalLabel.font = totalFont
+        let measuredTotalWidth = measuredTextWidth(totalLabel.stringValue, font: totalFont) + 8
+        let totalWidth = min(maximumTotalWidth, max(baseTotalWidth, measuredTotalWidth))
+        let totalX = content.maxX - totalWidth
         logoImageView.frame = NSRect(x: content.minX, y: content.minY + 2, width: 22, height: 22)
-        titleLabel.frame = NSRect(x: titleX, y: content.minY, width: max(132, totalX - titleX - 12), height: 28)
-        subtitleLabel.frame = NSRect(x: titleX, y: content.minY + 30, width: max(132, totalX - titleX - 12), height: 18)
+        let titleWidth = max(0, totalX - titleX - 12)
+        titleLabel.frame = NSRect(x: titleX, y: content.minY, width: titleWidth, height: 28)
+        subtitleLabel.frame = NSRect(x: titleX, y: content.minY + 30, width: titleWidth, height: 18)
         totalLabel.frame = NSRect(x: totalX, y: content.minY, width: totalWidth, height: 36)
         detailLabel.frame = NSRect(x: content.maxX - 172, y: content.minY + 37, width: 162, height: 16)
         quotaSegment.frame = NSRect(x: content.minX, y: content.minY + 52, width: quotaSegmentWidth, height: 24)
         usageLabel.frame = NSRect(x: content.minX + usageOffset, y: content.minY + 55, width: content.width - usageOffset, height: 16)
         segment.frame = NSRect(x: content.minX, y: content.minY + 82, width: content.width, height: 30)
+    }
+
+    private func fittedHeaderTotalFont(maxWidth: CGFloat) -> NSFont {
+        var size: CGFloat = 28
+        while size > 21 {
+            let font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: .bold)
+            if measuredTextWidth(totalLabel.stringValue, font: font) <= maxWidth {
+                return font
+            }
+            size -= 0.5
+        }
+        return .monospacedDigitSystemFont(ofSize: size, weight: .bold)
+    }
+
+    private func measuredTextWidth(_ text: String, font: NSFont) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
+
+    private func headerUsageSummary(input: Int64, output: Int64) -> String {
+        switch AppLanguage.current {
+        case .chinese:
+            return "入 \(compactDashboardMetric(input)) · 出 \(compactDashboardMetric(output))"
+        case .traditionalChinese:
+            return "入 \(compactDashboardMetric(input)) · 出 \(compactDashboardMetric(output))"
+        case .japanese:
+            return "入 \(compactDashboardMetric(input)) · 出 \(compactDashboardMetric(output))"
+        default:
+            return "\(compactDashboardMetric(input)) \(t(.inShort)) · \(compactDashboardMetric(output)) \(t(.outShort))"
+        }
+    }
+
+    private func headerTotalSummary(_ value: Int64) -> String {
+        let double = Double(value)
+        switch NumberUnitStyle.effective {
+        case .english:
+            if value >= 1_000_000_000 { return String(format: "%.1fB", double / 1_000_000_000) }
+        case .chinese:
+            if value >= 100_000_000 { return String(format: "%.1f亿", double / 100_000_000) }
+        }
+        return compactDashboardTotal(value)
     }
 
     private func layoutComparison(in layoutBounds: NSRect) {
@@ -1803,7 +1853,7 @@ final class DashboardView: NSView {
     private func updateAccessibilityLabels(report: TokenReport, totalReport: TokenReport) {
         titleLabel.setAccessibilityLabel("AI Token Meter")
         subtitleLabel.setAccessibilityLabel(subtitleLabel.stringValue)
-        totalLabel.setAccessibilityLabel("\(t(.total)) \(compactDashboardTotal(totalReport.usage.total))")
+        totalLabel.setAccessibilityLabel("\(t(.total)) \(headerTotalSummary(totalReport.usage.total))")
         usageLabel.setAccessibilityLabel("\(t(.input)) \(compactDashboardMetric(report.usage.input)), \(t(.output)) \(compactDashboardMetric(report.usage.output))")
         sessionsLabel.setAccessibilityLabel(sessionsLabel.stringValue)
         refreshLabel.setAccessibilityLabel(refreshLabel.stringValue)
