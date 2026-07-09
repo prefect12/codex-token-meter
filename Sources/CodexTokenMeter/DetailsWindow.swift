@@ -6012,10 +6012,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let externalAPI = ExternalAPICostStore.read()
         guard let estimate else {
             if apiEstimate.hasUsage {
-                let coverage = String(format: "%.0f%%", apiEstimate.coveragePercent)
                 drawText(t(.apiEquivalent), rect: NSRect(x: rect.minX + 18, y: rect.minY + 20, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
                 drawText(displayAPIMoney(apiEstimate.usdValue, source: source), rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: rect.width - 36, height: 34), font: .monospacedDigitSystemFont(ofSize: 26, weight: .bold), color: accentTeal)
-                drawText("\(coverage) \(t(.priced)) · \(t(.apiEquivalentHint))", rect: NSRect(x: rect.minX + 18, y: rect.minY + 92, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
+                drawText(t(.apiEquivalentHint), rect: NSRect(x: rect.minX + 18, y: rect.minY + 92, width: rect.width - 36, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
                 let unavailableY: CGFloat = externalAPI?.hasData == true ? 138 : 124
                 if let externalAPI, externalAPI.hasData {
                     drawCostOverviewRow(title: t(.externalAPICost), value: displayAPIMoney(externalAPI.usdValue, source: source), color: accentAmber, rect: NSRect(x: rect.minX + 18, y: rect.minY + 116, width: rect.width - 36, height: 20), info: .externalAPI)
@@ -6063,13 +6062,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
         let planLine = "\(t(.paymentMonthly)) \(paymentMoney(estimate.monthlyCost, source: source))  ·  \(t(.displayEquivalent)) \(displayMoney(estimate.monthlyCost, source: source))"
         drawText(planLine, rect: NSRect(x: rightRect.minX, y: rightRect.minY, width: rightRect.width, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.54))
-        let apiTitle = apiEstimate.hasUsage && apiEstimate.coveragePercent < 99.5
-            ? "\(t(.apiEquivalent)) \(String(format: "%.0f%%", apiEstimate.coveragePercent))"
-            : t(.apiEquivalent)
         var summaryRows: [(String, String, NSColor, CostOverviewInfo)] = [
             (t(.usageRate), String(format: "%.0f%%", usageRate * 100), usedColor, .usageRate),
             (t(.totalSpendValue), displayMoney(estimate.totalSpentValue, source: source), accentAmber, .totalSpend),
-            (apiTitle, displayAPIMoney(apiEstimate.usdValue, source: source), accentTeal, .apiEquivalent)
+            (t(.apiEquivalent), displayAPIMoney(apiEstimate.usdValue, source: source), accentTeal, .apiEquivalent)
         ]
         if let externalAPI, externalAPI.hasData {
             summaryRows.append((t(.externalAPICost), displayAPIMoney(externalAPI.usdValue, source: source), accentAmber, .externalAPI))
@@ -7426,8 +7422,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         ]
         let apiEstimate = profileAPIDayEstimate(profileDay: day, localDay: localDay)
         if apiEstimate.hasPricedUsage {
-            let footer = apiEstimate.coveragePercent < 99.5 ? "\(String(format: "%.0f%%", apiEstimate.coveragePercent)) \(t(.priced))" : nil
-            metrics.append((t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), accentTeal, footer))
+            metrics.append((t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), accentTeal, nil))
         }
 
         let startX = rect.minX + min(420, max(292, rect.width * 0.50))
@@ -7526,8 +7521,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         let apiEstimate = APICostEstimator.estimate(day: day)
         if apiEstimate.hasPricedUsage {
-            let footer = apiEstimate.coveragePercent < 99.5 ? "\(String(format: "%.0f%%", apiEstimate.coveragePercent)) \(t(.priced))" : nil
-            metrics.append((t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), accentTeal, false, footer))
+            metrics.append((t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), accentTeal, false, nil))
         }
         let startX = rect.minX + 310
         let gap: CGFloat = 12
@@ -7613,8 +7607,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         let apiEstimate = contributionWeekAPIEstimate(summary)
         if apiEstimate.hasPricedUsage {
-            let footer = apiEstimate.coveragePercent < 99.5 ? "\(String(format: "%.0f%%", apiEstimate.coveragePercent)) \(t(.priced))" : nil
-            metrics.append((t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), accentTeal, footer))
+            metrics.append((t(.apiEquivalent), compactDisplayAPIMoney(apiEstimate.usdValue), accentTeal, nil))
         }
         let startX = rect.minX + 310
         let gap: CGFloat = 12
