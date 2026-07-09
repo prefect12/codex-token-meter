@@ -1523,8 +1523,7 @@ final class DashboardView: NSView {
         sessionsLabel.stringValue = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
         var costParts: [String] = []
         if apiEstimate.hasPricedUsage {
-            let coverage = apiEstimate.coveragePercent < 99.5 ? " \(String(format: "%.0f%%", apiEstimate.coveragePercent)) \(t(.priced))" : ""
-            costParts.append("\(t(.apiEquivalent)) \(displayAPIMoney(apiEstimate.usdValue, source: state.selectedQuota))\(coverage)")
+            costParts.append("\(t(.apiEquivalent)) \(displayAPIMoney(apiEstimate.usdValue, source: state.selectedQuota))")
         }
         if let externalAPI, externalAPI.hasData {
             costParts.append("\(t(.externalAPICost)) \(displayAPIMoney(externalAPI.usdValue, source: state.selectedQuota))")
