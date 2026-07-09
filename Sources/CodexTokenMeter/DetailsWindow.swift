@@ -1926,6 +1926,56 @@ final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
     }
 }
 
+private final class ContributionWeekHoverOverlayView: NSView {
+    private var highlightRect: NSRect?
+    private var dotHitRect: NSRect?
+    private var accentColor = NSColor(calibratedRed: 0.279, green: 0.839, blue: 0.702, alpha: 1.0)
+
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func show(highlightRect: NSRect, dotHitRect: NSRect, accentColor: NSColor) {
+        self.highlightRect = highlightRect
+        self.dotHitRect = dotHitRect
+        self.accentColor = accentColor
+        isHidden = false
+        needsDisplay = true
+    }
+
+    func hide() {
+        guard !isHidden || highlightRect != nil || dotHitRect != nil else { return }
+        highlightRect = nil
+        dotHitRect = nil
+        isHidden = true
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let highlightRect, let dotHitRect else { return }
+
+        accentColor.withAlphaComponent(0.08).setFill()
+        NSBezierPath(roundedRect: highlightRect, xRadius: 7, yRadius: 7).fill()
+        accentColor.withAlphaComponent(0.40).setStroke()
+        let border = NSBezierPath(roundedRect: highlightRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7)
+        border.lineWidth = 1
+        border.stroke()
+
+        let radius: CGFloat = 3
+        let dotRect = NSRect(
+            x: dotHitRect.midX - radius,
+            y: dotHitRect.midY - radius,
+            width: radius * 2,
+            height: radius * 2
+        )
+        NSColor.white.withAlphaComponent(0.85).setFill()
+        NSBezierPath(ovalIn: dotRect).fill()
+    }
+}
+
 final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate {
     private struct CostRingCache {
         let key: String
@@ -2157,6 +2207,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
             if selectedSection != .calendar {
                 hoveredContributionWeekKey = nil
+                contributionWeekHoverOverlay.hide()
             }
             if selectedSection != .overview {
                 hoveredContributionDay = nil
@@ -2250,6 +2301,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var contributionWeekSummaries: [String: ContributionWeekSummary] = [:]
     private var contributionWeekDotRects: [String: NSRect] = [:]
     private var hoveredContributionWeekKey: String?
+    private let contributionWeekHoverOverlay = ContributionWeekHoverOverlayView(frame: .zero)
     private var selectedWeekStartDay: String?
     private var costHistoryBarRects: [Int: NSRect] = [:]
     private var costHistoryRows: [CostPeriodRow] = []
@@ -2554,6 +2606,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     override func layout() {
         super.layout()
+        contributionWeekHoverOverlay.frame = bounds
         layoutCostControls()
         layoutSettingsControls()
         layoutStorageControls()
@@ -2710,6 +2763,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         storageSearchField.sendsWholeSearchString = false
         storageSearchField.sendsSearchStringImmediately = true
         addSubview(storageSearchField)
+
+        contributionWeekHoverOverlay.frame = bounds
+        contributionWeekHoverOverlay.autoresizingMask = [.width, .height]
+        contributionWeekHoverOverlay.wantsLayer = true
+        contributionWeekHoverOverlay.layer?.backgroundColor = NSColor.clear.cgColor
+        contributionWeekHoverOverlay.isHidden = true
+        addSubview(contributionWeekHoverOverlay, positioned: .above, relativeTo: nil)
     }
 
     private func layoutCostControls() {
@@ -3147,6 +3207,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hoveredCostOverviewInfo = nil
         hoveredContributionDay = nil
         hoveredContributionWeekKey = nil
+        contributionWeekHoverOverlay.hide()
         hoveredInsightHour = nil
         hoveredInsightPeriod = nil
         hoveredResetCreditIndex = nil
@@ -3175,7 +3236,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         if hoveredContributionWeekKey != nil {
             hoveredContributionWeekKey = nil
-            shouldRedraw = true
+            contributionWeekHoverOverlay.hide()
         }
         if hoveredInsightHour != nil {
             hoveredInsightHour = nil
@@ -3260,7 +3321,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         guard selectedSection == .calendar else {
             if hoveredContributionWeekKey != nil {
                 hoveredContributionWeekKey = nil
-                needsDisplay = true
+                contributionWeekHoverOverlay.hide()
             }
             return
         }
@@ -3270,8 +3331,24 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let newKey = match?.key
         if hoveredContributionWeekKey != newKey {
             hoveredContributionWeekKey = newKey
-            needsDisplay = true
+            updateContributionWeekHoverOverlay()
         }
+    }
+
+    private func updateContributionWeekHoverOverlay() {
+        guard selectedSection == .calendar,
+              let key = hoveredContributionWeekKey,
+              key != selectedWeekStartDay,
+              let summary = contributionWeekSummaries[key],
+              let dotRect = contributionWeekDotRects[key] else {
+            contributionWeekHoverOverlay.hide()
+            return
+        }
+        contributionWeekHoverOverlay.show(
+            highlightRect: summary.hitRect.insetBy(dx: -4, dy: -4),
+            dotHitRect: dotRect,
+            accentColor: accentTeal
+        )
     }
 
     private func updateResetCreditHover(at point: CGPoint) {
@@ -3479,6 +3556,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         for (weekStart, rect) in contributionWeekDotRects where rect.insetBy(dx: -3, dy: -3).contains(point) {
             selectedWeekStartDay = selectedWeekStartDay == weekStart ? nil : weekStart
+            updateContributionWeekHoverOverlay()
             onPreferredHeightChanged?()
             needsDisplay = true
             needsLayout = true
@@ -3487,6 +3565,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         for (day, rect) in contributionDayRects where rect.insetBy(dx: -2, dy: -2).contains(point) {
             selectedDay = day
             selectedWeekStartDay = nil
+            updateContributionWeekHoverOverlay()
             AppSettings.selectedCalendarDay = day
             selectedSection = .calendar
             return
@@ -3497,6 +3576,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     /// Debug hook for --render-details=--select-week snapshots.
     func selectCalendarWeek(startDay: String) {
         selectedWeekStartDay = startDay
+        updateContributionWeekHoverOverlay()
         needsDisplay = true
     }
 
@@ -8597,21 +8677,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                let summary = summaries[selectedWeekStartDay] {
                 drawContributionWeekHighlight(summary, emphasized: true)
             }
-            if let hoveredContributionWeekKey,
-               hoveredContributionWeekKey != selectedWeekStartDay,
-               let summary = summaries[hoveredContributionWeekKey] {
-                drawContributionWeekHighlight(summary, emphasized: false)
-            }
             for (key, summary) in summaries {
                 let center = CGPoint(x: summary.hitRect.midX, y: startY - 11)
                 let isSelected = key == selectedWeekStartDay
-                let isHovered = key == hoveredContributionWeekKey
                 let radius: CGFloat = isSelected ? 3.5 : 3
                 let dotRect = NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
                 if isSelected {
                     accentTeal.setFill()
-                } else if isHovered {
-                    NSColor.white.withAlphaComponent(0.85).setFill()
                 } else {
                     NSColor.white.withAlphaComponent(0.32).setFill()
                 }
@@ -8624,6 +8696,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 }
                 contributionWeekDotRects[key] = NSRect(x: center.x - 7, y: center.y - 7, width: 14, height: 14)
             }
+            updateContributionWeekHoverOverlay()
         }
 
         for cellData in cells {
