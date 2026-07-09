@@ -154,7 +154,7 @@ struct APIModelRate {
 }
 
 enum APICostEstimator {
-    private static let defaultUnlabeledModelName = "gpt-5.5"
+    private static let defaultUnlabeledModelName = "gpt-5.6-sol"
 
     static func estimate(report: TokenReport) -> APICostEstimate {
         var estimate = APICostEstimate()
@@ -228,6 +228,15 @@ enum APICostEstimator {
 
     private static func rate(for modelName: String) -> APIModelRate? {
         let name = modelName.lowercased()
+        if name.contains("gpt-5.6-luna") || name.contains("gpt-5.6 luna") {
+            return APIModelRate(inputPerMillionUSD: 1, cachedInputPerMillionUSD: 0.1, outputPerMillionUSD: 6, cacheCreationInputPerMillionUSD: 1.25)
+        }
+        if name.contains("gpt-5.6-terra") || name.contains("gpt-5.6 terra") {
+            return APIModelRate(inputPerMillionUSD: 2.5, cachedInputPerMillionUSD: 0.25, outputPerMillionUSD: 15, cacheCreationInputPerMillionUSD: 3.125)
+        }
+        if name.contains("gpt-5.6-sol") || name.contains("gpt-5.6 sol") || name == "gpt-5.6" {
+            return APIModelRate(inputPerMillionUSD: 5, cachedInputPerMillionUSD: 0.5, outputPerMillionUSD: 30, cacheCreationInputPerMillionUSD: 6.25)
+        }
         if name.contains("gpt-5.5") && name.contains("cyber") {
             return APIModelRate(inputPerMillionUSD: 20, cachedInputPerMillionUSD: 2, outputPerMillionUSD: 120)
         }
