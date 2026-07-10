@@ -657,7 +657,7 @@ enum L10nKey {
         case .dayValue: return "Day value"
         case .dataSource: return "Data Source"
         case .dataSourceLine1: return "The app reads local Codex logs under ~/.codex and Claude Code logs under ~/.claude/projects."
-        case .dataSourceLine2: return "The big \"total\" at the top of the menu bar comes from Codex's official Profile API (account-level usage). The input/output breakdown and every Details view instead sum the input + output observed in local logs. Because the source and accounting differ, the official total is usually larger (wider coverage, and it counts cache writes and more), so a mismatch between the two is expected — not a calculation error."
+        case .dataSourceLine2: return "For 24h, the big \"total\" and input/output breakdown use the same rolling local-log window. For 7d and 30d, the big \"total\" uses Codex's official Profile API (account-level usage) when available, while input/output and Details views use local logs, so those longer-window totals can differ."
         case .definitions: return "Definitions"
         case .detectedNotTracked: return "Detected, not counted"
         case .details: return "Details"
@@ -925,7 +925,7 @@ enum L10nKey {
         case .dayValue: return "当日价值"
         case .dataSource: return "数据来源"
         case .dataSourceLine1: return "应用读取 ~/.codex 下的 Codex 日志，以及 ~/.claude/projects 下的 Claude Code 日志。"
-        case .dataSourceLine2: return "菜单栏顶部的“总量”来自 Codex 官方 Profile API（账户级用量）；而输入/输出明细以及详情页各视图，是本地日志观测到的“输入＋输出”汇总。两者数据来源和口径不同，官方总量通常更大（覆盖更全，且计入缓存写入等），因此两个数字对不上属于正常现象，并非计算错误。"
+        case .dataSourceLine2: return "24h 下，顶部“总量”和输入/输出都使用同一段滚动 24 小时本地日志。7d/30d 下，顶部“总量”会在可用时使用 Codex 官方 Profile API（账户级用量），输入/输出和详情页仍使用本地日志，因此较长时间窗口的总量可能不同。"
         case .definitions: return "定义"
         case .detectedNotTracked: return "已检测，未计入"
         case .details: return "详情"
@@ -1193,7 +1193,7 @@ enum L10nKey {
         case .dayValue: return "当日の価値"
         case .dataSource: return "データソース"
         case .dataSourceLine1: return "このアプリは ~/.codex の Codex ログと ~/.claude/projects の Claude Code ログを読み取ります。"
-        case .dataSourceLine2: return "メニューバー上部の「総量」は Codex 公式 Profile API（アカウント単位の使用量）に基づきます。一方、入出力の内訳と詳細画面は、ローカルログで観測した「入力＋出力」の合計です。データソースと集計基準が異なるため、公式の総量は通常より大きくなり（対象範囲が広く、キャッシュ書き込みなども計上）、両者の数値が一致しないのは想定内で、計算ミスではありません。"
+        case .dataSourceLine2: return "24h では、上部の「総量」と入出力の内訳に同じローリング 24 時間のローカルログを使用します。7d/30d では、利用可能な場合に上部の「総量」は Codex 公式 Profile API（アカウント単位の使用量）を使い、入出力と詳細画面はローカルログを使うため、長い期間の合計は一致しない場合があります。"
         case .definitions: return "定義"
         case .detectedNotTracked: return "検出済み・未集計"
         case .details: return "詳細"
@@ -1475,6 +1475,7 @@ enum AppSettings {
     static let statusBarPrimaryMetricKey = "statusBarPrimaryMetric"
     static let statusBarSecondaryMetricKey = "statusBarSecondaryMetric"
     static let claudeActiveQuotaRefreshEnabledKey = "claudeActiveQuotaRefreshEnabled"
+    static let machineUsageInstallationIDKey = "machineUsageInstallationID"
     static let statusBarMetricOffRawValue = "off"
 
     static let fallbackModelLimitID = "codex_bengalfox"
@@ -2075,6 +2076,19 @@ enum AppSettings {
         set {
             UserDefaults.standard.set(newValue.path, forKey: externalAPICostPathKey)
         }
+    }
+
+    static var machineUsageHistoryURL: URL {
+        appSupportDirectoryURL.appendingPathComponent("machine-usage-history.json")
+    }
+
+    static var machineUsageInstallationID: String {
+        if let value = UserDefaults.standard.string(forKey: machineUsageInstallationIDKey), !value.isEmpty {
+            return value
+        }
+        let value = UUID().uuidString.lowercased()
+        UserDefaults.standard.set(value, forKey: machineUsageInstallationIDKey)
+        return value
     }
 }
 

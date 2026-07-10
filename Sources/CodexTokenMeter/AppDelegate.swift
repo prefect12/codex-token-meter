@@ -112,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onQuotaWarningsChanged = { [weak self] isOn in self?.changeQuotaWarnings(isOn) }
         detailsController.detailsView.onProfileAPITotalsChanged = { [weak self] isOn in self?.changeProfileAPITotals(isOn) }
         detailsController.detailsView.onClaudeActiveQuotaRefreshChanged = { [weak self] isOn in self?.changeClaudeActiveQuotaRefresh(isOn) }
+        detailsController.detailsView.onExportMachineUsageReport = { [weak self] in self?.exportMachineUsageReport() }
         detailsController.detailsView.onStorageScanRequested = { [weak self] in self?.refreshStorageSnapshot() }
         applyLanguage()
         QuotaWarningManager.shared.requestAuthorization()
@@ -371,6 +372,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 QuotaWarningManager.shared.evaluate(limits: freshCodexLimits)
             }
             let nextRefresh = Date().addingTimeInterval(self.refreshInterval)
+            let codexReportForHistory = codexReport ?? (quota == .codex ? report : nil)
             DispatchQueue.main.async {
                 self.activeScans.remove(key)
                 self.reportCache[key] = report
@@ -392,6 +394,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let freshResetCredits {
                     self.resetCredits = freshResetCredits
                 }
+                MachineUsageReportStore.shared.record(
+                    localCodexReport: codexReportForHistory,
+                    accountUsage: self.accountUsage,
+                    liveLimits: forceLive && !limits.isEmpty ? limits : self.liveLimits
+                )
                 if self.selectedWindow == window && self.selectedQuota == quota {
                     let cachedPlatforms = self.cachedPlatformReports(window: window, quota: quota)
                     let effectiveLimits = forceLive && !limits.isEmpty ? limits : self.liveLimits
@@ -476,6 +483,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.latestState.liveLimits = limits
                 self.latestState.resetCredits = effectiveResetCredits
                 self.latestState.error = nil
+                MachineUsageReportStore.shared.record(
+                    localCodexReport: nil,
+                    accountUsage: self.accountUsage,
+                    liveLimits: limits
+                )
                 self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
                 self.dashboardController.dashboardView.update(self.latestState)
                 self.detailsController.updateLiveLimits(limits, costReferenceReport: costReferenceReport, serviceStatus: self.serviceStatus)
@@ -703,6 +715,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openCodexAPISource() {
         NSWorkspace.shared.open(AppSettings.codexAPISourceOpenURL)
+    }
+
+    private func exportMachineUsageReport() {
+        let copy = AppLanguage.current.machineUsageReportCopy
+        let panel = NSOpenPanel()
+        panel.title = copy.chooseFolder
+        panel.message = copy.hint
+        panel.prompt = copy.exportAction
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+
+        let export = { (response: NSApplication.ModalResponse) in
+            guard response == .OK, let parent = panel.url else { return }
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyyMMdd-HHmmss"
+            let directory = parent.appendingPathComponent("AI-Token-Meter-Usage-Report-\(formatter.string(from: Date()))", isDirectory: true)
+            do {
+                let output = try MachineUsageReportStore.shared.export(to: directory)
+                NSWorkspace.shared.open(output)
+            } catch {
+                NSLog("AI Token Meter machine usage export failed: \(error.localizedDescription)")
+                NSSound.beep()
+            }
+        }
+        if let window = detailsController.window {
+            panel.beginSheetModal(for: window, completionHandler: export)
+        } else {
+            export(panel.runModal())
+        }
     }
 
     private func chooseCodexAPISource() {
@@ -1061,6 +1105,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let accountUsage = readAccountUsageIfNeeded(fallback: currentAccountUsage)
         let resetCredits = currentResetCredits ?? resetCreditsReader.read(timeout: 8)
         updateProgress?(0.94, .loadingFinalizing)
+        MachineUsageReportStore.shared.record(
+            localCodexReport: codex,
+            accountUsage: accountUsage,
+            liveLimits: limits
+        )
         return DetailsSnapshot(
             all: all,
             codex: codex,

@@ -1415,13 +1415,17 @@ final class DashboardView: NSView {
     func update(_ state: DashboardState) {
         self.state = state
         let report = state.report
-        let totalReport = state.selectedQuota.usesCodexProfileAPI ? (state.profileReport ?? report) : report
+        let profileTotalReport = state.selectedWindow != .day && state.selectedQuota.usesCodexProfileAPI
+            ? state.profileReport
+            : nil
+        let totalReport = profileTotalReport ?? report
+        let usesProfileTotal = profileTotalReport != nil
         applyLanguage()
         titleLabel.stringValue = "AI Token Meter"
         let displayLimit = selectedLimit(from: state.liveLimits, quota: state.selectedQuota)
         subtitleLabel.stringValue = state.selectedQuota.fallbackTitle
         totalLabel.stringValue = headerTotalSummary(totalReport.usage.total)
-        detailLabel.stringValue = state.profileReport != nil && state.selectedQuota.usesCodexProfileAPI
+        detailLabel.stringValue = usesProfileTotal
             ? "\(state.selectedWindow.title) · \(t(.profileAPISource))"
             : state.selectedWindow.title
         usageLabel.stringValue = headerUsageSummary(input: report.usage.input, output: report.usage.output)
