@@ -20,7 +20,12 @@ if let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--export-ma
         liveLimits: LiveRateLimitCacheStore.read()
     )
     do {
-        let output = try MachineUsageReportStore.shared.export(to: URL(fileURLWithPath: (rawPath as NSString).expandingTildeInPath, isDirectory: true))
+        let requestedURL = URL(fileURLWithPath: (rawPath as NSString).expandingTildeInPath)
+        let output = try MachineUsageReportStore.shared.exportArchive(
+            to: requestedURL.pathExtension.lowercased() == "zip"
+                ? requestedURL
+                : requestedURL.appendingPathComponent("AI-Token-Meter-Usage-Report.zip")
+        )
         print(output.path)
     } catch {
         fputs("Failed to export machine usage report: \(error)\n", stderr)
