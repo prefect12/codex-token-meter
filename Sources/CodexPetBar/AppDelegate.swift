@@ -11,7 +11,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var refreshTimer: Timer?
     private var animationTimer: Timer?
     private var settingsWindowController: TaskBarSettingsWindowController?
+    private var rolloutActivityMonitor: RolloutActivityMonitor?
     private var readInFlight = false
+    private var pendingRefresh = false
+    private var pendingRolloutEnrichment = false
+    private var pendingPriorityRolloutURLs: [String: URL] = [:]
     private var selectedTab: TaskBarTab = .all
     private var lastThreadsSignature = ""
     private var lastStatusIconSignature = ""
@@ -29,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: popover
         )
         configureStatusButton()
+        startRolloutActivityMonitor()
         refresh()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh()
@@ -43,16 +48,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        rolloutActivityMonitor?.stop()
         ThreadHoverPanel.shared.hideAll()
     }
 
-    private func refresh(includeRolloutEnrichment: Bool = false) {
-        guard !readInFlight else { return }
+    private func refresh(includeRolloutEnrichment: Bool = false, priorityRolloutURLs: [URL] = []) {
+        pendingRolloutEnrichment = pendingRolloutEnrichment || includeRolloutEnrichment
+        for url in priorityRolloutURLs {
+            pendingPriorityRolloutURLs[url.path] = url
+        }
+        guard !readInFlight else {
+            pendingRefresh = true
+            return
+        }
         readInFlight = true
+        pendingRefresh = false
+        let shouldEnrichRollouts = pendingRolloutEnrichment
+        pendingRolloutEnrichment = false
+        let prioritized = Array(pendingPriorityRolloutURLs.values)
+        pendingPriorityRolloutURLs.removeAll()
         DispatchQueue.global(qos: .utility).async {
             let items = self.reader.read(
                 limit: taskBarCandidateThreadLimit,
-                includeRolloutEnrichment: includeRolloutEnrichment
+                includeRolloutEnrichment: shouldEnrichRollouts,
+                priorityRolloutURLs: prioritized
             )
             let visible = self.readState.visibleThreads(from: items)
                 .sorted(by: stableThreadOrder)
@@ -69,8 +88,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if changed, self.popover.isShown {
                     self.rebuildPopover()
                 }
+                if self.pendingRefresh || !self.pendingPriorityRolloutURLs.isEmpty {
+                    self.refresh()
+                }
             }
         }
+    }
+
+    private func startRolloutActivityMonitor() {
+        rolloutActivityMonitor?.stop()
+        let monitor = RolloutActivityMonitor(roots: taskBarRolloutRootURLs()) { [weak self] urls in
+            DispatchQueue.main.async {
+                self?.refresh(priorityRolloutURLs: urls)
+            }
+        }
+        rolloutActivityMonitor = monitor
+        monitor.start()
     }
 
     private func threadsSignature(_ items: [CodexThreadItem]) -> String {
@@ -168,6 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindowController == nil {
             settingsWindowController = TaskBarSettingsWindowController { [weak self] in
                 ThreadHoverPanel.shared.hideAll()
+                self?.startRolloutActivityMonitor()
                 self?.refresh()
                 if self?.popover.isShown == true {
                     self?.rebuildPopover()

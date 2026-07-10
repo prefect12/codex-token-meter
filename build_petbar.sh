@@ -19,6 +19,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc \
   -O \
   -framework Cocoa \
+  -framework CoreServices \
   "${SWIFT_SOURCES[@]}" \
   -o "$BIN"
 

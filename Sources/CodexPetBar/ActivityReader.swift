@@ -28,7 +28,7 @@ private enum CodexUnreadStateRead {
     case unreadIDs(Set<String>)
 }
 
-private func configuredCodexHomeURLs(home: String = NSHomeDirectory()) -> [URL] {
+func configuredCodexHomeURLs(home: String = NSHomeDirectory()) -> [URL] {
     var urls = [
         URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
     ]
@@ -213,7 +213,12 @@ final class CodexActivityReader {
     private let appServerCacheTTL: TimeInterval = 120
     private let sqliteSupplementCacheTTL: TimeInterval = 30
 
-    func read(limit: Int = 12, lookbackHours: Int = 12, includeRolloutEnrichment: Bool = false) -> [CodexThreadItem] {
+    func read(
+        limit: Int = 12,
+        lookbackHours: Int = 12,
+        includeRolloutEnrichment: Bool = false,
+        priorityRolloutURLs: [URL] = []
+    ) -> [CodexThreadItem] {
         // Safety valve only: entries are tiny, but an unbounded map over months of
         // uptime should not grow forever. Dropping everything just re-parses once.
         if rolloutScanCache.count > 2048 { rolloutScanCache.removeAll() }
@@ -229,7 +234,11 @@ final class CodexActivityReader {
             byID[item.id] = item
         }
 
-        let loggedRollouts = recentRolloutThreads(limit: max(limit * 3, 18), lookbackHours: lookbackHours)
+        let loggedRollouts = mergedRolloutThreads(
+            priorityURLs: priorityRolloutURLs,
+            limit: max(limit * 3, 18),
+            lookbackHours: lookbackHours
+        )
         let loggedCandidates: [(logged: LoggedThread, rolloutURL: URL?)] = loggedRollouts.isEmpty
             ? recentLoggedThreads(limit: max(limit * 3, 18), lookbackHours: lookbackHours).map { logged in
                 (logged, rolloutURL(threadID: logged.id, lastActivity: logged.lastActivity, lookbackHours: lookbackHours))
@@ -247,12 +256,20 @@ final class CodexActivityReader {
             } else {
                 activityDate = summary.lastCompletionAt ?? summary.lastTaskEventAt ?? logged.lastActivity
             }
-            // A running turn keeps emitting events; once it has been silent past the
-            // timeout the turn has stopped, so it is reported as finished, not running.
-            let isRunning = !summary.isWaitingForInput
+            // Silence alone is not proof that a turn finished: a long tool call can
+            // legitimately write nothing for minutes. Keep it visible as stale until
+            // the rollout writes an explicit completion or abort event.
+            let isRecentlyRunning = !summary.isWaitingForInput
                 && summary.isRunning
                 && Date().timeIntervalSince(activityDate) <= runningActivityTimeout
-            let status: ThreadRunStatus = summary.isWaitingForInput ? .waiting : (isRunning ? .running : .unread)
+            let status: ThreadRunStatus
+            if summary.isWaitingForInput {
+                status = .waiting
+            } else if summary.isRunning {
+                status = isRecentlyRunning ? .running : .stale
+            } else {
+                status = .unread
+            }
             let externalReadAt = appServerSnapshot.externalReadAtByID[logged.id]
             let explicitUnread = unreadThreadIDs.contains(logged.id)
                 && !isAppServerReadThrough(externalReadAt: externalReadAt, lastActivity: activityDate)
@@ -446,7 +463,7 @@ final class CodexActivityReader {
             #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"task-bar","version":"0.1.0"},"capabilities":{}}}"#,
             #"{"method":"initialized"}"#,
             #"{"id":2,"method":"thread/loaded/list"}"#,
-            #"{"id":3,"method":"thread/list","params":{"limit":20}}"#
+            #"{"id":3,"method":"thread/list","params":{"limit":\#(max(20, limit))}}"#
         ]
         if let data = (messages.joined(separator: "\n") + "\n").data(using: .utf8) {
             input.fileHandleForWriting.write(data)
@@ -762,6 +779,41 @@ final class CodexActivityReader {
             .sorted { $0.logged.lastActivity > $1.logged.lastActivity }
             .prefix(max(1, limit))
             .map { $0 }
+    }
+
+    private func mergedRolloutThreads(priorityURLs: [URL], limit: Int, lookbackHours: Int) -> [LoggedRolloutThread] {
+        var byID: [String: LoggedRolloutThread] = [:]
+        for url in priorityURLs {
+            guard let threadID = rolloutThreadID(fromFilename: url.lastPathComponent),
+                  fileManager.fileExists(atPath: url.path) else {
+                continue
+            }
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+            let lastActivity = values?.contentModificationDate ?? Date()
+            byID[threadID] = LoggedRolloutThread(
+                logged: LoggedThread(
+                    id: threadID,
+                    lastActivity: lastActivity,
+                    isCodexAPI: isCodexAPIURL(url)
+                ),
+                fileURL: url
+            )
+            rolloutURLCacheByThreadID[threadID] = url
+        }
+        for entry in recentRolloutThreads(limit: limit, lookbackHours: lookbackHours) {
+            if let existing = byID[entry.logged.id],
+               existing.logged.lastActivity >= entry.logged.lastActivity {
+                continue
+            }
+            byID[entry.logged.id] = entry
+        }
+        let priorityIDs = Set(priorityURLs.compactMap { rolloutThreadID(fromFilename: $0.lastPathComponent) })
+        return byID.values.sorted { lhs, rhs in
+            let lhsPriority = priorityIDs.contains(lhs.logged.id)
+            let rhsPriority = priorityIDs.contains(rhs.logged.id)
+            if lhsPriority != rhsPriority { return lhsPriority }
+            return lhs.logged.lastActivity > rhs.logged.lastActivity
+        }
     }
 
     private func unreadStateThreads(threadIDs: Set<String>, externalReadAtByID: [String: Date]) -> [CodexThreadItem] {
@@ -1832,18 +1884,7 @@ final class CodexActivityReader {
     }
 
     private func sessionRoots() -> [URL] {
-        var roots = codexHomeURLs().flatMap { codexHome in
-            [
-                codexHome.appendingPathComponent("sessions", isDirectory: true),
-                codexHome.appendingPathComponent("archived_sessions", isDirectory: true)
-            ]
-        }
-        if let env = ProcessInfo.processInfo.environment["CODEX_HOME"], !env.isEmpty {
-            let custom = URL(fileURLWithPath: (env as NSString).expandingTildeInPath, isDirectory: true)
-            roots.append(custom.appendingPathComponent("sessions", isDirectory: true))
-            roots.append(custom.appendingPathComponent("archived_sessions", isDirectory: true))
-        }
-        return unique(roots)
+        taskBarRolloutRootURLs(home: home)
     }
 
     private func codexHomeURLs() -> [URL] {
