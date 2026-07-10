@@ -1428,6 +1428,7 @@ final class LiveRateLimitReader {
 
     static func codexExecutablePath() -> String? {
         let candidates = [
+            "/Applications/ChatGPT.app/Contents/Resources/codex",
             "/Applications/Codex.app/Contents/Resources/codex",
             "/opt/homebrew/bin/codex",
             "/usr/local/bin/codex"
