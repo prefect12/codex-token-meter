@@ -2190,6 +2190,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var onQuotaWarningsChanged: ((Bool) -> Void)?
     var onProfileAPITotalsChanged: ((Bool) -> Void)?
     var onClaudeActiveQuotaRefreshChanged: ((Bool) -> Void)?
+    var onExportMachineUsageReport: (() -> Void)?
     var onPreferredHeightChanged: (() -> Void)?
     private var selectedSection: DetailsSection = .overview {
         didSet {
@@ -2295,6 +2296,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var chooseCodexAPISourceRect: NSRect?
     private var resetCodexAPISourceRect: NSRect?
     private var openCodexAPISourceRect: NSRect?
+    private var machineUsageExportRect: NSRect?
     private var contributionDayRects: [String: NSRect] = [:]
     private var contributionDaySummaries: [String: ContributionDaySummary] = [:]
     private var hoveredContributionDay: String?
@@ -3545,6 +3547,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 onOpenCodexAPISource?()
                 return
             }
+            if machineUsageExportRect?.contains(point) == true {
+                onExportMachineUsageReport?()
+                return
+            }
         }
         if selectedSection == .costs,
            showHistoricalEmptyWeeksToggleRect?.insetBy(dx: -8, dy: -6).contains(point) == true {
@@ -3794,6 +3800,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         chooseCodexAPISourceRect = nil
         resetCodexAPISourceRect = nil
         openCodexAPISourceRect = nil
+        machineUsageExportRect = nil
         storageGrowthCells.removeAll()
         storageSourceRowRects.removeAll()
         storageSourceMenuRects.removeAll()
@@ -7816,6 +7823,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         chooseCodexAPISourceRect = nil
         resetCodexAPISourceRect = nil
         openCodexAPISourceRect = nil
+        machineUsageExportRect = nil
 
         let rect = settingsPanelRect(in: content)
         drawSettingsSubnavigation(in: rect)
@@ -7924,6 +7932,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
         drawSwitchSetting(title: t(.profileAPITotals), hint: t(.profileAPITotalsHint), switchFrame: profileAPITotalsSwitch.frame, page: page, y: page.minY + 320)
         drawSwitchSetting(title: t(.claudeActiveRefresh), hint: t(.claudeActiveRefreshHint), switchFrame: claudeActiveQuotaRefreshSwitch.frame, page: page, y: page.minY + 390)
+
+        let exportCopy = AppLanguage.current.machineUsageReportCopy
+        let exportY = page.minY + 470
+        let exportW = max(118, measuredTextWidth(exportCopy.exportAction, font: .systemFont(ofSize: 12, weight: .semibold)) + 28)
+        machineUsageExportRect = NSRect(x: page.maxX - exportW, y: exportY, width: exportW, height: 34)
+        drawSettingText(title: exportCopy.title, hint: exportCopy.hint, x: page.minX, y: exportY, width: max(180, machineUsageExportRect!.minX - page.minX - 16))
+        drawSmallButton(exportCopy.exportAction, rect: machineUsageExportRect!, emphasized: true)
     }
 
     private func drawQuotaSettings(in page: NSRect) {

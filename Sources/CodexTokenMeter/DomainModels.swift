@@ -295,6 +295,92 @@ struct TokenReport: Codable {
     var scannedAt = Date()
 }
 
+// MARK: - Cross-device usage reporting
+
+struct MachineUsageIdentity: Codable {
+    var installationID: String
+    var displayName: String
+    var hostName: String
+    var timeZoneIdentifier: String
+    var trackingStartedAt: Date
+}
+
+struct MachineDayUsageRecord: Codable {
+    var day: String
+    var usage: Usage
+    var turns: Int
+    var modelBreakdown: [ModelUsage]
+    var apiEquivalentUSD: Double
+    var apiEquivalentPricedTokens: Int64
+    var firstObservedAt: Date
+    var lastObservedAt: Date
+}
+
+struct AccountQuotaWindowObservation: Codable, Equatable {
+    var usedPercent: Double
+    var windowMinutes: Int
+    var resetsAt: Date?
+}
+
+struct AccountQuotaLimitObservation: Codable, Equatable {
+    var id: String
+    var name: String
+    var planType: String?
+    var primary: AccountQuotaWindowObservation
+    var secondary: AccountQuotaWindowObservation
+}
+
+struct AccountQuotaObservation: Codable {
+    var observedAt: Date
+    var limits: [AccountQuotaLimitObservation]
+}
+
+struct MachineUsageHistoryFile: Codable {
+    var version: Int
+    var machine: MachineUsageIdentity
+    var updatedAt: Date
+    var localCodexByDay: [String: MachineDayUsageRecord]
+    var accountQuotaObservations: [AccountQuotaObservation]
+    var latestAccountUsage: AccountUsageSnapshot?
+}
+
+struct MachineLocalUsageSummary: Codable {
+    var usage: Usage
+    var turns: Int
+    var activeDays: Int
+    var firstDay: String?
+    var lastDay: String?
+    var apiEquivalentUSD: Double
+    var apiEquivalentPricedTokens: Int64
+}
+
+struct MachineUsageReportSemantics: Codable {
+    let accountQuotaScope = "Official account-level quota observed by this installation; it already includes activity from all devices and must not be summed across machines."
+    let deviceUsageScope = "Codex tokens found in local rollout logs configured on this installation; compare or sum these rows by installation_id only when logs are not duplicated between machines."
+    let apiEquivalentScope = "Estimated API-equivalent value of local tokens; it is not a subscription bill or an official charge."
+}
+
+struct MachineLocalUsageExport: Codable {
+    var summary: MachineLocalUsageSummary
+    var dailyUsage: [MachineDayUsageRecord]
+}
+
+struct MachineOfficialAccountExport: Codable {
+    var latestQuota: AccountQuotaObservation?
+    var quotaObservations: [AccountQuotaObservation]
+    var latestProfileUsage: AccountUsageSnapshot?
+}
+
+struct MachineUsageExportReport: Codable {
+    var schemaVersion: Int
+    var exportedAt: Date
+    var appVersion: String
+    var machine: MachineUsageIdentity
+    var semantics: MachineUsageReportSemantics
+    var deviceLocalCodex: MachineLocalUsageExport
+    var officialAccount: MachineOfficialAccountExport
+}
+
 struct RepoInsightDay: Codable {
     let day: String
     var conversations: Int

@@ -5,6 +5,30 @@ import UserNotifications
 
 // MARK: - Command Line Entrypoints
 
+if let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--export-machine-report=") }) {
+    let rawPath = String(argument.dropFirst("--export-machine-report=".count))
+    guard !rawPath.isEmpty else {
+        fputs("--export-machine-report requires a directory path\n", stderr)
+        exit(2)
+    }
+    let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
+    let localCodex = scanner.scan(days: 365)
+    let accountUsage = AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
+    MachineUsageReportStore.shared.record(
+        localCodexReport: localCodex,
+        accountUsage: accountUsage,
+        liveLimits: LiveRateLimitCacheStore.read()
+    )
+    do {
+        let output = try MachineUsageReportStore.shared.export(to: URL(fileURLWithPath: (rawPath as NSString).expandingTildeInPath, isDirectory: true))
+        print(output.path)
+    } catch {
+        fputs("Failed to export machine usage report: \(error)\n", stderr)
+        exit(1)
+    }
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--claude-statusline") {
     let data = FileHandle.standardInput.readDataToEndOfFile()
     do {
