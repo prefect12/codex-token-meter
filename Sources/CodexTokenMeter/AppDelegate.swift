@@ -733,10 +733,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = "yyyyMMdd-HHmmss"
-            let directory = parent.appendingPathComponent("AI-Token-Meter-Usage-Report-\(formatter.string(from: Date()))", isDirectory: true)
+            let archive = parent.appendingPathComponent("AI-Token-Meter-Usage-Report-\(formatter.string(from: Date())).zip")
             do {
-                let output = try MachineUsageReportStore.shared.export(to: directory)
-                NSWorkspace.shared.open(output)
+                let output = try MachineUsageReportStore.shared.exportArchive(to: archive)
+                NSWorkspace.shared.activateFileViewerSelecting([output])
             } catch {
                 NSLog("AI Token Meter machine usage export failed: \(error.localizedDescription)")
                 NSSound.beep()

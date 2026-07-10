@@ -13,28 +13,28 @@ extension AppLanguage {
         case .chinese:
             return MachineUsageReportCopy(
                 title: "跨设备用量报告",
-                hint: "持续记录本机 Codex Token 与账户级官方额度；导出 JSON 和 CSV 后可与其他电脑对比。",
+                hint: "持续记录本机 Codex Token 与账户级官方额度；导出为一个 ZIP 压缩包，可与其他电脑对比。",
                 exportAction: "导出报告…",
                 chooseFolder: "选择报告导出位置"
             )
         case .traditionalChinese:
             return MachineUsageReportCopy(
                 title: "跨裝置用量報告",
-                hint: "持續記錄本機 Codex Token 與帳戶級官方額度；匯出 JSON 和 CSV 後可與其他電腦比較。",
+                hint: "持續記錄本機 Codex Token 與帳戶級官方額度；匯出為一個 ZIP 壓縮檔，可與其他電腦比較。",
                 exportAction: "匯出報告…",
                 chooseFolder: "選擇報告匯出位置"
             )
         case .japanese:
             return MachineUsageReportCopy(
                 title: "デバイス別使用量レポート",
-                hint: "この Mac の Codex Token とアカウント全体の公式クォータを記録し、JSON/CSV で比較できます。",
+                hint: "この Mac の Codex Token とアカウント全体の公式クォータを記録し、1 つの ZIP に書き出して比較できます。",
                 exportAction: "レポートを書き出す…",
                 chooseFolder: "書き出し先を選択"
             )
         default:
             return MachineUsageReportCopy(
                 title: "Cross-device usage report",
-                hint: "Records this Mac's Codex tokens and account-level official quota. Export JSON and CSV to compare computers.",
+                hint: "Records this Mac's Codex tokens and account-level official quota. Export one ZIP package to compare computers.",
                 exportAction: "Export report…",
                 chooseFolder: "Choose an export location"
             )
@@ -94,11 +94,27 @@ final class MachineUsageReportStore {
         persist()
     }
 
-    func export(to directory: URL, appVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development") throws -> URL {
+    func exportArchive(to archiveURL: URL, appVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development") throws -> URL {
         lock.lock()
         defer { lock.unlock() }
 
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        guard archiveURL.pathExtension.lowercased() == "zip" else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        let fileManager = FileManager.default
+        let parent = archiveURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+        let stagingDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent(archiveURL.deletingPathExtension().lastPathComponent, isDirectory: true)
+        defer { try? fileManager.removeItem(at: stagingDirectory) }
+        if fileManager.fileExists(atPath: stagingDirectory.path) {
+            try fileManager.removeItem(at: stagingDirectory)
+        }
+        try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: archiveURL.path) {
+            try fileManager.removeItem(at: archiveURL)
+        }
+
         let days = history.localCodexByDay.values.sorted { $0.day < $1.day }
         let summary = Self.summary(days: days)
         let report = MachineUsageExportReport(
@@ -118,11 +134,20 @@ final class MachineUsageReportStore {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(report).write(to: directory.appendingPathComponent("machine-usage-report.json"), options: .atomic)
-        try Self.dailyCSV(days: days, machine: history.machine).data(using: .utf8)?.write(to: directory.appendingPathComponent("local-codex-daily.csv"), options: .atomic)
-        try Self.quotaCSV(history.accountQuotaObservations, machine: history.machine).data(using: .utf8)?.write(to: directory.appendingPathComponent("official-account-quota-observations.csv"), options: .atomic)
-        try Self.readme(for: report).data(using: .utf8)?.write(to: directory.appendingPathComponent("README.md"), options: .atomic)
-        return directory
+        try encoder.encode(report).write(to: stagingDirectory.appendingPathComponent("machine-usage-report.json"), options: .atomic)
+        try Self.dailyCSV(days: days, machine: history.machine).data(using: .utf8)?.write(to: stagingDirectory.appendingPathComponent("local-codex-daily.csv"), options: .atomic)
+        try Self.quotaCSV(history.accountQuotaObservations, machine: history.machine).data(using: .utf8)?.write(to: stagingDirectory.appendingPathComponent("official-account-quota-observations.csv"), options: .atomic)
+        try Self.readme(for: report).data(using: .utf8)?.write(to: stagingDirectory.appendingPathComponent("README.md"), options: .atomic)
+        let zipper = Process()
+        zipper.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zipper.currentDirectoryURL = stagingDirectory
+        zipper.arguments = ["-q", "-r", archiveURL.path, ".", "-x", "*/._*", "__MACOSX/*"]
+        try zipper.run()
+        zipper.waitUntilExit()
+        guard zipper.terminationStatus == 0 else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        return archiveURL
     }
 
     private func shouldAppend(_ candidate: AccountQuotaObservation) -> Bool {
