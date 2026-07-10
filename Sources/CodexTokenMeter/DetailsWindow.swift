@@ -2008,6 +2008,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let hitRect: NSRect
     }
 
+    private enum ContributionDragMode {
+        case days
+        case weeks
+    }
+
     private enum CostOverviewInfo: Hashable {
         case usageRate
         case totalSpend
@@ -2157,7 +2162,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         didSet {
             if let snapshot {
                 let report = calendarReport(for: snapshot)
-                selectedDay = preferredSelectedDay(in: report, fallback: selectedDay)
+                normalizeCalendarSelection(in: report, fallback: selectedDay)
                 normalizeSelectedInsight(for: insightReport(for: snapshot))
             }
             updateResetCreditCountdownTimer()
@@ -2254,7 +2259,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             costYearOptionsCacheKey = nil
             if let snapshot {
                 let report = calendarReport(for: snapshot)
-                selectedDay = preferredSelectedDay(in: report, fallback: selectedDay)
+                normalizeCalendarSelection(in: report, fallback: selectedDay)
                 normalizeSelectedInsight(for: insightReport(for: snapshot))
             }
             onPreferredHeightChanged?()
@@ -2304,7 +2309,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var contributionWeekDotRects: [String: NSRect] = [:]
     private var hoveredContributionWeekKey: String?
     private let contributionWeekHoverOverlay = ContributionWeekHoverOverlayView(frame: .zero)
-    private var selectedWeekStartDay: String?
+    private var selectedContributionDays: Set<String> = []
+    private var contributionSelectionAnchor: (startDay: String, endDay: String)?
+    private var contributionGridSelectionRect: NSRect?
+    private var contributionDragMode: ContributionDragMode?
+    private var contributionDragStartPoint: CGPoint?
+    private var contributionDragBaseDays: Set<String> = []
+    private var contributionMarqueeRect: NSRect?
     private var costHistoryBarRects: [Int: NSRect] = [:]
     private var costHistoryRows: [CostPeriodRow] = []
     private var costOverviewInfoRects: [CostOverviewInfo: NSRect] = [:]
@@ -2946,7 +2957,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             targetHeight = 660
         case .calendar:
             let gridHeight: CGFloat = normalizedWidth >= 1200 ? 246 : 232
-            let detailHeight = selectedCalendarWeekSummary() != nil
+            let detailHeight = selectedCalendarRangeSummary() != nil
                 ? selectedWeekPanelPreferredHeight(contentWidth: contentWidth)
                 : selectedDayPanelPreferredHeight(contentWidth: contentWidth)
             targetHeight = 174 + gridHeight + detailHeight
@@ -3045,7 +3056,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func selectedWeekPanelPreferredHeight(contentWidth: CGFloat) -> CGFloat {
-        guard let snapshot, let summary = selectedCalendarWeekSummary() else { return 248 }
+        guard let snapshot, let summary = selectedCalendarRangeSummary() else { return 248 }
         let planValue = contributionWeekPlanValue(summary)
         let apiEstimate = contributionWeekAPIEstimate(summary)
         let metricsCount = 4 + (planValue == nil ? 0 : 1) + (apiEstimate.hasPricedUsage ? 1 : 0)
@@ -3340,8 +3351,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func updateContributionWeekHoverOverlay() {
         guard selectedSection == .calendar,
               let key = hoveredContributionWeekKey,
-              key != selectedWeekStartDay,
               let summary = contributionWeekSummaries[key],
+              !isContributionWeekFullySelected(summary),
               let dotRect = contributionWeekDotRects[key] else {
             contributionWeekHoverOverlay.hide()
             return
@@ -3445,7 +3456,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             selectedSection = section
             if section == .calendar, let snapshot {
                 let report = calendarReport(for: snapshot)
-                selectedDay = preferredSelectedDay(in: report, fallback: selectedDay)
+                normalizeCalendarSelection(in: report, fallback: selectedDay)
             }
             if section == .insights, let snapshot {
                 normalizeSelectedInsight(for: insightReport(for: snapshot))
@@ -3561,29 +3572,179 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             return
         }
         for (weekStart, rect) in contributionWeekDotRects where rect.insetBy(dx: -3, dy: -3).contains(point) {
-            selectedWeekStartDay = selectedWeekStartDay == weekStart ? nil : weekStart
-            updateContributionWeekHoverOverlay()
-            onPreferredHeightChanged?()
-            needsDisplay = true
-            needsLayout = true
+            guard let summary = contributionWeekSummaries[weekStart] else { continue }
+            beginContributionDrag(mode: .weeks, at: point, extending: event.modifierFlags.contains(.shift))
+            let weekDays = Set(summary.days.map(\.day))
+            if event.modifierFlags.contains(.shift), let anchor = contributionSelectionAnchor, let snapshot {
+                selectContributionRange(from: anchor, through: (summary.startDay, summary.endDay), report: calendarReport(for: snapshot))
+            } else if contributionSelectionDays() == weekDays {
+                selectedContributionDays.removeAll()
+                contributionSelectionAnchor = selectedDay.map { ($0, $0) }
+                calendarSelectionDidChange()
+            } else {
+                applyContributionSelection(weekDays)
+                contributionSelectionAnchor = (summary.startDay, summary.endDay)
+            }
             return
         }
         for (day, rect) in contributionDayRects where rect.insetBy(dx: -2, dy: -2).contains(point) {
-            selectedDay = day
-            selectedWeekStartDay = nil
-            updateContributionWeekHoverOverlay()
-            AppSettings.selectedCalendarDay = day
-            selectedSection = .calendar
+            if selectedSection == .calendar {
+                beginContributionDrag(mode: .days, at: point, extending: event.modifierFlags.contains(.shift))
+                if event.modifierFlags.contains(.shift), let anchor = contributionSelectionAnchor, let snapshot {
+                    selectContributionRange(from: anchor, through: (day, day), report: calendarReport(for: snapshot))
+                } else {
+                    applyContributionSelection([day])
+                    contributionSelectionAnchor = (day, day)
+                    AppSettings.selectedCalendarDay = day
+                }
+            } else {
+                selectedContributionDays.removeAll()
+                selectedDay = day
+                contributionSelectionAnchor = (day, day)
+                AppSettings.selectedCalendarDay = day
+                selectedSection = .calendar
+            }
+            return
+        }
+        if selectedSection == .calendar, contributionGridSelectionRect?.contains(point) == true {
+            beginContributionDrag(mode: .days, at: point, extending: event.modifierFlags.contains(.shift))
             return
         }
         super.mouseDown(with: event)
     }
 
+    override func mouseDragged(with event: NSEvent) {
+        guard let mode = contributionDragMode,
+              let start = contributionDragStartPoint else {
+            super.mouseDragged(with: event)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        guard hypot(point.x - start.x, point.y - start.y) >= 3 else { return }
+        let marquee = NSRect(
+            x: min(start.x, point.x),
+            y: min(start.y, point.y),
+            width: max(1, abs(point.x - start.x)),
+            height: max(1, abs(point.y - start.y))
+        )
+        contributionMarqueeRect = marquee
+
+        var selected = contributionDragBaseDays
+        switch mode {
+        case .days:
+            selected.formUnion(contributionDayRects.compactMap { day, rect in
+                marquee.intersects(rect.insetBy(dx: -1, dy: -1)) ? day : nil
+            })
+        case .weeks:
+            let weekKeys = contributionWeekDotRects.compactMap { key, rect in
+                marquee.intersects(rect.insetBy(dx: -2, dy: -2)) ? key : nil
+            }
+            for key in weekKeys {
+                selected.formUnion(contributionWeekSummaries[key]?.days.map(\.day) ?? [])
+            }
+        }
+        if !selected.isEmpty {
+            applyContributionSelection(selected)
+        } else {
+            needsDisplay = true
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if contributionDragMode != nil {
+            if contributionMarqueeRect != nil {
+                let days = contributionSelectionDays().sorted()
+                if let first = days.first, let last = days.last {
+                    contributionSelectionAnchor = (first, last)
+                }
+            }
+            contributionDragMode = nil
+            contributionDragStartPoint = nil
+            contributionDragBaseDays.removeAll()
+            contributionMarqueeRect = nil
+            needsDisplay = true
+            return
+        }
+        super.mouseUp(with: event)
+    }
+
+    private func beginContributionDrag(mode: ContributionDragMode, at point: CGPoint, extending: Bool) {
+        contributionDragMode = mode
+        contributionDragStartPoint = point
+        contributionDragBaseDays = extending ? contributionSelectionDays() : []
+        contributionMarqueeRect = nil
+    }
+
+    private func contributionSelectionDays() -> Set<String> {
+        if selectedContributionDays.count > 1 {
+            return selectedContributionDays
+        }
+        return selectedDay.map { [$0] } ?? []
+    }
+
+    private func applyContributionSelection(_ days: Set<String>) {
+        let normalized = Set(days)
+        if normalized.count <= 1 {
+            selectedContributionDays.removeAll()
+            if let day = normalized.first {
+                selectedDay = day
+            }
+        } else {
+            selectedContributionDays = normalized
+        }
+        calendarSelectionDidChange()
+    }
+
+    private func selectContributionRange(
+        from anchor: (startDay: String, endDay: String),
+        through target: (startDay: String, endDay: String),
+        report: TokenReport
+    ) {
+        let startDay = min(anchor.startDay, target.startDay)
+        let endDay = max(anchor.endDay, target.endDay)
+        let days = Set(paddedContributionDays(report.byDay).compactMap { day in
+            day.day >= startDay && day.day <= endDay ? day.day : nil
+        })
+        applyContributionSelection(days)
+    }
+
+    private func normalizeCalendarSelection(in report: TokenReport, fallback: String?) {
+        let available = Set(paddedContributionDays(report.byDay).map(\.day))
+        let retained = selectedContributionDays.intersection(available)
+        if retained.count > 1 {
+            selectedContributionDays = retained
+            return
+        }
+        selectedContributionDays.removeAll()
+        selectedDay = preferredSelectedDay(in: report, fallback: retained.first ?? fallback)
+        contributionSelectionAnchor = selectedDay.map { ($0, $0) }
+    }
+
+    private func calendarSelectionDidChange() {
+        updateContributionWeekHoverOverlay()
+        onPreferredHeightChanged?()
+        needsDisplay = true
+        needsLayout = true
+    }
+
     /// Debug hook for --render-details=--select-week snapshots.
     func selectCalendarWeek(startDay: String) {
-        selectedWeekStartDay = startDay
-        updateContributionWeekHoverOverlay()
-        needsDisplay = true
+        guard let snapshot else { return }
+        let report = calendarReport(for: snapshot)
+        guard let summary = contributionWeekColumns(in: report).first(where: { $0.startDay == startDay }) else { return }
+        applyContributionSelection(Set(summary.days.map(\.day)))
+        contributionSelectionAnchor = (summary.startDay, summary.endDay)
+    }
+
+    /// Debug hook for rendering a multi-day selection.
+    func selectCalendarRange(startDay: String, endDay: String) {
+        guard let snapshot else { return }
+        selectContributionRange(
+            from: (startDay, startDay),
+            through: (endDay, endDay),
+            report: calendarReport(for: snapshot)
+        )
+        contributionSelectionAnchor = (startDay, startDay)
     }
 
     private func preferredSelectedDay(in report: TokenReport, fallback: String?) -> String? {
@@ -3771,6 +3932,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionDaySummaries.removeAll()
         contributionWeekSummaries.removeAll()
         contributionWeekDotRects.removeAll()
+        contributionGridSelectionRect = nil
         resetCreditHeaderHitArea = nil
         resetCreditFetchedAtText = nil
         resetCreditHitAreas.removeAll()
@@ -5917,7 +6079,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let gridRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: gridHeight)
         drawContributionGrid(report: report, rect: gridRect, title: title, compact: false)
 
-        let weekSummary = selectedCalendarWeekSummary()
+        let weekSummary = selectedCalendarRangeSummary()
         let available = max(248, content.maxY - gridRect.maxY - 16)
         let preferredHeight = weekSummary != nil
             ? selectedWeekPanelPreferredHeight(contentWidth: content.width)
@@ -7599,7 +7761,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let intensity = Double(summary.total) / Double(maxTotal)
         drawText(contributionWeekRangeLabel(summary), rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: 274, height: 24), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
         drawText(compact(summary.total), rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: 260, height: 34), font: .monospacedDigitSystemFont(ofSize: 28, weight: .bold), color: .systemGreen)
-        let weekMeta = "\(summary.turns) \(t(.turns).lowercased())  |  \(contributionWeekLabel(.activeDays)) \(summary.activeDays)/7  |  \(Int(round(intensity * 100)))% \(t(.peakWeek))"
+        var weekMeta = "\(summary.turns) \(t(.turns).lowercased())  |  \(contributionWeekLabel(.activeDays)) \(summary.activeDays)/\(summary.days.count)"
+        if isSingleCalendarWeek(summary) {
+            weekMeta += "  |  \(Int(round(intensity * 100)))% \(t(.peakWeek))"
+        }
         drawText(weekMeta, rect: NSRect(x: rect.minX + 18, y: rect.minY + 90, width: 420, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
 
         typealias WeekMetric = (title: String, value: String, color: NSColor, footer: String?)
@@ -7695,11 +7860,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     private func weekSourceSplit(snapshot: DetailsSnapshot, summary: ContributionWeekSummary) -> (codex: Int64, claude: Int64)? {
         guard selectedDetailsSource == .all else { return nil }
+        let selectedDays = Set(summary.days.map(\.day))
         let codex = snapshot.codex.byDay
-            .filter { $0.day >= summary.startDay && $0.day <= summary.endDay }
+            .filter { selectedDays.contains($0.day) }
             .reduce(Int64(0)) { $0 + $1.usage.total }
         let claude = snapshot.claude.byDay
-            .filter { $0.day >= summary.startDay && $0.day <= summary.endDay }
+            .filter { selectedDays.contains($0.day) }
             .reduce(Int64(0)) { $0 + $1.usage.total }
         guard codex + claude > 0 else { return nil }
         return (codex, claude)
@@ -8578,10 +8744,41 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         return result
     }
 
-    private func selectedCalendarWeekSummary() -> ContributionWeekSummary? {
-        guard let snapshot, let selectedWeekStartDay else { return nil }
+    private func selectedCalendarRangeSummary() -> ContributionWeekSummary? {
+        guard let snapshot, selectedContributionDays.count > 1 else { return nil }
         let report = calendarReport(for: snapshot)
-        return contributionWeekColumns(in: report).first { $0.startDay == selectedWeekStartDay && $0.total > 0 }
+        let selected = paddedContributionDays(report.byDay)
+            .filter { selectedContributionDays.contains($0.day) }
+            .sorted { $0.day < $1.day }
+        guard let first = selected.first, let last = selected.last else { return nil }
+
+        var usage = Usage()
+        var turns = 0
+        var activeDays = 0
+        for day in selected {
+            usage.add(day.usage)
+            turns += day.turns
+            if day.usage.total > 0 {
+                activeDays += 1
+            }
+        }
+        return ContributionWeekSummary(
+            key: first.day,
+            startDay: first.day,
+            endDay: last.day,
+            usage: usage,
+            total: usage.total,
+            activeDays: activeDays,
+            turns: turns,
+            days: selected,
+            hitRect: .zero,
+            cellRects: []
+        )
+    }
+
+    private func isContributionWeekFullySelected(_ summary: ContributionWeekSummary) -> Bool {
+        guard selectedContributionDays.count > 1, !summary.days.isEmpty else { return false }
+        return summary.days.allSatisfy { selectedContributionDays.contains($0.day) }
     }
 
     private func drawContributionGrid(report: TokenReport, rect: NSRect, title: String, compact: Bool) {
@@ -8616,6 +8813,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let gridH = CGFloat(rows) * square + CGFloat(max(rows - 1, 0)) * gap
         let startX = rect.minX + left
         let startY = rect.minY + top
+        if enableWeekSelection {
+            contributionGridSelectionRect = NSRect(
+                x: startX - gap / 2,
+                y: startY - 24,
+                width: CGFloat(columns) * square + CGFloat(max(columns - 1, 0)) * gap + gap,
+                height: gridH + 24 + gap / 2
+            )
+        }
         var cells: [(day: DayUsage, rect: NSRect, column: Int)] = []
         var weekCells: [Int: [NSRect]] = [:]
         var weekStartDays: [Int: String] = [:]
@@ -8633,7 +8838,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             guard !isFuture else { continue }
             let cell = NSRect(x: startX + CGFloat(col) * (square + gap), y: startY + CGFloat(row) * (square + gap), width: square, height: square)
             cells.append((day: day, rect: cell, column: col))
-            if day.usage.total > 0 || day.turns > 0 {
+            if enableWeekSelection || day.usage.total > 0 || day.turns > 0 {
                 contributionDayRects[day.day] = cell
                 if enableDayHover {
                     contributionDaySummaries[day.day] = ContributionDaySummary(day: day, hitRect: cell)
@@ -8681,17 +8886,19 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 )
             }
             contributionWeekSummaries = summaries
-            if let selectedWeekStartDay,
-               let summary = summaries[selectedWeekStartDay] {
+            for summary in summaries.values where isContributionWeekFullySelected(summary) {
                 drawContributionWeekHighlight(summary, emphasized: true)
             }
             for (key, summary) in summaries {
                 let center = CGPoint(x: summary.hitRect.midX, y: startY - 11)
-                let isSelected = key == selectedWeekStartDay
+                let isSelected = isContributionWeekFullySelected(summary)
+                let isPartiallySelected = summary.days.contains { selectedContributionDays.contains($0.day) }
                 let radius: CGFloat = isSelected ? 3.5 : 3
                 let dotRect = NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
                 if isSelected {
                     accentTeal.setFill()
+                } else if isPartiallySelected {
+                    accentTeal.withAlphaComponent(0.58).setFill()
                 } else {
                     NSColor.white.withAlphaComponent(0.32).setFill()
                 }
@@ -8713,7 +8920,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             let intensity = Double(day.usage.total) / Double(maxTotal)
             contributionColor(intensity).setFill()
             NSBezierPath(roundedRect: cell, xRadius: 3, yRadius: 3).fill()
-            if day.day == selectedDay {
+            if selectedContributionDays.count > 1 && selectedContributionDays.contains(day.day) {
+                accentTeal.withAlphaComponent(0.96).setStroke()
+                let path = NSBezierPath(roundedRect: cell.insetBy(dx: -2, dy: -2), xRadius: 5, yRadius: 5)
+                path.lineWidth = 2
+                path.stroke()
+            } else if selectedContributionDays.count <= 1 && day.day == selectedDay {
                 NSColor.white.withAlphaComponent(0.92).setStroke()
                 let path = NSBezierPath(roundedRect: cell.insetBy(dx: -2, dy: -2), xRadius: 5, yRadius: 5)
                 path.lineWidth = 2
@@ -8726,10 +8938,19 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
         }
 
+        if enableWeekSelection, let marquee = contributionMarqueeRect {
+            accentTeal.withAlphaComponent(0.10).setFill()
+            NSBezierPath(roundedRect: marquee, xRadius: 5, yRadius: 5).fill()
+            accentTeal.withAlphaComponent(0.86).setStroke()
+            let path = NSBezierPath(roundedRect: marquee.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5)
+            path.lineWidth = 1
+            path.stroke()
+        }
+
         let labelY = min(startY + gridH + 10, rect.maxY - 38)
         let hintY = min(labelY + 18, rect.maxY - 20)
         drawContributionMonthLabels(days: days, useCalendarGrid: useCalendarGrid, columns: columns, square: square, gap: gap, startX: startX, y: labelY, compact: compact)
-        drawText(t(.usageIntensityHint), rect: NSRect(x: startX, y: hintY, width: min(320, rect.maxX - startX - right), height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
+        drawText(t(.usageIntensityHint), rect: NSRect(x: startX, y: hintY, width: max(0, rect.maxX - startX - right), height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
         if enableDayHover,
            let hoveredContributionDay,
            let summary = contributionDaySummaries[hoveredContributionDay] {
@@ -8835,7 +9056,64 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func contributionWeekRangeLabel(_ summary: ContributionWeekSummary) -> String {
-        "\(localizedContributionDate(summary.startDay)) - \(localizedContributionDate(summary.endDay))"
+        let range: String
+        if let start = dayFormatter().date(from: summary.startDay),
+           let end = dayFormatter().date(from: summary.endDay) {
+            let calendar = appCalendar()
+            let sameYear = calendar.component(.year, from: start) == calendar.component(.year, from: end)
+            switch AppLanguage.current {
+            case .chinese, .traditionalChinese:
+                let year = calendar.component(.year, from: start)
+                let startMonth = calendar.component(.month, from: start)
+                let startDay = calendar.component(.day, from: start)
+                let endMonth = calendar.component(.month, from: end)
+                let endDay = calendar.component(.day, from: end)
+                range = sameYear
+                    ? "\(year)年\(startMonth)月\(startDay)日 - \(endMonth)月\(endDay)日"
+                    : "\(localizedContributionDate(summary.startDay)) - \(localizedContributionDate(summary.endDay))"
+            case .japanese:
+                let year = calendar.component(.year, from: start)
+                let startMonth = calendar.component(.month, from: start)
+                let startDay = calendar.component(.day, from: start)
+                let endMonth = calendar.component(.month, from: end)
+                let endDay = calendar.component(.day, from: end)
+                range = sameYear
+                    ? "\(year)年\(startMonth)月\(startDay)日 - \(endMonth)月\(endDay)日"
+                    : "\(localizedContributionDate(summary.startDay)) - \(localizedContributionDate(summary.endDay))"
+            default:
+                let formatter = DateFormatter()
+                formatter.timeZone = appTimeZone()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.dateFormat = "MMM d"
+                range = sameYear
+                    ? "\(formatter.string(from: start)) - \(formatter.string(from: end)), \(calendar.component(.year, from: start))"
+                    : "\(localizedContributionDate(summary.startDay)) - \(localizedContributionDate(summary.endDay))"
+            }
+        } else {
+            range = "\(summary.startDay) - \(summary.endDay)"
+        }
+        guard !isSingleCalendarWeek(summary) else { return range }
+        let suffix: String
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese:
+            suffix = "\(summary.days.count) 天"
+        case .japanese:
+            suffix = "\(summary.days.count)日"
+        default:
+            suffix = "\(summary.days.count) days"
+        }
+        return "\(range) · \(suffix)"
+    }
+
+    private func isSingleCalendarWeek(_ summary: ContributionWeekSummary) -> Bool {
+        guard summary.days.count == 7,
+              let start = dayFormatter().date(from: summary.startDay),
+              let end = dayFormatter().date(from: summary.endDay),
+              let interval = appCalendar().dateInterval(of: .weekOfYear, for: start) else {
+            return false
+        }
+        return appCalendar().isDate(start, inSameDayAs: interval.start)
+            && appCalendar().dateComponents([.day], from: start, to: end).day == 6
     }
 
     private enum ContributionWeekMetric {
@@ -8872,8 +9150,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     private func contributionWeekPlanValue(_ summary: ContributionWeekSummary) -> Double? {
         guard let snapshot,
-              let date = dayFormatter().date(from: summary.startDay),
-              let weekStart = appCalendar().dateInterval(of: .weekOfYear, for: date)?.start else {
+              !summary.days.isEmpty else {
             return nil
         }
         let report = calendarReport(for: snapshot)
@@ -8886,7 +9163,18 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         ) else {
             return nil
         }
-        return estimator.weeklyUsedValue(forWeekStart: weekStart, total: summary.total)
+        var totalsByWeek: [Date: Int64] = [:]
+        for day in summary.days {
+            guard let date = dayFormatter().date(from: day.day),
+                  let weekStart = appCalendar().dateInterval(of: .weekOfYear, for: date)?.start else {
+                continue
+            }
+            totalsByWeek[weekStart, default: 0] += day.usage.total
+        }
+        guard !totalsByWeek.isEmpty else { return nil }
+        return totalsByWeek.reduce(0) { partial, entry in
+            partial + estimator.weeklyUsedValue(forWeekStart: entry.key, total: entry.value)
+        }
     }
 
     private func contributionWeekAPIEstimate(_ summary: ContributionWeekSummary) -> APICostEstimate {
