@@ -341,6 +341,17 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         .first {
         view.selectCalendarWeek(startDay: weekStart)
     }
+    if let range = arguments
+        .compactMap({ argument -> (String, String)? in
+            guard argument.hasPrefix("--select-range=") else { return nil }
+            let value = String(argument.dropFirst("--select-range=".count))
+            let parts = value.split(separator: ",", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { return nil }
+            return (parts[0], parts[1])
+        })
+        .first {
+        view.selectCalendarRange(startDay: range.0, endDay: range.1)
+    }
     if section == .storage {
         let storage = StorageScanner.scan()
         view.storageSnapshot = redactor != nil ? redactor!.redact(storage) : storage
