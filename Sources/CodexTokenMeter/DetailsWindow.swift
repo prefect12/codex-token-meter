@@ -3644,7 +3644,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
         }
         if !selected.isEmpty {
-            applyContributionSelection(selected)
+            applyContributionSelection(selected, updateLayout: false)
         } else {
             needsDisplay = true
         }
@@ -3652,7 +3652,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     override func mouseUp(with event: NSEvent) {
         if contributionDragMode != nil {
-            if contributionMarqueeRect != nil {
+            let completedMarqueeSelection = contributionMarqueeRect != nil
+            if completedMarqueeSelection {
                 let days = contributionSelectionDays().sorted()
                 if let first = days.first, let last = days.last {
                     contributionSelectionAnchor = (first, last)
@@ -3662,7 +3663,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             contributionDragStartPoint = nil
             contributionDragBaseDays.removeAll()
             contributionMarqueeRect = nil
-            needsDisplay = true
+            if completedMarqueeSelection {
+                calendarSelectionDidChange()
+            } else {
+                needsDisplay = true
+            }
             return
         }
         super.mouseUp(with: event)
@@ -3673,6 +3678,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionDragStartPoint = point
         contributionDragBaseDays = extending ? contributionSelectionDays() : []
         contributionMarqueeRect = nil
+        hoveredContributionWeekKey = nil
+        contributionWeekHoverOverlay.hide()
     }
 
     private func contributionSelectionDays() -> Set<String> {
@@ -3682,8 +3689,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         return selectedDay.map { [$0] } ?? []
     }
 
-    private func applyContributionSelection(_ days: Set<String>) {
+    private func applyContributionSelection(_ days: Set<String>, updateLayout: Bool = true) {
         let normalized = Set(days)
+        guard normalized != contributionSelectionDays() else {
+            needsDisplay = true
+            return
+        }
         if normalized.count <= 1 {
             selectedContributionDays.removeAll()
             if let day = normalized.first {
@@ -3692,7 +3703,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         } else {
             selectedContributionDays = normalized
         }
-        calendarSelectionDidChange()
+        calendarSelectionDidChange(updateLayout: updateLayout)
     }
 
     private func selectContributionRange(
@@ -3720,11 +3731,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionSelectionAnchor = selectedDay.map { ($0, $0) }
     }
 
-    private func calendarSelectionDidChange() {
-        updateContributionWeekHoverOverlay()
-        onPreferredHeightChanged?()
+    private func calendarSelectionDidChange(updateLayout: Bool = true) {
+        if contributionDragMode == nil {
+            updateContributionWeekHoverOverlay()
+        }
+        if updateLayout {
+            onPreferredHeightChanged?()
+            needsLayout = true
+        }
         needsDisplay = true
-        needsLayout = true
     }
 
     /// Debug hook for --render-details=--select-week snapshots.
@@ -8921,10 +8936,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             contributionColor(intensity).setFill()
             NSBezierPath(roundedRect: cell, xRadius: 3, yRadius: 3).fill()
             if selectedContributionDays.count > 1 && selectedContributionDays.contains(day.day) {
-                accentTeal.withAlphaComponent(0.96).setStroke()
-                let path = NSBezierPath(roundedRect: cell.insetBy(dx: -2, dy: -2), xRadius: 5, yRadius: 5)
-                path.lineWidth = 2
-                path.stroke()
+                accentTeal.withAlphaComponent(0.24).setFill()
+                NSBezierPath(roundedRect: cell.insetBy(dx: 1, dy: 1), xRadius: 2.5, yRadius: 2.5).fill()
             } else if selectedContributionDays.count <= 1 && day.day == selectedDay {
                 NSColor.white.withAlphaComponent(0.92).setStroke()
                 let path = NSBezierPath(roundedRect: cell.insetBy(dx: -2, dy: -2), xRadius: 5, yRadius: 5)
