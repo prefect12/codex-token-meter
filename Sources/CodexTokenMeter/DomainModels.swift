@@ -255,6 +255,11 @@ enum APICostEstimator {
         if name.contains("gpt-5.3-codex") || name.contains("gpt-5.2-codex") || name.contains("gpt-5.2") || name.contains("gpt-5-codex") {
             return APIModelRate(inputPerMillionUSD: 1.75, cachedInputPerMillionUSD: 0.175, outputPerMillionUSD: 14)
         }
+        if name.contains("claude-sonnet-5") {
+            // Anthropic launch pricing through 2026-08-31. Standard pricing after
+            // the introductory period is $3 input / $15 output per million tokens.
+            return APIModelRate(inputPerMillionUSD: 2, cachedInputPerMillionUSD: 0.2, outputPerMillionUSD: 10, cacheCreationInputPerMillionUSD: 2.5, cacheCreationInput1hPerMillionUSD: 4)
+        }
         if name.contains("claude-fable-5") || name.contains("claude-mythos-5") {
             return APIModelRate(inputPerMillionUSD: 10, cachedInputPerMillionUSD: 1, outputPerMillionUSD: 50, cacheCreationInputPerMillionUSD: 12.5, cacheCreationInput1hPerMillionUSD: 20)
         }
