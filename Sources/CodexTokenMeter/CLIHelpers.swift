@@ -333,6 +333,21 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         .first
     view.showSection(section, insightWindowDays: windowDays, source: source, insightMode: insightMode)
     view.snapshot = snapshot
+    let modelSearch = arguments
+        .compactMap { argument -> String? in
+            guard argument.hasPrefix("--model-search=") else { return nil }
+            return String(argument.dropFirst("--model-search=".count))
+        }
+        .first
+    let modelSort = arguments
+        .compactMap { argument -> String? in
+            guard argument.hasPrefix("--model-sort=") else { return nil }
+            return String(argument.dropFirst("--model-sort=".count))
+        }
+        .first
+    if section == .models, modelSearch != nil || modelSort != nil {
+        view.configureModelList(query: modelSearch, sort: modelSort)
+    }
     if let weekStart = arguments
         .compactMap({ argument -> String? in
             guard argument.hasPrefix("--select-week=") else { return nil }

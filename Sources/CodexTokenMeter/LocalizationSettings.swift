@@ -400,6 +400,15 @@ enum L10nKey {
     case modelLimit
     case modelGroupingNote
     case modelMissingNote
+    case modelNoSearchResults
+    case modelSearchPlaceholder
+    case modelSortCost
+    case modelSortName
+    case modelSortTokens
+    case modelTrustIdentificationFormat
+    case modelTrustPricingFormat
+    case modelTrustSourceFormat
+    case modelVisibleCountFormat
     case monthlySpendHistory
     case models
     case modelsSubtitle
@@ -708,6 +717,15 @@ enum L10nKey {
         case .modelLimit: return "Model"
         case .modelGroupingNote: return "Model grouping comes from local Codex rollout logs and Claude Code assistant usage entries."
         case .modelMissingNote: return "Rows without a model label are counted in totals but cannot be assigned to a model."
+        case .modelNoSearchResults: return "No matching models"
+        case .modelSearchPlaceholder: return "Search models"
+        case .modelSortCost: return "API cost"
+        case .modelSortName: return "Name"
+        case .modelSortTokens: return "Token usage"
+        case .modelTrustIdentificationFormat: return "Model labels %.1f%% · %d unknown hidden"
+        case .modelTrustPricingFormat: return "API price coverage %.1f%% · %d unpriced models"
+        case .modelTrustSourceFormat: return "Local %@ logs · scanned %@"
+        case .modelVisibleCountFormat: return "%d of %d models"
         case .monthlySpendHistory: return "Monthly spend history"
         case .models: return "Models"
         case .modelsSubtitle: return "Token cost grouped by model"
@@ -809,7 +827,7 @@ enum L10nKey {
         case .updated: return "Updated"
         case .used: return "Used"
         case .usageDetails: return "Usage Details"
-        case .usageIntensityHint: return "Click a day or week; Shift-click extends the selection; drag to marquee-select"
+        case .usageIntensityHint: return "Click a day or week; hold Command to multi-select; drag to marquee-select"
         case .usageRateHint: return "This week used value divided by this week budget. Current week prefers live weekly quota usedPercent."
         case .usageWindow: return "Usage window"
         case .visibleWeekShare: return "7d share"
@@ -975,6 +993,15 @@ enum L10nKey {
         case .modelLimit: return "模型"
         case .modelGroupingNote: return "模型分组来自本地 Codex rollout 日志和 Claude Code assistant usage 记录。"
         case .modelMissingNote: return "没有模型标签的记录会计入总量，但无法归入单个模型。"
+        case .modelNoSearchResults: return "没有匹配的模型"
+        case .modelSearchPlaceholder: return "搜索模型"
+        case .modelSortCost: return "API 成本"
+        case .modelSortName: return "名称"
+        case .modelSortTokens: return "Token 用量"
+        case .modelTrustIdentificationFormat: return "模型识别覆盖 %.1f%% · 已隐藏 %d 个未知模型"
+        case .modelTrustPricingFormat: return "API 价格覆盖 %.1f%% · %d 个模型尚未定价"
+        case .modelTrustSourceFormat: return "本地 %@ 日志 · 扫描于 %@"
+        case .modelVisibleCountFormat: return "显示 %d / %d 个模型"
         case .monthlySpendHistory: return "月度金额历史"
         case .models: return "模型"
         case .modelsSubtitle: return "按模型统计 token 开销"
@@ -1076,7 +1103,7 @@ enum L10nKey {
         case .updated: return "已更新"
         case .used: return "已用"
         case .usageDetails: return "用量详情"
-        case .usageIntensityHint: return "点击日期或周圆点；按住 Shift 扩展多选，拖动可圈选"
+        case .usageIntensityHint: return "点击日期或周圆点；按住 Command 可多选，拖动可圈选"
         case .usageRateHint: return "本周已用金额除以本周预算；当前周优先使用实时周额度 usedPercent。"
         case .usageWindow: return "用量窗口"
         case .visibleWeekShare: return "占7天用量"
@@ -1242,6 +1269,15 @@ enum L10nKey {
         case .modelLimit: return "モデル"
         case .modelGroupingNote: return "モデル別集計はローカル Codex rollout ログと Claude Code assistant usage から取得します。"
         case .modelMissingNote: return "モデル名がない行は合計に含まれますが、個別モデルには割り当てられません。"
+        case .modelNoSearchResults: return "一致するモデルはありません"
+        case .modelSearchPlaceholder: return "モデルを検索"
+        case .modelSortCost: return "API コスト"
+        case .modelSortName: return "名前"
+        case .modelSortTokens: return "Token 使用量"
+        case .modelTrustIdentificationFormat: return "モデル識別率 %.1f%% · 不明 %d 件を非表示"
+        case .modelTrustPricingFormat: return "API 価格カバー率 %.1f%% · 未価格モデル %d 件"
+        case .modelTrustSourceFormat: return "ローカル %@ ログ · スキャン %@"
+        case .modelVisibleCountFormat: return "%d / %d モデルを表示"
         case .monthlySpendHistory: return "月次金額履歴"
         case .models: return "モデル"
         case .modelsSubtitle: return "モデル別の token 使用量"
@@ -1343,7 +1379,7 @@ enum L10nKey {
         case .updated: return "更新"
         case .used: return "使用済み"
         case .usageDetails: return "使用量詳細"
-        case .usageIntensityHint: return "日付または週をクリック。Shiftで範囲選択、ドラッグで囲んで選択"
+        case .usageIntensityHint: return "日付または週をクリック。Commandを押しながら複数選択、ドラッグで囲んで選択"
         case .usageRateHint: return "今週の使用額を今週の予算で割った値です。現在週はリアルタイム週制限の usedPercent を優先します。"
         case .usageWindow: return "使用量ウィンドウ"
         case .visibleWeekShare: return "7日内比率"
