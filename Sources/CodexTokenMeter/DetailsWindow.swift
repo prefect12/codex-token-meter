@@ -2248,7 +2248,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var insightListViewportRect: NSRect?
     private let insightWindowOptions = [7, 30, 90]
     private var selectedInsightWindowDays = 90
-    private var selectedDetailsSource: QuotaViewOption = .all {
+    var selectedDetailsSource: QuotaViewOption = .all {
         didSet {
             guard selectedDetailsSource != oldValue else { return }
             costPageDataCache = nil
@@ -2324,8 +2324,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var quotaCycleHitAreas: [(rect: NSRect, index: Int)] = []
     private var quotaCycleTooltipRows: [QuotaCycleRowModel] = []
     private var hoveredQuotaCycleIndex: Int?
-    private var modelUsageHoverRows: [ModelUsageHoverRow] = []
-    private var hoveredModelUsageRowIndex: Int?
+    var modelUsageHoverRows: [ModelUsageHoverRow] = []
+    var hoveredModelUsageRowIndex: Int?
     private let modelControls = ModelDetailsControls()
     private var hoveredCostOverviewInfo: CostOverviewInfo?
     private var isHoveringDayValueInfo = false
@@ -2400,18 +2400,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let title: String
         let rows: [(StorageCategoryID, Int64)]
         let total: Int64
-    }
-
-    private struct ModelUsageHoverRow {
-        let rect: NSRect
-        let title: String
-        let subtitle: String?
-        let usage: Usage
-        let shareText: String?
-        let sessions: Int?
-        let events: Int?
-        let apiCostText: String?
-        let apiCostColor: NSColor
     }
 
     private var storageSortOption: StorageSortOption = .size
@@ -2579,7 +2567,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         NSColor(calibratedRed: 0.154, green: 0.178, blue: 0.222, alpha: 0.98)
     }
 
-    private var inputSurfaceColor: NSColor {
+    var inputSurfaceColor: NSColor {
         NSColor(calibratedRed: 0.088, green: 0.105, blue: 0.138, alpha: 1.0)
     }
 
@@ -2587,19 +2575,19 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         NSColor.white.withAlphaComponent(0.075)
     }
 
-    private var accentBlue: NSColor {
+    var accentBlue: NSColor {
         NSColor(calibratedRed: 0.365, green: 0.548, blue: 1.0, alpha: 1.0)
     }
 
-    private var accentTeal: NSColor {
+    var accentTeal: NSColor {
         NSColor(calibratedRed: 0.279, green: 0.839, blue: 0.702, alpha: 1.0)
     }
 
-    private var accentAmber: NSColor {
+    var accentAmber: NSColor {
         NSColor(calibratedRed: 0.965, green: 0.724, blue: 0.357, alpha: 1.0)
     }
 
-    private var accentRose: NSColor {
+    var accentRose: NSColor {
         NSColor(calibratedRed: 0.941, green: 0.478, blue: 0.553, alpha: 1.0)
     }
 
@@ -3096,7 +3084,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         return max(248, modelY + minimumModelHeight + 18)
     }
 
-    private func sourceReport(for snapshot: DetailsSnapshot, source: QuotaViewOption? = nil) -> TokenReport {
+    func sourceReport(for snapshot: DetailsSnapshot, source: QuotaViewOption? = nil) -> TokenReport {
         switch source ?? selectedDetailsSource {
         case .all:
             return snapshot.all
@@ -3107,7 +3095,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
-    private func modelListPresentation(for snapshot: DetailsSnapshot) -> ModelListPresentation {
+    func modelListPresentation(for snapshot: DetailsSnapshot) -> ModelListPresentation {
         ModelListPresentation.make(
             report: sourceReport(for: snapshot),
             query: modelControls.query,
@@ -4413,67 +4401,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
-    private func drawQuotaRows(snapshot: DetailsSnapshot, content: NSRect, y: CGFloat, height: CGFloat) {
-        let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
-        drawPanel(rect)
-        drawText(t(.quotaViews), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
-        let rows: [(String, String, TokenReport)]
-        switch selectedDetailsSource {
-        case .all:
-            rows = [
-                (t(.all), t(.allDescription), snapshot.all),
-                (t(.codex), t(.codexDescription), snapshot.codex),
-                (t(.claude), t(.claudeDescription), snapshot.claude)
-            ]
-        case .codex:
-            rows = [
-                (t(.codex), t(.codexDescription), snapshot.codex)
-            ]
-        case .claude:
-            rows = [
-                (t(.claude), t(.claudeDescription), snapshot.claude)
-            ]
-        }
-        let outputW: CGFloat = 92
-        let inputW: CGFloat = 104
-        let totalW: CGFloat = 104
-        let gap: CGFloat = 14
-        let outputX = rect.maxX - 16 - outputW
-        let inputX = outputX - gap - inputW
-        let totalX = inputX - gap - totalW
-        let descriptionX = rect.minX + 104
-        let descriptionW = max(92, totalX - descriptionX - 18)
-        let headerY = rect.minY + 34
-        drawRight(t(.total), rect: NSRect(x: totalX, y: headerY, width: totalW, height: 14), color: NSColor.white.withAlphaComponent(0.38), font: .systemFont(ofSize: 10, weight: .bold))
-        drawRight(t(.input), rect: NSRect(x: inputX, y: headerY, width: inputW, height: 14), color: NSColor.white.withAlphaComponent(0.38), font: .systemFont(ofSize: 10, weight: .bold))
-        drawRight(t(.output), rect: NSRect(x: outputX, y: headerY, width: outputW, height: 14), color: NSColor.white.withAlphaComponent(0.38), font: .systemFont(ofSize: 10, weight: .bold))
-        for (index, row) in rows.enumerated() {
-            let y = rect.minY + 52 + CGFloat(index) * 22
-            let rowRect = NSRect(x: rect.minX + 10, y: y - 2, width: rect.width - 20, height: 21)
-            let rowIndex = modelUsageHoverRows.count
-            modelUsageHoverRows.append(ModelUsageHoverRow(
-                rect: rowRect,
-                title: row.0,
-                subtitle: row.1,
-                usage: row.2.usage,
-                shareText: nil,
-                sessions: row.2.sessions,
-                events: row.2.events,
-                apiCostText: nil,
-                apiCostColor: accentTeal
-            ))
-            if hoveredModelUsageRowIndex == rowIndex {
-                NSColor.white.withAlphaComponent(0.055).setFill()
-                NSBezierPath(roundedRect: rowRect, xRadius: 5, yRadius: 5).fill()
-            }
-            drawText(row.0, rect: NSRect(x: rect.minX + 16, y: y, width: 90, height: 18), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
-            drawText(row.1, rect: NSRect(x: descriptionX, y: y, width: descriptionW, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.45))
-            drawRight(compactDashboardMetric(row.2.usage.total), rect: NSRect(x: totalX, y: y, width: totalW, height: 18), color: .white)
-            drawRight(compactDashboardMetric(row.2.usage.input), rect: NSRect(x: inputX, y: y, width: inputW, height: 18), color: NSColor.white.withAlphaComponent(0.58))
-            drawRight(compactDashboardMetric(row.2.usage.output), rect: NSRect(x: outputX, y: y, width: outputW, height: 18), color: NSColor.white.withAlphaComponent(0.58))
-        }
-    }
-
     private func drawModelRows(snapshot: DetailsSnapshot, content: NSRect, y: CGFloat, height: CGFloat, maxRows: Int) {
         let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
         drawPanel(rect)
@@ -4490,193 +4417,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawRight("\(model.sessions) \(t(.sessions).lowercased())", rect: NSRect(x: rect.maxX - 204, y: y, width: 90, height: 18), color: NSColor.white.withAlphaComponent(0.52))
             drawRight("\(model.events) \(t(.events).lowercased())", rect: NSRect(x: rect.maxX - 108, y: y, width: 92, height: 18), color: NSColor.white.withAlphaComponent(0.52))
         }
-    }
-
-    private func drawModelsTable(presentation: ModelListPresentation, content: NSRect, y: CGFloat, height: CGFloat) {
-        let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
-        drawPanel(rect)
-        drawText(t(.models), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 90, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
-        drawText(
-            String(format: t(.modelVisibleCountFormat), presentation.models.count, presentation.knownModelCount),
-            rect: NSRect(x: rect.minX + 104, y: rect.minY + 14, width: 170, height: 18),
-            font: .systemFont(ofSize: 11, weight: .medium),
-            color: NSColor.white.withAlphaComponent(0.45)
-        )
-        let models = presentation.models
-        if models.isEmpty {
-            let emptyText = presentation.knownModelCount > 0 ? t(.modelNoSearchResults) : t(.noModelLabelsFound)
-            drawText(emptyText, rect: NSRect(x: rect.minX + 16, y: rect.minY + 64, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
-            return
-        }
-        let totalTokens = presentation.knownTokens
-        drawModelShareBar(models: models, totalTokens: totalTokens, rect: NSRect(x: rect.minX + 16, y: rect.minY + 54, width: rect.width - 32, height: 8))
-
-        let showsActivity = rect.width >= 920
-        let gap: CGFloat = 10
-        let moneyW: CGFloat = 104
-        let eventsW: CGFloat = 76
-        let sessionsW: CGFloat = 68
-        let outputW: CGFloat = 84
-        let inputW: CGFloat = 88
-        let totalW: CGFloat = 88
-        let shareW: CGFloat = 48
-        let moneyX = rect.maxX - 16 - moneyW
-        let eventsX = moneyX - gap - eventsW
-        let sessionsX = eventsX - gap - sessionsW
-        let outputX = (showsActivity ? sessionsX : moneyX) - gap - outputW
-        let inputX = outputX - gap - inputW
-        let totalX = inputX - gap - totalW
-        let shareX = totalX - gap - shareW
-        let nameX = rect.minX + 32
-        let nameW = max(96, shareX - nameX - 12)
-
-        let headerY = rect.minY + 72
-        let headerColor = NSColor.white.withAlphaComponent(0.38)
-        let headerFont = NSFont.systemFont(ofSize: 10, weight: .bold)
-        drawRight("%", rect: NSRect(x: shareX, y: headerY, width: shareW, height: 14), color: headerColor, font: headerFont)
-        drawRight(t(.total), rect: NSRect(x: totalX, y: headerY, width: totalW, height: 14), color: headerColor, font: headerFont)
-        drawRight(t(.input), rect: NSRect(x: inputX, y: headerY, width: inputW, height: 14), color: headerColor, font: headerFont)
-        drawRight(t(.output), rect: NSRect(x: outputX, y: headerY, width: outputW, height: 14), color: headerColor, font: headerFont)
-        if showsActivity {
-            drawRight(t(.sessions), rect: NSRect(x: sessionsX, y: headerY, width: sessionsW, height: 14), color: headerColor, font: headerFont)
-            drawRight(t(.events), rect: NSRect(x: eventsX, y: headerY, width: eventsW, height: 14), color: headerColor, font: headerFont)
-        }
-        drawRight(t(.apiEquivalent), rect: NSRect(x: moneyX, y: headerY, width: moneyW, height: 14), color: headerColor, font: headerFont)
-
-        let displayCurrency = AppSettings.displayCurrency(for: selectedDetailsSource)
-        for (index, model) in models.enumerated() {
-            let y = rect.minY + 90 + CGFloat(index) * 20
-            let color = modelShareColor(index)
-            let share = totalTokens > 0 ? Double(model.usage.total) / Double(totalTokens) * 100 : 0
-            let shareText = share > 0 && share < 0.1 ? "<0.1%" : String(format: "%.1f%%", share)
-            let estimate = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
-            let moneyText = estimate.hasPricedUsage
-                ? compactMoney(convertCurrency(estimate.usdValue, from: .usd, to: displayCurrency), currency: displayCurrency)
-                : "—"
-            let rowRect = NSRect(x: rect.minX + 10, y: y - 2, width: rect.width - 20, height: 19)
-            let rowIndex = modelUsageHoverRows.count
-            modelUsageHoverRows.append(ModelUsageHoverRow(
-                rect: rowRect,
-                title: model.name,
-                subtitle: nil,
-                usage: model.usage,
-                shareText: shareText,
-                sessions: model.sessions,
-                events: model.events,
-                apiCostText: estimate.hasPricedUsage ? displayAPIMoney(estimate.usdValue, source: selectedDetailsSource) : nil,
-                apiCostColor: estimate.hasPricedUsage ? accentTeal : NSColor.white.withAlphaComponent(0.38)
-            ))
-            if hoveredModelUsageRowIndex == rowIndex {
-                NSColor.white.withAlphaComponent(0.055).setFill()
-                NSBezierPath(roundedRect: rowRect, xRadius: 5, yRadius: 5).fill()
-            }
-            color.setFill()
-            NSBezierPath(ovalIn: NSRect(x: rect.minX + 16, y: y + 5, width: 8, height: 8)).fill()
-            drawText(model.name, rect: NSRect(x: nameX, y: y, width: nameW, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: .white)
-            drawRight(shareText, rect: NSRect(x: shareX, y: y, width: shareW, height: 18), color: NSColor.white.withAlphaComponent(0.62), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
-            drawRight(compact(model.usage.total), rect: NSRect(x: totalX, y: y, width: totalW, height: 18), color: .white)
-            drawRight(compact(model.usage.input), rect: NSRect(x: inputX, y: y, width: inputW, height: 18), color: NSColor.white.withAlphaComponent(0.58))
-            drawRight(compact(model.usage.output), rect: NSRect(x: outputX, y: y, width: outputW, height: 18), color: NSColor.white.withAlphaComponent(0.58))
-            if showsActivity {
-                drawRight("\(model.sessions)", rect: NSRect(x: sessionsX, y: y, width: sessionsW, height: 18), color: NSColor.white.withAlphaComponent(0.52))
-                drawRight("\(model.events)", rect: NSRect(x: eventsX, y: y, width: eventsW, height: 18), color: NSColor.white.withAlphaComponent(0.52))
-            }
-            drawRight(moneyText, rect: NSRect(x: moneyX, y: y, width: moneyW, height: 18), color: estimate.hasPricedUsage ? accentTeal.withAlphaComponent(0.92) : NSColor.white.withAlphaComponent(0.34), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
-        }
-    }
-
-    private func exactTokenText(_ value: Int64) -> String {
-        format(value)
-    }
-
-    private func drawModelUsageRowTooltip(container: NSRect) {
-        guard let hoveredModelUsageRowIndex,
-              modelUsageHoverRows.indices.contains(hoveredModelUsageRowIndex) else {
-            return
-        }
-        let row = modelUsageHoverRows[hoveredModelUsageRowIndex]
-        var lines: [(String, String, NSColor)] = [
-            (t(.total), exactTokenText(row.usage.total), NSColor.white.withAlphaComponent(0.9)),
-            (t(.input), exactTokenText(row.usage.input), NSColor.white.withAlphaComponent(0.78)),
-            (t(.output), exactTokenText(row.usage.output), NSColor.white.withAlphaComponent(0.78))
-        ]
-        if let shareText = row.shareText {
-            lines.append(("%", shareText, NSColor.white.withAlphaComponent(0.74)))
-        }
-        if let sessions = row.sessions {
-            lines.append((t(.sessions), "\(sessions)", NSColor.white.withAlphaComponent(0.72)))
-        }
-        if let events = row.events {
-            lines.append((t(.events), "\(events)", NSColor.white.withAlphaComponent(0.72)))
-        }
-        if let apiCostText = row.apiCostText {
-            lines.append((t(.apiEquivalent), apiCostText, row.apiCostColor))
-        }
-
-        let width: CGFloat = 274
-        let headerHeight: CGFloat = row.subtitle == nil ? 31 : 49
-        let height = headerHeight + CGFloat(lines.count) * 16 + 10
-        let gap: CGFloat = 10
-        var origin = CGPoint(x: row.rect.midX - width / 2, y: row.rect.maxY + gap)
-        if origin.y + height > container.maxY - 10 {
-            origin.y = row.rect.minY - height - gap
-        }
-        origin.x = max(container.minX + 12, min(origin.x, container.maxX - width - 12))
-        origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
-        let tooltipRect = NSRect(origin: origin, size: NSSize(width: width, height: height))
-
-        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
-        NSBezierPath(roundedRect: tooltipRect, xRadius: 8, yRadius: 8).fill()
-        NSColor.white.withAlphaComponent(0.14).setStroke()
-        let border = NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
-        border.lineWidth = 1
-        border.stroke()
-
-        drawTruncatedText(row.title, rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.minY + 8, width: tooltipRect.width - 20, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: .white)
-        if let subtitle = row.subtitle {
-            drawTruncatedText(subtitle, rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.minY + 27, width: tooltipRect.width - 20, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
-        }
-        let firstLineY = tooltipRect.minY + headerHeight
-        for (index, line) in lines.enumerated() {
-            let y = firstLineY + CGFloat(index) * 16
-            drawText(line.0, rect: NSRect(x: tooltipRect.minX + 10, y: y, width: 92, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.5))
-            drawRight(line.1, rect: NSRect(x: tooltipRect.minX + 104, y: y - 1, width: tooltipRect.width - 114, height: 15), color: line.2, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
-        }
-    }
-
-    private var modelShareColors: [NSColor] {
-        [
-            accentBlue,
-            accentTeal,
-            accentAmber,
-            accentRose,
-            NSColor(calibratedRed: 0.702, green: 0.533, blue: 1.0, alpha: 1.0),
-            NSColor(calibratedRed: 0.478, green: 0.867, blue: 0.443, alpha: 1.0),
-            NSColor(calibratedRed: 1.0, green: 0.537, blue: 0.396, alpha: 1.0),
-            NSColor(calibratedRed: 0.408, green: 0.780, blue: 0.949, alpha: 1.0),
-            NSColor(calibratedRed: 0.910, green: 0.796, blue: 0.478, alpha: 1.0),
-            NSColor(calibratedRed: 0.769, green: 0.545, blue: 0.729, alpha: 1.0)
-        ]
-    }
-
-    private func modelShareColor(_ index: Int) -> NSColor {
-        modelShareColors[index % modelShareColors.count]
-    }
-
-    private func drawModelShareBar(models: [ModelUsage], totalTokens: Int64, rect: NSRect) {
-        guard totalTokens > 0 else { return }
-        inputSurfaceColor.withAlphaComponent(0.7).setFill()
-        NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
-        NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).addClip()
-        var x = rect.minX
-        for (index, model) in models.enumerated() {
-            let width = rect.width * CGFloat(Double(model.usage.total) / Double(totalTokens))
-            modelShareColor(index).withAlphaComponent(0.92).setFill()
-            NSRect(x: x, y: rect.minY, width: width, height: rect.height).fill()
-            x += width
-        }
-        NSGraphicsContext.restoreGraphicsState()
     }
 
     private func drawMonthlySpendPanel(snapshot: DetailsSnapshot, content: NSRect, y: CGFloat, height: CGFloat) {
@@ -4703,40 +4443,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawText(row.month, rect: NSRect(x: rect.minX + 16, y: rowY, width: 72, height: 14), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold), color: .white)
             drawRight(displayMoney(row.usedValue, source: costSource), rect: NSRect(x: rect.maxX - 210, y: rowY, width: 110, height: 14), color: .white, font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
             drawRight(String(format: "%.0f%%", row.usedPercentOfPlan), rect: NSRect(x: rect.maxX - 84, y: rowY, width: 68, height: 14), color: NSColor.white.withAlphaComponent(0.52), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
-        }
-    }
-
-    private func drawModelsPage(snapshot: DetailsSnapshot, content: NSRect) {
-        modelUsageHoverRows.removeAll(keepingCapacity: true)
-        drawQuotaRows(snapshot: snapshot, content: content, y: content.minY + 78, height: 128)
-        let presentation = modelListPresentation(for: snapshot)
-        let tableHeight = presentation.tableHeight
-        let tableY = content.minY + 222
-        drawModelsTable(presentation: presentation, content: content, y: tableY, height: tableHeight)
-        let noteY = tableY + tableHeight + 16
-        let noteRect = NSRect(x: content.minX, y: noteY, width: content.width, height: min(116, content.maxY - noteY))
-        drawPanel(noteRect)
-        let report = sourceReport(for: snapshot)
-        let scannedAt = DateFormatter.localizedString(from: report.scannedAt, dateStyle: .short, timeStyle: .short)
-        let sourceText = String(format: t(.modelTrustSourceFormat), selectedDetailsSource.fallbackTitle, scannedAt)
-        let identificationText = String(
-            format: t(.modelTrustIdentificationFormat),
-            presentation.identificationCoveragePercent,
-            presentation.hiddenUnknownCount
-        )
-        let pricingText = String(
-            format: t(.modelTrustPricingFormat),
-            presentation.pricingCoveragePercent,
-            presentation.unpricedModelCount
-        )
-        let trustRows = [sourceText, identificationText, pricingText, t(.modelGroupingNote)]
-        for (index, text) in trustRows.enumerated() {
-            drawText(
-                text,
-                rect: NSRect(x: noteRect.minX + 16, y: noteRect.minY + 14 + CGFloat(index) * 24, width: noteRect.width - 32, height: 18),
-                font: .systemFont(ofSize: 12, weight: index == 0 ? .semibold : .medium),
-                color: NSColor.white.withAlphaComponent(index < 3 ? 0.66 : 0.44)
-            )
         }
     }
 
@@ -5901,192 +5607,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         return (0..<count).reversed().compactMap { offset in
             calendar.date(byAdding: .day, value: -offset, to: today).map { formatter.string(from: $0) }
         }
-    }
-
-    private func drawDiagnosticsPage(snapshot: DetailsSnapshot, content: NSRect) {
-        let sourceRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 268)
-        drawPanel(sourceRect)
-        drawText(t(.sourceHealth), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 14, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
-        drawDiagnosticRows(sourceDiagnostics(snapshot: snapshot), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 48, width: sourceRect.width - 32, height: sourceRect.height - 64))
-
-        let apiRect = NSRect(x: content.minX, y: sourceRect.maxY + 16, width: content.width, height: 124)
-        drawPanel(apiRect)
-        drawText(t(.externalAPICost), rect: NSRect(x: apiRect.minX + 16, y: apiRect.minY + 14, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
-        drawText(t(.externalAPICostHint), rect: NSRect(x: apiRect.minX + 16, y: apiRect.minY + 40, width: apiRect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
-        drawDiagnosticRows(apiDiagnostics(), rect: NSRect(x: apiRect.minX + 16, y: apiRect.minY + 66, width: apiRect.width - 32, height: 44))
-
-        let toolsRect = NSRect(x: content.minX, y: apiRect.maxY + 16, width: content.width, height: 168)
-        drawPanel(toolsRect)
-        drawText(t(.otherTools), rect: NSRect(x: toolsRect.minX + 16, y: toolsRect.minY + 14, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
-        drawDiagnosticRows(otherToolDiagnostics(), rect: NSRect(x: toolsRect.minX + 16, y: toolsRect.minY + 48, width: toolsRect.width - 32, height: toolsRect.height - 64))
-    }
-
-    private func drawDiagnosticRows(_ rows: [(String, String, NSColor)], rect: NSRect) {
-        let rowHeight = min(CGFloat(28), rect.height / CGFloat(max(rows.count, 1)))
-        for (index, row) in rows.enumerated() {
-            let y = rect.minY + CGFloat(index) * rowHeight
-            guard y + min(22, rowHeight) <= rect.maxY + 0.5 else { break }
-            drawText(row.0, rect: NSRect(x: rect.minX, y: y + 2, width: min(220, rect.width * 0.34), height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.58))
-            let dot = NSRect(x: rect.maxX - 10, y: y + max(5, (rowHeight - 8) / 2), width: 8, height: 8)
-            row.2.setFill()
-            NSBezierPath(ovalIn: dot).fill()
-            drawRight(row.1, rect: NSRect(x: rect.minX + rect.width * 0.34, y: y + 1, width: rect.width * 0.64 - 18, height: 18), color: .white, font: .systemFont(ofSize: 12, weight: .semibold))
-        }
-    }
-
-    private func sourceDiagnostics(snapshot: DetailsSnapshot) -> [(String, String, NSColor)] {
-        selectedDetailsSource == .claude ? claudeSourceDiagnostics(snapshot: snapshot) : codexSourceDiagnostics(snapshot: snapshot)
-    }
-
-    private func codexSourceDiagnostics(snapshot: DetailsSnapshot) -> [(String, String, NSColor)] {
-        let cliPath = LiveRateLimitReader.codexExecutablePath()
-        let authURL = AppSettings.defaultCodexHomeURL.appendingPathComponent("auth.json")
-        let liveText = snapshot.liveLimits.isEmpty
-            ? t(.liveLimitUnavailable)
-            : "\(snapshot.liveLimits.count) windows"
-        let serviceText = snapshot.serviceStatus.map { localizedCodexStatus($0.overallStatus) } ?? t(.codexStatusUnavailable)
-        let serviceColor = snapshot.serviceStatus.map { codexStatusColor($0.overallStatus) } ?? accentAmber
-        let incidentText = snapshot.serviceStatus?.activeIncident?.name ?? t(.codexNoActiveIncident)
-        let incidentColor = snapshot.serviceStatus?.activeIncident.map { codexStatusColor($0.status) } ?? NSColor.white.withAlphaComponent(0.58)
-        let profileText: String
-        let profileColor: NSColor
-        if !AppSettings.profileAPITotalsEnabled {
-            profileText = t(.disabled)
-            profileColor = accentAmber
-        } else if let accountUsage = snapshot.accountUsage, accountUsage.hasData {
-            profileText = accountUsage.summary.lifetimeTokens.map { compact($0) } ?? "\(accountUsage.dailyUsageBuckets.count) days"
-            profileColor = accentTeal
-        } else {
-            profileText = t(.liveLimitUnavailable)
-            profileColor = accentRose
-        }
-        let rollouts = AppSettings.logFolderURLs.reduce(0) { $0 + rolloutCount(in: $1, modifiedWithinDays: 14) }
-        return [
-            ("Codex CLI", cliPath.map(shortenedPath) ?? t(.fileMissing), cliPath == nil ? accentRose : accentTeal),
-            ("auth.json", FileManager.default.fileExists(atPath: authURL.path) ? t(.filePresent) : t(.fileMissing), FileManager.default.fileExists(atPath: authURL.path) ? accentTeal : accentAmber),
-            (t(.liveQuota), liveText, snapshot.liveLimits.isEmpty ? accentRose : accentTeal),
-            (t(.codexStatus), serviceText, serviceColor),
-            (t(.codexIncident), incidentText, incidentColor),
-            (t(.profileAPITotals), profileText, profileColor),
-            (t(.modelLimit), "\(AppSettings.modelLimitName) / \(AppSettings.modelLimitID)", accentTeal),
-            (t(.logFolder), "\(AppSettings.logFolderURLs.count) roots", AppSettings.logFolderURLs.isEmpty ? accentRose : accentTeal),
-            (t(.recentRollouts), "\(rollouts) files / 14d", rollouts > 0 ? accentTeal : accentAmber),
-            (t(.quotaWarnings), AppSettings.quotaWarningsEnabled ? t(.enabled) : t(.disabled), AppSettings.quotaWarningsEnabled ? accentTeal : accentAmber)
-        ]
-    }
-
-    private func claudeSourceDiagnostics(snapshot: DetailsSnapshot) -> [(String, String, NSColor)] {
-        let claudeLogs = AppSettings.claudeLogFolderURLs.reduce(0) { $0 + jsonlCount(in: $1, modifiedWithinDays: 14) }
-        let claudeRootExists = AppSettings.claudeLogFolderURLs.contains { FileManager.default.fileExists(atPath: $0.path) }
-        let claudeStatuslineStore = ClaudeStatuslineStore()
-        let claudeStatusline = claudeStatuslineStore.read()
-        let claudeStatuslineText: String
-        let claudeStatuslineColor: NSColor
-        if let claudeStatusline, claudeStatusline.liveRateLimit != nil {
-            let fiveHour = claudeStatusline.fiveHour.map { "\(Int(round($0.usedPercent)))% 5h" } ?? "5h --"
-            let sevenDay = claudeStatusline.sevenDay.map { "\(Int(round($0.usedPercent)))% 7d" } ?? "7d --"
-            claudeStatuslineText = "\(fiveHour) / \(sevenDay)"
-            claudeStatuslineColor = accentTeal
-        } else {
-            claudeStatuslineText = "not captured: \(shortenedPath(claudeStatuslineStore.path))"
-            claudeStatuslineColor = accentAmber
-        }
-        return [
-            (t(.claudeLogs), AppSettings.claudeLogFolderDisplayPath, claudeRootExists ? accentTeal : accentAmber),
-            (t(.recentRollouts), "\(claudeLogs) files / 14d", claudeLogs > 0 ? accentTeal : accentAmber),
-            ("Claude statusline", claudeStatuslineText, claudeStatuslineColor),
-            (t(.claudeActiveRefresh), AppSettings.claudeActiveQuotaRefreshEnabled ? t(.enabled) : t(.disabled), AppSettings.claudeActiveQuotaRefreshEnabled ? accentTeal : accentAmber),
-            (t(.cacheHit), String(format: "%.0f%%", snapshot.all.usage.cachePercent), accentTeal),
-            (t(.models), "\(snapshot.all.modelBreakdown.count)", accentTeal),
-            (t(.sessions), "\(snapshot.all.sessions)", accentTeal),
-            (t(.turns), "\(snapshot.all.turns)", accentTeal)
-        ]
-    }
-
-    private func apiDiagnostics() -> [(String, String, NSColor)] {
-        let url = AppSettings.externalAPICostURL
-        if let snapshot = ExternalAPICostStore.read(url: url), snapshot.hasData {
-            let tokenPart = snapshot.totalTokens > 0 ? " · \(compact(snapshot.totalTokens)) tokens" : ""
-            return [
-                ("api-usage.json", "\(displayAPIMoney(snapshot.usdValue))\(tokenPart)", accentTeal),
-                ("Path", shortenedPath(url.path), NSColor.white.withAlphaComponent(0.62))
-            ]
-        }
-        return [
-            ("api-usage.json", t(.fileMissing), accentAmber),
-            ("Path", shortenedPath(url.path), NSColor.white.withAlphaComponent(0.62))
-        ]
-    }
-
-    private func otherToolDiagnostics() -> [(String, String, NSColor)] {
-        let home = NSHomeDirectory()
-        let probes: [(String, String, Bool)] = [
-            ("Codex", AppSettings.logFolderDisplayPath, true),
-            ("Claude Code", "\(home)/.claude/projects", true),
-            ("Cursor", "\(home)/Library/Application Support/Cursor", false),
-            ("OpenCode", "\(home)/.local/share/opencode", false),
-            ("Gemini CLI", "\(home)/.gemini", false)
-        ]
-        return probes.map { name, path, tracked in
-            let exists = FileManager.default.fileExists(atPath: path)
-            let value: String
-            if tracked {
-                value = t(.tracked)
-            } else if exists {
-                value = t(.detectedNotTracked)
-            } else {
-                value = t(.fileMissing)
-            }
-            let color: NSColor = tracked ? accentTeal : (exists ? accentAmber : NSColor.white.withAlphaComponent(0.36))
-            return (name, value, color)
-        }
-    }
-
-    private func rolloutCount(in root: URL, modifiedWithinDays days: Int) -> Int {
-        let start = Date().addingTimeInterval(-TimeInterval(days) * 24 * 3600)
-        guard let enumerator = FileManager.default.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return 0
-        }
-        var count = 0
-        for case let url as URL in enumerator {
-            guard url.lastPathComponent.hasPrefix("rollout-"), url.pathExtension == "jsonl" else { continue }
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-            if (values?.contentModificationDate ?? .distantPast) >= start {
-                count += 1
-            }
-        }
-        return count
-    }
-
-    private func jsonlCount(in root: URL, modifiedWithinDays days: Int) -> Int {
-        let start = Date().addingTimeInterval(-TimeInterval(days) * 24 * 3600)
-        guard let enumerator = FileManager.default.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return 0
-        }
-        var count = 0
-        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-            if (values?.contentModificationDate ?? .distantPast) >= start {
-                count += 1
-            }
-        }
-        return count
-    }
-
-    private func shortenedPath(_ path: String) -> String {
-        let home = NSHomeDirectory()
-        if path.hasPrefix(home) {
-            return "~" + path.dropFirst(home.count)
-        }
-        return path.count > 72 ? "..." + path.suffix(69) : path
     }
 
     private func drawCalendarPage(snapshot: DetailsSnapshot, content: NSRect) {
@@ -10125,7 +9645,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawRight(storageGrowthText(cell.total), rect: NSRect(x: tooltipRect.maxX - 12 - valueWidth - 20, y: separatorY + 5, width: valueWidth + 20, height: 15), color: .white, font: .monospacedDigitSystemFont(ofSize: 10, weight: .bold))
     }
 
-    private func drawPanel(_ rect: NSRect) {
+    func drawPanel(_ rect: NSRect) {
         panelSurfaceColor.setFill()
         NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
         NSColor.white.withAlphaComponent(0.035).setFill()
@@ -10180,11 +9700,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         return accentTeal
     }
 
-    private func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+    func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
         (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color])
     }
 
-    private func drawTruncatedText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+    func drawTruncatedText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
         (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
@@ -10237,7 +9757,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         (text as NSString).draw(in: textRect, withAttributes: attributes)
     }
 
-    private func drawRight(_ text: String, rect: NSRect, color: NSColor, font: NSFont = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)) {
+    func drawRight(_ text: String, rect: NSRect, color: NSColor, font: NSFont = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .right
         paragraph.lineBreakMode = .byTruncatingTail
