@@ -2326,6 +2326,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private var hoveredQuotaCycleIndex: Int?
     private var modelUsageHoverRows: [ModelUsageHoverRow] = []
     private var hoveredModelUsageRowIndex: Int?
+    private let modelControls = ModelDetailsControls()
     private var hoveredCostOverviewInfo: CostOverviewInfo?
     private var isHoveringDayValueInfo = false
     private var isHoveringProfileAPIInfo = false
@@ -2620,6 +2621,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         layoutCostControls()
         layoutSettingsControls()
         layoutStorageControls()
+        layoutModelControls()
     }
 
     override func updateTrackingAreas() {
@@ -2773,6 +2775,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         storageSearchField.sendsWholeSearchString = false
         storageSearchField.sendsSearchStringImmediately = true
         addSubview(storageSearchField)
+
+        modelControls.install(in: self, inputSurfaceColor: inputSurfaceColor)
+        modelControls.onChange = { [weak self] in
+            guard let self else { return }
+            self.hoveredModelUsageRowIndex = nil
+            self.onPreferredHeightChanged?()
+            self.needsDisplay = true
+            self.needsLayout = true
+        }
 
         contributionWeekHoverOverlay.frame = bounds
         contributionWeekHoverOverlay.autoresizingMask = [.width, .height]
@@ -2951,7 +2962,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 targetHeight = topOffset + listHeight + 16 + detailHeight + 16 + heatmapHeight + bottomPadding
             }
         case .models:
-            targetHeight = 660
+            let tableHeight = snapshot.map { modelListPresentation(for: $0).tableHeight } ?? 132
+            targetHeight = 410 + tableHeight
         case .calendar:
             let gridHeight: CGFloat = normalizedWidth >= 1200 ? 246 : 232
             let detailHeight = selectedCalendarRangeSummary() != nil
@@ -3093,6 +3105,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         case .claude:
             return snapshot.claude
         }
+    }
+
+    private func modelListPresentation(for snapshot: DetailsSnapshot) -> ModelListPresentation {
+        ModelListPresentation.make(
+            report: sourceReport(for: snapshot),
+            query: modelControls.query,
+            sort: modelControls.sort
+        )
     }
 
     private func sourceCostLimit(for snapshot: DetailsSnapshot) -> LiveRateLimit? {
@@ -3738,6 +3758,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         guard let summary = contributionWeekColumns(in: report).first(where: { $0.startDay == startDay }) else { return }
         applyContributionSelection(Set(summary.days.map(\.day)))
         contributionSelectionAnchor = (summary.startDay, summary.endDay)
+    }
+
+    /// Debug hook for deterministic model-list search and sort screenshots.
+    func configureModelList(query: String?, sort: String?) {
+        modelControls.configure(query: query, sort: sort)
     }
 
     /// Debug hook for rendering a multi-day selection.
@@ -4467,18 +4492,24 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
-    private func drawModelsTable(snapshot: DetailsSnapshot, content: NSRect, y: CGFloat, height: CGFloat, maxRows: Int) {
+    private func drawModelsTable(presentation: ModelListPresentation, content: NSRect, y: CGFloat, height: CGFloat) {
         let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
         drawPanel(rect)
-        drawText(t(.models), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
-        let breakdown = sourceReport(for: snapshot).modelBreakdown
-        let models = Array(breakdown.prefix(maxRows))
+        drawText(t(.models), rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 90, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+        drawText(
+            String(format: t(.modelVisibleCountFormat), presentation.models.count, presentation.knownModelCount),
+            rect: NSRect(x: rect.minX + 104, y: rect.minY + 14, width: 170, height: 18),
+            font: .systemFont(ofSize: 11, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.45)
+        )
+        let models = presentation.models
         if models.isEmpty {
-            drawText(t(.noModelLabelsFound), rect: NSRect(x: rect.minX + 16, y: rect.minY + 48, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            let emptyText = presentation.knownModelCount > 0 ? t(.modelNoSearchResults) : t(.noModelLabelsFound)
+            drawText(emptyText, rect: NSRect(x: rect.minX + 16, y: rect.minY + 64, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
             return
         }
-        let totalTokens = breakdown.reduce(Int64(0)) { $0 + $1.usage.total }
-        drawModelShareBar(models: models, totalTokens: totalTokens, rect: NSRect(x: rect.minX + 16, y: rect.minY + 46, width: rect.width - 32, height: 8))
+        let totalTokens = presentation.knownTokens
+        drawModelShareBar(models: models, totalTokens: totalTokens, rect: NSRect(x: rect.minX + 16, y: rect.minY + 54, width: rect.width - 32, height: 8))
 
         let showsActivity = rect.width >= 920
         let gap: CGFloat = 10
@@ -4499,7 +4530,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let nameX = rect.minX + 32
         let nameW = max(96, shareX - nameX - 12)
 
-        let headerY = rect.minY + 64
+        let headerY = rect.minY + 72
         let headerColor = NSColor.white.withAlphaComponent(0.38)
         let headerFont = NSFont.systemFont(ofSize: 10, weight: .bold)
         drawRight("%", rect: NSRect(x: shareX, y: headerY, width: shareW, height: 14), color: headerColor, font: headerFont)
@@ -4514,7 +4545,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
         let displayCurrency = AppSettings.displayCurrency(for: selectedDetailsSource)
         for (index, model) in models.enumerated() {
-            let y = rect.minY + 82 + CGFloat(index) * 20
+            let y = rect.minY + 90 + CGFloat(index) * 20
             let color = modelShareColor(index)
             let share = totalTokens > 0 ? Double(model.usage.total) / Double(totalTokens) * 100 : 0
             let shareText = share > 0 && share < 0.1 ? "<0.1%" : String(format: "%.1f%%", share)
@@ -4678,11 +4709,35 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     private func drawModelsPage(snapshot: DetailsSnapshot, content: NSRect) {
         modelUsageHoverRows.removeAll(keepingCapacity: true)
         drawQuotaRows(snapshot: snapshot, content: content, y: content.minY + 78, height: 128)
-        drawModelsTable(snapshot: snapshot, content: content, y: content.minY + 222, height: 296, maxRows: 10)
-        let noteRect = NSRect(x: content.minX, y: content.minY + 534, width: content.width, height: min(76, content.maxY - (content.minY + 534)))
+        let presentation = modelListPresentation(for: snapshot)
+        let tableHeight = presentation.tableHeight
+        let tableY = content.minY + 222
+        drawModelsTable(presentation: presentation, content: content, y: tableY, height: tableHeight)
+        let noteY = tableY + tableHeight + 16
+        let noteRect = NSRect(x: content.minX, y: noteY, width: content.width, height: min(116, content.maxY - noteY))
         drawPanel(noteRect)
-        drawText(t(.modelGroupingNote), rect: NSRect(x: noteRect.minX + 16, y: noteRect.minY + 16, width: noteRect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.62))
-        drawText(t(.modelMissingNote), rect: NSRect(x: noteRect.minX + 16, y: noteRect.minY + 40, width: noteRect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+        let report = sourceReport(for: snapshot)
+        let scannedAt = DateFormatter.localizedString(from: report.scannedAt, dateStyle: .short, timeStyle: .short)
+        let sourceText = String(format: t(.modelTrustSourceFormat), selectedDetailsSource.fallbackTitle, scannedAt)
+        let identificationText = String(
+            format: t(.modelTrustIdentificationFormat),
+            presentation.identificationCoveragePercent,
+            presentation.hiddenUnknownCount
+        )
+        let pricingText = String(
+            format: t(.modelTrustPricingFormat),
+            presentation.pricingCoveragePercent,
+            presentation.unpricedModelCount
+        )
+        let trustRows = [sourceText, identificationText, pricingText, t(.modelGroupingNote)]
+        for (index, text) in trustRows.enumerated() {
+            drawText(
+                text,
+                rect: NSRect(x: noteRect.minX + 16, y: noteRect.minY + 14 + CGFloat(index) * 24, width: noteRect.width - 32, height: 18),
+                font: .systemFont(ofSize: 12, weight: index == 0 ? .semibold : .medium),
+                color: NSColor.white.withAlphaComponent(index < 3 ? 0.66 : 0.44)
+            )
+        }
     }
 
     private func drawInsightsPage(snapshot: DetailsSnapshot, content: NSRect) {
@@ -9533,9 +9588,17 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     func controlTextDidChange(_ obj: Notification) {
-        guard let field = obj.object as? NSSearchField, field === storageSearchField else { return }
-        storageSearchText = field.stringValue
-        needsDisplay = true
+        guard let field = obj.object as? NSSearchField else { return }
+        if field === storageSearchField {
+            storageSearchText = field.stringValue
+            needsDisplay = true
+        }
+    }
+
+    private func layoutModelControls() {
+        let visible = selectedSection == .models && snapshot != nil
+        let content = sectionContent(for: .models, in: bounds, sidebarWidth: detailsSidebarWidth)
+        modelControls.layout(content: content, tableY: content.minY + 222, visible: visible)
     }
 
     private func layoutStorageControls() {
