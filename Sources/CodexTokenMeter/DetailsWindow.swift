@@ -2237,9 +2237,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
     private var resetCreditCountdownTimer: Timer?
     private var hoveredResetCreditIndex: Int?
-    private var isHoveringResetCreditHeader = false
-    private var resetCreditHeaderHitArea: NSRect?
-    private var resetCreditFetchedAtText: String?
     private var resetCreditHitAreas: [(rect: NSRect, index: Int)] = []
     private var resetCreditTooltipRows: [RateLimitResetCredit] = []
     private var sidebarItemRects: [DetailsSection: NSRect] = [:]
@@ -3009,8 +3006,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             let metricRows = Int(ceil(Double(metricsCount) / Double(max(columns, 1))))
             let metricH: CGFloat = 74
             let metricsBottom = CGFloat(42) + CGFloat(metricRows) * metricH + CGFloat(max(0, metricRows - 1)) * gap
-            let visibleModelRows = max(1, min(localDay?.modelBreakdown.count ?? 0, 5))
-            let minimumModelHeight = 22 + CGFloat(visibleModelRows) * 22
+            let modelRows = max(1, localDay?.modelBreakdown.count ?? 0)
+            let minimumModelHeight = 22 + CGFloat(modelRows) * 22
             let modelY = max(CGFloat(134), metricsBottom + 18)
             return max(284, modelY + minimumModelHeight + 18)
         }
@@ -3047,8 +3044,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         let metricRows = Int(ceil(Double(metricsCount) / Double(columns)))
         let metricsBottom = 24 + CGFloat(metricRows) * metricH + CGFloat(max(0, metricRows - 1)) * 10
-        let visibleModelRows = max(1, min(day.modelBreakdown.count, 5))
-        let minimumModelHeight = 22 + CGFloat(visibleModelRows) * 22
+        let modelRows = max(1, day.modelBreakdown.count)
+        let minimumModelHeight = 22 + CGFloat(modelRows) * 22
         let leftColumnBottom: CGFloat = daySourceSplit(snapshot: snapshot, day: day) != nil ? daySourceSplitPanelExtent : 112
         let modelY = max(leftColumnBottom, metricsBottom + 12)
         let contentHeight = modelY + minimumModelHeight + 18
@@ -3080,8 +3077,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         let metricRows = Int(ceil(Double(metricsCount) / Double(columns)))
         let metricsBottom = 24 + CGFloat(metricRows) * metricH + CGFloat(max(0, metricRows - 1)) * 10
-        let visibleModelRows = max(1, min(weekModelBreakdown(summary).count, 5))
-        let minimumModelHeight = 22 + CGFloat(visibleModelRows) * 22
+        let modelRows = max(1, weekModelBreakdown(summary).count)
+        let minimumModelHeight = 22 + CGFloat(modelRows) * 22
         let leftColumnBottom: CGFloat = weekSourceSplit(snapshot: snapshot, summary: summary) != nil ? daySourceSplitPanelExtent : 112
         let modelY = max(leftColumnBottom, metricsBottom + 12)
         return max(248, modelY + minimumModelHeight + 18)
@@ -3224,7 +3221,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hoveredInsightHour = nil
         hoveredInsightPeriod = nil
         hoveredResetCreditIndex = nil
-        isHoveringResetCreditHeader = false
         hoveredModelUsageRowIndex = nil
         hoveredStorageCellKey = nil
         hoveredStorageSourceID = nil
@@ -3261,10 +3257,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         if hoveredResetCreditIndex != nil {
             hoveredResetCreditIndex = nil
-            shouldRedraw = true
-        }
-        if isHoveringResetCreditHeader {
-            isHoveringResetCreditHeader = false
             shouldRedraw = true
         }
         if hoveredModelUsageRowIndex != nil {
@@ -3366,19 +3358,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     private func updateResetCreditHover(at point: CGPoint) {
         guard selectedSection == .overview else {
-            if hoveredResetCreditIndex != nil || isHoveringResetCreditHeader {
+            if hoveredResetCreditIndex != nil {
                 hoveredResetCreditIndex = nil
-                isHoveringResetCreditHeader = false
                 needsDisplay = true
             }
             return
         }
         let match = resetCreditHitAreas.first { $0.rect.insetBy(dx: -4, dy: -4).contains(point) }
         let newIndex = match?.index
-        let newHeaderHover = resetCreditHeaderHitArea?.contains(point) == true
-        if hoveredResetCreditIndex != newIndex || isHoveringResetCreditHeader != newHeaderHover {
+        if hoveredResetCreditIndex != newIndex {
             hoveredResetCreditIndex = newIndex
-            isHoveringResetCreditHeader = newHeaderHover
             needsDisplay = true
         }
     }
@@ -3948,8 +3937,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionWeekSummaries.removeAll()
         contributionWeekDotRects.removeAll()
         contributionGridSelectionRect = nil
-        resetCreditHeaderHitArea = nil
-        resetCreditFetchedAtText = nil
         resetCreditHitAreas.removeAll()
         resetCreditTooltipRows.removeAll()
         costHistoryBarRects.removeAll()
@@ -4277,14 +4264,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let countText = String(format: t(.resetCreditCountFormat), count)
         let titleText = "\(title) · \(countText)"
         let titleRect = NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 280, height: 20)
-        resetCreditHeaderHitArea = titleRect.insetBy(dx: -8, dy: -5)
-        resetCreditFetchedAtText = String(format: t(.resetCreditFetchedAtFormat), Self.resetCreditFullFormatter.string(from: resetCredits.readAt))
-        if isHoveringResetCreditHeader, let headerHitArea = resetCreditHeaderHitArea {
-            NSColor.white.withAlphaComponent(0.18).setStroke()
-            let focus = NSBezierPath(roundedRect: headerHitArea, xRadius: 7, yRadius: 7)
-            focus.lineWidth = 1
-            focus.stroke()
-        }
         drawText(titleText, rect: titleRect, font: .systemFont(ofSize: 15, weight: .bold), color: .white)
 
         guard count > 0 else {
@@ -4369,12 +4348,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     private func drawResetCreditTooltip(container: NSRect) {
-        if isHoveringResetCreditHeader,
-           let hit = resetCreditHeaderHitArea,
-           let fetchedAtText = resetCreditFetchedAtText {
-            drawResetCreditHeaderTooltip(hit: hit, text: fetchedAtText, container: container)
-            return
-        }
         guard let index = hoveredResetCreditIndex,
               index >= 0, index < resetCreditTooltipRows.count,
               let hit = resetCreditHitAreas.first(where: { $0.index == index }) else {
@@ -4413,27 +4386,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawText(row.0, rect: NSRect(x: tooltipRect.minX + 10, y: y, width: 56, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.5))
             drawRight(row.1, rect: NSRect(x: tooltipRect.minX + 70, y: y - 1, width: tooltipRect.width - 80, height: 15), color: row.2, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
         }
-    }
-
-    private func drawResetCreditHeaderTooltip(hit: NSRect, text: String, container: NSRect) {
-        let width: CGFloat = 254
-        let height: CGFloat = 42
-        var origin = CGPoint(x: hit.minX, y: hit.maxY + 8)
-        if origin.y + height > container.maxY - 10 {
-            origin.y = hit.minY - height - 8
-        }
-        origin.x = max(container.minX + 12, min(origin.x, container.maxX - width - 12))
-        origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
-        let tooltipRect = NSRect(origin: origin, size: NSSize(width: width, height: height))
-
-        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
-        NSBezierPath(roundedRect: tooltipRect, xRadius: 8, yRadius: 8).fill()
-        NSColor.white.withAlphaComponent(0.14).setStroke()
-        let border = NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
-        border.lineWidth = 1
-        border.stroke()
-
-        drawText(text, rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.minY + 13, width: tooltipRect.width - 20, height: 16), font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.9))
     }
 
     private func drawQuotaRows(snapshot: DetailsSnapshot, content: NSRect, y: CGFloat, height: CGFloat) {
@@ -7757,8 +7709,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawDaySourceSplit(split, rect: NSRect(x: rect.minX + 18, y: rect.minY + 114, width: 274, height: 90))
             leftColumnBottom = rect.minY + daySourceSplitPanelExtent
         }
-        let visibleModelRows = max(1, min(day.modelBreakdown.count, 5))
-        let minimumModelHeight = 22 + CGFloat(visibleModelRows) * 22
+        let modelRows = max(1, day.modelBreakdown.count)
+        let minimumModelHeight = 22 + CGFloat(modelRows) * 22
         let modelY = max(leftColumnBottom, metricsBottom + 12)
         let modelRect = NSRect(
             x: rect.minX + 18,
@@ -7844,8 +7796,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             leftColumnBottom = rect.minY + daySourceSplitPanelExtent
         }
         let models = weekModelBreakdown(summary)
-        let visibleModelRows = max(1, min(models.count, 5))
-        let minimumModelHeight = 22 + CGFloat(visibleModelRows) * 22
+        let modelRows = max(1, models.count)
+        let minimumModelHeight = 22 + CGFloat(modelRows) * 22
         let modelY = max(leftColumnBottom, metricsBottom + 12)
         let modelRect = NSRect(
             x: rect.minX + 18,
@@ -7950,8 +7902,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             return
         }
 
-        let visible = Array(models.prefix(5))
-        let maxTotal = max(visible.map { $0.usage.total }.max() ?? 1, 1)
+        let maxTotal = max(models.map { $0.usage.total }.max() ?? 1, 1)
         let costX = rect.maxX - 92
         let totalX = costX - 88
         let outputX = totalX - 88
@@ -7963,7 +7914,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         drawRight(t(.output), rect: NSRect(x: outputX, y: rect.minY, width: 80, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         drawRight(t(.total), rect: NSRect(x: totalX, y: rect.minY, width: 82, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         drawRight(t(.apiEquivalent), rect: NSRect(x: costX, y: rect.minY, width: 92, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
-        for (index, model) in visible.enumerated() {
+        for (index, model) in models.enumerated() {
             let y = rect.minY + 22 + CGFloat(index) * 22
             guard y + 18 <= rect.maxY else { break }
             drawText(model.name, rect: NSRect(x: rect.minX, y: y, width: nameW, height: 12), font: .systemFont(ofSize: 10, weight: .semibold), color: .white)
