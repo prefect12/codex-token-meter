@@ -781,6 +781,45 @@ final class CodexActivityReader {
             .map { $0 }
     }
 
+    /// The state database keeps the canonical rollout path even when an old thread is
+    /// resumed days later. Date-directory discovery alone cannot find that case because
+    /// Codex continues appending to the rollout under its original creation date.
+    private func recentlyUpdatedStateRolloutThreads(limit: Int, lookbackHours: Int) -> [LoggedRolloutThread] {
+        let since = Int(Date().timeIntervalSince1970) - max(1, lookbackHours) * 3600
+        let sql = """
+        select id, updated_at, rollout_path
+        from threads
+        where archived = 0
+          and updated_at >= \(since)
+          and rollout_path <> ''
+        order by updated_at desc
+        limit \(max(1, limit));
+        """
+        return stateDatabaseURLs()
+            .filter { fileManager.fileExists(atPath: $0.path) }
+            .flatMap { databaseURL in
+                runSQLite(databaseURL: databaseURL, sql: sql)
+                    .split(separator: "\n")
+                    .compactMap { line -> LoggedRolloutThread? in
+                        let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
+                        guard parts.count >= 3,
+                              let updatedAt = TimeInterval(parts[1]) else { return nil }
+                        let fileURL = URL(fileURLWithPath: String(parts[2]))
+                        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+                        let id = String(parts[0])
+                        rolloutURLCacheByThreadID[id] = fileURL
+                        return LoggedRolloutThread(
+                            logged: LoggedThread(
+                                id: id,
+                                lastActivity: Date(timeIntervalSince1970: updatedAt),
+                                isCodexAPI: isCodexAPIURL(fileURL)
+                            ),
+                            fileURL: fileURL
+                        )
+                    }
+            }
+    }
+
     private func mergedRolloutThreads(priorityURLs: [URL], limit: Int, lookbackHours: Int) -> [LoggedRolloutThread] {
         var byID: [String: LoggedRolloutThread] = [:]
         for url in priorityURLs {
@@ -801,6 +840,13 @@ final class CodexActivityReader {
             rolloutURLCacheByThreadID[threadID] = url
         }
         for entry in recentRolloutThreads(limit: limit, lookbackHours: lookbackHours) {
+            if let existing = byID[entry.logged.id],
+               existing.logged.lastActivity >= entry.logged.lastActivity {
+                continue
+            }
+            byID[entry.logged.id] = entry
+        }
+        for entry in recentlyUpdatedStateRolloutThreads(limit: limit, lookbackHours: lookbackHours) {
             if let existing = byID[entry.logged.id],
                existing.logged.lastActivity >= entry.logged.lastActivity {
                 continue
