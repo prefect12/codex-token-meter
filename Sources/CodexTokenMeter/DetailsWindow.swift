@@ -1898,10 +1898,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         for (weekStart, rect) in contributionWeekDotRects where rect.insetBy(dx: -3, dy: -3).contains(point) {
             guard let summary = contributionWeekSummaries[weekStart] else { continue }
-            beginContributionDrag(mode: .weeks, at: point, extending: event.modifierFlags.contains(.shift))
+            let extendsSelection = event.modifierFlags.contains(.command)
+            beginContributionDrag(mode: .weeks, at: point, extending: extendsSelection)
             let weekDays = Set(summary.days.map(\.day))
-            if event.modifierFlags.contains(.shift), let anchor = contributionSelectionAnchor, let snapshot {
-                selectContributionRange(from: anchor, through: (summary.startDay, summary.endDay), report: calendarReport(for: snapshot))
+            if extendsSelection {
+                toggleContributionSelection(weekDays)
+                contributionSelectionAnchor = (summary.startDay, summary.endDay)
             } else if contributionSelectionDays() == weekDays {
                 selectedContributionDays.removeAll()
                 contributionSelectionAnchor = selectedDay.map { ($0, $0) }
@@ -1914,9 +1916,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         for (day, rect) in contributionDayRects where rect.insetBy(dx: -2, dy: -2).contains(point) {
             if selectedSection == .calendar {
-                beginContributionDrag(mode: .days, at: point, extending: event.modifierFlags.contains(.shift))
-                if event.modifierFlags.contains(.shift), let anchor = contributionSelectionAnchor, let snapshot {
-                    selectContributionRange(from: anchor, through: (day, day), report: calendarReport(for: snapshot))
+                let extendsSelection = event.modifierFlags.contains(.command)
+                beginContributionDrag(mode: .days, at: point, extending: extendsSelection)
+                if extendsSelection {
+                    toggleContributionSelection([day])
+                    contributionSelectionAnchor = (day, day)
                 } else {
                     applyContributionSelection([day])
                     contributionSelectionAnchor = (day, day)
@@ -1932,7 +1936,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             return
         }
         if selectedSection == .calendar, contributionGridSelectionRect?.contains(point) == true {
-            beginContributionDrag(mode: .days, at: point, extending: event.modifierFlags.contains(.shift))
+            beginContributionDrag(mode: .days, at: point, extending: event.modifierFlags.contains(.command))
             return
         }
         super.mouseDown(with: event)
@@ -2024,11 +2028,23 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             selectedContributionDays.removeAll()
             if let day = normalized.first {
                 selectedDay = day
+            } else {
+                selectedDay = nil
             }
         } else {
             selectedContributionDays = normalized
         }
         calendarSelectionDidChange(updateLayout: updateLayout)
+    }
+
+    func toggleContributionSelection(_ days: Set<String>) {
+        var selection = contributionSelectionDays()
+        if days.isSubset(of: selection) {
+            selection.subtract(days)
+        } else {
+            selection.formUnion(days)
+        }
+        applyContributionSelection(selection)
     }
 
     func selectContributionRange(
