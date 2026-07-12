@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://prefect12.github.io/codex-token-meter/sitemap.xml
