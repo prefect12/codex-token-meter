@@ -1,8 +1,20 @@
-# AI Token Meter
+# AI Token Meter：macOS 上的 Codex 与 Claude Code Token 用量、额度和成本追踪器
 
-[English README](README.en.md)
+[English README](README.en.md) · [下载最新版](https://github.com/prefect12/codex-token-meter/releases/latest)
 
-AI Token Meter 是一个原生 macOS 状态栏工具，用来查看本机 Codex 与 Claude Code 的 token 消耗、缓存命中率、实时剩余额度、模型级用量和订阅金额估算。
+AI Token Meter（原 Codex Token Meter）是一款免费、开源、原生的 **macOS 菜单栏 Token 统计工具**。它可以追踪 **OpenAI Codex / Codex CLI** 和 **Anthropic Claude Code** 的本地 token 用量、缓存命中率、5 小时与每周剩余额度、重置时间、模型级统计，以及 API 等价成本。
+
+如果你正在搜索 **Codex token usage tracker**、**Claude Code usage monitor**、**Codex quota meter**、**Claude Code token counter** 或 macOS 菜单栏 AI 用量统计工具，这个应用可以直接读取本机日志工作：无需账号、无需 API Key，也不会上传会话内容。
+
+## 为什么使用 AI Token Meter
+
+- **同时支持 Codex 和 Claude Code**：在一个 macOS 菜单栏面板中查看两套工具的用量。
+- **额度与 token 分开显示**：官方 5 小时/每周额度、重置时间和本地 token 统计不会混为一谈。
+- **本地优先、隐私友好**：直接读取本机 JSONL 日志，不上传 prompt、代码或会话记录。
+- **成本与缓存分析**：按模型查看 input、output、cached input、缓存命中率和 API 等价成本。
+- **原生 macOS 应用**：轻量 AppKit 菜单栏体验，支持 Apple Silicon 和 Intel Mac。
+
+> [从 GitHub Releases 下载 AI Token Meter for macOS](https://github.com/prefect12/codex-token-meter/releases/latest)
 
 它直接读取本地 Codex 会话日志和 Claude Code 项目日志：
 

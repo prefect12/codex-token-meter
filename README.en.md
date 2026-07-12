@@ -1,8 +1,20 @@
-# AI Token Meter
+# AI Token Meter — Codex & Claude Code Usage, Quota and Cost Tracker for macOS
 
-[中文说明](README.md)
+[中文说明](README.md) · [Download the latest release](https://github.com/prefect12/codex-token-meter/releases/latest)
 
-AI Token Meter is a native macOS menu bar app for tracking local Codex and Claude Code token usage, cache hit rate, live quota remaining, model-level usage, and estimated subscription value.
+AI Token Meter (formerly Codex Token Meter) is a free, open-source, native **macOS menu bar token usage tracker** for **OpenAI Codex / Codex CLI** and **Anthropic Claude Code**. It monitors local token usage, cache hit rate, live 5-hour and weekly quota remaining, reset times, model-level usage, and API-equivalent cost.
+
+Use it as a **Codex token usage tracker**, **Claude Code usage monitor**, **Codex quota meter**, or **Claude Code token counter**. It reads local logs without requiring an account or API key, and never uploads your conversations.
+
+## Why AI Token Meter
+
+- **Codex and Claude Code in one dashboard** — compare both coding agents from the macOS menu bar.
+- **Quota and tokens stay distinct** — official rate-limit windows and local token counts are clearly labeled.
+- **Local-first and private** — prompts, code, and session logs remain on your Mac.
+- **Cost and cache analytics** — inspect input, output, cached input, cache hit rate, and per-model API-equivalent cost.
+- **Native macOS app** — a lightweight AppKit experience for Apple Silicon and Intel Macs.
+
+> [Download AI Token Meter for macOS from GitHub Releases](https://github.com/prefect12/codex-token-meter/releases/latest)
 
 It reads your local Codex session logs and Claude Code project logs directly:
 
