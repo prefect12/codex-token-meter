@@ -39,7 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusIsLoading = false
     private var detailsLoadGeneration = 0
     private let refreshInterval: TimeInterval = 300
-    private let liveRefreshInterval: TimeInterval = 15
+    private let liveRefreshInterval: TimeInterval = 300
+    private let liveRefreshFailureIntervals: [TimeInterval] = [60, 300, 900]
+    private var liveRefreshFailureCount = 0
     private let statusIconSize = NSSize(width: 14, height: 14)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -118,13 +120,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         QuotaWarningManager.shared.requestAuthorization()
 
         reportCache = DashboardReportCacheStore.read()
-        refresh(forceLive: false)
-        refreshLiveLimits()
+        refresh(forceLive: false, allowProfileAPI: false)
+        if liveLimits.isEmpty {
+            refreshLiveLimits()
+        } else {
+            scheduleNextLiveRefresh(succeeded: true)
+        }
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh(forceLive: false)
-        }
-        liveRefreshTimer = Timer.scheduledTimer(withTimeInterval: liveRefreshInterval, repeats: true) { [weak self] _ in
-            self?.refreshLiveLimits()
         }
         scheduleClaudeActiveRefreshIfNeeded()
     }
@@ -311,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    private func refresh(forceLive: Bool) {
+    private func refresh(forceLive: Bool, allowProfileAPI: Bool = true) {
         let window = selectedWindow
         let quota = selectedQuota
         let key = ReportCacheKey(window: window, quota: quota)
@@ -356,7 +359,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 claudeReport = nil
                 report = self.scanReport(window: window, source: quota)
             }
-            let accountUsage = quota.usesCodexProfileAPI ? self.readAccountUsageIfNeeded(fallback: currentAccountUsage) : currentAccountUsage
+            let accountUsage = quota.usesCodexProfileAPI && allowProfileAPI
+                ? self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
+                : currentAccountUsage
             let freshLimits = forceLive ? combinedLiveLimits(codexReader: self.rateLimitReader) : currentLimits
             let limits = forceLive ? self.mergedLiveLimits(fresh: freshLimits, fallback: currentLimits) : currentLimits
             let freshResetCredits = forceLive ? self.resetCreditsReader.read() : currentResetCredits
@@ -437,6 +442,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshLiveLimits(allowClaudeActiveRefresh: Bool = false) {
         guard !liveRefreshInFlight else { return }
+        liveRefreshTimer?.invalidate()
+        liveRefreshTimer = nil
         liveRefreshInFlight = true
         let currentLimits = liveLimits
         let currentResetCredits = resetCredits
@@ -452,6 +459,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let effectiveResetCredits = freshResetCredits ?? currentResetCredits
             let serviceStatus = self.serviceStatusReader.read()
             let freshCodexLimits = codexTrackedLiveLimits(freshLimits)
+            let codexRefreshSucceeded = !freshCodexLimits.isEmpty
             if !limits.isEmpty {
                 LiveRateLimitCacheStore.write(limits)
             }
@@ -464,6 +472,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let costReferenceReport = self.liveCostReferenceReport(limits: limits)
             DispatchQueue.main.async {
                 self.liveRefreshInFlight = false
+                self.scheduleNextLiveRefresh(succeeded: codexRefreshSucceeded)
                 if let serviceStatus {
                     self.serviceStatus = serviceStatus
                     self.latestState.serviceStatus = serviceStatus
@@ -493,6 +502,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.detailsController.updateLiveLimits(limits, costReferenceReport: costReferenceReport, serviceStatus: self.serviceStatus)
             }
         }
+    }
+
+    private func scheduleNextLiveRefresh(succeeded: Bool) {
+        liveRefreshTimer?.invalidate()
+        if succeeded {
+            liveRefreshFailureCount = 0
+        } else {
+            liveRefreshFailureCount += 1
+        }
+        let delay: TimeInterval
+        if succeeded {
+            delay = liveRefreshInterval
+        } else {
+            let index = min(max(0, liveRefreshFailureCount - 1), liveRefreshFailureIntervals.count - 1)
+            delay = liveRefreshFailureIntervals[index]
+        }
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+            self?.refreshLiveLimits()
+        }
+        liveRefreshTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func mergedLiveLimits(fresh: [LiveRateLimit], fallback: [LiveRateLimit]) -> [LiveRateLimit] {

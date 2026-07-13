@@ -1292,6 +1292,8 @@ private struct CodexAppServerResponse {
 }
 
 private enum CodexAppServer {
+    private static let runLock = NSLock()
+
     static func candidateEnvironments() -> [CodexAppServerEnvironment] {
         var environments: [CodexAppServerEnvironment] = []
         for source in AppSettings.codexAPISourceHomeURLs {
@@ -1309,6 +1311,8 @@ private enum CodexAppServer {
         expectedMarker: Data,
         environment: CodexAppServerEnvironment
     ) -> CodexAppServerResponse? {
+        runLock.lock()
+        defer { runLock.unlock() }
         guard let codexPath = LiveRateLimitReader.codexExecutablePath() else {
             return nil
         }
@@ -1368,9 +1372,14 @@ private enum CodexAppServer {
             Thread.sleep(forTimeInterval: 0.1)
         }
         try? writer.close()
+        waitForExit(process, timeout: 1.0)
         if process.isRunning {
             process.terminate()
-            Thread.sleep(forTimeInterval: 0.2)
+            waitForExit(process, timeout: 2.0)
+        }
+        if process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+            waitForExit(process, timeout: 1.0)
         }
 
         output.fileHandleForReading.readabilityHandler = nil
@@ -1387,6 +1396,13 @@ private enum CodexAppServer {
             errorText: String(data: stderrData, encoding: .utf8) ?? "",
             environmentLabel: environment.label
         )
+    }
+
+    private static func waitForExit(_ process: Process, timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
     }
 
     private static func standardizedHomePath(_ path: String) -> String {
@@ -1428,6 +1444,7 @@ final class LiveRateLimitReader {
 
     static func codexExecutablePath() -> String? {
         let candidates = [
+            "/Applications/ChatGPT.app/Contents/Resources/codex",
             "/Applications/Codex.app/Contents/Resources/codex",
             "/opt/homebrew/bin/codex",
             "/usr/local/bin/codex"
