@@ -39,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusIsLoading = false
     private var detailsLoadGeneration = 0
     private let refreshInterval: TimeInterval = 300
-    private let liveRefreshInterval: TimeInterval = 300
+    private let liveRefreshInterval: TimeInterval = 15
     private let liveRefreshFailureIntervals: [TimeInterval] = [60, 300, 900]
     private var liveRefreshFailureCount = 0
     private let statusIconSize = NSSize(width: 14, height: 14)
@@ -130,6 +130,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.refresh(forceLive: false)
         }
         scheduleClaudeActiveRefreshIfNeeded()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        shutdownCodexAppServerSessions()
     }
 
     private func refreshStorageSnapshot() {

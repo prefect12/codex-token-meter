@@ -1291,18 +1291,201 @@ private struct CodexAppServerResponse {
     let environmentLabel: String
 }
 
+private final class CodexAppServerSession {
+    private let process = Process()
+    private let input = Pipe()
+    private let output = Pipe()
+    private let error = Pipe()
+    private let outputLock = NSLock()
+    private let errorLock = NSLock()
+    private var outputData = Data()
+    private var errorData = Data()
+    private var nextRequestID = 1
+
+    var isRunning: Bool { process.isRunning }
+
+    init?(codexPath: String, environment: CodexAppServerEnvironment) {
+        process.executableURL = URL(fileURLWithPath: codexPath)
+        process.arguments = ["app-server"]
+        process.environment = environment.variables
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = error
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty, let self else { return }
+            outputLock.lock()
+            outputData.append(chunk)
+            outputLock.unlock()
+        }
+        error.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty, let self else { return }
+            errorLock.lock()
+            errorData.append(chunk)
+            errorLock.unlock()
+        }
+
+        let initialize: [String: Any] = [
+            "method": "initialize",
+            "params": [
+                "clientInfo": ["name": "codex-token-meter", "version": "0.2.0"],
+                "capabilities": ["experimentalApi": true]
+            ]
+        ]
+        guard sendRequests([initialize], timeout: 12, expectedMarker: nil) != nil else {
+            shutdown()
+            return nil
+        }
+        writeJSON(["method": "initialized"])
+    }
+
+    func run(messages: [String], timeout: TimeInterval, expectedMarker: Data) -> (text: String, errorText: String)? {
+        let requests = messages.compactMap { message -> [String: Any]? in
+            guard let data = message.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let method = object["method"] as? String,
+                  method != "initialize",
+                  method != "initialized" else {
+                return nil
+            }
+            var request: [String: Any] = ["method": method]
+            if let params = object["params"] {
+                request["params"] = params
+            }
+            return request
+        }
+        return sendRequests(requests, timeout: timeout, expectedMarker: expectedMarker)
+    }
+
+    func shutdown() {
+        try? input.fileHandleForWriting.close()
+        waitForExit(timeout: 1.0)
+        if process.isRunning {
+            process.terminate()
+            waitForExit(timeout: 2.0)
+        }
+        if process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+            waitForExit(timeout: 1.0)
+        }
+        output.fileHandleForReading.readabilityHandler = nil
+        error.fileHandleForReading.readabilityHandler = nil
+    }
+
+    private func sendRequests(
+        _ requests: [[String: Any]],
+        timeout: TimeInterval,
+        expectedMarker: Data?
+    ) -> (text: String, errorText: String)? {
+        guard process.isRunning, !requests.isEmpty else { return nil }
+        outputLock.lock()
+        outputData.removeAll(keepingCapacity: true)
+        outputLock.unlock()
+        errorLock.lock()
+        errorData.removeAll(keepingCapacity: true)
+        errorLock.unlock()
+
+        var finalRequestID = 0
+        for request in requests {
+            var payload = request
+            payload["id"] = nextRequestID
+            finalRequestID = nextRequestID
+            nextRequestID += 1
+            writeJSON(payload)
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning && Date() < deadline {
+            outputLock.lock()
+            let snapshot = outputData
+            outputLock.unlock()
+            if expectedMarker.map({ snapshot.range(of: $0) != nil }) == true
+                || containsResponse(id: finalRequestID, in: snapshot) {
+                return responseSnapshot()
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return nil
+    }
+
+    private func writeJSON(_ object: [String: Any]) {
+        guard process.isRunning,
+              let data = try? JSONSerialization.data(withJSONObject: object),
+              let newline = "\n".data(using: .utf8) else { return }
+        input.fileHandleForWriting.write(data)
+        input.fileHandleForWriting.write(newline)
+    }
+
+    private func containsResponse(id: Int, in data: Data) -> Bool {
+        guard let text = String(data: data, encoding: .utf8) else { return false }
+        return text.split(separator: "\n").contains { line in
+            guard let lineData = String(line).data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
+                return false
+            }
+            if let value = object["id"] as? Int { return value == id }
+            if let value = object["id"] as? NSNumber { return value.intValue == id }
+            return false
+        }
+    }
+
+    private func responseSnapshot() -> (text: String, errorText: String)? {
+        outputLock.lock()
+        let data = outputData
+        outputLock.unlock()
+        errorLock.lock()
+        let stderrData = errorData
+        errorLock.unlock()
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        return (text, String(data: stderrData, encoding: .utf8) ?? "")
+    }
+
+    private func waitForExit(timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+    }
+}
+
 private enum CodexAppServer {
     private static let runLock = NSLock()
+    private static var activeSession: CodexAppServerSession?
+    private static var activeSessionKey: String?
+    private static var failureCount = 0
+    private static var retryNotBefore: Date?
+    private static let reconnectBackoff: [TimeInterval] = [60, 300, 900]
 
     static func candidateEnvironments() -> [CodexAppServerEnvironment] {
         var environments: [CodexAppServerEnvironment] = []
-        for source in AppSettings.codexAPISourceHomeURLs {
+        let sources = AppSettings.codexAPISourceHomeURLs.sorted { lhs, rhs in
+            authPriority(for: lhs) < authPriority(for: rhs)
+        }
+        for source in sources {
             let home = standardizedHomePath(source.path)
             var variables = ProcessInfo.processInfo.environment
             variables["CODEX_HOME"] = home
             environments.append(CodexAppServerEnvironment(label: home, variables: variables))
         }
         return environments
+    }
+
+    private static func authPriority(for homeURL: URL) -> Int {
+        let authURL = homeURL.appendingPathComponent("auth.json")
+        guard let data = try? Data(contentsOf: authURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let mode = object["auth_mode"] as? String ?? object["authMode"] as? String else {
+            return 2
+        }
+        return mode.lowercased() == "chatgpt" ? 0 : 1
     }
 
     static func run(
@@ -1316,93 +1499,64 @@ private enum CodexAppServer {
         guard let codexPath = LiveRateLimitReader.codexExecutablePath() else {
             return nil
         }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: codexPath)
-        process.arguments = ["app-server"]
-        process.environment = environment.variables
-        let input = Pipe()
-        let output = Pipe()
-        let error = Pipe()
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = error
-
-        do {
-            try process.run()
-        } catch {
+        let key = "\(environment.label)|\(codexPath)"
+        if let retryAt = retryNotBefore, retryAt > Date() {
             return nil
         }
-
-        let outputLock = NSLock()
-        var outputData = Data()
-        output.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            outputLock.lock()
-            outputData.append(chunk)
-            outputLock.unlock()
+        if let existing = activeSession, !existing.isRunning {
+            activeSession?.shutdown()
+            activeSession = nil
+            activeSessionKey = nil
+            recordFailure()
+            return nil
         }
-
-        let errorLock = NSLock()
-        var errorData = Data()
-        error.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            errorLock.lock()
-            errorData.append(chunk)
-            errorLock.unlock()
+        if activeSessionKey != nil, activeSessionKey != key {
+            // Keep the first working CODEX_HOME sticky for the lifetime of the
+            // connection. A transient empty response must not churn sessions.
+            return nil
         }
-
-        let writer = input.fileHandleForWriting
-        let requestBody = messages.joined(separator: "\n") + "\n"
-        if let data = requestBody.data(using: .utf8) {
-            writer.write(data)
-        }
-
-        let deadline = Date().addingTimeInterval(timeout)
-        let finalResponseMarker = Data(#""id":3"#.utf8)
-        while process.isRunning && Date() < deadline {
-            outputLock.lock()
-            let hasExpectedMarker = outputData.range(of: expectedMarker) != nil
-            let hasFinalResponse = outputData.range(of: finalResponseMarker) != nil
-            outputLock.unlock()
-            if hasExpectedMarker || hasFinalResponse {
-                break
+        let session: CodexAppServerSession
+        if let existing = activeSession, existing.isRunning {
+            session = existing
+        } else {
+            activeSession?.shutdown()
+            guard let created = CodexAppServerSession(codexPath: codexPath, environment: environment) else {
+                recordFailure()
+                return nil
             }
-            Thread.sleep(forTimeInterval: 0.1)
+            activeSession = created
+            activeSessionKey = key
+            session = created
         }
-        try? writer.close()
-        waitForExit(process, timeout: 1.0)
-        if process.isRunning {
-            process.terminate()
-            waitForExit(process, timeout: 2.0)
+        guard let response = session.run(messages: messages, timeout: timeout, expectedMarker: expectedMarker) else {
+            session.shutdown()
+            activeSession = nil
+            activeSessionKey = nil
+            recordFailure()
+            return nil
         }
-        if process.isRunning {
-            kill(process.processIdentifier, SIGKILL)
-            waitForExit(process, timeout: 1.0)
-        }
-
-        output.fileHandleForReading.readabilityHandler = nil
-        error.fileHandleForReading.readabilityHandler = nil
-        outputLock.lock()
-        let data = outputData
-        outputLock.unlock()
-        errorLock.lock()
-        let stderrData = errorData
-        errorLock.unlock()
-        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        failureCount = 0
+        retryNotBefore = nil
         return CodexAppServerResponse(
-            text: text,
-            errorText: String(data: stderrData, encoding: .utf8) ?? "",
+            text: response.text,
+            errorText: response.errorText,
             environmentLabel: environment.label
         )
     }
 
-    private static func waitForExit(_ process: Process, timeout: TimeInterval) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
-        }
+    static func shutdownAll() {
+        runLock.lock()
+        let session = activeSession
+        activeSession = nil
+        activeSessionKey = nil
+        runLock.unlock()
+        session?.shutdown()
+    }
+
+    private static func recordFailure() {
+        failureCount += 1
+        let index = min(failureCount - 1, reconnectBackoff.count - 1)
+        retryNotBefore = Date().addingTimeInterval(reconnectBackoff[index])
     }
 
     private static func standardizedHomePath(_ path: String) -> String {
@@ -1410,6 +1564,10 @@ private enum CodexAppServer {
             .standardizedFileURL
             .path
     }
+}
+
+func shutdownCodexAppServerSessions() {
+    CodexAppServer.shutdownAll()
 }
 
 final class LiveRateLimitReader {
