@@ -331,8 +331,8 @@ struct AccountQuotaLimitObservation: Codable, Equatable {
     var id: String
     var name: String
     var planType: String?
-    var primary: AccountQuotaWindowObservation
-    var secondary: AccountQuotaWindowObservation
+    var primary: AccountQuotaWindowObservation?
+    var secondary: AccountQuotaWindowObservation?
 }
 
 struct AccountQuotaObservation: Codable {

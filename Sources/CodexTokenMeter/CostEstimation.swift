@@ -94,11 +94,12 @@ final class CostHistoryStore {
         var changed = false
         let observedAtText = isoFormatter.string(from: observedAt)
         for limit in limits {
+            guard let weekly = limit.secondary else { continue }
             let weekStart = appCalendar().dateInterval(of: .weekOfYear, for: observedAt)?.start ?? appCalendar().startOfDay(for: observedAt)
             let key = snapshotKey(limitID: limit.id, weekStart: weekStart)
-            let usedPercent = max(0, min(100, limit.secondary.usedPercent))
-            let remainingPercent = max(0, min(100, limit.secondary.remainingPercent))
-            let resetAtText = limit.secondary.resetsAt.map { isoFormatter.string(from: $0) }
+            let usedPercent = max(0, min(100, weekly.usedPercent))
+            let remainingPercent = max(0, min(100, weekly.remainingPercent))
+            let resetAtText = weekly.resetsAt.map { isoFormatter.string(from: $0) }
 
             if var snapshot = file.weeks[key] {
                 if Self.isResetDrop(previousUsedPercent: snapshot.lastUsedPercent, currentUsedPercent: usedPercent) {
@@ -252,7 +253,10 @@ final class QuotaCycleStore {
         guard !limits.isEmpty else { return }
         var changed = false
         for limit in limits {
-            let windows: [(QuotaWindowKind, RateWindow)] = [(.fiveHour, limit.primary), (.weekly, limit.secondary)]
+            let windows: [(QuotaWindowKind, RateWindow)] = [
+                limit.primary.map { (.fiveHour, $0) },
+                limit.secondary.map { (.weekly, $0) }
+            ].compactMap { $0 }
             for (kind, window) in windows {
                 guard let resetsAt = window.resetsAt, window.windowMinutes > 0 else { continue }
                 if upsert(limitID: limit.id, kind: kind, window: window, resetsAt: resetsAt, observedAt: observedAt) {

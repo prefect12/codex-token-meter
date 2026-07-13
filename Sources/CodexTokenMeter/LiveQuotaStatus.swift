@@ -123,8 +123,8 @@ func paceComparison(for window: RateWindow, now: Date = Date()) -> PaceCompariso
 struct LiveRateLimit: Codable {
     let id: String
     let name: String
-    let primary: RateWindow
-    let secondary: RateWindow
+    let primary: RateWindow?
+    let secondary: RateWindow?
     let planType: String?
     let capturedAt: Date?
 }
@@ -240,10 +240,10 @@ enum LiveRateLimitCacheStore {
     }
 
     private static func isUsable(_ limit: LiveRateLimit) -> Bool {
-        limit.primary.usedPercent.isFinite
-            && limit.secondary.usedPercent.isFinite
-            && limit.primary.windowMinutes > 0
-            && limit.secondary.windowMinutes > 0
+        let windows = [limit.primary, limit.secondary].compactMap { $0 }
+        return !windows.isEmpty && windows.allSatisfy {
+            $0.usedPercent.isFinite && $0.windowMinutes > 0
+        }
     }
 }
 

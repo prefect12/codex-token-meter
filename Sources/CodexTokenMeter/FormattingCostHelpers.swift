@@ -342,7 +342,7 @@ func weeklySpendRows(report: TokenReport, limit: LiveRateLimit?, year: Int? = ni
         }
 
         let currentCycleValue = start == currentWeekStart
-            ? estimator.weeklyBudget * min(100, max(0, limit?.secondary.usedPercent ?? 0)) / 100
+            ? estimator.weeklyBudget * min(100, max(0, limit?.secondary?.usedPercent ?? 0)) / 100
             : 0
         let eventPercents: [Double]
         if !resetEvents.isEmpty {

@@ -1275,8 +1275,16 @@ final class PlatformQuotaRingsOverviewView: NSView {
     private func rowTooltip(title: String, target: QuotaViewOption, limit: LiveRateLimit?, report: TokenReport?) -> String {
         var lines = [title]
         if let limit {
-            lines.append("5h \(t(.remaining)) \(Int(round(limit.primary.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(limit.primary.resetsAt))")
-            lines.append("\(t(.weeklyLeft)) \(Int(round(limit.secondary.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(limit.secondary.resetsAt))")
+            if let primary = limit.primary {
+                lines.append("5h \(t(.remaining)) \(Int(round(primary.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(primary.resetsAt))")
+            } else {
+                lines.append("5h \(t(.liveLimitUnavailable))")
+            }
+            if let secondary = limit.secondary {
+                lines.append("\(t(.weeklyLeft)) \(Int(round(secondary.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(secondary.resetsAt))")
+            } else {
+                lines.append("\(t(.weeklyLeft)) \(t(.liveLimitUnavailable))")
+            }
         } else {
             lines.append(t(.liveLimitUnavailable))
         }
@@ -1298,7 +1306,9 @@ final class PlatformQuotaRingsOverviewView: NSView {
 
     private func resetSummary(_ limit: LiveRateLimit?) -> String {
         guard let limit else { return t(.liveLimitUnavailable) }
-        return "5h \(compactResetRelative(limit.primary.resetsAt))  /  周 \(compactResetRelative(limit.secondary.resetsAt))"
+        let fiveHour = limit.primary.map { compactResetRelative($0.resetsAt) } ?? "--"
+        let weekly = limit.secondary.map { compactResetRelative($0.resetsAt) } ?? "--"
+        return "5h \(fiveHour)  /  周 \(weekly)"
     }
 
     private func percentText(_ value: Double?) -> String {

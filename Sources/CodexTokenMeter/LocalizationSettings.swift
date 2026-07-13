@@ -2211,8 +2211,12 @@ final class QuotaWarningManager {
     func evaluate(limits: [LiveRateLimit]) {
         guard AppSettings.quotaWarningsEnabled else { return }
         for limit in limits {
-            evaluate(limit: limit, windowName: "5h", window: limit.primary)
-            evaluate(limit: limit, windowName: "weekly", window: limit.secondary)
+            if let primary = limit.primary {
+                evaluate(limit: limit, windowName: "5h", window: primary)
+            }
+            if let secondary = limit.secondary {
+                evaluate(limit: limit, windowName: "weekly", window: secondary)
+            }
         }
     }
 
