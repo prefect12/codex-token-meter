@@ -12,7 +12,7 @@ The split is intentionally conservative: code moved by section, with behavior pr
 - `Sources/CodexTokenMeter/LocalizationSettings.swift`: app language, localized text, currencies, user defaults, launch-at-login, external API cost file, quota warning settings.
 - `Sources/CodexTokenMeter/LiveQuotaStatus.swift`: quota view selection, rate window pacing, OpenAI/Codex status-page reader.
 - `Sources/CodexTokenMeter/CostEstimation.swift`: weekly reset observations, `QuotaCycleStore` per-reset-cycle usage history (5h and weekly windows, keyed by `resetsAt` with drift tolerance; legacy seeds are rebuilt in file version 2 from observed usage-drop events so ranges are contiguous and mid-cycle promo refreshes survive), historical quota-value estimates, API-equivalent allocation helpers.
-- `Sources/CodexTokenMeter/ScannerReaders.swift`: rollout JSONL scanner/cache, `codex app-server` live quota reader, Profile API usage reader.
+- `Sources/CodexTokenMeter/ScannerReaders.swift`: rollout JSONL scanner/cache plus direct, read-only ChatGPT backend readers for live quota, Profile API usage, and reset credits.
 - `Sources/CodexTokenMeter/ClaudeTokenScanner.swift`: Claude Code local JSONL scanner, usage aggregation, and repo-insight adapter.
 - `Sources/CodexTokenMeter/StorageScanner.swift`: read-only local disk usage scanner for `~/.codex` and `~/.claude`; categorizes files, assigns cleanup risk, buckets 90-day growth by file modification day, and attributes session-log bytes to projects by reading only the head of each session JSONL for its `cwd`. It never deletes anything. `StorageSnapshotCacheStore` persists the last snapshot so the storage page can show cached results instantly while a background rescan runs.
 - `Sources/CodexTokenMeter/DashboardViews.swift`: status item popover, rings, bullet quota display, charts, service-status chip.
@@ -43,9 +43,9 @@ The split is intentionally conservative: code moved by section, with behavior pr
 2. It parses `token_count` events, converts cumulative counters into per-event deltas, and aggregates usage by hour, day, session, and model.
 3. `ClaudeTokenScanner` scans Claude Code JSONL logs from `AppSettings.claudeLogFolderURLs`, reads assistant `usage` records, dedupes partial/final assistant snapshots by message ID, and aggregates usage by hour, day, session, model, and repository.
 4. Day/week/month Codex windows can reuse day-level parsed-rollout caches; rolling `24h` windows stay event-based. Claude scans stay file/event based.
-5. `LiveRateLimitReader` starts `codex app-server` and reads `account/rateLimits/read`.
+5. `LiveRateLimitReader` reads `https://chatgpt.com/backend-api/wham/usage` directly with the existing local ChatGPT credentials. The response is cached in memory, successful snapshots are persisted, and failures use 1/5/15-minute backoff without launching Codex processes.
 6. `ClaudeStatuslineStore` captures optional Claude Code statusline `rate_limits` via `--claude-statusline` and exposes them as a local `LiveRateLimit` with `id=claude`.
-7. `AccountUsageReader` reads `account/usage/read` when Profile API totals are enabled.
+7. `AccountUsageReader` reads `https://chatgpt.com/backend-api/wham/profiles/me` when Profile API totals are enabled and falls back to its last persisted snapshot when unavailable. Reset-credit details use the corresponding read-only `wham` endpoint and cache.
 8. `CodexServiceStatusReader` reads `https://status.openai.com/api/v2/summary.json` for Codex component status.
 9. `AppDelegate` merges Codex scans, Claude scans, optional Profile API totals, live quota limits, service status, and cost reference reports into `DashboardState`. The menu dashboard can seed this state from the last aggregate dashboard cache and last successful live quota cache while fresh scans run.
 10. `DashboardView` renders the menu popover; `UsageDetailsView` renders details pages directly with AppKit drawing.
