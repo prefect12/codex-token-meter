@@ -136,7 +136,7 @@ Task Bar 读取：
 ~/.claude/projects/**/*.jsonl
 ```
 
-实时额度依赖本机 Codex runtime 的 `codex app-server`。Codex 服务状态 chip 会只读请求 `https://status.openai.com/api/v2/summary.json`。
+实时额度通过现有本机 ChatGPT 登录直接只读请求正常的 Codex 用量接口，不会启动 `codex app-server`；成功时仍按 15 秒刷新并缓存，失败后按 1、5、15 分钟退避。Codex 服务状态 chip 会只读请求 `https://status.openai.com/api/v2/summary.json`。
 
 ## 功能概览
 
@@ -157,7 +157,7 @@ Task Bar 读取：
 
 - **任务收件箱**：在状态栏显示需要关注的任务数量，减少在多个窗口里找线程。
 - **状态分组**：按 `All / Running / Waiting / Done` 过滤，区分运行中、等待输入、已完成未读和长时间运行。
-- **多来源合并**：读取 Codex app-server、Codex rollout logs、Claude Code JSONL，并尽量合并同一任务的状态。
+- **多来源合并**：读取 Codex 本地状态、Codex rollout logs、Claude Code JSONL，并尽量合并同一任务的状态。
 - **行内摘要**：展示来源、标题、最近输出摘要、运行时间和未读状态。
 - **hover 详情**：能显示 token、缓存率、轮次、压缩次数和模型，字段以本机日志实际可解释的数据为准。
 - **快速清理**：支持滑动移除已处理项，并在设置里调整分组顺序和显示偏好。

@@ -37,7 +37,6 @@ extension UsageDetailsView {
     }
 
     private func codexSourceDiagnostics(snapshot: DetailsSnapshot) -> [(String, String, NSColor)] {
-        let cliPath = LiveRateLimitReader.codexExecutablePath()
         let authURL = AppSettings.defaultCodexHomeURL.appendingPathComponent("auth.json")
         let liveText = snapshot.liveLimits.isEmpty
             ? t(.liveLimitUnavailable)
@@ -60,7 +59,7 @@ extension UsageDetailsView {
         }
         let rollouts = AppSettings.logFolderURLs.reduce(0) { $0 + rolloutCount(in: $1, modifiedWithinDays: 14) }
         return [
-            ("Codex CLI", cliPath.map(shortenedPath) ?? t(.fileMissing), cliPath == nil ? accentRose : accentTeal),
+            ("Codex backend", "Direct HTTPS", accentTeal),
             ("auth.json", FileManager.default.fileExists(atPath: authURL.path) ? t(.filePresent) : t(.fileMissing), FileManager.default.fileExists(atPath: authURL.path) ? accentTeal : accentAmber),
             (t(.liveQuota), liveText, snapshot.liveLimits.isEmpty ? accentRose : accentTeal),
             (t(.codexStatus), serviceText, serviceColor),

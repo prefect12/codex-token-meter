@@ -132,10 +132,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scheduleClaudeActiveRefreshIfNeeded()
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        shutdownCodexAppServerSessions()
-    }
-
     private func refreshStorageSnapshot() {
         if detailsController.detailsView.storageSnapshot == nil,
            let cached = StorageSnapshotCacheStore.read() {

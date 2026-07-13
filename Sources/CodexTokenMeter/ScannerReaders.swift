@@ -1280,369 +1280,174 @@ final class CodexTokenScanner {
     }
 }
 
-private struct CodexAppServerEnvironment {
-    let label: String
-    let variables: [String: String]?
+private struct CodexBackendCredentials {
+    let accessToken: String
+    let accountID: String
 }
 
-private struct CodexAppServerResponse {
-    let text: String
-    let errorText: String
-    let environmentLabel: String
-}
+private final class CodexBackendHTTPClient {
+    static let shared = CodexBackendHTTPClient()
 
-private final class CodexAppServerSession {
-    private let process = Process()
-    private let input = Pipe()
-    private let output = Pipe()
-    private let error = Pipe()
-    private let outputLock = NSLock()
-    private let errorLock = NSLock()
-    private var outputData = Data()
-    private var errorData = Data()
-    private var nextRequestID = 1
+    private struct EndpointState {
+        var data: Data?
+        var fetchedAt: Date?
+        var failureCount = 0
+        var retryNotBefore: Date?
+    }
 
-    var isRunning: Bool { process.isRunning }
+    private let baseURL = URL(string: "https://chatgpt.com/backend-api")!
+    private let lock = NSLock()
+    private var states: [String: EndpointState] = [:]
+    private let failureBackoff: [TimeInterval] = [60, 300, 900]
 
-    init?(codexPath: String, environment: CodexAppServerEnvironment) {
-        process.executableURL = URL(fileURLWithPath: codexPath)
-        process.arguments = ["app-server"]
-        process.environment = environment.variables
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = error
-
-        do {
-            try process.run()
-        } catch {
+    func get(path: String, timeout: TimeInterval, cacheTTL: TimeInterval) -> Data? {
+        let now = Date()
+        lock.lock()
+        let state = states[path]
+        if let data = state?.data,
+           let fetchedAt = state?.fetchedAt,
+           now.timeIntervalSince(fetchedAt) < cacheTTL {
+            lock.unlock()
+            return data
+        }
+        if let retryAt = state?.retryNotBefore, retryAt > now {
+            lock.unlock()
             return nil
         }
+        lock.unlock()
 
-        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty, let self else { return }
-            outputLock.lock()
-            outputData.append(chunk)
-            outputLock.unlock()
-        }
-        error.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty, let self else { return }
-            errorLock.lock()
-            errorData.append(chunk)
-            errorLock.unlock()
-        }
-
-        let initialize: [String: Any] = [
-            "method": "initialize",
-            "params": [
-                "clientInfo": ["name": "codex-token-meter", "version": "0.2.0"],
-                "capabilities": ["experimentalApi": true]
-            ]
-        ]
-        guard sendRequests([initialize], timeout: 12, expectedMarker: nil) != nil else {
-            shutdown()
+        guard let credentials = credentials() else {
+            recordFailure(path: path)
             return nil
         }
-        writeJSON(["method": "initialized"])
+        let url = baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = timeout
+        request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(credentials.accountID, forHTTPHeaderField: "ChatGPT-Account-Id")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("codex-cli", forHTTPHeaderField: "User-Agent")
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = timeout
+        let session = URLSession(configuration: configuration)
+        let semaphore = DispatchSemaphore(value: 0)
+        var responseData: Data?
+        var statusCode = 0
+        let task = session.dataTask(with: request) { data, response, _ in
+            responseData = data
+            statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            semaphore.signal()
+        }
+        task.resume()
+        if semaphore.wait(timeout: .now() + timeout + 1) == .timedOut {
+            task.cancel()
+        }
+        session.invalidateAndCancel()
+
+        guard statusCode == 200, let responseData else {
+            recordFailure(path: path)
+            return nil
+        }
+        lock.lock()
+        states[path] = EndpointState(data: responseData, fetchedAt: Date())
+        lock.unlock()
+        return responseData
     }
 
-    func run(messages: [String], timeout: TimeInterval, expectedMarker: Data) -> (text: String, errorText: String)? {
-        let requests = messages.compactMap { message -> [String: Any]? in
-            guard let data = message.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let method = object["method"] as? String,
-                  method != "initialize",
-                  method != "initialized" else {
-                return nil
+    private func credentials() -> CodexBackendCredentials? {
+        for homeURL in AppSettings.codexAPISourceHomeURLs {
+            let authURL = homeURL.appendingPathComponent("auth.json")
+            guard let data = try? Data(contentsOf: authURL),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
             }
-            var request: [String: Any] = ["method": method]
-            if let params = object["params"] {
-                request["params"] = params
+            let mode = (object["auth_mode"] as? String ?? object["authMode"] as? String)?.lowercased()
+            guard mode == nil || mode == "chatgpt" else { continue }
+            let tokens = object["tokens"] as? [String: Any]
+            let accessToken = tokens?["access_token"] as? String ?? object["access_token"] as? String
+            let accountID = tokens?["account_id"] as? String ?? object["account_id"] as? String
+            if let accessToken, !accessToken.isEmpty, let accountID, !accountID.isEmpty {
+                return CodexBackendCredentials(accessToken: accessToken, accountID: accountID)
             }
-            return request
-        }
-        return sendRequests(requests, timeout: timeout, expectedMarker: expectedMarker)
-    }
-
-    func shutdown() {
-        try? input.fileHandleForWriting.close()
-        waitForExit(timeout: 1.0)
-        if process.isRunning {
-            process.terminate()
-            waitForExit(timeout: 2.0)
-        }
-        if process.isRunning {
-            kill(process.processIdentifier, SIGKILL)
-            waitForExit(timeout: 1.0)
-        }
-        output.fileHandleForReading.readabilityHandler = nil
-        error.fileHandleForReading.readabilityHandler = nil
-    }
-
-    private func sendRequests(
-        _ requests: [[String: Any]],
-        timeout: TimeInterval,
-        expectedMarker: Data?
-    ) -> (text: String, errorText: String)? {
-        guard process.isRunning, !requests.isEmpty else { return nil }
-        outputLock.lock()
-        outputData.removeAll(keepingCapacity: true)
-        outputLock.unlock()
-        errorLock.lock()
-        errorData.removeAll(keepingCapacity: true)
-        errorLock.unlock()
-
-        var finalRequestID = 0
-        for request in requests {
-            var payload = request
-            payload["id"] = nextRequestID
-            finalRequestID = nextRequestID
-            nextRequestID += 1
-            writeJSON(payload)
-        }
-
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline {
-            outputLock.lock()
-            let snapshot = outputData
-            outputLock.unlock()
-            if expectedMarker.map({ snapshot.range(of: $0) != nil }) == true
-                || containsResponse(id: finalRequestID, in: snapshot) {
-                return responseSnapshot()
-            }
-            Thread.sleep(forTimeInterval: 0.05)
         }
         return nil
     }
 
-    private func writeJSON(_ object: [String: Any]) {
-        guard process.isRunning,
-              let data = try? JSONSerialization.data(withJSONObject: object),
-              let newline = "\n".data(using: .utf8) else { return }
-        input.fileHandleForWriting.write(data)
-        input.fileHandleForWriting.write(newline)
-    }
-
-    private func containsResponse(id: Int, in data: Data) -> Bool {
-        guard let text = String(data: data, encoding: .utf8) else { return false }
-        return text.split(separator: "\n").contains { line in
-            guard let lineData = String(line).data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
-                return false
-            }
-            if let value = object["id"] as? Int { return value == id }
-            if let value = object["id"] as? NSNumber { return value.intValue == id }
-            return false
-        }
-    }
-
-    private func responseSnapshot() -> (text: String, errorText: String)? {
-        outputLock.lock()
-        let data = outputData
-        outputLock.unlock()
-        errorLock.lock()
-        let stderrData = errorData
-        errorLock.unlock()
-        guard let text = String(data: data, encoding: .utf8) else { return nil }
-        return (text, String(data: stderrData, encoding: .utf8) ?? "")
-    }
-
-    private func waitForExit(timeout: TimeInterval) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
-        }
+    private func recordFailure(path: String) {
+        lock.lock()
+        var state = states[path] ?? EndpointState()
+        state.failureCount += 1
+        let index = min(state.failureCount - 1, failureBackoff.count - 1)
+        state.retryNotBefore = Date().addingTimeInterval(failureBackoff[index])
+        states[path] = state
+        lock.unlock()
     }
 }
 
-private enum CodexAppServer {
-    private static let runLock = NSLock()
-    private static var activeSession: CodexAppServerSession?
-    private static var activeSessionKey: String?
-    private static var failureCount = 0
-    private static var retryNotBefore: Date?
-    private static let reconnectBackoff: [TimeInterval] = [60, 300, 900]
+private enum AccountUsageCacheStore {
+    private static let version = 1
+    private struct Payload: Codable { let version: Int; let snapshot: AccountUsageSnapshot }
+    private static var url: URL { AppSettings.appSupportDirectoryURL.appendingPathComponent("account-usage-cache.json") }
 
-    static func candidateEnvironments() -> [CodexAppServerEnvironment] {
-        var environments: [CodexAppServerEnvironment] = []
-        let sources = AppSettings.codexAPISourceHomeURLs.sorted { lhs, rhs in
-            authPriority(for: lhs) < authPriority(for: rhs)
-        }
-        for source in sources {
-            let home = standardizedHomePath(source.path)
-            var variables = ProcessInfo.processInfo.environment
-            variables["CODEX_HOME"] = home
-            environments.append(CodexAppServerEnvironment(label: home, variables: variables))
-        }
-        return environments
+    static func read() -> AccountUsageSnapshot? {
+        guard let data = try? Data(contentsOf: url),
+              let payload = try? JSONDecoder().decode(Payload.self, from: data),
+              payload.version == version else { return nil }
+        return payload.snapshot
     }
 
-    private static func authPriority(for homeURL: URL) -> Int {
-        let authURL = homeURL.appendingPathComponent("auth.json")
-        guard let data = try? Data(contentsOf: authURL),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let mode = object["auth_mode"] as? String ?? object["authMode"] as? String else {
-            return 2
-        }
-        return mode.lowercased() == "chatgpt" ? 0 : 1
-    }
-
-    static func run(
-        messages: [String],
-        timeout: TimeInterval,
-        expectedMarker: Data,
-        environment: CodexAppServerEnvironment
-    ) -> CodexAppServerResponse? {
-        runLock.lock()
-        defer { runLock.unlock() }
-        guard let codexPath = LiveRateLimitReader.codexExecutablePath() else {
-            return nil
-        }
-        let key = "\(environment.label)|\(codexPath)"
-        if let retryAt = retryNotBefore, retryAt > Date() {
-            return nil
-        }
-        if let existing = activeSession, !existing.isRunning {
-            activeSession?.shutdown()
-            activeSession = nil
-            activeSessionKey = nil
-            recordFailure()
-            return nil
-        }
-        if activeSessionKey != nil, activeSessionKey != key {
-            // Keep the first working CODEX_HOME sticky for the lifetime of the
-            // connection. A transient empty response must not churn sessions.
-            return nil
-        }
-        let session: CodexAppServerSession
-        if let existing = activeSession, existing.isRunning {
-            session = existing
-        } else {
-            activeSession?.shutdown()
-            guard let created = CodexAppServerSession(codexPath: codexPath, environment: environment) else {
-                recordFailure()
-                return nil
-            }
-            activeSession = created
-            activeSessionKey = key
-            session = created
-        }
-        guard let response = session.run(messages: messages, timeout: timeout, expectedMarker: expectedMarker) else {
-            session.shutdown()
-            activeSession = nil
-            activeSessionKey = nil
-            recordFailure()
-            return nil
-        }
-        failureCount = 0
-        retryNotBefore = nil
-        return CodexAppServerResponse(
-            text: response.text,
-            errorText: response.errorText,
-            environmentLabel: environment.label
-        )
-    }
-
-    static func shutdownAll() {
-        runLock.lock()
-        let session = activeSession
-        activeSession = nil
-        activeSessionKey = nil
-        runLock.unlock()
-        session?.shutdown()
-    }
-
-    private static func recordFailure() {
-        failureCount += 1
-        let index = min(failureCount - 1, reconnectBackoff.count - 1)
-        retryNotBefore = Date().addingTimeInterval(reconnectBackoff[index])
-    }
-
-    private static func standardizedHomePath(_ path: String) -> String {
-        URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
-            .standardizedFileURL
-            .path
+    static func write(_ snapshot: AccountUsageSnapshot) {
+        guard let data = try? JSONEncoder().encode(Payload(version: version, snapshot: snapshot)) else { return }
+        try? FileManager.default.createDirectory(at: AppSettings.appSupportDirectoryURL, withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
     }
 }
 
-func shutdownCodexAppServerSessions() {
-    CodexAppServer.shutdownAll()
+private enum ResetCreditsCacheStore {
+    private static let version = 1
+    private struct Payload: Codable { let version: Int; let snapshot: RateLimitResetCreditsSnapshot }
+    private static var url: URL { AppSettings.appSupportDirectoryURL.appendingPathComponent("reset-credits-cache.json") }
+
+    static func read() -> RateLimitResetCreditsSnapshot? {
+        guard let data = try? Data(contentsOf: url),
+              let payload = try? JSONDecoder().decode(Payload.self, from: data),
+              payload.version == version else { return nil }
+        return payload.snapshot
+    }
+
+    static func write(_ snapshot: RateLimitResetCreditsSnapshot) {
+        guard let data = try? JSONEncoder().encode(Payload(version: version, snapshot: snapshot)) else { return }
+        try? FileManager.default.createDirectory(at: AppSettings.appSupportDirectoryURL, withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+    }
 }
 
 final class LiveRateLimitReader {
     func read(timeout: TimeInterval = 12) -> [LiveRateLimit] {
-        let messages = [
-            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-token-meter","version":"0.2.0"},"capabilities":{}}}"#,
-            #"{"method":"initialized"}"#,
-            #"{"id":2,"method":"account/read","params":{"refreshAuth":false}}"#,
-            #"{"id":3,"method":"account/rateLimits/read"}"#
-        ]
-        let rateLimitsMarker = Data(#""rateLimits""#.utf8)
-        for environment in CodexAppServer.candidateEnvironments() {
-            guard let response = CodexAppServer.run(
-                messages: messages,
-                timeout: timeout,
-                expectedMarker: rateLimitsMarker,
-                environment: environment
-            ) else {
-                continue
-            }
-            if ProcessInfo.processInfo.environment["CODEX_TOKEN_METER_DEBUG_LIVE"] == "1" {
-                FileHandle.standardError.write(Data("LIVE RAW OUTPUT [\(response.environmentLabel)]:\n\(response.text)\n".utf8))
-                FileHandle.standardError.write(Data("LIVE RAW ERROR [\(response.environmentLabel)]:\n\(response.errorText)\n".utf8))
-            }
-            let limits = parse(response.text)
-            if !limits.isEmpty {
-                return limits
-            }
-        }
-        return []
-    }
-
-    static func codexExecutablePath() -> String? {
-        let candidates = [
-            "/Applications/ChatGPT.app/Contents/Resources/codex",
-            "/Applications/Codex.app/Contents/Resources/codex",
-            "/opt/homebrew/bin/codex",
-            "/usr/local/bin/codex"
-        ]
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
-    }
-
-    private func parse(_ text: String) -> [LiveRateLimit] {
+        guard let data = CodexBackendHTTPClient.shared.get(path: "/wham/usage", timeout: timeout, cacheTTL: 10),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
         var results: [LiveRateLimit] = []
-        for line in text.split(separator: "\n") {
-            guard let data = String(line).data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let result = object["result"] as? [String: Any] else {
-                continue
-            }
-            guard result["rateLimits"] != nil || result["rateLimitsByLimitId"] != nil else {
-                continue
-            }
-
-            if let byID = result["rateLimitsByLimitId"] as? [String: Any] {
-                for (_, value) in byID {
-                    if let dict = value as? [String: Any], let limit = liveLimit(from: dict) {
-                        results.append(limit)
-                    }
-                }
-            } else if let dict = result["rateLimits"] as? [String: Any], let limit = liveLimit(from: dict) {
+        if let rateLimit = object["rate_limit"] as? [String: Any],
+           let limit = liveLimit(id: "codex", name: "Codex", rateLimit: rateLimit, planType: object["plan_type"] as? String) {
+            results.append(limit)
+        }
+        for item in object["additional_rate_limits"] as? [[String: Any]] ?? [] {
+            guard let rateLimit = item["rate_limit"] as? [String: Any] else { continue }
+            let id = item["metered_feature"] as? String ?? item["limit_name"] as? String ?? "codex-additional"
+            let name = item["limit_name"] as? String ?? id
+            if let limit = liveLimit(id: id, name: name, rateLimit: rateLimit, planType: object["plan_type"] as? String) {
                 results.append(limit)
             }
         }
         return results.sorted { $0.id < $1.id }
     }
 
-    private func liveLimit(from dict: [String: Any]) -> LiveRateLimit? {
-        guard let id = dict["limitId"] as? String ?? dict["limit_id"] as? String else {
-            return nil
-        }
-
-        let name = dict["limitName"] as? String ?? dict["limit_name"] as? String ?? id
-        let rawPrimary = (dict["primary"] as? [String: Any]).flatMap(window(from:))
-        let rawSecondary = (dict["secondary"] as? [String: Any]).flatMap(window(from:))
+    private func liveLimit(id: String, name: String, rateLimit: [String: Any], planType: String?) -> LiveRateLimit? {
+        let rawPrimary = (rateLimit["primary_window"] as? [String: Any]).flatMap(window(from:))
+        let rawSecondary = (rateLimit["secondary_window"] as? [String: Any]).flatMap(window(from:))
         let windows = normalizedWindows(primary: rawPrimary, secondary: rawSecondary)
         guard windows.primary != nil || windows.secondary != nil else {
             return nil
@@ -1652,7 +1457,7 @@ final class LiveRateLimitReader {
             name: name,
             primary: windows.primary,
             secondary: windows.secondary,
-            planType: dict["planType"] as? String ?? dict["plan_type"] as? String,
+            planType: planType,
             capturedAt: Date()
         )
     }
@@ -1674,13 +1479,13 @@ final class LiveRateLimitReader {
     }
 
     private func window(from dict: [String: Any]) -> RateWindow? {
-        guard let used = optionalDouble(dict["usedPercent"] ?? dict["used_percent"] ?? dict["usedPercentage"] ?? dict["used_percentage"]),
+        guard let used = optionalDouble(dict["used_percent"]),
               used.isFinite else {
             return nil
         }
-        let minutes = Int(optionalDouble(dict["windowDurationMins"] ?? dict["window_minutes"] ?? dict["windowDurationMinutes"]) ?? 0)
+        let minutes = Int((optionalDouble(dict["limit_window_seconds"]) ?? 0) / 60)
         guard minutes > 0 else { return nil }
-        let resetSeconds = optionalDouble(dict["resetsAt"] ?? dict["resets_at"]) ?? 0
+        let resetSeconds = optionalDouble(dict["reset_at"]) ?? 0
         let resetDate = resetSeconds > 0 ? Date(timeIntervalSince1970: resetSeconds) : nil
         return RateWindow(usedPercent: used, windowMinutes: minutes, resetsAt: resetDate)
     }
@@ -1696,60 +1501,28 @@ final class LiveRateLimitReader {
 
 final class AccountUsageReader {
     func read(timeout: TimeInterval = 12) -> AccountUsageSnapshot? {
-        let messages = [
-            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-token-meter","version":"0.2.0"},"capabilities":{"experimentalApi":true}}}"#,
-            #"{"method":"initialized"}"#,
-            #"{"id":2,"method":"account/read","params":{"refreshAuth":false}}"#,
-            #"{"id":3,"method":"account/usage/read"}"#
-        ]
-        let usageMarker = Data(#""dailyUsageBuckets""#.utf8)
-        for environment in CodexAppServer.candidateEnvironments() {
-            guard let response = CodexAppServer.run(
-                messages: messages,
-                timeout: timeout,
-                expectedMarker: usageMarker,
-                environment: environment
-            ) else {
-                continue
-            }
-            if ProcessInfo.processInfo.environment["CODEX_TOKEN_METER_DEBUG_PROFILE"] == "1" {
-                FileHandle.standardError.write(Data("PROFILE RAW OUTPUT [\(response.environmentLabel)]:\n\(response.text)\n".utf8))
-                FileHandle.standardError.write(Data("PROFILE RAW ERROR [\(response.environmentLabel)]:\n\(response.errorText)\n".utf8))
-            }
-            if let snapshot = parse(response.text) {
-                return snapshot
-            }
-        }
-        return nil
+        guard let data = CodexBackendHTTPClient.shared.get(path: "/wham/profiles/me", timeout: timeout, cacheTTL: 300),
+              let snapshot = parse(data) else { return AccountUsageCacheStore.read() }
+        AccountUsageCacheStore.write(snapshot)
+        return snapshot
     }
 
-    private func parse(_ text: String) -> AccountUsageSnapshot? {
-        for line in text.split(separator: "\n") {
-            guard let data = String(line).data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let result = object["result"] as? [String: Any],
-                  let summaryDict = result["summary"] as? [String: Any] else {
-                continue
-            }
-            let bucketsRaw = result["dailyUsageBuckets"] as? [[String: Any]]
-                ?? result["daily_usage_buckets"] as? [[String: Any]]
-                ?? []
-            let buckets = bucketsRaw.compactMap { dict -> AccountUsageDailyBucket? in
-                let startDate = dict["startDate"] as? String ?? dict["start_date"] as? String
-                let tokens = int64(dict["tokens"])
-                guard let startDate, let tokens else { return nil }
-                return AccountUsageDailyBucket(startDate: startDate, tokens: tokens)
-            }
-            let summary = AccountUsageSummary(
-                lifetimeTokens: int64(summaryDict["lifetimeTokens"] ?? summaryDict["lifetime_tokens"]),
-                peakDailyTokens: int64(summaryDict["peakDailyTokens"] ?? summaryDict["peak_daily_tokens"]),
-                longestRunningTurnSec: int64(summaryDict["longestRunningTurnSec"] ?? summaryDict["longest_running_turn_sec"]),
-                currentStreakDays: int64(summaryDict["currentStreakDays"] ?? summaryDict["current_streak_days"]),
-                longestStreakDays: int64(summaryDict["longestStreakDays"] ?? summaryDict["longest_streak_days"])
-            )
-            return AccountUsageSnapshot(summary: summary, dailyUsageBuckets: buckets.sorted { $0.startDate < $1.startDate }, readAt: Date())
+    private func parse(_ data: Data) -> AccountUsageSnapshot? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let stats = object["stats"] as? [String: Any] else { return nil }
+        let buckets = (stats["daily_usage_buckets"] as? [[String: Any]] ?? []).compactMap { dict -> AccountUsageDailyBucket? in
+            guard let startDate = dict["start_date"] as? String,
+                  let tokens = int64(dict["tokens"]) else { return nil }
+            return AccountUsageDailyBucket(startDate: startDate, tokens: tokens)
         }
-        return nil
+        let summary = AccountUsageSummary(
+            lifetimeTokens: int64(stats["lifetime_tokens"]),
+            peakDailyTokens: int64(stats["peak_daily_tokens"]),
+            longestRunningTurnSec: int64(stats["longest_running_turn_sec"]),
+            currentStreakDays: int64(stats["current_streak_days"]),
+            longestStreakDays: int64(stats["longest_streak_days"])
+        )
+        return AccountUsageSnapshot(summary: summary, dailyUsageBuckets: buckets.sorted { $0.startDate < $1.startDate }, readAt: Date())
     }
 
     private func int64(_ value: Any?) -> Int64? {
@@ -1763,76 +1536,35 @@ final class AccountUsageReader {
 }
 
 final class RateLimitResetCreditsReader {
-    private let authURL: URL
-    private let endpointURL: URL
     private let isoWithFractional = ISO8601DateFormatter()
     private let isoBasic = ISO8601DateFormatter()
 
-    init(
-        authURL: URL = AppSettings.defaultCodexHomeURL.appendingPathComponent("auth.json"),
-        endpointURL: URL = URL(string: "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits")!
-    ) {
-        self.authURL = authURL
-        self.endpointURL = endpointURL
+    init() {
         isoWithFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         isoBasic.formatOptions = [.withInternetDateTime]
     }
 
     func read(timeout: TimeInterval = 12) -> RateLimitResetCreditsSnapshot? {
-        if let token = accessToken(),
-           let privateSnapshot = readPrivateEndpoint(accessToken: token, timeout: timeout) {
-            return privateSnapshot
+        if let data = CodexBackendHTTPClient.shared.get(path: "/wham/rate-limit-reset-credits", timeout: timeout, cacheTTL: 300),
+           let snapshot = parsePrivateResponse(data) {
+            ResetCreditsCacheStore.write(snapshot)
+            return snapshot
         }
-        return readAppServerCount(timeout: min(timeout, 8))
-    }
-
-    private func accessToken() -> String? {
-        guard let data = try? Data(contentsOf: authURL),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
+        if let data = CodexBackendHTTPClient.shared.get(path: "/wham/usage", timeout: timeout, cacheTTL: 10),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let summary = object["rate_limit_reset_credits"] as? [String: Any],
+           let availableCount = int(summary["available_count"]) {
+            let snapshot = RateLimitResetCreditsSnapshot(
+                availableCount: max(0, availableCount),
+                totalEarnedCount: int(summary["total_earned_count"]),
+                credits: [],
+                readAt: Date(),
+                source: "chatgpt-wham-usage"
+            )
+            ResetCreditsCacheStore.write(snapshot)
+            return snapshot
         }
-        if let tokens = object["tokens"] as? [String: Any],
-           let token = tokens["access_token"] as? String,
-           !token.isEmpty {
-            return token
-        }
-        if let token = object["access_token"] as? String, !token.isEmpty {
-            return token
-        }
-        return nil
-    }
-
-    private func readPrivateEndpoint(accessToken: String, timeout: TimeInterval) -> RateLimitResetCreditsSnapshot? {
-        var request = URLRequest(url: endpointURL)
-        request.httpMethod = "GET"
-        request.timeoutInterval = timeout
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("AI Token Meter local reader", forHTTPHeaderField: "User-Agent")
-
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = timeout
-        configuration.timeoutIntervalForResource = timeout
-        let session = URLSession(configuration: configuration)
-        let semaphore = DispatchSemaphore(value: 0)
-        var responseData: Data?
-        var statusCode = 0
-
-        let task = session.dataTask(with: request) { data, response, _ in
-            responseData = data
-            statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            semaphore.signal()
-        }
-        task.resume()
-        if semaphore.wait(timeout: .now() + timeout + 1) == .timedOut {
-            task.cancel()
-        }
-        session.invalidateAndCancel()
-
-        guard statusCode == 200, let responseData else {
-            return nil
-        }
-        return parsePrivateResponse(responseData)
+        return ResetCreditsCacheStore.read()
     }
 
     private func parsePrivateResponse(_ data: Data) -> RateLimitResetCreditsSnapshot? {
@@ -1871,50 +1603,6 @@ final class RateLimitResetCreditsReader {
             expiresAt: expiresAt,
             expirationIsEstimated: explicitExpiresAt == nil && grantedAt != nil
         )
-    }
-
-    private func readAppServerCount(timeout: TimeInterval) -> RateLimitResetCreditsSnapshot? {
-        let messages = [
-            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-token-meter","version":"0.2.0"},"capabilities":{}}}"#,
-            #"{"method":"initialized"}"#,
-            #"{"id":2,"method":"account/read","params":{"refreshAuth":false}}"#,
-            #"{"id":3,"method":"account/rateLimits/read"}"#
-        ]
-        let marker = Data(#""rateLimitResetCredits""#.utf8)
-        for environment in CodexAppServer.candidateEnvironments() {
-            guard let response = CodexAppServer.run(
-                messages: messages,
-                timeout: timeout,
-                expectedMarker: marker,
-                environment: environment
-            ) else {
-                continue
-            }
-            if let snapshot = parseAppServerCount(response.text) {
-                return snapshot
-            }
-        }
-        return nil
-    }
-
-    private func parseAppServerCount(_ text: String) -> RateLimitResetCreditsSnapshot? {
-        for line in text.split(separator: "\n") {
-            guard let data = String(line).data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let result = object["result"] as? [String: Any],
-                  let resetCredits = result["rateLimitResetCredits"] as? [String: Any],
-                  let availableCount = int(resetCredits["availableCount"] ?? resetCredits["available_count"]) else {
-                continue
-            }
-            return RateLimitResetCreditsSnapshot(
-                availableCount: max(0, availableCount),
-                totalEarnedCount: nil,
-                credits: [],
-                readAt: Date(),
-                source: "codex-app-server"
-            )
-        }
-        return nil
     }
 
     private func parseDate(_ raw: Any?) -> Date? {
