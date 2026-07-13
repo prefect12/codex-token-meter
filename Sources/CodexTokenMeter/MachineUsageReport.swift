@@ -200,8 +200,8 @@ final class MachineUsageReportStore {
             id: limit.id,
             name: limit.name,
             planType: limit.planType,
-            primary: AccountQuotaWindowObservation(usedPercent: limit.primary.usedPercent, windowMinutes: limit.primary.windowMinutes, resetsAt: limit.primary.resetsAt),
-            secondary: AccountQuotaWindowObservation(usedPercent: limit.secondary.usedPercent, windowMinutes: limit.secondary.windowMinutes, resetsAt: limit.secondary.resetsAt)
+            primary: limit.primary.map { AccountQuotaWindowObservation(usedPercent: $0.usedPercent, windowMinutes: $0.windowMinutes, resetsAt: $0.resetsAt) },
+            secondary: limit.secondary.map { AccountQuotaWindowObservation(usedPercent: $0.usedPercent, windowMinutes: $0.windowMinutes, resetsAt: $0.resetsAt) }
         )
     }
 
@@ -243,7 +243,11 @@ final class MachineUsageReportStore {
         let date = ISO8601DateFormatter()
         for observation in observations {
             for limit in observation.limits {
-                for (name, window) in [("primary", limit.primary), ("secondary", limit.secondary)] {
+                let windows: [(String, AccountQuotaWindowObservation)] = [
+                    limit.primary.map { ("primary", $0) },
+                    limit.secondary.map { ("secondary", $0) }
+                ].compactMap { $0 }
+                for (name, window) in windows {
                     rows.append([machine.installationID, machine.displayName, date.string(from: observation.observedAt), limit.id, limit.name, limit.planType ?? "", name, String(format: "%.4f", window.usedPercent), String(window.windowMinutes), window.resetsAt.map(date.string) ?? ""].map(csv).joined(separator: ","))
                 }
             }

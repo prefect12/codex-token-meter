@@ -1461,24 +1461,40 @@ final class LiveRateLimitReader {
     }
 
     private func liveLimit(from dict: [String: Any]) -> LiveRateLimit? {
-        guard let id = dict["limitId"] as? String ?? dict["limit_id"] as? String,
-              let primaryDict = dict["primary"] as? [String: Any],
-              let secondaryDict = dict["secondary"] as? [String: Any] else {
+        guard let id = dict["limitId"] as? String ?? dict["limit_id"] as? String else {
             return nil
         }
 
         let name = dict["limitName"] as? String ?? dict["limit_name"] as? String ?? id
-        guard let primary = window(from: primaryDict),
-              let secondary = window(from: secondaryDict) else {
+        let rawPrimary = (dict["primary"] as? [String: Any]).flatMap(window(from:))
+        let rawSecondary = (dict["secondary"] as? [String: Any]).flatMap(window(from:))
+        let windows = normalizedWindows(primary: rawPrimary, secondary: rawSecondary)
+        guard windows.primary != nil || windows.secondary != nil else {
             return nil
         }
         return LiveRateLimit(
             id: id,
             name: name,
-            primary: primary,
-            secondary: secondary,
+            primary: windows.primary,
+            secondary: windows.secondary,
             planType: dict["planType"] as? String ?? dict["plan_type"] as? String,
             capturedAt: Date()
+        )
+    }
+
+    private func normalizedWindows(
+        primary: RateWindow?,
+        secondary: RateWindow?
+    ) -> (primary: RateWindow?, secondary: RateWindow?) {
+        let windows = [primary, secondary].compactMap { $0 }
+        let fiveHour = windows.first { abs($0.windowMinutes - 5 * 60) <= 60 }
+        let weekly = windows.first { abs($0.windowMinutes - 7 * 24 * 60) <= 24 * 60 }
+
+        // Preserve the provider's traditional slot for unknown durations while
+        // allowing promotional plans to omit either the 5h or weekly window.
+        return (
+            fiveHour ?? primary.flatMap { weekly?.windowMinutes == $0.windowMinutes ? nil : $0 },
+            weekly ?? secondary.flatMap { fiveHour?.windowMinutes == $0.windowMinutes ? nil : $0 }
         )
     }
 

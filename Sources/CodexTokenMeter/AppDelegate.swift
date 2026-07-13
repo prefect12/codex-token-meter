@@ -648,9 +648,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let limit = statusLimit(from: limits, source: metric.source)
         switch metric.quotaMetric {
         case .fiveHour:
-            return statusPercentText(limit?.primary.remainingPercent, source: metric.source)
+            return statusPercentText(limit?.primary?.remainingPercent, source: metric.source)
         case .weekly:
-            return statusPercentText(limit?.secondary.remainingPercent, source: metric.source)
+            return statusPercentText(limit?.secondary?.remainingPercent, source: metric.source)
         }
     }
 
@@ -1145,7 +1145,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             String(format: "Cache percent: %.1f%%", report.usage.cachePercent)
         ]
         for limit in state.liveLimits {
-            lines.append("\(limit.name): 5h \(limit.primary.usedPercent)% used, weekly \(limit.secondary.usedPercent)% used")
+            let fiveHour = limit.primary.map { "\($0.usedPercent)%" } ?? "unavailable"
+            let weekly = limit.secondary.map { "\($0.usedPercent)%" } ?? "unavailable"
+            lines.append("\(limit.name): 5h \(fiveHour) used, weekly \(weekly) used")
         }
         let costSource = state.selectedQuota
         if let limit = selectedLimit(from: state.liveLimits, quota: state.selectedQuota),

@@ -128,12 +128,12 @@ if CommandLine.arguments.contains("--print-live") {
             "id": limit.id,
             "name": limit.name,
             "plan_type": limit.planType ?? "",
-            "primary_percent": limit.primary.usedPercent,
-            "primary_remaining_percent": limit.primary.remainingPercent,
-            "weekly_percent": limit.secondary.usedPercent,
-            "weekly_remaining_percent": limit.secondary.remainingPercent,
-            "primary_resets_at": limit.primary.resetsAt?.description ?? "",
-            "weekly_resets_at": limit.secondary.resetsAt?.description ?? ""
+            "primary_percent": limit.primary?.usedPercent ?? -1,
+            "primary_remaining_percent": limit.primary?.remainingPercent ?? -1,
+            "weekly_percent": limit.secondary?.usedPercent ?? -1,
+            "weekly_remaining_percent": limit.secondary?.remainingPercent ?? -1,
+            "primary_resets_at": limit.primary?.resetsAt?.description ?? "",
+            "weekly_resets_at": limit.secondary?.resetsAt?.description ?? ""
         ] as [String: Any]
     }
     if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
