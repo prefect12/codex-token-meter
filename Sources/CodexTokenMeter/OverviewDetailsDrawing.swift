@@ -7,7 +7,8 @@ extension UsageDetailsView {
         let showResetCredits = selectedDetailsSource != .claude
         let cardsY = content.minY + 78
         let resetY = cardsY + 98
-        let quotaY = showResetCredits ? resetY + 104 : resetY
+        let resetHeight = resetCreditPanelHeight(for: snapshot)
+        let quotaY = showResetCredits ? resetY + resetHeight + 16 : resetY
         let modelsY = quotaY + 136
         let gridY = modelsY + 146
         let gridReport = calendarReport(for: snapshot)
@@ -16,13 +17,20 @@ extension UsageDetailsView {
             : t(.pastYear)
         drawMetricCards(snapshot: snapshot, content: content)
         if showResetCredits {
-            drawResetCreditCountdownRow(snapshot: snapshot, content: content, y: resetY, height: 88)
+            drawResetCreditCountdownRow(snapshot: snapshot, content: content, y: resetY, height: resetHeight)
         }
         drawQuotaRows(snapshot: snapshot, content: content, y: quotaY, height: 120)
         drawModelRows(snapshot: snapshot, content: content, y: modelsY, height: 130, maxRows: 4)
         let gridHeight = contributionGridPreferredHeight(report: gridReport, width: content.width, compact: true)
         let gridRect = NSRect(x: content.minX, y: gridY, width: content.width, height: min(gridHeight, max(168, content.maxY - gridY)))
         drawContributionGrid(report: gridReport, rect: gridRect, title: gridTitle, compact: true)
+    }
+
+    func resetCreditPanelHeight(for snapshot: DetailsSnapshot) -> CGFloat {
+        let columns = 3
+        let availableCount = max(0, snapshot.resetCredits?.availableCount ?? 0)
+        let rowCount = max(1, (availableCount + columns - 1) / columns)
+        return 88 + CGFloat(rowCount - 1) * 52
     }
 
     func drawMetricCards(snapshot: DetailsSnapshot, content: NSRect) {
@@ -109,31 +117,38 @@ extension UsageDetailsView {
             return
         }
 
-        let credits = Array(resetCredits.availableCredits
+        let credits = resetCredits.availableCredits
             .sorted { ($0.expiresAt ?? .distantFuture) < ($1.expiresAt ?? .distantFuture) }
-            .prefix(3))
         guard !credits.isEmpty else {
             drawText(t(.resetCreditExpiryUnavailable), rect: NSRect(x: rect.minX + 16, y: rect.minY + 42, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
             return
         }
 
-        let gap: CGFloat = 18
-        let columnY = rect.minY + 36
+        let columnCount = 3
+        let horizontalGap: CGFloat = 18
+        let verticalGap: CGFloat = 10
         let columnH: CGFloat = 42
-        let columnW = (rect.width - 32 - gap * 2) / 3
-        for index in 0..<3 {
-            let column = NSRect(x: rect.minX + 16 + CGFloat(index) * (columnW + gap), y: columnY, width: columnW, height: columnH)
-            if index > 0 {
+        let columnW = (rect.width - 32 - horizontalGap * CGFloat(columnCount - 1)) / CGFloat(columnCount)
+        let displaySlotCount = ((count + columnCount - 1) / columnCount) * columnCount
+        for index in 0..<displaySlotCount {
+            let row = index / columnCount
+            let columnIndex = index % columnCount
+            let column = NSRect(
+                x: rect.minX + 16 + CGFloat(columnIndex) * (columnW + horizontalGap),
+                y: rect.minY + 36 + CGFloat(row) * (columnH + verticalGap),
+                width: columnW,
+                height: columnH
+            )
+            if columnIndex > 0 {
                 NSColor.white.withAlphaComponent(0.08).setStroke()
                 let path = NSBezierPath()
-                path.move(to: NSPoint(x: column.minX - gap / 2, y: column.minY + 2))
-                path.line(to: NSPoint(x: column.minX - gap / 2, y: column.maxY - 2))
+                path.move(to: NSPoint(x: column.minX - horizontalGap / 2, y: column.minY + 2))
+                path.line(to: NSPoint(x: column.minX - horizontalGap / 2, y: column.maxY - 2))
                 path.stroke()
             }
 
             guard index < credits.count, let expiresAt = credits[index].expiresAt else {
-                drawText("#\(index + 1)", rect: NSRect(x: column.minX, y: column.minY, width: column.width, height: 15), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.38))
-                drawText("--", rect: NSRect(x: column.minX, y: column.minY + 18, width: column.width, height: 22), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold), color: NSColor.white.withAlphaComponent(0.35))
+                drawText("--", rect: NSRect(x: column.minX, y: column.minY + 10, width: column.width, height: 22), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold), color: NSColor.white.withAlphaComponent(0.35))
                 continue
             }
 

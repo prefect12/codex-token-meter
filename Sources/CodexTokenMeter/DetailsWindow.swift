@@ -1264,8 +1264,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         switch selectedSection {
         case .overview:
             // The Claude view hides the Codex reset-credits row (see drawOverview),
-            // so it needs 104pt less height than the Codex/all view.
-            targetHeight = selectedDetailsSource == .claude ? 746 : 850
+            // while Codex/all expands it when reset credits wrap to another row.
+            if selectedDetailsSource == .claude {
+                targetHeight = 746
+            } else if let snapshot {
+                targetHeight = 762 + resetCreditPanelHeight(for: snapshot)
+            } else {
+                targetHeight = 850
+            }
         case .insights:
             let heatmapHeight: CGFloat = 148
             let topOffset: CGFloat = 78
