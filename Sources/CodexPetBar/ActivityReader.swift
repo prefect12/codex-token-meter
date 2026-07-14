@@ -28,6 +28,15 @@ private enum CodexUnreadStateRead {
     case unreadIDs(Set<String>)
 }
 
+private struct CodexUnreadStateCacheEntry {
+    let size: Int
+    let modifiedAt: Date?
+    let result: CodexUnreadStateRead
+}
+
+private let codexUnreadStateCacheLock = NSLock()
+private var codexUnreadStateCache: [String: CodexUnreadStateCacheEntry] = [:]
+
 func configuredCodexHomeURLs(home: String = NSHomeDirectory()) -> [URL] {
     var urls = [
         URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
@@ -46,11 +55,28 @@ private func readCodexUnreadState(in codexHome: URL) -> CodexUnreadStateRead {
     guard FileManager.default.fileExists(atPath: fileURL.path) else {
         return .missing
     }
+    let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+    let size = values?.fileSize ?? -1
+    let modifiedAt = values?.contentModificationDate
+    codexUnreadStateCacheLock.lock()
+    if let cached = codexUnreadStateCache[fileURL.path],
+       cached.size == size,
+       cached.modifiedAt == modifiedAt {
+        codexUnreadStateCacheLock.unlock()
+        return cached.result
+    }
+    codexUnreadStateCacheLock.unlock()
+
+    let result: CodexUnreadStateRead
     guard let data = try? Data(contentsOf: fileURL),
           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let atoms = object["electron-persisted-atom-state"] as? [String: Any],
           let unreadByHost = atoms["unread-thread-ids-by-host-v1"] as? [String: Any] else {
-        return .unavailable
+        result = .unavailable
+        codexUnreadStateCacheLock.lock()
+        codexUnreadStateCache[fileURL.path] = CodexUnreadStateCacheEntry(size: size, modifiedAt: modifiedAt, result: result)
+        codexUnreadStateCacheLock.unlock()
+        return result
     }
 
     var ids = Set<String>()
@@ -59,7 +85,11 @@ private func readCodexUnreadState(in codexHome: URL) -> CodexUnreadStateRead {
             ids.formUnion(array.compactMap(string))
         }
     }
-    return .unreadIDs(ids)
+    result = .unreadIDs(ids)
+    codexUnreadStateCacheLock.lock()
+    codexUnreadStateCache[fileURL.path] = CodexUnreadStateCacheEntry(size: size, modifiedAt: modifiedAt, result: result)
+    codexUnreadStateCacheLock.unlock()
+    return result
 }
 
 private func currentCodexUnreadThreadIDs(home: String = NSHomeDirectory()) -> Set<String>? {

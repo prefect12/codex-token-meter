@@ -9,17 +9,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let readState = ReadStateStore()
     private var threads: [CodexThreadItem] = []
     private var refreshTimer: Timer?
-    private var animationTimer: Timer?
     private var settingsWindowController: TaskBarSettingsWindowController?
     private var rolloutActivityMonitor: RolloutActivityMonitor?
     private var readInFlight = false
     private var pendingRefresh = false
+    private var scheduledRefresh: DispatchWorkItem?
+    private var lastRefreshStartedAt = Date.distantPast
     private var pendingRolloutEnrichment = false
     private var pendingPriorityRolloutURLs: [String: URL] = [:]
     private var selectedTab: TaskBarTab = .all
     private var lastThreadsSignature = ""
     private var lastStatusIconSignature = ""
-    private let refreshInterval: TimeInterval = 5
+    private let refreshInterval: TimeInterval = 15
+    private let minimumRefreshInterval: TimeInterval = 2
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -38,9 +40,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh()
         }
-        animationTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { [weak self] _ in
-            self?.updateStatusIcon()
-        }
     }
 
     func applicationWillResignActive(_ notification: Notification) {
@@ -48,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        scheduledRefresh?.cancel()
         rolloutActivityMonitor?.stop()
         ThreadHoverPanel.shared.hideAll()
     }
@@ -61,8 +61,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pendingRefresh = true
             return
         }
+        let remainingDelay = minimumRefreshInterval - Date().timeIntervalSince(lastRefreshStartedAt)
+        guard remainingDelay <= 0 else {
+            pendingRefresh = true
+            schedulePendingRefresh(after: remainingDelay)
+            return
+        }
+        scheduledRefresh?.cancel()
+        scheduledRefresh = nil
         readInFlight = true
         pendingRefresh = false
+        lastRefreshStartedAt = Date()
         let shouldEnrichRollouts = pendingRolloutEnrichment
         pendingRolloutEnrichment = false
         let prioritized = Array(pendingPriorityRolloutURLs.values)
@@ -89,10 +98,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.rebuildPopover()
                 }
                 if self.pendingRefresh || !self.pendingPriorityRolloutURLs.isEmpty {
-                    self.refresh()
+                    let delay = max(0, self.minimumRefreshInterval - Date().timeIntervalSince(self.lastRefreshStartedAt))
+                    self.schedulePendingRefresh(after: delay)
                 }
             }
         }
+    }
+
+    private func schedulePendingRefresh(after delay: TimeInterval) {
+        guard scheduledRefresh == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.scheduledRefresh = nil
+            self.refresh()
+        }
+        scheduledRefresh = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay), execute: work)
     }
 
     private func startRolloutActivityMonitor() {
