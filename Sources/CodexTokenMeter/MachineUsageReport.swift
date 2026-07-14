@@ -46,12 +46,22 @@ extension AppLanguage {
 /// It deliberately never stores session paths, rollout contents, account credentials, or prompts.
 final class MachineUsageReportStore {
     static let shared = MachineUsageReportStore()
+    private static let quotaRetention: TimeInterval = 35 * 24 * 60 * 60
+    private static let detailedQuotaRetention: TimeInterval = 24 * 60 * 60
+    private static let quotaSampleInterval: TimeInterval = 5 * 60
+    private static let historicalQuotaSampleInterval: TimeInterval = 60 * 60
 
     private let lock = NSLock()
     private var history: MachineUsageHistoryFile
 
     private init() {
         history = Self.load() ?? Self.newHistory()
+        let compacted = Self.compactedQuotaObservations(history.accountQuotaObservations)
+        if compacted.count != history.accountQuotaObservations.count {
+            history.accountQuotaObservations = compacted
+            history.updatedAt = Date()
+            persist()
+        }
     }
 
     func record(localCodexReport: TokenReport?, accountUsage: AccountUsageSnapshot?, liveLimits: [LiveRateLimit]) {
@@ -59,6 +69,7 @@ final class MachineUsageReportStore {
         defer { lock.unlock() }
 
         let now = Date()
+        var didChange = false
         if let localCodexReport {
             for day in localCodexReport.byDay where day.usage.total > 0 {
                 let estimate = APICostEstimator.estimate(day: day)
@@ -74,10 +85,12 @@ final class MachineUsageReportStore {
                     lastObservedAt: now
                 )
             }
+            didChange = true
         }
 
         if let accountUsage {
             history.latestAccountUsage = accountUsage
+            didChange = true
         }
         if !liveLimits.isEmpty {
             let observation = AccountQuotaObservation(
@@ -86,10 +99,11 @@ final class MachineUsageReportStore {
             )
             if shouldAppend(observation) {
                 history.accountQuotaObservations.append(observation)
-                // At most about five weeks of 5-minute samples, plus immediate change samples.
-                history.accountQuotaObservations = Array(history.accountQuotaObservations.suffix(12_000))
+                history.accountQuotaObservations = Self.compactedQuotaObservations(history.accountQuotaObservations, now: now)
+                didChange = true
             }
         }
+        guard didChange else { return }
         history.updatedAt = now
         persist()
     }
@@ -152,8 +166,37 @@ final class MachineUsageReportStore {
 
     private func shouldAppend(_ candidate: AccountQuotaObservation) -> Bool {
         guard let last = history.accountQuotaObservations.last else { return true }
-        guard candidate.observedAt.timeIntervalSince(last.observedAt) < 5 * 60 else { return true }
-        return candidate.limits != last.limits
+        guard candidate.observedAt.timeIntervalSince(last.observedAt) < Self.quotaSampleInterval else { return true }
+        return Self.quotaWindowIdentity(candidate.limits) != Self.quotaWindowIdentity(last.limits)
+    }
+
+    private static func quotaWindowIdentity(_ limits: [AccountQuotaLimitObservation]) -> [String] {
+        limits.sorted { $0.id < $1.id }.map { limit in
+            let primary = limit.primary.map { String($0.windowMinutes) } ?? "-"
+            let secondary = limit.secondary.map { String($0.windowMinutes) } ?? "-"
+            return "\(limit.id)|\(limit.planType ?? "")|\(primary)|\(secondary)"
+        }
+    }
+
+    private static func compactedQuotaObservations(
+        _ observations: [AccountQuotaObservation],
+        now: Date = Date()
+    ) -> [AccountQuotaObservation] {
+        let oldest = now.addingTimeInterval(-quotaRetention)
+        let detailedCutoff = now.addingTimeInterval(-detailedQuotaRetention)
+        var buckets: [String: AccountQuotaObservation] = [:]
+        for observation in observations where observation.observedAt >= oldest {
+            let interval = observation.observedAt >= detailedCutoff
+                ? quotaSampleInterval
+                : historicalQuotaSampleInterval
+            let bucket = Int(observation.observedAt.timeIntervalSince1970 / interval)
+            let key = "\(Int(interval))|\(bucket)"
+            if let existing = buckets[key], existing.observedAt >= observation.observedAt {
+                continue
+            }
+            buckets[key] = observation
+        }
+        return buckets.values.sorted { $0.observedAt < $1.observedAt }
     }
 
     private func persist() {

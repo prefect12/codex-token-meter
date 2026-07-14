@@ -11,6 +11,7 @@ final class RolloutActivityMonitor {
     private var stream: FSEventStreamRef?
     private var pendingPaths = Set<String>()
     private var pendingDelivery: DispatchWorkItem?
+    private var deliveryGeneration = 0
 
     init(roots: [URL], handler: @escaping ActivityHandler) {
         self.roots = roots.filter { FileManager.default.fileExists(atPath: $0.path) }
@@ -66,6 +67,7 @@ final class RolloutActivityMonitor {
         FSEventStreamRelease(stream)
         self.stream = nil
         pendingLock.lock()
+        deliveryGeneration += 1
         pendingDelivery?.cancel()
         pendingDelivery = nil
         pendingPaths.removeAll()
@@ -86,13 +88,16 @@ final class RolloutActivityMonitor {
             return
         }
 
-        guard pendingDelivery == nil else {
-            pendingLock.unlock()
-            return
-        }
+        pendingDelivery?.cancel()
+        deliveryGeneration += 1
+        let generation = deliveryGeneration
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingLock.lock()
+            guard generation == self.deliveryGeneration else {
+                self.pendingLock.unlock()
+                return
+            }
             let urls = self.pendingPaths.sorted().map(URL.init(fileURLWithPath:))
             self.pendingPaths.removeAll()
             self.pendingDelivery = nil
@@ -101,9 +106,9 @@ final class RolloutActivityMonitor {
         }
         pendingDelivery = work
         pendingLock.unlock()
-        // Coalesce bursts without repeatedly postponing delivery. Codex can append
-        // several events per turn, but the first write should still wake Task Bar.
-        queue.asyncAfter(deadline: .now() + 0.5, execute: work)
+        // Wait until the current write burst settles. The periodic refresh remains
+        // a fallback while a long-running turn continuously appends events.
+        queue.asyncAfter(deadline: .now() + 1.0, execute: work)
     }
 }
 
