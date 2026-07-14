@@ -654,6 +654,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var hoveredQuotaCycleIndex: Int?
     var modelUsageHoverRows: [ModelUsageHoverRow] = []
     var hoveredModelUsageRowIndex: Int?
+    var modelSortColumnRects: [ModelListSortOption: NSRect] = [:]
     let modelControls = ModelDetailsControls()
     var hoveredCostOverviewInfo: CostOverviewInfo?
     var isHoveringDayValueInfo = false
@@ -1433,7 +1434,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         ModelListPresentation.make(
             report: sourceReport(for: snapshot),
             query: modelControls.query,
-            sort: modelControls.sort
+            sort: modelControls.sort,
+            direction: modelControls.direction
         )
     }
 
@@ -1798,6 +1800,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             window?.makeFirstResponder(nil)
             selectedDetailsSource = source
             return
+        }
+        if selectedSection == .models {
+            for (option, rect) in modelSortColumnRects where rect.contains(point) {
+                modelControls.toggleSort(option)
+                return
+            }
         }
         if selectedSection == .insights {
             for (filter, rect) in insightStatusFilterRects where rect.contains(point) {
@@ -2315,6 +2323,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         insightHourBarRects.removeAll()
         insightPeriodRects.removeAll()
         insightSortRects.removeAll()
+        modelSortColumnRects.removeAll()
         insightStatusFilterRects.removeAll()
         insightListViewportRect = nil
         numberUnitOptionRects.removeAll()

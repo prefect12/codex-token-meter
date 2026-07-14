@@ -1,17 +1,19 @@
 import Cocoa
 
-enum ModelListSortOption: Int, CaseIterable {
-    case tokens
-    case apiCost
+enum ModelListSortOption: String, CaseIterable, Hashable {
     case name
+    case share
+    case total
+    case input
+    case output
+    case sessions
+    case events
+    case apiCost
+}
 
-    var title: String {
-        switch self {
-        case .tokens: return t(.modelSortTokens)
-        case .apiCost: return t(.modelSortCost)
-        case .name: return t(.modelSortName)
-        }
-    }
+enum ModelListSortDirection: String, Hashable {
+    case ascending
+    case descending
 }
 
 struct ModelListPresentation {
@@ -37,7 +39,12 @@ struct ModelListPresentation {
         max(CGFloat(132), CGFloat(112 + models.count * 20))
     }
 
-    static func make(report: TokenReport, query: String, sort: ModelListSortOption) -> ModelListPresentation {
+    static func make(
+        report: TokenReport,
+        query: String,
+        sort: ModelListSortOption,
+        direction: ModelListSortDirection
+    ) -> ModelListPresentation {
         let allModels = report.modelBreakdown
         let knownModels = allModels.filter { !isUnknownModelName($0.name) }
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -46,16 +53,29 @@ struct ModelListPresentation {
             : knownModels.filter { $0.name.localizedCaseInsensitiveContains(normalizedQuery) }
 
         visibleModels.sort { lhs, rhs in
+            let comparison: ComparisonResult
             switch sort {
-            case .tokens:
-                if lhs.usage.total != rhs.usage.total { return lhs.usage.total > rhs.usage.total }
+            case .name:
+                comparison = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+            case .share, .total:
+                comparison = compare(lhs.usage.total, rhs.usage.total)
+            case .input:
+                comparison = compare(lhs.usage.input, rhs.usage.input)
+            case .output:
+                comparison = compare(lhs.usage.output, rhs.usage.output)
+            case .sessions:
+                comparison = compare(lhs.sessions, rhs.sessions)
+            case .events:
+                comparison = compare(lhs.events, rhs.events)
             case .apiCost:
                 let left = APICostEstimator.estimate(usage: lhs.usage, modelName: lhs.name).usdValue
                 let right = APICostEstimator.estimate(usage: rhs.usage, modelName: rhs.name).usdValue
-                if left != right { return left > right }
-            case .name:
-                let comparison = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
-                if comparison != .orderedSame { return comparison == .orderedAscending }
+                comparison = compare(left, right)
+            }
+            if comparison != .orderedSame {
+                return direction == .ascending
+                    ? comparison == .orderedAscending
+                    : comparison == .orderedDescending
             }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
@@ -84,31 +104,25 @@ struct ModelListPresentation {
     }
 }
 
+private func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
+    if lhs < rhs { return .orderedAscending }
+    if lhs > rhs { return .orderedDescending }
+    return .orderedSame
+}
+
 private func isUnknownModelName(_ rawName: String) -> Bool {
     let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     return name == "unknown" || name == "unknown model" || name == "(unknown)"
 }
 
 final class ModelDetailsControls: NSObject, NSSearchFieldDelegate {
-    let sortPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     let searchField = NSSearchField()
     private(set) var query = ""
-    private(set) var sort: ModelListSortOption = .tokens
+    private(set) var sort: ModelListSortOption = .total
+    private(set) var direction: ModelListSortDirection = .descending
     var onChange: (() -> Void)?
 
     func install(in view: NSView, inputSurfaceColor: NSColor) {
-        sortPopup.controlSize = .small
-        sortPopup.font = .systemFont(ofSize: 11, weight: .semibold)
-        sortPopup.isBordered = false
-        sortPopup.isHidden = true
-        sortPopup.wantsLayer = true
-        sortPopup.layer?.cornerRadius = 7
-        sortPopup.layer?.backgroundColor = inputSurfaceColor.cgColor
-        sortPopup.appearance = NSAppearance(named: .darkAqua)
-        sortPopup.target = self
-        sortPopup.action = #selector(sortChanged)
-        view.addSubview(sortPopup)
-
         searchField.controlSize = .small
         searchField.font = .systemFont(ofSize: 11)
         searchField.isHidden = true
@@ -120,24 +134,13 @@ final class ModelDetailsControls: NSObject, NSSearchFieldDelegate {
     }
 
     func layout(content: NSRect, tableY: CGFloat, visible: Bool) {
-        sortPopup.isHidden = !visible
         searchField.isHidden = !visible
         guard visible else { return }
 
         let searchWidth = min(CGFloat(210), max(CGFloat(150), content.width * 0.18))
         searchField.frame = NSRect(x: content.maxX - searchWidth - 16, y: tableY + 8, width: searchWidth, height: 26)
-        let sortWidth: CGFloat = 142
-        sortPopup.frame = NSRect(x: searchField.frame.minX - 10 - sortWidth, y: tableY + 7, width: sortWidth, height: 28)
-
-        let titles = ModelListSortOption.allCases.map(\.title)
-        if sortPopup.itemArray.map(\.title) != titles {
-            sortPopup.removeAllItems()
-            sortPopup.addItems(withTitles: titles)
-        }
-        sortPopup.selectItem(at: sort.rawValue)
         searchField.placeholderString = t(.modelSearchPlaceholder)
         searchField.setAccessibilityLabel(t(.modelSearchPlaceholder))
-        sortPopup.setAccessibilityLabel(t(.modelSortTokens))
     }
 
     func configure(query: String?, sort rawSort: String?) {
@@ -145,16 +148,28 @@ final class ModelDetailsControls: NSObject, NSSearchFieldDelegate {
             self.query = query
             searchField.stringValue = query
         }
-        if let rawSort,
-           let option = ModelListSortOption.allCases.first(where: { String(describing: $0) == rawSort }) {
-            sort = option
+        if let rawSort {
+            let parts = rawSort.split(separator: "-", maxSplits: 1).map(String.init)
+            let legacyOption = rawSort == "tokens" ? ModelListSortOption.total : nil
+            if let option = legacyOption ?? ModelListSortOption(rawValue: parts[0]) {
+                sort = option
+                if parts.count == 2 {
+                    direction = parts[1] == "asc" ? .ascending : .descending
+                } else {
+                    direction = option == .name ? .ascending : .descending
+                }
+            }
         }
         onChange?()
     }
 
-    @objc private func sortChanged() {
-        guard let option = ModelListSortOption(rawValue: sortPopup.indexOfSelectedItem) else { return }
-        sort = option
+    func toggleSort(_ option: ModelListSortOption) {
+        if sort == option {
+            direction = direction == .ascending ? .descending : .ascending
+        } else {
+            sort = option
+            direction = .ascending
+        }
         onChange?()
     }
 

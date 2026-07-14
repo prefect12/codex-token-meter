@@ -186,7 +186,7 @@ extension UsageDetailsView {
         let outputW: CGFloat = 84
         let inputW: CGFloat = 88
         let totalW: CGFloat = 88
-        let shareW: CGFloat = 48
+        let shareW: CGFloat = 76
         let moneyX = rect.maxX - 16 - moneyW
         let eventsX = moneyX - gap - eventsW
         let sessionsX = eventsX - gap - sessionsW
@@ -200,15 +200,16 @@ extension UsageDetailsView {
         let headerY = rect.minY + 72
         let headerColor = NSColor.white.withAlphaComponent(0.38)
         let headerFont = NSFont.systemFont(ofSize: 10, weight: .bold)
-        drawRight("%", rect: NSRect(x: shareX, y: headerY, width: shareW, height: 14), color: headerColor, font: headerFont)
-        drawRight(t(.total), rect: NSRect(x: totalX, y: headerY, width: totalW, height: 14), color: headerColor, font: headerFont)
-        drawRight(t(.input), rect: NSRect(x: inputX, y: headerY, width: inputW, height: 14), color: headerColor, font: headerFont)
-        drawRight(t(.output), rect: NSRect(x: outputX, y: headerY, width: outputW, height: 14), color: headerColor, font: headerFont)
+        drawModelSortHeader(t(.models), option: .name, rect: NSRect(x: nameX, y: headerY, width: nameW, height: 14), alignment: .left, color: headerColor, font: headerFont)
+        drawModelSortHeader(t(.modelSortTokens), option: .share, rect: NSRect(x: shareX, y: headerY, width: shareW, height: 14), alignment: .right, color: headerColor, font: headerFont)
+        drawModelSortHeader(t(.total), option: .total, rect: NSRect(x: totalX, y: headerY, width: totalW, height: 14), alignment: .right, color: headerColor, font: headerFont)
+        drawModelSortHeader(t(.input), option: .input, rect: NSRect(x: inputX, y: headerY, width: inputW, height: 14), alignment: .right, color: headerColor, font: headerFont)
+        drawModelSortHeader(t(.output), option: .output, rect: NSRect(x: outputX, y: headerY, width: outputW, height: 14), alignment: .right, color: headerColor, font: headerFont)
         if showsActivity {
-            drawRight(t(.sessions), rect: NSRect(x: sessionsX, y: headerY, width: sessionsW, height: 14), color: headerColor, font: headerFont)
-            drawRight(t(.events), rect: NSRect(x: eventsX, y: headerY, width: eventsW, height: 14), color: headerColor, font: headerFont)
+            drawModelSortHeader(t(.sessions), option: .sessions, rect: NSRect(x: sessionsX, y: headerY, width: sessionsW, height: 14), alignment: .right, color: headerColor, font: headerFont)
+            drawModelSortHeader(t(.events), option: .events, rect: NSRect(x: eventsX, y: headerY, width: eventsW, height: 14), alignment: .right, color: headerColor, font: headerFont)
         }
-        drawRight(t(.apiEquivalent), rect: NSRect(x: moneyX, y: headerY, width: moneyW, height: 14), color: headerColor, font: headerFont)
+        drawModelSortHeader(t(.apiEquivalent), option: .apiCost, rect: NSRect(x: moneyX, y: headerY, width: moneyW, height: 14), alignment: .right, color: headerColor, font: headerFont)
 
         let displayCurrency = AppSettings.displayCurrency(for: selectedDetailsSource)
         for (index, model) in models.enumerated() {
@@ -250,6 +251,55 @@ extension UsageDetailsView {
             }
             drawRight(moneyText, rect: NSRect(x: moneyX, y: rowY, width: moneyW, height: 18), color: estimate.hasPricedUsage ? accentTeal.withAlphaComponent(0.92) : NSColor.white.withAlphaComponent(0.34), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
         }
+    }
+
+    private enum ModelHeaderAlignment {
+        case left
+        case right
+    }
+
+    private func drawModelSortHeader(
+        _ title: String,
+        option: ModelListSortOption,
+        rect: NSRect,
+        alignment: ModelHeaderAlignment,
+        color: NSColor,
+        font: NSFont
+    ) {
+        let arrowWidth: CGFloat = 8
+        let arrowGap: CGFloat = 1
+        let arrowsWidth = arrowWidth * 2 + arrowGap
+        let titleSize = (title as NSString).size(withAttributes: [.font: font])
+        let groupWidth = min(rect.width, titleSize.width + 4 + arrowsWidth)
+        let groupX = alignment == .right ? rect.maxX - groupWidth : rect.minX
+        let titleRect = NSRect(x: groupX, y: rect.minY, width: max(0, groupWidth - arrowsWidth - 4), height: rect.height)
+        if alignment == .right {
+            drawRight(title, rect: titleRect, color: color, font: font)
+        } else {
+            drawText(title, rect: titleRect, font: font, color: color)
+        }
+
+        let upRect = NSRect(x: groupX + groupWidth - arrowsWidth, y: rect.minY + 2, width: arrowWidth, height: 10)
+        let downRect = NSRect(x: upRect.maxX + arrowGap, y: upRect.minY, width: arrowWidth, height: 10)
+        modelSortColumnRects[option] = NSRect(x: groupX, y: rect.minY, width: groupWidth, height: rect.height)
+        drawModelSortArrow(in: upRect, pointsUp: true, active: modelControls.sort == option && modelControls.direction == .ascending)
+        drawModelSortArrow(in: downRect, pointsUp: false, active: modelControls.sort == option && modelControls.direction == .descending)
+    }
+
+    private func drawModelSortArrow(in rect: NSRect, pointsUp: Bool, active: Bool) {
+        let path = NSBezierPath()
+        if pointsUp {
+            path.move(to: NSPoint(x: rect.midX, y: rect.minY + 2))
+            path.line(to: NSPoint(x: rect.maxX - 1, y: rect.maxY - 2))
+            path.line(to: NSPoint(x: rect.minX + 1, y: rect.maxY - 2))
+        } else {
+            path.move(to: NSPoint(x: rect.minX + 1, y: rect.minY + 2))
+            path.line(to: NSPoint(x: rect.maxX - 1, y: rect.minY + 2))
+            path.line(to: NSPoint(x: rect.midX, y: rect.maxY - 2))
+        }
+        path.close()
+        (active ? accentBlue : NSColor.white.withAlphaComponent(0.24)).setFill()
+        path.fill()
     }
 
     private var modelShareColors: [NSColor] {
