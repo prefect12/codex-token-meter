@@ -12,7 +12,7 @@ private func printThreads() {
     }
     for item in items {
         let folder = shortFolderName(item.cwd)
-        let timing = (item.status == .running || item.status == .stale)
+        let timing = item.status == .running
             ? item.startedAt.map { "elapsed \(durationSince($0))" } ?? relative(item.lastActivity)
             : relative(item.lastActivity)
         let preview = item.preview.map { "\t\($0)" } ?? ""
@@ -57,7 +57,7 @@ private func renderTaskBar(to path: String) {
        let count = Int(countArg.dropFirst("--count=".count)) {
         mock = Array(mock.prefix(max(0, count)))
     }
-    let running = mock.filter { $0.status == .running || $0.status == .stale }.count
+    let running = mock.filter { $0.status == .running }.count
     let waiting = mock.filter { $0.status == .waiting }.count
     let unread = mock.filter { $0.status == .unread }.count
 

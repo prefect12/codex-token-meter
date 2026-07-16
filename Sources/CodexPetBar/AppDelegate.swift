@@ -140,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatusIcon() {
-        let runningCount = threads.filter { $0.status == .running || $0.status == .stale }.count
+        let runningCount = threads.filter { $0.status == .running }.count
         let waitingCount = threads.filter { $0.status == .waiting }.count
         let unreadCount = threads.filter { $0.status == .unread }.count
         let actionNeededCount = waitingCount + unreadCount
@@ -171,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func rebuildPopover() {
         ThreadHoverPanel.shared.hideAll()
-        let active = threads.filter { $0.status == .running || $0.status == .stale }
+        let active = threads.filter { $0.status == .running }
         let waitingCount = threads.filter { $0.status == .waiting }.count
         let unreadCount = threads.filter { $0.status == .unread }.count
         let controller = NSViewController()

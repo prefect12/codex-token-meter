@@ -66,8 +66,8 @@ func statusAccentColor(_ status: ThreadRunStatus) -> NSColor {
 
 func rowStatusLabel(_ status: ThreadRunStatus) -> String {
     switch status {
-    case .running, .stale:
-        return "Running"
+    case .running: return "Running"
+    case .stale: return "Stopped"
     case .waiting:
         return "Waiting"
     case .unread:
@@ -137,8 +137,7 @@ func statusRank(_ status: ThreadRunStatus) -> Int {
 func statusDisplayRank(_ status: ThreadRunStatus) -> Int {
     let order = TaskBarSettings.statusGroupOrder
     let base = (order.firstIndex(of: TaskStatusGroup.group(for: status)) ?? 0) * 10
-    // Within the running group, keep stale ahead of running (historical behavior).
-    return status == .running ? base + 1 : base
+    return base
 }
 
 func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -> Bool {
@@ -202,7 +201,7 @@ extension Array where Element == CodexThreadItem {
 func statusLabel(_ status: ThreadRunStatus) -> String {
     switch status {
     case .running: return "Running"
-    case .stale: return "Running"
+    case .stale: return "Stopped"
     case .waiting: return "Waiting"
     case .unread: return "Unread"
     }
@@ -315,7 +314,7 @@ func cleanedTooltipRows(_ rows: [ThreadTooltipRow]) -> [ThreadTooltipRow] {
 func tooltipStatusLabel(_ status: ThreadRunStatus) -> String {
     switch status {
     case .running: return "运行中"
-    case .stale: return "运行较久"
+    case .stale: return "已停止（无活动）"
     case .waiting: return "等待输入"
     case .unread: return "未读"
     }
