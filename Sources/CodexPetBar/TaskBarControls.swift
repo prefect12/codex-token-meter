@@ -19,7 +19,7 @@ enum TaskBarTab: Int, CaseIterable {
     func matches(_ status: ThreadRunStatus) -> Bool {
         switch self {
         case .all: return true
-        case .running: return status == .running || status == .stale
+        case .running: return status == .running
         case .waiting: return status == .waiting
         case .done: return status == .unread
         }
@@ -35,9 +35,10 @@ enum TaskBarTab: Int, CaseIterable {
     }
 }
 
-/// The three user-facing status groups shown in the list. `.running` folds in the
-/// `.stale` status; `.done` corresponds to unread/finished threads. Their relative
-/// order in the "All" tab is user-configurable (drag-to-reorder in settings).
+/// The three user-facing status groups shown in the list. A `.stale` task remains
+/// visible in All so it can be inspected, but is never presented as running.
+/// Their relative order in the "All" tab is user-configurable (drag-to-reorder in
+/// settings).
 enum TaskStatusGroup: String, CaseIterable {
     case running
     case waiting
@@ -48,7 +49,8 @@ enum TaskStatusGroup: String, CaseIterable {
 
     static func group(for status: ThreadRunStatus) -> TaskStatusGroup {
         switch status {
-        case .running, .stale: return .running
+        case .running: return .running
+        case .stale: return .done
         case .waiting: return .waiting
         case .unread: return .done
         }
