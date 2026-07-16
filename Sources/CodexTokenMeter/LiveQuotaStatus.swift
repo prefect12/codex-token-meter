@@ -1,5 +1,6 @@
 import Cocoa
 import Foundation
+import LocalAuthentication
 import Security
 import ServiceManagement
 import UserNotifications
@@ -498,16 +499,22 @@ final class ClaudeOAuthUsageRefresher {
     }
 
     private func keychainCredentialsData() -> Data? {
+        // This runs from background refreshes. Never let a refresh interrupt
+        // the user with a Keychain password dialog; cached/statusline quota
+        // data remains available when the item is not already authorized.
+        let authenticationContext = LAContext()
+        authenticationContext.interactionNotAllowed = true
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.keychainService,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationContext as String: authenticationContext
         ]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         guard status == errSecSuccess else {
-            if status != errSecItemNotFound {
+            if status != errSecItemNotFound && status != errSecInteractionNotAllowed {
                 NSLog("AI Token Meter Claude OAuth keychain read failed: \(status)")
             }
             return nil
@@ -584,13 +591,16 @@ final class ClaudeOAuthUsageRefresher {
                 NSLog("AI Token Meter Claude OAuth: failed to write credentials file: \(error.localizedDescription)")
             }
         case .keychain:
+            let authenticationContext = LAContext()
+            authenticationContext.interactionNotAllowed = true
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: Self.keychainService
+                kSecAttrService as String: Self.keychainService,
+                kSecUseAuthenticationContext as String: authenticationContext
             ]
             let update: [String: Any] = [kSecValueData as String: data]
             let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
-            if status != errSecSuccess {
+            if status != errSecSuccess && status != errSecInteractionNotAllowed {
                 NSLog("AI Token Meter Claude OAuth: keychain write-back failed: \(status)")
             }
         }
