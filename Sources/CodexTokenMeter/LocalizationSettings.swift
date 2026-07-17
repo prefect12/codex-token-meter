@@ -1498,6 +1498,8 @@ enum AppSettings {
     static let statusBarQuotaSourceKey = "statusBarQuotaSource"
     static let statusBarPrimaryMetricKey = "statusBarPrimaryMetric"
     static let statusBarSecondaryMetricKey = "statusBarSecondaryMetric"
+    static let claudeKeychainAccessRequestedKey = "claudeKeychainAccessRequested"
+    static let claudeKeychainAccessEnabledKey = "claudeKeychainAccessEnabled"
     static let machineUsageInstallationIDKey = "machineUsageInstallationID"
     static let statusBarMetricOffRawValue = "off"
 
@@ -1987,6 +1989,16 @@ enum AppSettings {
         set {
             UserDefaults.standard.set(newValue, forKey: showCodexStatusEnabledKey)
         }
+    }
+
+    static var claudeKeychainAccessRequested: Bool {
+        get { UserDefaults.standard.bool(forKey: claudeKeychainAccessRequestedKey) }
+        set { UserDefaults.standard.set(newValue, forKey: claudeKeychainAccessRequestedKey) }
+    }
+
+    static var claudeKeychainAccessEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: claudeKeychainAccessEnabledKey) }
+        set { UserDefaults.standard.set(newValue, forKey: claudeKeychainAccessEnabledKey) }
     }
 
     static var codexHomeRingMetric: HomeQuotaRingMetric {

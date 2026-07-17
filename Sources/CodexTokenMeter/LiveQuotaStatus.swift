@@ -1,5 +1,6 @@
 import Cocoa
 import Foundation
+import Security
 import ServiceManagement
 import UserNotifications
 
@@ -444,13 +445,38 @@ final class ClaudeOAuthUsageRefresher {
     /// the same client the tokens were issued to.
     private static let oauthClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     private static let tokenURL = URL(string: "https://console.anthropic.com/v1/oauth/token")!
+    private static let keychainService = "Claude Code-credentials"
+
+    private enum CredentialSource {
+        case file(URL)
+        case keychain
+    }
+
     private struct StoredCredentials {
         var root: [String: Any]
         var oauth: [String: Any]
-        let fileURL: URL
+        let source: CredentialSource
     }
 
     private var cachedToken: (token: String, validUntil: Date)?
+
+    static func disableKeychainInteraction() {
+        // Claude uses a legacy macOS Keychain item, for which modern SecItem
+        // query flags can still launch SecurityAgent. This process-wide legacy
+        // switch is the only reliable background no-UI boundary on macOS.
+        _ = SecKeychainSetUserInteractionAllowed(false)
+    }
+
+    var needsInitialKeychainAccess: Bool {
+        fileCredentials() == nil
+    }
+
+    func requestInitialKeychainAccess() -> Bool {
+        guard needsInitialKeychainAccess else { return false }
+        _ = SecKeychainSetUserInteractionAllowed(true)
+        defer { Self.disableKeychainInteraction() }
+        return parseCredentials(data: keychainCredentialsData(), source: .keychain) != nil
+    }
 
     private func oauthAccessToken(now: Date) -> String? {
         lock.lock()
@@ -481,24 +507,49 @@ final class ClaudeOAuthUsageRefresher {
     }
 
     private func storedCredentials() -> StoredCredentials? {
-        let fileURL = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".claude/.credentials.json")
-        return parseCredentials(data: try? Data(contentsOf: fileURL), fileURL: fileURL)
+        if let credentials = fileCredentials() {
+            return credentials
+        }
+        guard AppSettings.claudeKeychainAccessEnabled else { return nil }
+        Self.disableKeychainInteraction()
+        return parseCredentials(data: keychainCredentialsData(), source: .keychain)
     }
 
-    private func parseCredentials(data: Data?, fileURL: URL) -> StoredCredentials? {
+    private func fileCredentials() -> StoredCredentials? {
+        let fileURL = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".claude/.credentials.json")
+        return parseCredentials(data: try? Data(contentsOf: fileURL), source: .file(fileURL))
+    }
+
+    private func keychainCredentialsData() -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess else {
+            return nil
+        }
+        return item as? Data
+    }
+
+    private func parseCredentials(data: Data?, source: CredentialSource) -> StoredCredentials? {
         guard let data,
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let oauth = root["claudeAiOauth"] as? [String: Any],
               oauth["accessToken"] is String || oauth["refreshToken"] is String else {
             return nil
         }
-        return StoredCredentials(root: root, oauth: oauth, fileURL: fileURL)
+        return StoredCredentials(root: root, oauth: oauth, source: source)
     }
 
     /// Exchanges the stored refresh token for a fresh access token and writes
-    /// rotated credentials back to Claude's private credentials file.
+    /// rotated credentials back only to Claude's private credentials file.
+    /// Keychain credentials remain owned and refreshed by Claude Code.
     private func refreshAccessToken(credentials: StoredCredentials, now: Date) -> String? {
+        guard case .file(let fileURL) = credentials.source else { return nil }
         guard let refreshToken = credentials.oauth["refreshToken"] as? String, !refreshToken.isEmpty else {
             NSLog("AI Token Meter Claude OAuth: access token expired and no refresh token available")
             return nil
@@ -537,7 +588,7 @@ final class ClaudeOAuthUsageRefresher {
         updatedOAuth["expiresAt"] = expiresAt.timeIntervalSince1970 * 1000
         var updatedRoot = credentials.root
         updatedRoot["claudeAiOauth"] = updatedOAuth
-        writeBackCredentials(root: updatedRoot, fileURL: credentials.fileURL)
+        writeBackCredentials(root: updatedRoot, fileURL: fileURL)
 
         cacheToken(accessToken, validUntil: expiresAt.addingTimeInterval(-60))
         return accessToken
