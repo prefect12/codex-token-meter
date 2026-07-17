@@ -92,7 +92,6 @@ extension UsageDetailsView {
             (t(.claudeLogs), AppSettings.claudeLogFolderDisplayPath, claudeRootExists ? accentTeal : accentAmber),
             (t(.recentRollouts), "\(claudeLogs) files / 14d", claudeLogs > 0 ? accentTeal : accentAmber),
             ("Claude statusline", claudeStatuslineText, claudeStatuslineColor),
-            (t(.claudeActiveRefresh), AppSettings.claudeActiveQuotaRefreshEnabled ? t(.enabled) : t(.disabled), AppSettings.claudeActiveQuotaRefreshEnabled ? accentTeal : accentAmber),
             (t(.cacheHit), String(format: "%.0f%%", snapshot.all.usage.cachePercent), accentTeal),
             (t(.models), "\(snapshot.all.modelBreakdown.count)", accentTeal),
             (t(.sessions), "\(snapshot.all.sessions)", accentTeal),

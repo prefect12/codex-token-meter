@@ -522,7 +522,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var onShowCodexStatusChanged: ((Bool) -> Void)?
     var onQuotaWarningsChanged: ((Bool) -> Void)?
     var onProfileAPITotalsChanged: ((Bool) -> Void)?
-    var onClaudeActiveQuotaRefreshChanged: ((Bool) -> Void)?
     var onExportMachineUsageReport: (() -> Void)?
     var onPreferredHeightChanged: (() -> Void)?
     var selectedSection: DetailsSection = .overview {
@@ -690,7 +689,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     let showCodexStatusSwitch = NSSwitch(frame: .zero)
     let quotaWarningsSwitch = NSSwitch(frame: .zero)
     let profileAPITotalsSwitch = NSSwitch(frame: .zero)
-    let claudeActiveQuotaRefreshSwitch = NSSwitch(frame: .zero)
     var isUpdatingCostControls = false
     var isUpdatingStatusMetricPopups = false
     var detailsTrackingArea: NSTrackingArea?
@@ -1018,12 +1016,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         profileAPITotalsSwitch.action = #selector(profileAPITotalsChanged)
         addSubview(profileAPITotalsSwitch)
 
-        claudeActiveQuotaRefreshSwitch.controlSize = .small
-        claudeActiveQuotaRefreshSwitch.isHidden = true
-        claudeActiveQuotaRefreshSwitch.target = self
-        claudeActiveQuotaRefreshSwitch.action = #selector(claudeActiveQuotaRefreshChanged)
-        addSubview(claudeActiveQuotaRefreshSwitch)
-
         for popup in [paymentCurrencyPopup, displayCurrencyPopup, costYearPopup, languagePopup, statusPrimaryMetricPopup, statusSecondaryMetricPopup] {
             popup.controlSize = .regular
             popup.font = .systemFont(ofSize: 12, weight: .semibold)
@@ -1055,7 +1047,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         launchAtLoginSwitch.setAccessibilityLabel(t(.launchAtLogin))
         quotaWarningsSwitch.setAccessibilityLabel(t(.quotaWarnings))
         profileAPITotalsSwitch.setAccessibilityLabel(t(.profileAPITotals))
-        claudeActiveQuotaRefreshSwitch.setAccessibilityLabel(t(.claudeActiveRefresh))
         paymentCurrencyPopup.target = self
         paymentCurrencyPopup.action = #selector(paymentCurrencyPopupChanged)
         displayCurrencyPopup.target = self
@@ -1132,7 +1123,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         showCodexStatusSwitch.isHidden = !(visible && selectedSettingsSubsection == .quota)
         quotaWarningsSwitch.isHidden = !(visible && selectedSettingsSubsection == .quota)
         profileAPITotalsSwitch.isHidden = !(visible && selectedSettingsSubsection == .data)
-        claudeActiveQuotaRefreshSwitch.isHidden = !(visible && selectedSettingsSubsection == .data)
         guard visible else { return }
 
         let content = sectionContent(for: .settings, in: bounds, sidebarWidth: detailsSidebarWidth)
@@ -1146,7 +1136,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         statusPrimaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 300, width: controlWidth, height: 36)
         statusSecondaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 370, width: controlWidth, height: 36)
         profileAPITotalsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 320, width: 48, height: 24)
-        claudeActiveQuotaRefreshSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 390, width: 48, height: 24)
         showCodexStatusSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 306, width: 48, height: 24)
         quotaWarningsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 390, width: 48, height: 24)
         launchAtLoginSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 76, width: 48, height: 24)
@@ -1183,7 +1172,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         showCodexStatusSwitch.state = AppSettings.showCodexStatusEnabled ? .on : .off
         quotaWarningsSwitch.state = AppSettings.quotaWarningsEnabled ? .on : .off
         profileAPITotalsSwitch.state = AppSettings.profileAPITotalsEnabled ? .on : .off
-        claudeActiveQuotaRefreshSwitch.state = AppSettings.claudeActiveQuotaRefreshEnabled ? .on : .off
     }
 
     func updateStatusMetricPopupsFromSettings() {
@@ -2229,13 +2217,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     @objc private func profileAPITotalsChanged() {
         onProfileAPITotalsChanged?(profileAPITotalsSwitch.state == .on)
-        updateSettingsControlsFromSystem()
-        needsDisplay = true
-        needsLayout = true
-    }
-
-    @objc private func claudeActiveQuotaRefreshChanged() {
-        onClaudeActiveQuotaRefreshChanged?(claudeActiveQuotaRefreshSwitch.state == .on)
         updateSettingsControlsFromSystem()
         needsDisplay = true
         needsLayout = true

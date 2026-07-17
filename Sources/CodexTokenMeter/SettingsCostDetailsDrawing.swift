@@ -121,10 +121,9 @@ extension UsageDetailsView {
         drawSmallButton(t(.codexAPISourcesChoose), rect: chooseCodexAPISourceRect!, emphasized: true)
 
         drawSwitchSetting(title: t(.profileAPITotals), hint: t(.profileAPITotalsHint), switchFrame: profileAPITotalsSwitch.frame, page: page, y: page.minY + 320)
-        drawSwitchSetting(title: t(.claudeActiveRefresh), hint: t(.claudeActiveRefreshHint), switchFrame: claudeActiveQuotaRefreshSwitch.frame, page: page, y: page.minY + 390)
 
         let exportCopy = AppLanguage.current.machineUsageReportCopy
-        let exportY = page.minY + 470
+        let exportY = page.minY + 400
         let exportW = max(118, measuredTextWidth(exportCopy.exportAction, font: .systemFont(ofSize: 12, weight: .semibold)) + 28)
         machineUsageExportRect = NSRect(x: page.maxX - exportW, y: exportY, width: exportW, height: 34)
         drawSettingText(title: exportCopy.title, hint: exportCopy.hint, x: page.minX, y: exportY, width: max(180, machineUsageExportRect!.minX - page.minX - 16))

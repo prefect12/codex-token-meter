@@ -319,8 +319,6 @@ enum L10nKey {
     case claudeCode
     case claudeDescription
     case claudeLogs
-    case claudeActiveRefresh
-    case claudeActiveRefreshHint
     case codex
     case codexAppTotal
     case codexDescription
@@ -593,8 +591,6 @@ enum L10nKey {
         case .claudeCode: return "Claude Code"
         case .claudeDescription: return "Claude Code local logs"
         case .claudeLogs: return "Claude logs"
-        case .claudeActiveRefresh: return "Claude active refresh"
-        case .claudeActiveRefreshHint: return "Best effort: when enabled, settings open and a roughly once-per-minute jittered timer can briefly start Claude Code in a background pseudo-terminal and may send a tiny OK probe. It can consume Claude quota; failed refreshes keep the previous value."
         case .codex: return "Codex"
         case .codexAppTotal: return "Codex app total"
         case .codexDescription: return "Codex local logs"
@@ -869,8 +865,6 @@ enum L10nKey {
         case .claudeCode: return "Claude Code"
         case .claudeDescription: return "Claude Code 本地日志"
         case .claudeLogs: return "Claude 日志"
-        case .claudeActiveRefresh: return "Claude 主动刷新"
-        case .claudeActiveRefreshHint: return "尽力刷新：开启后，打开设置页和约每 1 分钟带抖动的计时器会在后台伪终端短暂启动 Claude Code，必要时发送很小的 OK 探测；会消耗 Claude 额度，失败会保留旧值。"
         case .codex: return "Codex"
         case .codexAppTotal: return "Codex 总用量"
         case .codexDescription: return "Codex 本地日志"
@@ -1145,8 +1139,6 @@ enum L10nKey {
         case .claudeCode: return "Claude Code"
         case .claudeDescription: return "Claude Code ローカルログ"
         case .claudeLogs: return "Claude ログ"
-        case .claudeActiveRefresh: return "Claude アクティブ更新"
-        case .claudeActiveRefreshHint: return "ベストエフォート: 有効時、設定を開いた時と約 1 分ごとの揺らぎ付きタイマーで Claude Code を短時間起動し、小さな OK プローブを送信する場合があります。Claude 制限を消費し、失敗時は前回値を保持します。"
         case .codex: return "Codex"
         case .codexAppTotal: return "Codex 全体使用量"
         case .codexDescription: return "Codex ローカルログ"
@@ -1506,7 +1498,6 @@ enum AppSettings {
     static let statusBarQuotaSourceKey = "statusBarQuotaSource"
     static let statusBarPrimaryMetricKey = "statusBarPrimaryMetric"
     static let statusBarSecondaryMetricKey = "statusBarSecondaryMetric"
-    static let claudeActiveQuotaRefreshEnabledKey = "claudeActiveQuotaRefreshEnabled"
     static let machineUsageInstallationIDKey = "machineUsageInstallationID"
     static let statusBarMetricOffRawValue = "off"
 
@@ -1995,15 +1986,6 @@ enum AppSettings {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: showCodexStatusEnabledKey)
-        }
-    }
-
-    static var claudeActiveQuotaRefreshEnabled: Bool {
-        get {
-            UserDefaults.standard.bool(forKey: claudeActiveQuotaRefreshEnabledKey)
-        }
-        set {
-            UserDefaults.standard.set(newValue, forKey: claudeActiveQuotaRefreshEnabledKey)
         }
     }
 
