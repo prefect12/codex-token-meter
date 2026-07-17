@@ -1,7 +1,5 @@
 import Cocoa
 import Foundation
-import LocalAuthentication
-import Security
 import ServiceManagement
 import UserNotifications
 
@@ -446,17 +444,10 @@ final class ClaudeOAuthUsageRefresher {
     /// the same client the tokens were issued to.
     private static let oauthClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     private static let tokenURL = URL(string: "https://console.anthropic.com/v1/oauth/token")!
-    private static let keychainService = "Claude Code-credentials"
-
-    private enum CredentialSource {
-        case file(URL)
-        case keychain
-    }
-
     private struct StoredCredentials {
         var root: [String: Any]
         var oauth: [String: Any]
-        let source: CredentialSource
+        let fileURL: URL
     }
 
     private var cachedToken: (token: String, validUntil: Date)?
@@ -492,49 +483,21 @@ final class ClaudeOAuthUsageRefresher {
     private func storedCredentials() -> StoredCredentials? {
         let fileURL = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".claude/.credentials.json")
-        if let credentials = parseCredentials(data: try? Data(contentsOf: fileURL), source: .file(fileURL)) {
-            return credentials
-        }
-        return parseCredentials(data: keychainCredentialsData(), source: .keychain)
+        return parseCredentials(data: try? Data(contentsOf: fileURL), fileURL: fileURL)
     }
 
-    private func keychainCredentialsData() -> Data? {
-        // This runs from background refreshes. Never let a refresh interrupt
-        // the user with a Keychain password dialog; cached/statusline quota
-        // data remains available when the item is not already authorized.
-        let authenticationContext = LAContext()
-        authenticationContext.interactionNotAllowed = true
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.keychainService,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationContext as String: authenticationContext
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess else {
-            if status != errSecItemNotFound && status != errSecInteractionNotAllowed {
-                NSLog("AI Token Meter Claude OAuth keychain read failed: \(status)")
-            }
-            return nil
-        }
-        return item as? Data
-    }
-
-    private func parseCredentials(data: Data?, source: CredentialSource) -> StoredCredentials? {
+    private func parseCredentials(data: Data?, fileURL: URL) -> StoredCredentials? {
         guard let data,
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let oauth = root["claudeAiOauth"] as? [String: Any],
               oauth["accessToken"] is String || oauth["refreshToken"] is String else {
             return nil
         }
-        return StoredCredentials(root: root, oauth: oauth, source: source)
+        return StoredCredentials(root: root, oauth: oauth, fileURL: fileURL)
     }
 
     /// Exchanges the stored refresh token for a fresh access token and writes
-    /// the rotated credentials back where they came from, mirroring what
-    /// Claude Code itself does so the CLI login stays valid.
+    /// rotated credentials back to Claude's private credentials file.
     private func refreshAccessToken(credentials: StoredCredentials, now: Date) -> String? {
         guard let refreshToken = credentials.oauth["refreshToken"] as? String, !refreshToken.isEmpty else {
             NSLog("AI Token Meter Claude OAuth: access token expired and no refresh token available")
@@ -574,35 +537,19 @@ final class ClaudeOAuthUsageRefresher {
         updatedOAuth["expiresAt"] = expiresAt.timeIntervalSince1970 * 1000
         var updatedRoot = credentials.root
         updatedRoot["claudeAiOauth"] = updatedOAuth
-        writeBackCredentials(root: updatedRoot, source: credentials.source)
+        writeBackCredentials(root: updatedRoot, fileURL: credentials.fileURL)
 
         cacheToken(accessToken, validUntil: expiresAt.addingTimeInterval(-60))
         return accessToken
     }
 
-    private func writeBackCredentials(root: [String: Any], source: CredentialSource) {
+    private func writeBackCredentials(root: [String: Any], fileURL: URL) {
         guard let data = try? JSONSerialization.data(withJSONObject: root) else { return }
-        switch source {
-        case .file(let url):
-            do {
-                try data.write(to: url, options: [.atomic])
-                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-            } catch {
-                NSLog("AI Token Meter Claude OAuth: failed to write credentials file: \(error.localizedDescription)")
-            }
-        case .keychain:
-            let authenticationContext = LAContext()
-            authenticationContext.interactionNotAllowed = true
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: Self.keychainService,
-                kSecUseAuthenticationContext as String: authenticationContext
-            ]
-            let update: [String: Any] = [kSecValueData as String: data]
-            let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
-            if status != errSecSuccess && status != errSecInteractionNotAllowed {
-                NSLog("AI Token Meter Claude OAuth: keychain write-back failed: \(status)")
-            }
+        do {
+            try data.write(to: fileURL, options: [.atomic])
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        } catch {
+            NSLog("AI Token Meter Claude OAuth: failed to write credentials file: \(error.localizedDescription)")
         }
     }
 
