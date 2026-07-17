@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        ClaudeOAuthUsageRefresher.disableKeychainInteraction()
         localFormatter.locale = Locale(identifier: "en_US_POSIX")
         localFormatter.timeZone = appTimeZone()
         localFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
@@ -126,6 +127,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh(forceLive: false)
+        }
+        requestClaudeKeychainAccessIfNeeded()
+    }
+
+    private func requestClaudeKeychainAccessIfNeeded() {
+        guard !AppSettings.claudeKeychainAccessRequested else { return }
+        guard ClaudeOAuthUsageRefresher.shared.needsInitialKeychainAccess else {
+            AppSettings.claudeKeychainAccessRequested = true
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard !AppSettings.claudeKeychainAccessRequested else { return }
+            AppSettings.claudeKeychainAccessRequested = true
+            NSApp.activate(ignoringOtherApps: true)
+            let granted = ClaudeOAuthUsageRefresher.shared.requestInitialKeychainAccess()
+            AppSettings.claudeKeychainAccessEnabled = granted
+            if granted {
+                self?.refreshLiveLimits()
+            }
         }
     }
 
