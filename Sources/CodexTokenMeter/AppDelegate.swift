@@ -30,7 +30,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var serviceStatus: CodexServiceStatusSnapshot?
     private var refreshTimer: Timer?
     private var liveRefreshTimer: Timer?
-    private var claudeActiveRefreshTimer: Timer?
     private var activeScans: Set<ReportCacheKey> = []
     private var liveRefreshInFlight = false
     private var detailsSnapshotPrewarmInFlight = false
@@ -70,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         dashboardController.dashboardView.onRefresh = { [weak self] in
             self?.refresh(forceLive: false)
-            self?.refreshLiveLimits(allowClaudeActiveRefresh: true)
+            self?.refreshLiveLimits()
         }
         dashboardController.dashboardView.onOpenDetails = { [weak self] in self?.openUsageDetailsWindow() }
         dashboardController.dashboardView.onOpenSettings = { [weak self] in self?.openSettingsWindow() }
@@ -113,7 +112,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onShowCodexStatusChanged = { [weak self] isOn in self?.changeShowCodexStatus(isOn) }
         detailsController.detailsView.onQuotaWarningsChanged = { [weak self] isOn in self?.changeQuotaWarnings(isOn) }
         detailsController.detailsView.onProfileAPITotalsChanged = { [weak self] isOn in self?.changeProfileAPITotals(isOn) }
-        detailsController.detailsView.onClaudeActiveQuotaRefreshChanged = { [weak self] isOn in self?.changeClaudeActiveQuotaRefresh(isOn) }
         detailsController.detailsView.onExportMachineUsageReport = { [weak self] in self?.exportMachineUsageReport() }
         detailsController.detailsView.onStorageScanRequested = { [weak self] in self?.refreshStorageSnapshot() }
         applyLanguage()
@@ -129,7 +127,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh(forceLive: false)
         }
-        scheduleClaudeActiveRefreshIfNeeded()
     }
 
     private func refreshStorageSnapshot() {
@@ -440,7 +437,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func refreshLiveLimits(allowClaudeActiveRefresh: Bool = false) {
+    private func refreshLiveLimits() {
         guard !liveRefreshInFlight else { return }
         liveRefreshTimer?.invalidate()
         liveRefreshTimer = nil
@@ -449,10 +446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentResetCredits = resetCredits
         liveQueue.async {
             let claudeStore = ClaudeStatuslineStore()
-            if allowClaudeActiveRefresh && AppSettings.claudeActiveQuotaRefreshEnabled {
-                _ = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: claudeStore)
-                _ = ClaudeActiveQuotaRefresher.shared.refreshIfNeeded(snapshot: claudeStore.read())
-            }
+            _ = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: claudeStore)
             let freshLimits = combinedLiveLimits(codexReader: self.rateLimitReader, claudeStore: claudeStore)
             let limits = self.mergedLiveLimits(fresh: freshLimits, fallback: currentLimits)
             let freshResetCredits = self.resetCreditsReader.read()
@@ -951,19 +945,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refresh(forceLive: true)
     }
 
-    private func changeClaudeActiveQuotaRefresh(_ value: Bool) {
-        AppSettings.claudeActiveQuotaRefreshEnabled = value
-        detailsController.detailsView.needsDisplay = true
-        detailsController.detailsView.needsLayout = true
-        if value {
-            refreshLiveLimits(allowClaudeActiveRefresh: true)
-            scheduleClaudeActiveRefreshIfNeeded()
-        } else {
-            claudeActiveRefreshTimer?.invalidate()
-            claudeActiveRefreshTimer = nil
-        }
-    }
-
     private func openUsageDetailsWindow() {
         detailsController.detailsView.showUsagePage()
         openDetailsWindow()
@@ -972,22 +953,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func openSettingsWindow() {
         detailsController.detailsView.showSettingsPage()
         openDetailsWindow(showLoading: false)
-        if AppSettings.claudeActiveQuotaRefreshEnabled {
-            refreshLiveLimits(allowClaudeActiveRefresh: true)
-            scheduleClaudeActiveRefreshIfNeeded()
-        }
-    }
-
-    private func scheduleClaudeActiveRefreshIfNeeded() {
-        claudeActiveRefreshTimer?.invalidate()
-        claudeActiveRefreshTimer = nil
-        guard AppSettings.claudeActiveQuotaRefreshEnabled else { return }
-        let interval = TimeInterval.random(in: 55...85)
-        claudeActiveRefreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            refreshLiveLimits(allowClaudeActiveRefresh: true)
-            scheduleClaudeActiveRefreshIfNeeded()
-        }
     }
 
     private func openDetailsWindow(showLoading: Bool = true) {
