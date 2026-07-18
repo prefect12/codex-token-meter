@@ -1,11 +1,15 @@
-# AI Token Meter + Task Bar
+# AI Token Meter + Task Bar：macOS 上的 Codex 与 Claude Code 用量监控工具
 
-两个原生 macOS 状态栏工具，面向本机 Codex 和 Claude Code 工作流。一个负责 token / 额度 / 成本观测，一个负责把正在跑、等待回复、已完成未读的任务收进状态栏。
+两个免费、开源、原生的 macOS 状态栏工具，面向 OpenAI Codex / Codex CLI 和 Anthropic Claude Code 工作流。AI Token Meter 是 Codex 与 Claude Code 的 token 用量、5 小时/每周额度、重置时间、缓存命中率和成本追踪器；Task Bar 用来集中查看正在运行、等待回复和已完成未读的 AI 编程任务。
+
+[中文详细说明](README.zh-CN.md) · [English](README.en.md) · [下载最新版](https://github.com/prefect12/codex-token-meter/releases/latest)
 
 - **AI Token Meter**：查看 Codex / Claude Code 的本地 token 用量、缓存命中率、实时剩余额度、模型统计、仓库洞察和订阅价值估算。
 - **Task Bar**：把正在运行、等待输入、已完成但未读的 Codex / Claude Code 任务集中到一个轻量状态栏列表里，方便快速回到任务。
 
 两者都只读取本机数据，不上传会话日志。
+
+适合正在搜索 **Codex token usage tracker**、**Claude Code usage monitor**、**Codex quota meter**、**Claude Code token counter**、AI coding agent task monitor 或 macOS menu bar token tracker 的用户。
 
 ## 下载
 
