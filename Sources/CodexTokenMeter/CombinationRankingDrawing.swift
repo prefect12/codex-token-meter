@@ -38,7 +38,7 @@ extension UsageDetailsView {
         let models = combinationRankingAvailableModels(rows)
         selectedCombinationRankingModels.formIntersection(Set(models))
         if selectedCombinationRankingModels.isEmpty {
-            selectedCombinationRankingModels = Set(models.prefix(5))
+            selectedCombinationRankingModels = Set(combinationRankingHighestUsageModel(rows).map { [$0] } ?? [])
         }
         let visible = combinationRankingVisibleRows(rows)
         if let selectedCombinationRankingCell, visible.contains(where: { $0.key == selectedCombinationRankingCell }) { return }
@@ -435,8 +435,15 @@ extension UsageDetailsView {
     }
 
     private func combinationRankingAvailableModels(_ rows: [CombinationRankingRow]) -> [String] {
-        let grouped = Dictionary(grouping: rows, by: \.model)
-        return grouped.keys.sorted { (grouped[$0]?.reduce(Int64(0)) { $0 + $1.usage.total } ?? 0) > (grouped[$1]?.reduce(Int64(0)) { $0 + $1.usage.total } ?? 0) }
+        Set(rows.map(\.model)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+    private func combinationRankingHighestUsageModel(_ rows: [CombinationRankingRow]) -> String? {
+        Dictionary(grouping: rows, by: \.model).max { lhs, rhs in
+            let lhsTotal = lhs.value.reduce(Int64(0)) { $0 + $1.usage.total }
+            let rhsTotal = rhs.value.reduce(Int64(0)) { $0 + $1.usage.total }
+            if lhsTotal != rhsTotal { return lhsTotal < rhsTotal }
+            return lhs.key.localizedStandardCompare(rhs.key) == .orderedDescending
+        }?.key
     }
     private func combinationRankingVisibleRows(_ rows: [CombinationRankingRow]) -> [CombinationRankingRow] { rows.filter { selectedCombinationRankingModels.contains($0.model) } }
     private func combinationRankingSortedRows(_ rows: [CombinationRankingRow]) -> [CombinationRankingRow] {
