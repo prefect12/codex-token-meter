@@ -40,10 +40,19 @@ final class CodexTokenScanner {
         var tokens: Int64
     }
 
+    private struct FileReasoningRunAggregate: Codable {
+        var timestamp: Date
+        var day: String
+        var model: String
+        var effort: String
+        var usage: Usage
+    }
+
     private struct FileRepoInsightAggregate: Codable {
         var cwd: String?
         var days: [FileRepoInsightDayAggregate]
         var hours: [FileRepoInsightHourAggregate]
+        var reasoningRuns: [FileReasoningRunAggregate]
     }
 
     private struct FileCache {
@@ -65,7 +74,167 @@ final class CodexTokenScanner {
         var activeDays: Set<String> = []
         var days: [FileRepoInsightDayAggregate] = []
         var hours: [FileRepoInsightHourAggregate] = []
+        var reasoningRuns: [FileReasoningRunAggregate] = []
         var lastEvent: Date?
+    }
+
+    private struct ReasoningEffortAccumulator {
+        var runs = 0
+        var tasks = 0
+        var projects = Set<String>()
+        var usage = Usage()
+        var runTokenTotals: [Int64] = []
+    }
+
+    private struct ReasoningInsightsAccumulator {
+        var taskCount = 0
+        var runCount = 0
+        var usage = Usage()
+        var efforts: [String: ReasoningEffortAccumulator] = [:]
+        var modelEfforts: [String: ReasoningEffortAccumulator] = [:]
+        var dailyModelEfforts: [String: ReasoningEffortAccumulator] = [:]
+
+        mutating func add(_ conversation: RepoInsightConversation, projectKey: String) {
+            taskCount += 1
+            var taskEfforts = Set<String>()
+            var taskModelEfforts = Set<String>()
+
+            for run in conversation.reasoningRuns {
+                let effort = CodexTokenScanner.normalizedReasoningEffort(run.effort)
+                let model = CodexTokenScanner.normalizedReasoningModel(run.model)
+                var bucket = efforts[effort] ?? ReasoningEffortAccumulator()
+                bucket.runs += 1
+                bucket.usage.add(run.usage)
+                bucket.runTokenTotals.append(run.usage.total)
+                efforts[effort] = bucket
+                taskEfforts.insert(effort)
+
+                let modelEffortKey = Self.key(model, effort)
+                var modelBucket = modelEfforts[modelEffortKey] ?? ReasoningEffortAccumulator()
+                modelBucket.runs += 1
+                modelBucket.usage.add(run.usage)
+                modelBucket.runTokenTotals.append(run.usage.total)
+                if !projectKey.isEmpty { modelBucket.projects.insert(projectKey) }
+                modelEfforts[modelEffortKey] = modelBucket
+                taskModelEfforts.insert(modelEffortKey)
+
+                let dailyKey = Self.key(run.day, model, effort)
+                var dailyBucket = dailyModelEfforts[dailyKey] ?? ReasoningEffortAccumulator()
+                dailyBucket.runs += 1
+                dailyBucket.usage.add(run.usage)
+                dailyBucket.runTokenTotals.append(run.usage.total)
+                dailyModelEfforts[dailyKey] = dailyBucket
+                runCount += 1
+                usage.add(run.usage)
+            }
+
+            let missingRuns = max(0, conversation.turns - conversation.reasoningRuns.count)
+            if missingRuns > 0 {
+                var unknown = efforts["unknown"] ?? ReasoningEffortAccumulator()
+                unknown.runs += missingRuns
+                unknown.runTokenTotals.append(contentsOf: repeatElement(0, count: missingRuns))
+                efforts["unknown"] = unknown
+                taskEfforts.insert("unknown")
+                runCount += missingRuns
+            }
+
+            for effort in taskEfforts {
+                var bucket = efforts[effort] ?? ReasoningEffortAccumulator()
+                bucket.tasks += 1
+                efforts[effort] = bucket
+            }
+            for key in taskModelEfforts {
+                var bucket = modelEfforts[key] ?? ReasoningEffortAccumulator()
+                bucket.tasks += 1
+                modelEfforts[key] = bucket
+            }
+        }
+
+        func report() -> ReasoningInsightsReport {
+            let summaries = efforts.map { effort, bucket in
+                let sorted = bucket.runTokenTotals.sorted()
+                return ReasoningEffortSummary(
+                    effort: effort,
+                    runs: bucket.runs,
+                    tasks: bucket.tasks,
+                    usage: bucket.usage,
+                    medianTokens: Self.percentile(sorted, percentile: 0.5),
+                    p90Tokens: Self.percentile(sorted, percentile: 0.9)
+                )
+            }
+            .sorted {
+                let lhsRank = CodexTokenScanner.reasoningEffortRank($0.effort)
+                let rhsRank = CodexTokenScanner.reasoningEffortRank($1.effort)
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                return $0.effort.localizedCaseInsensitiveCompare($1.effort) == .orderedAscending
+            }
+
+            let known = summaries.filter { $0.effort != "unknown" }
+            let modelSummaries = modelEfforts.compactMap { key, bucket -> ReasoningModelEffortSummary? in
+                let parts = Self.parts(key, count: 2)
+                guard parts.count == 2 else { return nil }
+                let sorted = bucket.runTokenTotals.sorted()
+                return ReasoningModelEffortSummary(
+                    model: parts[0],
+                    effort: parts[1],
+                    runs: bucket.runs,
+                    tasks: bucket.tasks,
+                    projectCount: bucket.projects.count,
+                    usage: bucket.usage,
+                    medianTokens: Self.percentile(sorted, percentile: 0.5),
+                    p90Tokens: Self.percentile(sorted, percentile: 0.9)
+                )
+            }
+            .sorted {
+                if $0.model != $1.model { return $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending }
+                return CodexTokenScanner.reasoningEffortRank($0.effort) < CodexTokenScanner.reasoningEffortRank($1.effort)
+            }
+            let dailySummaries = dailyModelEfforts.compactMap { key, bucket -> ReasoningDailyModelEffortSummary? in
+                let parts = Self.parts(key, count: 3)
+                guard parts.count == 3 else { return nil }
+                return ReasoningDailyModelEffortSummary(
+                    day: parts[0],
+                    model: parts[1],
+                    effort: parts[2],
+                    runs: bucket.runs,
+                    usage: bucket.usage,
+                    runTokenTotals: bucket.runTokenTotals
+                )
+            }
+            .sorted {
+                if $0.day != $1.day { return $0.day < $1.day }
+                if $0.model != $1.model { return $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending }
+                return CodexTokenScanner.reasoningEffortRank($0.effort) < CodexTokenScanner.reasoningEffortRank($1.effort)
+            }
+            return ReasoningInsightsReport(
+                taskCount: taskCount,
+                runCount: runCount,
+                usage: usage,
+                knownRunCount: known.reduce(0) { $0 + $1.runs },
+                knownTokenCount: known.reduce(Int64(0)) { $0 + $1.usage.total },
+                efforts: summaries,
+                modelEfforts: modelSummaries,
+                dailyModelEfforts: dailySummaries
+            )
+        }
+
+        private static let keySeparator = "\u{1F}"
+
+        private static func key(_ parts: String...) -> String {
+            parts.joined(separator: keySeparator)
+        }
+
+        private static func parts(_ key: String, count: Int) -> [String] {
+            let values = key.components(separatedBy: keySeparator)
+            return values.count == count ? values : []
+        }
+
+        private static func percentile(_ sorted: [Int64], percentile: Double) -> Int64 {
+            guard !sorted.isEmpty else { return 0 }
+            let bounded = min(1, max(0, percentile))
+            let index = Int(ceil(Double(sorted.count) * bounded)) - 1
+            return sorted[min(sorted.count - 1, max(0, index))]
+        }
     }
 
     private struct RepoInsightAccumulator {
@@ -189,6 +358,49 @@ final class CodexTokenScanner {
         let repoInsight: FileRepoInsightAggregate
     }
 
+    private struct LegacyV7FileReasoningRunAggregate: Codable {
+        var timestamp: Date
+        var effort: String
+        var usage: Usage
+    }
+
+    private struct LegacyV7FileRepoInsightAggregate: Codable {
+        var cwd: String?
+        var days: [FileRepoInsightDayAggregate]
+        var hours: [FileRepoInsightHourAggregate]
+        var reasoningRuns: [LegacyV7FileReasoningRunAggregate]
+    }
+
+    private struct LegacyV7DiskFileCache: Codable {
+        let version: Int
+        let path: String
+        let size: Int64
+        let modifiedAt: Double
+        let timeZoneIdentifier: String
+        let events: [TokenEvent]
+        let turns: [Date]
+        let days: [FileDayAggregate]
+        let repoInsight: LegacyV7FileRepoInsightAggregate
+    }
+
+    private struct LegacyV6FileRepoInsightAggregate: Codable {
+        var cwd: String?
+        var days: [FileRepoInsightDayAggregate]
+        var hours: [FileRepoInsightHourAggregate]
+    }
+
+    private struct LegacyV6DiskFileCache: Codable {
+        let version: Int
+        let path: String
+        let size: Int64
+        let modifiedAt: Double
+        let timeZoneIdentifier: String
+        let events: [TokenEvent]
+        let turns: [Date]
+        let days: [FileDayAggregate]
+        let repoInsight: LegacyV6FileRepoInsightAggregate
+    }
+
     private struct LegacyV4FileRepoInsightAggregate: Codable {
         var cwd: String?
         var days: [FileRepoInsightDayAggregate]
@@ -250,7 +462,32 @@ final class CodexTokenScanner {
     private let limitIDKey = Array(#""limit_id":""#.utf8)
     private let limitNameKey = Array(#""limit_name":""#.utf8)
     private let modelKey = Array(#""model":""#.utf8)
+    private let effortKey = Array(#""effort":""#.utf8)
+    private let turnIDKey = Array(#""turn_id":""#.utf8)
     private var cache: [String: FileCache] = [:]
+
+    private static func normalizedReasoningEffort(_ value: String?) -> String {
+        let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return normalized.isEmpty ? "unknown" : normalized
+    }
+
+    private static func normalizedReasoningModel(_ value: String?) -> String {
+        let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return normalized.isEmpty ? "Unknown model" : normalized
+    }
+
+    static func reasoningEffortRank(_ effort: String) -> Int {
+        switch normalizedReasoningEffort(effort) {
+        case "low": return 0
+        case "medium": return 1
+        case "high": return 2
+        case "xhigh": return 3
+        case "ultra": return 4
+        case "max": return 5
+        case "unknown": return 100
+        default: return 50
+        }
+    }
 
     convenience init(rootURL: URL) {
         self.init(rootURLs: [rootURL])
@@ -337,6 +574,7 @@ final class CodexTokenScanner {
         })
         let earliestStart = starts.values.min() ?? now
         var aggregatesByWindow: [Int: [String: RepoInsightAccumulator]] = [:]
+        var reasoningByWindow: [Int: ReasoningInsightsAccumulator] = [:]
 
         for fileURL in rolloutFiles(modifiedSince: earliestStart) {
             let file = cachedFile(fileURL)
@@ -355,12 +593,16 @@ final class CodexTokenScanner {
                 accumulator.add(conversation)
                 aggregates[key] = accumulator
                 aggregatesByWindow[days] = aggregates
+                var reasoning = reasoningByWindow[days] ?? ReasoningInsightsAccumulator()
+                reasoning.add(conversation, projectKey: key)
+                reasoningByWindow[days] = reasoning
             }
         }
 
         return Dictionary(uniqueKeysWithValues: windowDays.map { days in
             let rows = repoInsightRows(from: aggregatesByWindow[days] ?? [:])
-            return (days, RepoInsightsReport(rows: rows, scannedAt: now, windowDays: days))
+            let reasoning = reasoningByWindow[days]?.report()
+            return (days, RepoInsightsReport(rows: rows, scannedAt: now, windowDays: days, reasoning: reasoning))
         })
     }
 
@@ -388,6 +630,7 @@ final class CodexTokenScanner {
         conversation.days = days
         conversation.activeDays = activeDaySet
         conversation.hours = aggregate.hours.filter { activeDaySet.contains($0.day) && ($0.turns > 0 || $0.tokens > 0) }
+        conversation.reasoningRuns = aggregate.reasoningRuns.filter { $0.timestamp >= start && $0.timestamp <= now }
         for day in days {
             conversation.turns += day.turns
             conversation.compressions += day.compressions
@@ -790,12 +1033,48 @@ final class CodexTokenScanner {
 
         let timeZoneIdentifier = appTimeZone().identifier
         if let disk = try? jsonDecoder.decode(DiskFileCache.self, from: data),
-              disk.version == 6,
+              disk.version == 8,
               disk.path == fileURL.path,
               disk.size == size,
               disk.timeZoneIdentifier == timeZoneIdentifier,
               abs(disk.modifiedAt - modifiedAt.timeIntervalSinceReferenceDate) < 0.001 {
             return FileCache(size: disk.size, modifiedAt: modifiedAt, events: disk.events, turns: disk.turns, days: disk.days, repoInsight: disk.repoInsight)
+        }
+
+        if let legacy = try? jsonDecoder.decode(LegacyV7DiskFileCache.self, from: data),
+           legacy.version == 7,
+           legacy.path == fileURL.path,
+           legacy.size == size,
+           legacy.timeZoneIdentifier == timeZoneIdentifier,
+           abs(legacy.modifiedAt - modifiedAt.timeIntervalSinceReferenceDate) < 0.001 {
+            let file = FileCache(
+                size: legacy.size,
+                modifiedAt: modifiedAt,
+                events: legacy.events,
+                turns: legacy.turns,
+                days: legacy.days,
+                repoInsight: repoInsightAggregate(fileURL: fileURL)
+            )
+            writeDiskCache(file, fileURL: fileURL)
+            return file
+        }
+
+        if let legacy = try? jsonDecoder.decode(LegacyV6DiskFileCache.self, from: data),
+           legacy.version == 6,
+           legacy.path == fileURL.path,
+           legacy.size == size,
+           legacy.timeZoneIdentifier == timeZoneIdentifier,
+           abs(legacy.modifiedAt - modifiedAt.timeIntervalSinceReferenceDate) < 0.001 {
+            let file = FileCache(
+                size: legacy.size,
+                modifiedAt: modifiedAt,
+                events: legacy.events,
+                turns: legacy.turns,
+                days: legacy.days,
+                repoInsight: repoInsightAggregate(fileURL: fileURL)
+            )
+            writeDiskCache(file, fileURL: fileURL)
+            return file
         }
 
         if let legacy = try? jsonDecoder.decode(LegacyV4DiskFileCache.self, from: data),
@@ -872,7 +1151,7 @@ final class CodexTokenScanner {
 
     private func writeDiskCache(_ file: FileCache, fileURL: URL) {
         let disk = DiskFileCache(
-            version: 6,
+            version: 8,
             path: fileURL.path,
             size: file.size,
             modifiedAt: file.modifiedAt.timeIntervalSinceReferenceDate,
@@ -889,13 +1168,29 @@ final class CodexTokenScanner {
 
     private func repoInsightAggregate(fileURL: URL) -> FileRepoInsightAggregate {
         guard let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]) else {
-            return FileRepoInsightAggregate(cwd: nil, days: [], hours: [])
+            return FileRepoInsightAggregate(cwd: nil, days: [], hours: [], reasoningRuns: [])
         }
 
         var previousTotal = Usage()
         var dayBuckets: [String: FileRepoInsightDayAggregate] = [:]
         var hourBuckets: [String: FileRepoInsightHourAggregate] = [:]
         var cwdCounts: [String: Int] = [:]
+        var reasoningRuns: [FileReasoningRunAggregate] = []
+        var runIndexByTurnID: [String: Int] = [:]
+        var currentRunIndex: Int?
+        var pendingTaskStartedIndex: Int?
+        var currentModel = "Unknown model"
+
+        func appendReasoningRun(timestamp: Date, model: String = "Unknown model", effort: String = "unknown") -> Int {
+            reasoningRuns.append(FileReasoningRunAggregate(
+                timestamp: timestamp,
+                day: self.dayFormatter.string(from: timestamp),
+                model: Self.normalizedReasoningModel(model),
+                effort: effort,
+                usage: Usage()
+            ))
+            return reasoningRuns.count - 1
+        }
 
         func updateDay(_ day: String, apply: (inout FileRepoInsightDayAggregate) -> Void) {
             var bucket = dayBuckets[day] ?? FileRepoInsightDayAggregate(day: day, turns: 0, compressions: 0, tokens: 0, abortedTurns: 0, completedTurns: 0)
@@ -932,6 +1227,39 @@ final class CodexTokenScanner {
                 }
                 let day = self.dayFormatter.string(from: timestamp)
 
+                if self.contains(base, range: range, pattern: self.turnContextPattern) {
+                    let effort = Self.normalizedReasoningEffort(self.extractString(base, range: range, key: self.effortKey))
+                    let model = Self.normalizedReasoningModel(self.extractString(base, range: range, key: self.modelKey))
+                    let turnID = self.extractString(base, range: range, key: self.turnIDKey)
+                    currentModel = model
+
+                    if let turnID, let existing = runIndexByTurnID[turnID] {
+                        currentRunIndex = existing
+                        reasoningRuns[existing].effort = effort
+                        reasoningRuns[existing].model = model
+                    } else if let pending = pendingTaskStartedIndex,
+                              reasoningRuns.indices.contains(pending),
+                              reasoningRuns[pending].usage.total == 0 {
+                        currentRunIndex = pending
+                        reasoningRuns[pending].effort = effort
+                        reasoningRuns[pending].model = model
+                        if let turnID, !turnID.isEmpty {
+                            runIndexByTurnID[turnID] = pending
+                        }
+                    } else if turnID == nil, let currentRunIndex,
+                              reasoningRuns.indices.contains(currentRunIndex) {
+                        reasoningRuns[currentRunIndex].effort = effort
+                        reasoningRuns[currentRunIndex].model = model
+                    } else {
+                        let index = appendReasoningRun(timestamp: timestamp, model: model, effort: effort)
+                        currentRunIndex = index
+                        if let turnID, !turnID.isEmpty {
+                            runIndexByTurnID[turnID] = index
+                        }
+                    }
+                    pendingTaskStartedIndex = nil
+                }
+
                 if self.contains(base, range: range, pattern: self.tokenCountPattern) {
                     let currentTotal = Usage(
                         input: self.extractInt64(base, range: range, key: self.inputKey),
@@ -944,6 +1272,12 @@ final class CodexTokenScanner {
                     previousTotal = currentTotal
                     updateDay(day) { $0.tokens += delta.total }
                     updateHour(timestamp, day: day) { $0.tokens += delta.total }
+                    if currentRunIndex == nil {
+                        currentRunIndex = appendReasoningRun(timestamp: timestamp, model: currentModel)
+                    }
+                    if let currentRunIndex, reasoningRuns.indices.contains(currentRunIndex) {
+                        reasoningRuns[currentRunIndex].usage.add(delta)
+                    }
                 }
 
                 guard self.contains(base, range: range, pattern: self.eventMsgPattern) else {
@@ -953,6 +1287,10 @@ final class CodexTokenScanner {
                 if self.contains(base, range: range, pattern: self.taskStartedPattern) {
                     updateDay(day) { $0.turns += 1 }
                     updateHour(timestamp, day: day) { $0.turns += 1 }
+                    currentModel = "Unknown model"
+                    let index = appendReasoningRun(timestamp: timestamp)
+                    currentRunIndex = index
+                    pendingTaskStartedIndex = index
                 } else if self.contains(base, range: range, pattern: self.contextCompactedPattern) {
                     updateDay(day) { $0.compressions += 1 }
                 } else if self.contains(base, range: range, pattern: self.turnAbortedPattern) {
@@ -983,7 +1321,8 @@ final class CodexTokenScanner {
             hours: hourBuckets.values.sorted {
                 if $0.day != $1.day { return $0.day < $1.day }
                 return $0.hour < $1.hour
-            }
+            },
+            reasoningRuns: reasoningRuns
         )
     }
 

@@ -71,6 +71,8 @@ func requestedDetailsSection(from arguments: [String]) -> DetailsSection {
     case "overview": return .overview
     case "calendar": return .calendar
     case "insights": return .insights
+    case "reasoning", "reasoning-depth", "reasoning_depth": return .reasoning
+    case "ranking", "combination-ranking", "combination_ranking": return .combinationRanking
     case "costs": return .costs
     case "models": return .models
     case "storage": return .storage
@@ -270,6 +272,11 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         // needs more than the one-week window the other sections use.
         codex = scanner.scan(days: 365)
         claude = claudeScanner.scan(days: 365)
+    } else if section == .reasoning || section == .combinationRanking {
+        // The ranking page can switch between 7/30/90 days and combines Codex
+        // reasoning rows with Claude model totals from the same local window.
+        codex = scanner.scan(days: 90)
+        claude = claudeScanner.scan(days: 90)
     } else {
         codex = scanner.scan(window: .week)
         claude = claudeScanner.scan(window: .week)
@@ -318,7 +325,17 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         }
         .first ?? URL(fileURLWithPath: "/tmp/codex-token-meter-details.png")
 
-    let view = UsageDetailsView(frame: NSRect(x: 0, y: 0, width: 1280, height: 760))
+    let renderWidth: CGFloat = arguments.compactMap { argument -> CGFloat? in
+        guard argument.hasPrefix("--render-width=") else { return nil }
+        guard let value = Double(String(argument.dropFirst("--render-width=".count))) else { return nil }
+        return CGFloat(value)
+    }.first ?? 1280
+    let requestedRenderHeight: CGFloat? = arguments.compactMap { argument -> CGFloat? in
+        guard argument.hasPrefix("--render-height=") else { return nil }
+        guard let value = Double(String(argument.dropFirst("--render-height=".count))) else { return nil }
+        return CGFloat(value)
+    }.first
+    let view = UsageDetailsView(frame: NSRect(x: 0, y: 0, width: renderWidth, height: requestedRenderHeight ?? 760))
     let windowDays = arguments
         .compactMap { argument -> Int? in
             guard argument.hasPrefix("--insight-window=") else { return nil }
@@ -348,6 +365,49 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     if section == .models, modelSearch != nil || modelSort != nil {
         view.configureModelList(query: modelSearch, sort: modelSort)
     }
+    if section == .reasoning || section == .combinationRanking {
+        if let rawSort = arguments
+            .compactMap({ argument -> String? in
+                guard argument.hasPrefix("--ranking-sort=") else { return nil }
+                return String(argument.dropFirst("--ranking-sort=".count))
+            })
+            .first {
+            switch rawSort {
+            case "model": view.selectedCombinationRankingSort = .model
+            case "effort": view.selectedCombinationRankingSort = .effort
+            default: break
+            }
+            view.isCombinationRankingSortAscending = arguments.contains("--ranking-sort-ascending")
+        }
+        if let rawMetric = arguments
+            .compactMap({ argument -> String? in
+                guard argument.hasPrefix("--ranking-metric=") else { return nil }
+                return String(argument.dropFirst("--ranking-metric=".count))
+            })
+            .first {
+            switch rawMetric {
+            case "total", "tokens": view.selectedCombinationRankingMetric = .totalTokens
+            case "cost", "total-cost", "cost-per-task": view.selectedCombinationRankingMetric = .totalCost
+            default: view.selectedCombinationRankingMetric = .averageTokens
+            }
+        }
+        if let rawModels = arguments
+            .compactMap({ argument -> String? in
+                guard argument.hasPrefix("--ranking-models=") else { return nil }
+                return String(argument.dropFirst("--ranking-models=".count))
+            })
+            .first {
+            view.selectedCombinationRankingModels = Set(rawModels.split(separator: ",").map(String.init))
+            view.normalizeCombinationRankingSelection(snapshot: snapshot)
+        }
+        view.isCombinationRankingModelMenuOpen = arguments.contains("--ranking-open-model-menu")
+        view.hoveredReasoningDay = arguments
+            .compactMap { argument -> String? in
+                guard argument.hasPrefix("--reasoning-hover-day=") else { return nil }
+                return String(argument.dropFirst("--reasoning-hover-day=".count))
+            }
+            .first
+    }
     if let weekStart = arguments
         .compactMap({ argument -> String? in
             guard argument.hasPrefix("--select-week=") else { return nil }
@@ -373,8 +433,8 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         view.isStorageScanning = false
     }
     view.isLoading = false
-    let height = max(760, view.preferredDocumentHeight(for: 1280))
-    view.frame = NSRect(x: 0, y: 0, width: 1280, height: height)
+    let height = max(requestedRenderHeight ?? 760, view.preferredDocumentHeight(for: renderWidth))
+    view.frame = NSRect(x: 0, y: 0, width: renderWidth, height: height)
     view.layoutSubtreeIfNeeded()
     try writePNG(of: view, to: outputURL)
     return outputURL

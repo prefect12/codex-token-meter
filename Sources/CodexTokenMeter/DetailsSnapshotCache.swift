@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Details Snapshot Cache
 
 enum DetailsSnapshotCacheStore {
-    private static let version = 3
+    private static let version = 5
 
     private struct Payload: Codable {
         let version: Int
@@ -81,7 +81,8 @@ enum DetailsSnapshotCacheStore {
         RepoInsightsReport(
             rows: report.rows.map(sanitized),
             scannedAt: report.scannedAt,
-            windowDays: report.windowDays
+            windowDays: report.windowDays,
+            reasoning: report.reasoning
         )
     }
 

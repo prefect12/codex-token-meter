@@ -414,6 +414,62 @@ struct RepoInsightHour: Codable {
     var tokens: Int64
 }
 
+struct ReasoningEffortSummary: Codable {
+    var effort: String
+    var runs: Int
+    var tasks: Int
+    var usage: Usage
+    var medianTokens: Int64
+    var p90Tokens: Int64
+}
+
+struct ReasoningModelEffortSummary: Codable {
+    var model: String
+    var effort: String
+    var runs: Int
+    var tasks: Int
+    var projectCount: Int?
+    var usage: Usage
+    var medianTokens: Int64
+    var p90Tokens: Int64
+}
+
+struct ReasoningDailyModelEffortSummary: Codable {
+    var day: String
+    var model: String
+    var effort: String
+    var runs: Int
+    var usage: Usage
+    var runTokenTotals: [Int64]
+
+    var medianTokens: Int64 {
+        let sorted = runTokenTotals.sorted()
+        guard !sorted.isEmpty else { return 0 }
+        return sorted[(sorted.count - 1) / 2]
+    }
+}
+
+struct ReasoningInsightsReport: Codable {
+    var taskCount: Int
+    var runCount: Int
+    var usage: Usage
+    var knownRunCount: Int
+    var knownTokenCount: Int64
+    var efforts: [ReasoningEffortSummary]
+    var modelEfforts: [ReasoningModelEffortSummary]
+    var dailyModelEfforts: [ReasoningDailyModelEffortSummary]
+
+    var runCoveragePercent: Double {
+        guard runCount > 0 else { return 0 }
+        return Double(knownRunCount) / Double(runCount) * 100
+    }
+
+    var tokenCoveragePercent: Double {
+        guard usage.total > 0 else { return 0 }
+        return Double(knownTokenCount) / Double(usage.total) * 100
+    }
+}
+
 struct RepoInsight: Codable {
     var key: String
     var displayName: String
@@ -478,6 +534,7 @@ struct RepoInsightsReport: Codable {
     var rows: [RepoInsight]
     var scannedAt: Date
     var windowDays: Int
+    var reasoning: ReasoningInsightsReport? = nil
 }
 
 struct AccountUsageSummary: Codable {
