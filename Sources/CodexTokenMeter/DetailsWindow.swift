@@ -36,6 +36,7 @@ struct DetailsLoadingProgress {
 final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
     let detailsView = UsageDetailsView(frame: NSRect(x: 0, y: 0, width: 900, height: 660))
     private let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 900, height: 660))
+    private var hasPresentedWindow = false
 
     init() {
         let window = NSWindow(
@@ -45,6 +46,7 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
             defer: false
         )
         window.title = t(.detailsWindowTitle)
+        window.isRestorable = false
         window.contentMinSize = NSSize(width: 860, height: 640)
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
@@ -60,6 +62,9 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
         detailsView.onPreferredHeightChanged = { [weak self] in
             self?.updateDocumentLayout()
         }
+        detailsView.onExpandReasoningWindow = { [weak self] in
+            self?.expandReasoningWindow()
+        }
         updateDocumentLayout()
     }
 
@@ -70,27 +75,31 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
     func showLoading() {
         detailsView.isLoading = true
         detailsView.loadingProgress = .starting
-        showWindow(nil)
-        window?.center()
-        NSApp.activate(ignoringOtherApps: true)
+        presentWindow()
         updateDocumentLayout()
     }
 
     func showCached(snapshot: DetailsSnapshot) {
         detailsView.snapshot = snapshot
         detailsView.isLoading = false
-        showWindow(nil)
-        window?.center()
-        NSApp.activate(ignoringOtherApps: true)
+        presentWindow()
         updateDocumentLayout()
     }
 
     func showContent() {
         detailsView.isLoading = false
+        presentWindow()
+        updateDocumentLayout()
+    }
+
+    private func presentWindow() {
         showWindow(nil)
+        if !hasPresentedWindow {
+            window?.setContentSize(NSSize(width: 900, height: 660))
+            hasPresentedWindow = true
+        }
         window?.center()
         NSApp.activate(ignoringOtherApps: true)
-        updateDocumentLayout()
     }
 
     func updateLoadingProgress(_ progress: DetailsLoadingProgress) {
@@ -139,6 +148,18 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
         updateDocumentLayout()
     }
 
+    private func expandReasoningWindow() {
+        guard let window, let screen = window.screen ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        let targetContentWidth = min(CGFloat(1400), visible.width - 64)
+        guard targetContentWidth > window.contentLayoutRect.width + 20 else { return }
+        let contentRect = NSRect(x: 0, y: 0, width: targetContentWidth, height: window.contentLayoutRect.height)
+        var targetFrame = window.frameRect(forContentRect: contentRect)
+        targetFrame.origin.x = min(max(visible.minX, window.frame.midX - targetFrame.width / 2), visible.maxX - targetFrame.width)
+        targetFrame.origin.y = min(visible.maxY - targetFrame.height, window.frame.maxY - targetFrame.height)
+        window.animator().setFrame(targetFrame, display: true)
+    }
+
     private func updateDocumentLayout() {
         let visibleWidth = max(860, scrollView.contentSize.width)
         let visibleHeight = max(640, scrollView.contentSize.height)
@@ -153,6 +174,8 @@ enum DetailsSection: CaseIterable {
     case overview
     case calendar
     case insights
+    case reasoning
+    case combinationRanking
     case costs
     case models
     case storage
@@ -166,17 +189,22 @@ enum DetailsSection: CaseIterable {
 
     var isVisibleInDetailsNavigation: Bool {
         // Quota cycles page is hidden until its design is finalized.
-        self != .costs
+        self != .costs && self != .combinationRanking
     }
 
     var visibleFallback: DetailsSection {
-        isVisibleInDetailsNavigation ? self : .overview
+        if self == .combinationRanking {
+            return .reasoning
+        }
+        return isVisibleInDetailsNavigation ? self : .overview
     }
 
     var title: String {
         switch self {
         case .overview: return t(.overview)
         case .insights: return AppLanguage.current.insightCopy.sidebarTitle
+        case .reasoning: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "思考分析" : "Reasoning"
+        case .combinationRanking: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "思考分析" : "Reasoning"
         case .models: return t(.models)
         case .calendar: return t(.calendar)
         case .costs: return t(.quotaCycles)
@@ -191,6 +219,8 @@ enum DetailsSection: CaseIterable {
         switch self {
         case .overview: return t(.overviewSubtitle)
         case .insights: return AppLanguage.current.insightCopy.sidebarSubtitle
+        case .reasoning: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "比较模型在不同思考强度下的 Token 与成本" : "Compare Token usage and cost across reasoning efforts"
+        case .combinationRanking: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "实际使用的模型 × 思考强度组合表现" : "Actual model × reasoning-effort performance"
         case .models: return t(.modelsSubtitle)
         case .calendar: return t(.calendarSubtitle)
         case .costs: return t(.quotaCyclesSubtitle)
@@ -205,6 +235,10 @@ enum DetailsSection: CaseIterable {
         switch self {
         case .insights:
             return AppLanguage.current.insightCopy.headerTitle
+        case .reasoning:
+            return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "思考分析" : "Reasoning"
+        case .combinationRanking:
+            return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "思考分析" : "Reasoning"
         case .storage:
             return AppLanguage.current.storageCopy.headerTitle
         case .overview:
@@ -400,6 +434,37 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     enum InsightDetailMode: CaseIterable {
         case usageHabits
         case usageTime
+        case reasoningDepth
+    }
+
+    struct ReasoningCellKey: Hashable {
+        let model: String
+        let effort: String
+    }
+
+    enum CombinationRankingMetric: CaseIterable {
+        case totalTokens
+        case averageTokens
+        case totalCost
+    }
+
+    enum CombinationRankingSortColumn: CaseIterable {
+        case model
+        case effort
+        case projects
+        case tasks
+        case totalTokens
+        case averageTokens
+        case freshInput
+        case cachedInput
+        case output
+        case reasoningOutput
+        case totalCost
+        case costPerTask
+
+        var defaultAscending: Bool {
+            self == .model || self == .effort
+        }
     }
 
     enum SettingsSubsection: CaseIterable {
@@ -492,6 +557,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 let report = calendarReport(for: snapshot)
                 normalizeCalendarSelection(in: report, fallback: selectedDay)
                 normalizeSelectedInsight(for: insightReport(for: snapshot))
+                normalizeReasoningSelection(snapshot.codexRepoInsightReports[selectedInsightWindowDays]?.reasoning ?? snapshot.codexRepoInsights.reasoning)
+                normalizeCombinationRankingSelection(snapshot: snapshot)
             }
             updateResetCreditCountdownTimer()
             onPreferredHeightChanged?()
@@ -599,6 +666,26 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var insightListContentHeight: CGFloat = 0
     var isInsightSortAscending = false
     var selectedInsightDetailMode: InsightDetailMode = .usageHabits
+    var selectedReasoningModels = Set<String>()
+    var selectedReasoningCell: ReasoningCellKey?
+    var reasoningModelChipRects: [String: NSRect] = [:]
+    var reasoningCellRects: [ReasoningCellKey: NSRect] = [:]
+    var reasoningTrendDayRects: [String: NSRect] = [:]
+    var hoveredReasoningDay: String?
+    var selectedCombinationRankingMetric: CombinationRankingMetric = .averageTokens
+    var selectedCombinationRankingModels = Set<String>()
+    var selectedCombinationRankingCell: ReasoningCellKey?
+    var combinationRankingMetricRects: [CombinationRankingMetric: NSRect] = [:]
+    var combinationRankingModelFieldRect: NSRect?
+    var combinationRankingModelOptionRects: [String: NSRect] = [:]
+    var combinationRankingSortRects: [CombinationRankingSortColumn: NSRect] = [:]
+    var combinationRankingRowRects: [ReasoningCellKey: NSRect] = [:]
+    var combinationRankingBubbleRects: [ReasoningCellKey: NSRect] = [:]
+    var isCombinationRankingModelMenuOpen = false
+    var combinationRankingExpandHintRect: NSRect?
+    var onExpandReasoningWindow: (() -> Void)?
+    var selectedCombinationRankingSort: CombinationRankingSortColumn = .averageTokens
+    var isCombinationRankingSortAscending = false
     var selectedSettingsSubsection: SettingsSubsection = .appearance {
         didSet {
             guard selectedSettingsSubsection != oldValue else { return }
@@ -804,6 +891,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 selectedInsightDetailMode = .usageTime
             case "habits", "usage-habits", "usage_habits":
                 selectedInsightDetailMode = .usageHabits
+            case "reasoning", "reasoning-depth", "reasoning_depth", "effort":
+                selectedInsightDetailMode = .reasoningDepth
+                selectedDetailsSource = .codex
             default:
                 break
             }
@@ -818,6 +908,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let visibleSection = section.visibleFallback
         if visibleSection == .insights {
             showInsightsPage(windowDays: insightWindowDays, insightMode: insightMode)
+        } else if visibleSection == .reasoning {
+            selectedInsightWindowDays = insightWindowOptions.contains(insightWindowDays) ? insightWindowDays : 90
+            selectedDetailsSource = .codex
+            selectedSection = .reasoning
+        } else if visibleSection == .combinationRanking {
+            selectedInsightWindowDays = insightWindowOptions.contains(insightWindowDays) ? insightWindowDays : 90
+            selectedSection = .combinationRanking
         } else {
             selectedSection = visibleSection
         }
@@ -837,7 +934,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         switch selectedSection {
         case .overview, .models, .calendar, .costs, .diagnostics, .storage:
             return true
-        case .insights, .settings, .about:
+        case .insights, .reasoning, .combinationRanking, .settings, .about:
             return false
         }
     }
@@ -1265,13 +1362,19 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             let heatmapHeight: CGFloat = 148
             let topOffset: CGFloat = 78
             let bottomPadding: CGFloat = 44
-            if contentWidth >= 940 {
+            if selectedInsightDetailMode == .reasoningDepth {
+                targetHeight = topOffset + 74 + 12 + 282 + 12 + 240 + bottomPadding
+            } else if contentWidth >= 940 {
                 targetHeight = topOffset + 444 + 16 + heatmapHeight + bottomPadding
             } else {
                 let listHeight: CGFloat = 444
                 let detailHeight: CGFloat = 430
                 targetHeight = topOffset + listHeight + 16 + detailHeight + 16 + heatmapHeight + bottomPadding
             }
+        case .reasoning:
+            targetHeight = contentWidth < 900 ? 1_390 : 968
+        case .combinationRanking:
+            targetHeight = contentWidth < 900 ? 1_390 : 968
         case .models:
             let tableHeight = snapshot.map { modelListPresentation(for: $0).tableHeight } ?? 132
             targetHeight = 410 + tableHeight
@@ -1515,6 +1618,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         updateContributionWeekHover(at: point)
         updateResetCreditHover(at: point)
         updateInsightUsageTimeHover(at: point)
+        updateReasoningTrendHover(at: point)
         updateModelUsageRowHover(at: point)
         updateStorageGrowthHover(at: point)
     }
@@ -1552,6 +1656,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionWeekHoverOverlay.hide()
         hoveredInsightHour = nil
         hoveredInsightPeriod = nil
+        hoveredReasoningDay = nil
         hoveredResetCreditIndex = nil
         hoveredModelUsageRowIndex = nil
         hoveredStorageCellKey = nil
@@ -1755,6 +1860,21 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
+    func updateReasoningTrendHover(at point: CGPoint) {
+        guard selectedSection == .reasoning else {
+            if hoveredReasoningDay != nil {
+                hoveredReasoningDay = nil
+                needsDisplay = true
+            }
+            return
+        }
+        let newDay = reasoningTrendDayRects.first { $0.value.insetBy(dx: -3, dy: -6).contains(point) }?.key
+        if hoveredReasoningDay != newDay {
+            hoveredReasoningDay = newDay
+            needsDisplay = true
+        }
+    }
+
     func updateDayValueInfoHover(at point: CGPoint) {
         let hovering = selectedSection == .calendar && (dayValueInfoRect?.contains(point) == true)
         if hovering != isHoveringDayValueInfo {
@@ -1781,6 +1901,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
             if section == .insights, let snapshot {
                 normalizeSelectedInsight(for: insightReport(for: snapshot))
+            }
+            if section == .reasoning, let snapshot {
+                normalizeCombinationRankingSelection(snapshot: snapshot)
             }
             return
         }
@@ -1812,6 +1935,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
             for (mode, rect) in insightDetailModeRects where rect.contains(point) {
                 selectedInsightDetailMode = mode
+                if mode == .reasoningDepth {
+                    selectedDetailsSource = .codex
+                }
                 needsDisplay = true
                 return
             }
@@ -1831,6 +1957,65 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
             for (key, rect) in insightRowRects where rect.contains(point) {
                 selectedInsightKey = key
+                needsDisplay = true
+                return
+            }
+        }
+        if selectedSection == .reasoning || selectedSection == .combinationRanking {
+            if combinationRankingExpandHintRect?.contains(point) == true {
+                onExpandReasoningWindow?()
+                return
+            }
+            if isCombinationRankingModelMenuOpen {
+                for (model, rect) in combinationRankingModelOptionRects where rect.contains(point) {
+                    if selectedCombinationRankingModels.contains(model), selectedCombinationRankingModels.count > 1 {
+                        selectedCombinationRankingModels.remove(model)
+                    } else {
+                        selectedCombinationRankingModels.insert(model)
+                    }
+                    normalizeCombinationRankingSelection(snapshot: snapshot)
+                    needsDisplay = true
+                    return
+                }
+            }
+            if combinationRankingModelFieldRect?.contains(point) == true {
+                isCombinationRankingModelMenuOpen.toggle()
+                needsDisplay = true
+                return
+            }
+            if isCombinationRankingModelMenuOpen {
+                isCombinationRankingModelMenuOpen = false
+                needsDisplay = true
+                return
+            }
+            for (days, rect) in insightWindowRects where rect.contains(point) {
+                selectedInsightWindowDays = days
+                normalizeCombinationRankingSelection(snapshot: snapshot)
+                needsDisplay = true
+                return
+            }
+            for (metric, rect) in combinationRankingMetricRects where rect.contains(point) {
+                selectedCombinationRankingMetric = metric
+                needsDisplay = true
+                return
+            }
+            for (column, rect) in combinationRankingSortRects where rect.contains(point) {
+                if selectedCombinationRankingSort == column {
+                    isCombinationRankingSortAscending.toggle()
+                } else {
+                    selectedCombinationRankingSort = column
+                    isCombinationRankingSortAscending = column.defaultAscending
+                }
+                needsDisplay = true
+                return
+            }
+            for (cell, rect) in combinationRankingRowRects where rect.contains(point) {
+                selectedCombinationRankingCell = cell
+                needsDisplay = true
+                return
+            }
+            for (cell, rect) in combinationRankingBubbleRects where rect.contains(point) {
+                selectedCombinationRankingCell = cell
                 needsDisplay = true
                 return
             }
@@ -2303,6 +2488,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         insightHourRects.removeAll()
         insightHourBarRects.removeAll()
         insightPeriodRects.removeAll()
+        reasoningModelChipRects.removeAll()
+        reasoningCellRects.removeAll()
+        reasoningTrendDayRects.removeAll()
+        combinationRankingMetricRects.removeAll()
+        combinationRankingModelFieldRect = nil
+        combinationRankingModelOptionRects.removeAll()
+        combinationRankingSortRects.removeAll()
+        combinationRankingRowRects.removeAll()
+        combinationRankingBubbleRects.removeAll()
+        combinationRankingExpandHintRect = nil
         insightSortRects.removeAll()
         modelSortColumnRects.removeAll()
         insightStatusFilterRects.removeAll()
@@ -2358,6 +2553,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawOverview(snapshot: snapshot, content: content)
         case .insights:
             drawInsightsPage(snapshot: snapshot, content: content)
+        case .reasoning:
+            drawCombinationRankingPage(snapshot: snapshot, content: content)
+        case .combinationRanking:
+            drawCombinationRankingPage(snapshot: snapshot, content: content)
         case .models:
             drawModelsPage(snapshot: snapshot, content: content)
         case .calendar:
@@ -2381,6 +2580,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawResetCreditTooltip(container: content)
         } else if selectedSection == .insights {
             drawInsightUsageTimeTooltip()
+        } else if selectedSection == .reasoning {
+            drawReasoningTrendTooltip(container: content)
         } else if selectedSection == .costs {
             drawQuotaCycleTooltip(container: content)
         } else if selectedSection == .models {
@@ -2412,12 +2613,18 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         if selectedSection == .insights, selectedInsightDetailMode == .usageTime {
             return localizedInsightUsageTimePageTitle
         }
+        if selectedSection == .insights, selectedInsightDetailMode == .reasoningDepth {
+            return localizedReasoningDepthPageTitle
+        }
         return selectedSection.headerTitle
     }
 
     var currentDetailsHeaderSubtitle: String {
         if selectedSection == .insights, selectedInsightDetailMode == .usageTime {
             return localizedInsightUsageTimePageSubtitle
+        }
+        if selectedSection == .insights, selectedInsightDetailMode == .reasoningDepth {
+            return localizedReasoningDepthPageSubtitle
         }
         return selectedSection.subtitle
     }
@@ -2482,6 +2689,17 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawSymbolIcon(sidebarSymbolName(section), in: iconRect, color: textColor.withAlphaComponent(section == selectedSection ? 1.0 : 0.72))
             drawText(section.title, rect: NSRect(x: rect.minX + 42, y: rect.minY + 10, width: rect.width - 56, height: 22), font: .systemFont(ofSize: 15, weight: .semibold), color: textColor)
         }
+        if (selectedSection == .reasoning || selectedSection == .combinationRanking),
+           let report = snapshot?.codexRepoInsightReports[selectedInsightWindowDays] ?? snapshot?.codexRepoInsights {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = appTimeZone()
+            formatter.dateFormat = "yyyy-MM-dd"
+            drawText("\(reasoningLocalized("数据更新", english: "Updated")):  \(formatter.string(from: report.scannedAt))", rect: NSRect(x: 28, y: bounds.maxY - 66, width: width - 48, height: 17), font: .systemFont(ofSize: 10.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
+            let seconds = appTimeZone().secondsFromGMT()
+            let sign = seconds >= 0 ? "+" : "-"
+            drawText("\(reasoningLocalized("时区", english: "Time zone")):  UTC\(sign)\(abs(seconds) / 3600)", rect: NSRect(x: 28, y: bounds.maxY - 42, width: width - 48, height: 17), font: .systemFont(ofSize: 10.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
+        }
     }
 
     func sidebarSymbolName(_ section: DetailsSection) -> String {
@@ -2489,6 +2707,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         case .overview: return "square.grid.2x2"
         case .calendar: return "calendar"
         case .insights: return "waveform.path.ecg"
+        case .reasoning: return "chart.line.uptrend.xyaxis"
+        case .combinationRanking: return "chart.bar.xaxis.ascending"
         case .costs: return "clock.arrow.circlepath"
         case .models: return "cpu"
         case .storage: return "internaldrive"

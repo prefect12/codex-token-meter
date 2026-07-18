@@ -7,6 +7,12 @@ extension UsageDetailsView {
         drawInsightControls(content: content)
         let topY = content.minY + 112
 
+        if selectedInsightDetailMode == .reasoningDepth {
+            let codexReport = snapshot.codexRepoInsightReports[selectedInsightWindowDays] ?? snapshot.codexRepoInsights
+            drawReasoningDepthPage(report: codexReport.reasoning, content: content, topY: topY)
+            return
+        }
+
         if selectedInsightDetailMode == .usageTime {
             let timeRect = NSRect(x: content.minX, y: topY, width: content.width, height: min(520, max(360, content.maxY - topY)))
             drawInsightUsageTimePage(report: report, rect: timeRect)
@@ -215,8 +221,11 @@ extension UsageDetailsView {
         let sourceW: CGFloat = 54
         for option in [QuotaViewOption.all, .codex, .claude] {
             let rect = NSRect(x: x, y: compactY, width: sourceW, height: compactH)
-            sourceOptionRects[option] = rect
-            drawCompactInsightPill(detailsSourceTitle(option), rect: rect, selected: selectedDetailsSource == option)
+            let enabled = selectedInsightDetailMode != .reasoningDepth || option == .codex
+            if enabled {
+                sourceOptionRects[option] = rect
+            }
+            drawCompactInsightPill(detailsSourceTitle(option), rect: rect, selected: selectedDetailsSource == option, enabled: enabled)
             x += sourceW + compactGap
         }
 
@@ -239,16 +248,18 @@ extension UsageDetailsView {
         NSBezierPath(rect: NSRect(x: x, y: y + 6, width: 1, height: height - 12)).fill()
     }
 
-    func drawCompactInsightPill(_ text: String, rect: NSRect, selected: Bool) {
-        let fill = selected ? accentBlue.withAlphaComponent(0.74) : inputSurfaceColor.withAlphaComponent(0.30)
-        let stroke = selected ? accentTeal.withAlphaComponent(0.50) : borderColor.withAlphaComponent(0.80)
+    func drawCompactInsightPill(_ text: String, rect: NSRect, selected: Bool, enabled: Bool = true) {
+        let isSelected = selected && enabled
+        let fill = isSelected ? accentBlue.withAlphaComponent(0.74) : inputSurfaceColor.withAlphaComponent(enabled ? 0.30 : 0.16)
+        let stroke = isSelected ? accentTeal.withAlphaComponent(0.50) : borderColor.withAlphaComponent(enabled ? 0.80 : 0.36)
         fill.setFill()
         NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
         stroke.setStroke()
         let outline = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
         outline.lineWidth = 1
         outline.stroke()
-        drawCentered(text, rect: rect.insetBy(dx: 4, dy: 0), font: .systemFont(ofSize: 10, weight: .bold), color: selected ? .white : NSColor.white.withAlphaComponent(0.72))
+        let color = isSelected ? NSColor.white : NSColor.white.withAlphaComponent(enabled ? 0.72 : 0.28)
+        drawCentered(text, rect: rect.insetBy(dx: 4, dy: 0), font: .systemFont(ofSize: 10, weight: .bold), color: color)
     }
 
     func drawInsightProjectList(rows: [RepoInsight], grouped: Bool, rect: NSRect) {
@@ -795,6 +806,31 @@ extension UsageDetailsView {
         case (.usageTime, .polish): return "Godziny"
         case (.usageTime, .english): return "Time"
         case (.usageTime, _): return "Time"
+        case (.reasoningDepth, .chinese), (.reasoningDepth, .traditionalChinese): return "思考深度"
+        case (.reasoningDepth, .japanese): return "思考深度"
+        case (.reasoningDepth, .polish): return "Rozumowanie"
+        case (.reasoningDepth, .english): return "Reasoning"
+        case (.reasoningDepth, _): return "Reasoning"
+        }
+    }
+
+    var localizedReasoningDepthPageTitle: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "思考深度"
+        case .japanese: return "思考深度"
+        case .polish: return "Glebokosc rozumowania"
+        case .english: return "Reasoning Depth"
+        default: return "Reasoning Depth"
+        }
+    }
+
+    var localizedReasoningDepthPageSubtitle: String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese: return "查看思考等级、任务数量与 Token 消耗之间的关系"
+        case .japanese: return "思考レベル、タスク数、Token 消費の関係を確認"
+        case .polish: return "Relacja poziomu rozumowania, zadan i zuzycia tokenow"
+        case .english: return "Compare reasoning effort, task volume, and token consumption"
+        default: return "Compare reasoning effort, task volume, and token consumption"
         }
     }
 

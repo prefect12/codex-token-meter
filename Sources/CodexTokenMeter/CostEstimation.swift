@@ -546,7 +546,12 @@ func mergedRepoInsightsReport(_ reports: [RepoInsightsReport], scannedAt: Date =
         }
         return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
     }
-    return RepoInsightsReport(rows: rows, scannedAt: scannedAt, windowDays: windowDays)
+    return RepoInsightsReport(
+        rows: rows,
+        scannedAt: scannedAt,
+        windowDays: windowDays,
+        reasoning: reports.compactMap(\.reasoning).first
+    )
 }
 
 private func mergedRepoInsightDays(_ days: [RepoInsightDay]) -> [RepoInsightDay] {

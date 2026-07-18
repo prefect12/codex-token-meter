@@ -128,6 +128,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh(forceLive: false)
         }
+        if CommandLine.arguments.contains("--open-details=reasoning") {
+            detailsController.detailsView.showSection(.reasoning, insightWindowDays: 90, source: .codex)
+            DispatchQueue.main.async { [weak self] in
+                self?.openDetailsWindow()
+            }
+        } else if CommandLine.arguments.contains("--open-details=ranking") || CommandLine.arguments.contains("--open-details=combination-ranking") {
+            detailsController.detailsView.showSection(.combinationRanking, insightWindowDays: 90)
+            DispatchQueue.main.async { [weak self] in
+                self?.openDetailsWindow()
+            }
+        }
         requestClaudeKeychainAccessIfNeeded()
     }
 
