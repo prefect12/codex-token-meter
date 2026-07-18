@@ -173,11 +173,11 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
 enum DetailsSection: CaseIterable {
     case overview
     case calendar
-    case insights
+    case models
     case reasoning
     case combinationRanking
+    case insights
     case costs
-    case models
     case storage
     case settings
     case diagnostics
