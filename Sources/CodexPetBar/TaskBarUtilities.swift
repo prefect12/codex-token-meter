@@ -180,20 +180,50 @@ private func threadSortTimestamp(_ item: CodexThreadItem, mode: TaskThreadSortMo
 }
 
 extension Array where Element == CodexThreadItem {
+    var primaryThreads: [CodexThreadItem] {
+        filter { !$0.isSubtask }
+    }
+
+    func subtasks(parentID: String) -> [CodexThreadItem] {
+        filter { $0.isSubtask && $0.parentThreadID == parentID }
+            .sorted { lhs, rhs in
+                let rank: (ThreadRunStatus) -> Int = { status in
+                    switch status {
+                    case .running: return 0
+                    case .waiting: return 1
+                    case .unread: return 2
+                    case .stale: return 3
+                    }
+                }
+                let lhsRank = rank(lhs.status)
+                let rhsRank = rank(rhs.status)
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                return lhs.lastActivity > rhs.lastActivity
+            }
+    }
+
     func limitedForTaskBar(limit: Int) -> [CodexThreadItem] {
         let limit = Swift.max(1, limit)
-        // Keep every active thread and every pinned thread; only cap the remaining
-        // finished ("done"/unread) rows to fit the limit.
+        // Subtasks are children of a primary row and never consume the primary-thread
+        // limit. Keep them only when their parent is retained so they cannot leak back
+        // into the top-level list as standalone rows.
+        let roots = primaryThreads
         let pinned = TaskBarSettings.pinnedThreadIDs
-        let alwaysKeptCount = filter { $0.status != .unread || pinned.contains($0.id) }.count
+        let alwaysKeptCount = roots.filter { $0.status != .unread || pinned.contains($0.id) }.count
         let doneAllowed = Swift.max(0, limit - alwaysKeptCount)
-        // Preserve the incoming sort order (which honors the custom group order) instead of
-        // re-segregating active-before-done, so a "done first" order stays intact.
         var doneKept = 0
-        return filter { item in
+        let retainedRoots = roots.filter { item in
             guard item.status == .unread, !pinned.contains(item.id) else { return true }
             defer { doneKept += 1 }
             return doneKept < doneAllowed
+        }
+        let retainedRootIDs = Set(retainedRoots.map(\.id))
+        return filter { item in
+            if item.isSubtask {
+                guard let parentID = item.parentThreadID else { return false }
+                return retainedRootIDs.contains(parentID)
+            }
+            return retainedRootIDs.contains(item.id)
         }
     }
 }

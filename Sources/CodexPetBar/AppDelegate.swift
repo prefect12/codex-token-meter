@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingRolloutEnrichment = false
     private var pendingPriorityRolloutURLs: [String: URL] = [:]
     private var selectedTab: TaskBarTab = .all
+    private var collapsedThreadIDs = Set<String>()
     private var lastThreadsSignature = ""
     private var lastStatusIconSignature = ""
     private let refreshInterval: TimeInterval = 15
@@ -128,7 +129,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func threadsSignature(_ items: [CodexThreadItem]) -> String {
-        items.map { "\($0.id)|\(statusRank($0.status))|\($0.title)|\($0.preview ?? "")" }
+        items.map {
+            "\($0.id)|\(statusRank($0.status))|\($0.title)|\($0.preview ?? "")|\($0.threadKind.rawValue)|\($0.parentThreadID ?? "")|\($0.agentNickname ?? "")|\($0.agentPath ?? "")"
+        }
             .joined(separator: ";")
     }
 
@@ -140,9 +143,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatusIcon() {
-        let runningCount = threads.filter { $0.status == .running }.count
-        let waitingCount = threads.filter { $0.status == .waiting }.count
-        let unreadCount = threads.filter { $0.status == .unread }.count
+        let primaryThreads = threads.primaryThreads
+        let runningCount = primaryThreads.filter { $0.status == .running }.count
+        let waitingCount = primaryThreads.filter { $0.status == .waiting }.count
+        let unreadCount = primaryThreads.filter { $0.status == .unread }.count
         let actionNeededCount = waitingCount + unreadCount
         let totalCount = runningCount + actionNeededCount
         let statusIconStatus: ThreadRunStatus = waitingCount > 0 ? .waiting : (unreadCount > 0 ? .unread : .running)
@@ -171,9 +175,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func rebuildPopover() {
         ThreadHoverPanel.shared.hideAll()
-        let active = threads.filter { $0.status == .running }
-        let waitingCount = threads.filter { $0.status == .waiting }.count
-        let unreadCount = threads.filter { $0.status == .unread }.count
+        let primaryThreads = threads.primaryThreads
+        let active = primaryThreads.filter { $0.status == .running }
+        let waitingCount = primaryThreads.filter { $0.status == .waiting }.count
+        let unreadCount = primaryThreads.filter { $0.status == .unread }.count
         let controller = NSViewController()
         let content = TaskBarPopoverContentView(
             threads: threads,
@@ -191,6 +196,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onTogglePin: { [weak self] id in
                 self?.togglePin(id: id)
+            },
+            collapsedThreadIDs: collapsedThreadIDs,
+            onSetSubtasksExpanded: { [weak self] id, expanded in
+                if expanded {
+                    self?.collapsedThreadIDs.remove(id)
+                } else {
+                    self?.collapsedThreadIDs.insert(id)
+                }
             },
             onSelectTab: { [weak self] tab in
                 self?.selectedTab = tab

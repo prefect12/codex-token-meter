@@ -127,6 +127,16 @@ private struct ThreadStateMetadata {
     let tokenBreakdown: TokenBreakdown
     let model: String?
     let updatedAt: Date?
+    let threadKind: CodexThreadKind
+    let rolloutPath: String?
+    let agentNickname: String?
+    let agentPath: String?
+}
+
+private struct RolloutHierarchyMetadata {
+    let parentThreadID: String?
+    let agentNickname: String?
+    let agentPath: String?
 }
 
 private struct AppServerThreadSnapshot {
@@ -240,6 +250,7 @@ final class CodexActivityReader {
     private var sqliteQueryCache: [String: SQLiteQueryCacheEntry] = [:]
     private var appServerCacheByPath: [String: CachedAppServerSnapshot] = [:]
     private var stateMetadataCache: CachedStateMetadata?
+    private var rolloutHierarchyCache: [String: RolloutHierarchyMetadata] = [:]
     private var unreadThreadsCache: CachedUnreadThreads?
     private let appServerCacheTTL: TimeInterval = 120
     private let sqliteSupplementCacheTTL: TimeInterval = 30
@@ -257,6 +268,7 @@ final class CodexActivityReader {
         if rolloutURLCacheByThreadID.count > 4096 { rolloutURLCacheByThreadID.removeAll() }
         if rolloutDirectoryCache.count > 256 { rolloutDirectoryCache.removeAll() }
         if sqliteQueryCache.count > 64 { sqliteQueryCache.removeAll() }
+        if rolloutHierarchyCache.count > 4096 { rolloutHierarchyCache.removeAll() }
         var byID: [String: CodexThreadItem] = [:]
         let unreadThreadIDs = globalUnreadThreadIDs()
         let stateMetadata = stateThreadMetadata()
@@ -332,7 +344,11 @@ final class CodexActivityReader {
                     codexUpdatedAt: existing.codexUpdatedAt,
                     tokensUsed: existing.tokensUsed ?? tokenBreakdown.displayTotal,
                     tokenBreakdown: tokenBreakdown,
-                    model: existing.model
+                    model: existing.model,
+                    threadKind: existing.threadKind,
+                    parentThreadID: existing.parentThreadID,
+                    agentNickname: existing.agentNickname,
+                    agentPath: existing.agentPath
                 )
                 continue
             }
@@ -358,7 +374,11 @@ final class CodexActivityReader {
                 codexUpdatedAt: nil,
                 tokensUsed: summary.tokenBreakdown.displayTotal,
                 tokenBreakdown: summary.tokenBreakdown,
-                model: nil
+                model: nil,
+                threadKind: .root,
+                parentThreadID: nil,
+                agentNickname: nil,
+                agentPath: nil
             )
         }
 
@@ -383,6 +403,9 @@ final class CodexActivityReader {
 
     private func enrich(_ item: CodexThreadItem, with metadata: ThreadStateMetadata?) -> CodexThreadItem {
         guard let metadata else { return item }
+        let hierarchy = metadata.threadKind == .subtask
+            ? metadata.rolloutPath.flatMap(rolloutHierarchyMetadata)
+            : nil
         return CodexThreadItem(
             id: item.id,
             title: cleanTitle(metadata.title) ?? item.title,
@@ -399,7 +422,11 @@ final class CodexActivityReader {
             codexUpdatedAt: metadata.updatedAt ?? item.codexUpdatedAt,
             tokensUsed: item.tokensUsed ?? metadata.tokensUsed,
             tokenBreakdown: item.tokenBreakdown.resolved(with: metadata.tokenBreakdown),
-            model: item.model ?? metadata.model
+            model: item.model ?? metadata.model,
+            threadKind: metadata.threadKind,
+            parentThreadID: item.parentThreadID ?? hierarchy?.parentThreadID,
+            agentNickname: item.agentNickname ?? metadata.agentNickname ?? hierarchy?.agentNickname,
+            agentPath: item.agentPath ?? metadata.agentPath ?? hierarchy?.agentPath
         )
     }
 
@@ -439,7 +466,11 @@ final class CodexActivityReader {
             codexUpdatedAt: item.codexUpdatedAt,
             tokensUsed: item.tokensUsed ?? tokenBreakdown.displayTotal,
             tokenBreakdown: tokenBreakdown,
-            model: item.model
+            model: item.model,
+            threadKind: item.threadKind,
+            parentThreadID: item.parentThreadID,
+            agentNickname: item.agentNickname,
+            agentPath: item.agentPath
         )
     }
 
@@ -572,6 +603,10 @@ final class CodexActivityReader {
                     && !isAppServerReadThrough(externalReadAt: externalReadAt, lastActivity: lastActivity)
                 guard let status = appServerThreadStatus(dict, explicitUnread: explicitUnread) else { continue }
                 let tokenBreakdown = tokenBreakdown(from: dict)
+                let threadKind = codexThreadKind(
+                    string(dict["threadSource"] ?? dict["thread_source"])
+                        ?? string(nestedValue(in: dict["source"], keys: ["thread_source", "threadSource"]))
+                )
                 let codexUpdatedAt = (double(dict["updatedAt"] ?? dict["updated_at"] ?? dict["lastActivityAt"]) ?? double(dict["recencyAt"] ?? dict["recency_at"]))
                     .map(unixDate(seconds:))
                 items.append(CodexThreadItem(
@@ -590,7 +625,14 @@ final class CodexActivityReader {
                     codexUpdatedAt: codexUpdatedAt,
                     tokensUsed: tokenBreakdown.displayTotal,
                     tokenBreakdown: tokenBreakdown,
-                    model: string(dict["model"] ?? dict["modelName"])
+                    model: string(dict["model"] ?? dict["modelName"]),
+                    threadKind: threadKind,
+                    parentThreadID: string(dict["parentThreadId"] ?? dict["parent_thread_id"])
+                        ?? string(nestedValue(in: dict["source"], keys: ["parentThreadId", "parent_thread_id"])),
+                    agentNickname: string(dict["agentNickname"] ?? dict["agent_nickname"])
+                        ?? string(nestedValue(in: dict["source"], keys: ["agentNickname", "agent_nickname"])),
+                    agentPath: string(dict["agentPath"] ?? dict["agent_path"])
+                        ?? string(nestedValue(in: dict["source"], keys: ["agentPath", "agent_path"]))
                 ))
         }
         return AppServerThreadSnapshot(items: items.limitedForTaskBar(limit: limit), externalReadAtByID: externalReadAtByID)
@@ -613,6 +655,30 @@ final class CodexActivityReader {
             }
         }
         return nil
+    }
+
+    private func nestedValue(in raw: Any?, keys: Set<String>) -> Any? {
+        if let dict = raw as? [String: Any] {
+            for key in keys {
+                if let value = dict[key] { return value }
+            }
+            for value in dict.values {
+                if let match = nestedValue(in: value, keys: keys) { return match }
+            }
+        } else if let array = raw as? [Any] {
+            for value in array {
+                if let match = nestedValue(in: value, keys: keys) { return match }
+            }
+        }
+        return nil
+    }
+
+    private func codexThreadKind(_ raw: String?) -> CodexThreadKind {
+        switch raw?.lowercased() {
+        case "subagent", "subtask": return .subtask
+        case "automation": return .automation
+        default: return .root
+        }
     }
 
     private func isAppServerReadThrough(externalReadAt: Date?, lastActivity: Date) -> Bool {
@@ -908,7 +974,8 @@ final class CodexActivityReader {
         }
         let ids = threadIDs.map(sqlStringLiteral).joined(separator: ",")
         let sql = """
-        select id, title, preview, cwd, tokens_used, model,
+        select id, title, preview, cwd, tokens_used, model, thread_source,
+               agent_nickname, agent_path, rollout_path,
                coalesce(nullif(updated_at_ms, 0), updated_at * 1000) as updated_ms
         from threads
         where archived = 0
@@ -949,7 +1016,13 @@ final class CodexActivityReader {
                         codexUpdatedAt: codexUpdatedAt,
                         tokensUsed: tokenBreakdown.displayTotal,
                         tokenBreakdown: tokenBreakdown,
-                        model: string(row["model"])
+                        model: string(row["model"]),
+                        threadKind: codexThreadKind(string(row["thread_source"])),
+                        parentThreadID: string(row["rollout_path"]).flatMap {
+                            rolloutHierarchyMetadata($0)?.parentThreadID
+                        },
+                        agentNickname: string(row["agent_nickname"]),
+                        agentPath: string(row["agent_path"])
                     )
                 }
             }
@@ -957,14 +1030,15 @@ final class CodexActivityReader {
         return items
     }
 
-    private func stateThreadMetadata(limit: Int = 300) -> [String: ThreadStateMetadata] {
+    private func stateThreadMetadata(limit: Int = 120) -> [String: ThreadStateMetadata] {
         let now = Date()
         if let cached = stateMetadataCache,
            now.timeIntervalSince(cached.readAt) < sqliteSupplementCacheTTL {
             return cached.metadata
         }
         let sql = """
-        select id, title, cwd, tokens_used, model,
+        select id, substr(title, 1, 1024) as title, cwd, tokens_used, model, rollout_path, thread_source,
+               agent_nickname, agent_path,
                coalesce(nullif(updated_at_ms, 0), updated_at * 1000) as updated_ms
         from threads
         where archived = 0
@@ -982,12 +1056,38 @@ final class CodexActivityReader {
                     tokensUsed: tokenBreakdown.displayTotal,
                     tokenBreakdown: tokenBreakdown,
                     model: string(row["model"]),
-                    updatedAt: double(row["updated_ms"]).map(unixDate(seconds:))
+                    updatedAt: double(row["updated_ms"]).map(unixDate(seconds:)),
+                    threadKind: codexThreadKind(string(row["thread_source"])),
+                    rolloutPath: string(row["rollout_path"]),
+                    agentNickname: string(row["agent_nickname"]),
+                    agentPath: string(row["agent_path"])
                 )
             }
         }
         stateMetadataCache = CachedStateMetadata(metadata: result, readAt: now)
         return result
+    }
+
+    private func rolloutHierarchyMetadata(_ path: String) -> RolloutHierarchyMetadata? {
+        if let cached = rolloutHierarchyCache[path] { return cached }
+        let url = URL(fileURLWithPath: path)
+        guard fileManager.fileExists(atPath: url.path),
+              let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 16_384),
+              !data.isEmpty else { return nil }
+        let prefix = String(decoding: data, as: UTF8.self)
+        guard prefix.contains(#""type":"session_meta""#) else { return nil }
+        let metadata = RolloutHierarchyMetadata(
+            parentThreadID: extractJSONString(line: prefix, key: "parent_thread_id")
+                ?? extractJSONString(line: prefix, key: "parentThreadId"),
+            agentNickname: extractJSONString(line: prefix, key: "agent_nickname")
+                ?? extractJSONString(line: prefix, key: "agentNickname"),
+            agentPath: extractJSONString(line: prefix, key: "agent_path")
+                ?? extractJSONString(line: prefix, key: "agentPath")
+        )
+        rolloutHierarchyCache[path] = metadata
+        return metadata
     }
 
     private func runSQLite(databaseURL: URL, sql: String) -> String {
@@ -1386,7 +1486,11 @@ final class CodexActivityReader {
             codexUpdatedAt: nil,
             tokensUsed: state.tokens.displayTotal,
             tokenBreakdown: state.tokens,
-            model: state.model
+            model: state.model,
+            threadKind: .root,
+            parentThreadID: nil,
+            agentNickname: nil,
+            agentPath: nil
         )
     }
 

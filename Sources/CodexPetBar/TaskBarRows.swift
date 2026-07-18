@@ -1,13 +1,49 @@
 import Cocoa
 import Foundation
 
+private final class SubtaskCountBadgeView: NSView {
+    private let label = NSTextField(labelWithString: "")
+
+    init(count: Int) {
+        super.init(frame: NSRect(x: 0, y: 0, width: 66, height: 22))
+        wantsLayer = true
+        label.stringValue = "\(count) Subtasks"
+        label.font = .systemFont(ofSize: 9.5, weight: .medium)
+        label.textColor = NSColor(calibratedWhite: 0.65, alpha: 1)
+        label.alignment = .center
+        addSubview(label)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: bounds.height / 2, yRadius: bounds.height / 2)
+        NSColor.white.withAlphaComponent(0.055).setFill()
+        path.fill()
+        NSColor.white.withAlphaComponent(0.10).setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+
+    override func layout() {
+        super.layout()
+        label.frame = NSRect(x: 5, y: 3, width: bounds.width - 10, height: 16)
+    }
+}
+
 final class ThreadRowView: NSView {
     private let item: CodexThreadItem
     private let onOpen: (String) -> Void
     private let onDismiss: (String) -> Void
     private let onTogglePin: (String) -> Void
+    private let onToggleSubtasks: (String) -> Void
     private let showPlatformLabel: Bool
     private let rowLayout: TaskRowLayoutStyle
+    private let subtaskCount: Int
+    private let isExpanded: Bool
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private let clockIconView = NSImageView()
@@ -16,6 +52,8 @@ final class ThreadRowView: NSView {
     private let metaStatusLabel = NSTextField(labelWithString: "")
     private let platformLabel = NSTextField(labelWithString: "")
     private let pinIconView = NSImageView()
+    private let disclosureIconView = NSImageView()
+    private let subtaskBadgeView: SubtaskCountBadgeView
     private var isPinned: Bool
     private var trackingAreaRef: NSTrackingArea?
     private var elapsedTimer: Timer?
@@ -38,7 +76,10 @@ final class ThreadRowView: NSView {
         rowLayout: TaskRowLayoutStyle,
         onOpen: @escaping (String) -> Void,
         onDismiss: @escaping (String) -> Void,
-        onTogglePin: @escaping (String) -> Void
+        onTogglePin: @escaping (String) -> Void,
+        subtaskCount: Int,
+        isExpanded: Bool,
+        onToggleSubtasks: @escaping (String) -> Void
     ) {
         self.item = item
         self.showPlatformLabel = showPlatformLabel
@@ -46,6 +87,10 @@ final class ThreadRowView: NSView {
         self.onOpen = onOpen
         self.onDismiss = onDismiss
         self.onTogglePin = onTogglePin
+        self.onToggleSubtasks = onToggleSubtasks
+        self.subtaskCount = subtaskCount
+        self.isExpanded = isExpanded
+        self.subtaskBadgeView = SubtaskCountBadgeView(count: subtaskCount)
         self.isPinned = TaskBarSettings.isPinned(item.id)
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: rowLayout.rowHeight))
         wantsLayer = true
@@ -55,7 +100,7 @@ final class ThreadRowView: NSView {
         let accent = statusAccentColor(item.status)
 
         titleLabel.stringValue = item.title
-        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: subtaskCount > 0 ? 12.5 : 13, weight: .semibold)
         titleLabel.textColor = .white
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
@@ -96,6 +141,19 @@ final class ThreadRowView: NSView {
         pinIconView.imageScaling = .scaleProportionallyDown
         addSubview(pinIconView)
         updatePinIcon()
+
+        let disclosureConfig = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+        disclosureIconView.image = NSImage(
+            systemSymbolName: isExpanded ? "chevron.down" : "chevron.right",
+            accessibilityDescription: isExpanded ? "收起子任务" : "展开子任务"
+        )?.withSymbolConfiguration(disclosureConfig)
+        disclosureIconView.contentTintColor = NSColor(calibratedWhite: 0.58, alpha: 1)
+        disclosureIconView.imageScaling = .scaleProportionallyDown
+        disclosureIconView.isHidden = subtaskCount == 0
+        addSubview(disclosureIconView)
+
+        subtaskBadgeView.isHidden = subtaskCount == 0
+        addSubview(subtaskBadgeView)
 
         switch rowLayout {
         case .standard:
@@ -189,12 +247,21 @@ final class ThreadRowView: NSView {
             togglePinTapped()
             return
         }
+        if subtaskToggleHitRect.contains(point) {
+            onToggleSubtasks(item.id)
+            return
+        }
         onOpen(item.id)
     }
 
     /// Generous hit target around the pin glyph.
     private var pinHitRect: NSRect {
         pinIconView.frame.insetBy(dx: -6, dy: -6)
+    }
+
+    private var subtaskToggleHitRect: NSRect {
+        guard subtaskCount > 0 else { return .zero }
+        return disclosureIconView.frame.union(subtaskBadgeView.frame).insetBy(dx: -7, dy: -7)
     }
 
     private func togglePinTapped() {
@@ -363,11 +430,17 @@ final class ThreadRowView: NSView {
     }
 
     private func layoutTitleAndPin(x: CGFloat, y: CGFloat, width: CGFloat, offset: CGFloat) {
-        let titleX = x + offset
+        let disclosureWidth: CGFloat = subtaskCount > 0 ? 15 : 0
+        disclosureIconView.frame = NSRect(x: x + offset, y: y + 4, width: 11, height: 11)
+        let titleX = x + disclosureWidth + offset
         let pinX = bounds.width - ThreadRowView.pinTrailingInset - ThreadRowView.pinIconSize + offset
-        let titleWidth = max(0, min(width, pinX - ThreadRowView.titlePinGap - titleX))
+        let badgeWidth: CGFloat = subtaskCount > 0 ? 66 : 0
+        let badgeX = pinX - (subtaskCount > 0 ? badgeWidth + 6 : 0)
+        let titleTrailingX = subtaskCount > 0 ? badgeX - 6 : pinX - ThreadRowView.titlePinGap
+        let titleWidth = max(0, min(width, titleTrailingX - titleX))
 
         titleLabel.frame = NSRect(x: titleX, y: y, width: titleWidth, height: 20)
+        subtaskBadgeView.frame = NSRect(x: badgeX, y: y - 1, width: badgeWidth, height: 22)
         pinIconView.frame = NSRect(
             x: pinX,
             y: titleLabel.frame.midY - ThreadRowView.pinIconSize / 2,
@@ -444,6 +517,233 @@ final class ThreadRowView: NSView {
     private static let pinIconSize: CGFloat = 16
     private static let titlePinGap: CGFloat = 8
     private static let pinTrailingInset: CGFloat = 18
+}
+
+final class ThreadGroupView: NSView {
+    private let rootView: ThreadRowView
+    private let subtaskViews: [SubtaskRowView]
+    private let isExpanded: Bool
+    private let rootHeight: CGFloat
+    private static let childHeight: CGFloat = 78
+    private static let topGap: CGFloat = 6
+    private static let bottomGap: CGFloat = 8
+
+    init(
+        root: CodexThreadItem,
+        subtasks: [CodexThreadItem],
+        isExpanded: Bool,
+        showPlatformLabel: Bool,
+        rowLayout: TaskRowLayoutStyle,
+        onOpen: @escaping (String) -> Void,
+        onDismiss: @escaping (String) -> Void,
+        onTogglePin: @escaping (String) -> Void,
+        onToggleSubtasks: @escaping (String) -> Void
+    ) {
+        self.isExpanded = isExpanded && !subtasks.isEmpty
+        self.rootHeight = rowLayout.rowHeight
+        self.rootView = ThreadRowView(
+            item: root,
+            showPlatformLabel: showPlatformLabel,
+            rowLayout: rowLayout,
+            onOpen: onOpen,
+            onDismiss: onDismiss,
+            onTogglePin: onTogglePin,
+            subtaskCount: subtasks.count,
+            isExpanded: isExpanded,
+            onToggleSubtasks: onToggleSubtasks
+        )
+        self.subtaskViews = subtasks.map { SubtaskRowView(item: $0, onOpen: onOpen) }
+        let childrenHeight = self.isExpanded
+            ? Self.topGap + CGFloat(subtasks.count) * Self.childHeight + Self.bottomGap
+            : 0
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: rowLayout.rowHeight + childrenHeight))
+        wantsLayer = true
+        addSubview(rootView)
+        if self.isExpanded {
+            subtaskViews.forEach(addSubview)
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard isExpanded, !subtaskViews.isEmpty else { return }
+        let groupRect = NSRect(
+            x: 45,
+            y: rootHeight + Self.topGap,
+            width: bounds.width - 57,
+            height: CGFloat(subtaskViews.count) * Self.childHeight
+        )
+        NSColor.white.withAlphaComponent(0.025).setFill()
+        NSBezierPath(roundedRect: groupRect, xRadius: 9, yRadius: 9).fill()
+        NSColor.white.withAlphaComponent(0.10).setStroke()
+        let border = NSBezierPath(roundedRect: groupRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
+        border.lineWidth = 1
+        border.stroke()
+
+        let treeX: CGFloat = 31
+        let firstCenterY = rootHeight + Self.topGap + Self.childHeight / 2
+        let lastCenterY = rootHeight + Self.topGap + CGFloat(subtaskViews.count - 1) * Self.childHeight + Self.childHeight / 2
+        let tree = NSBezierPath()
+        tree.move(to: NSPoint(x: treeX, y: rootHeight - 6))
+        tree.line(to: NSPoint(x: treeX, y: lastCenterY))
+        for index in subtaskViews.indices {
+            let centerY = firstCenterY + CGFloat(index) * Self.childHeight
+            tree.move(to: NSPoint(x: treeX, y: centerY))
+            tree.line(to: NSPoint(x: 45, y: centerY))
+        }
+        NSColor.white.withAlphaComponent(0.24).setStroke()
+        tree.lineWidth = 1
+        tree.stroke()
+    }
+
+    override func layout() {
+        super.layout()
+        rootView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: rootHeight)
+        guard isExpanded else { return }
+        var y = rootHeight + Self.topGap
+        for view in subtaskViews {
+            view.frame = NSRect(x: 45, y: y, width: bounds.width - 57, height: Self.childHeight)
+            y += Self.childHeight
+        }
+    }
+}
+
+final class SubtaskRowView: NSView {
+    private let item: CodexThreadItem
+    private let onOpen: (String) -> Void
+    private let iconView = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let previewLabel = NSTextField(labelWithString: "")
+    private let subtitleLabel = NSTextField(labelWithString: "Subtask")
+    private let statusIconView = NSImageView()
+    private let statusLabel = NSTextField(labelWithString: "")
+    private var trackingAreaRef: NSTrackingArea?
+    private var isHovering = false {
+        didSet { needsDisplay = true }
+    }
+
+    init(item: CodexThreadItem, onOpen: @escaping (String) -> Void) {
+        self.item = item
+        self.onOpen = onOpen
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth - 57, height: 78))
+        wantsLayer = true
+        setAccessibilityHelp(tooltipText(for: item))
+
+        let iconConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+        iconView.image = NSImage(systemSymbolName: "arrow.turn.down.right", accessibilityDescription: "Subtask")?
+            .withSymbolConfiguration(iconConfig)
+        iconView.contentTintColor = NSColor(calibratedWhite: 0.64, alpha: 1)
+        iconView.imageScaling = .scaleProportionallyDown
+        addSubview(iconView)
+
+        titleLabel.stringValue = subtaskDisplayTitle(item)
+        titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        titleLabel.textColor = NSColor.white.withAlphaComponent(0.94)
+        titleLabel.lineBreakMode = .byTruncatingTail
+        addSubview(titleLabel)
+
+        previewLabel.stringValue = item.preview ?? detailText(for: item)
+        previewLabel.font = .systemFont(ofSize: 10.5, weight: .regular)
+        previewLabel.textColor = NSColor(calibratedWhite: 0.64, alpha: 1)
+        previewLabel.maximumNumberOfLines = 2
+        previewLabel.lineBreakMode = .byTruncatingTail
+        previewLabel.cell?.wraps = true
+        previewLabel.cell?.isScrollable = false
+        addSubview(previewLabel)
+
+        subtitleLabel.font = .systemFont(ofSize: 10.5, weight: .regular)
+        subtitleLabel.textColor = NSColor(calibratedWhite: 0.55, alpha: 1)
+        addSubview(subtitleLabel)
+
+        let statusSymbol = item.status == .unread ? "checkmark.circle.fill" : "circle.fill"
+        let statusConfig = NSImage.SymbolConfiguration(pointSize: item.status == .unread ? 10 : 7, weight: .semibold)
+        statusIconView.image = NSImage(systemSymbolName: statusSymbol, accessibilityDescription: rowStatusLabel(item.status))?
+            .withSymbolConfiguration(statusConfig)
+        statusIconView.contentTintColor = statusAccentColor(item.status)
+        statusIconView.imageScaling = .scaleProportionallyDown
+        addSubview(statusIconView)
+
+        statusLabel.stringValue = rowStatusLabel(item.status)
+        statusLabel.font = .systemFont(ofSize: 10.5, weight: .medium)
+        statusLabel.textColor = statusAccentColor(item.status)
+        statusLabel.alignment = .right
+        addSubview(statusLabel)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingAreaRef { removeTrackingArea(trackingAreaRef) }
+        let area = NSTrackingArea(rect: bounds, options: [.activeAlways, .mouseEnteredAndExited, .mouseMoved, .inVisibleRect], owner: self)
+        trackingAreaRef = area
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovering = true
+        ThreadHoverPanel.shared.show(item: item, from: self)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        guard isHovering else { return }
+        ThreadHoverPanel.shared.show(item: item, from: self)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovering = false
+        ThreadHoverPanel.shared.hide(owner: self)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        ThreadHoverPanel.shared.hide(owner: self)
+        onOpen(item.id)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        if isHovering {
+            NSColor.controlAccentColor.withAlphaComponent(0.10).setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 3), xRadius: 7, yRadius: 7).fill()
+        }
+        guard frame.minY > 0 else { return }
+    }
+
+    override func layout() {
+        super.layout()
+        let statusWidth: CGFloat = 66
+        iconView.frame = NSRect(x: 14, y: 11, width: 16, height: 16)
+        statusLabel.frame = NSRect(x: bounds.width - 15 - statusWidth, y: 10, width: statusWidth, height: 16)
+        statusIconView.frame = NSRect(x: statusLabel.frame.minX - 17, y: 12, width: 12, height: 12)
+        let textX: CGFloat = 42
+        let textWidth = max(40, statusIconView.frame.minX - 10 - textX)
+        titleLabel.frame = NSRect(x: textX, y: 7, width: textWidth, height: 18)
+        previewLabel.frame = NSRect(x: textX, y: 28, width: bounds.width - textX - 15, height: 30)
+        subtitleLabel.frame = NSRect(x: textX, y: 59, width: textWidth, height: 15)
+    }
+
+    private func subtaskDisplayTitle(_ item: CodexThreadItem) -> String {
+        let pathName = item.agentPath.flatMap { path -> String? in
+            let value = (path as NSString).lastPathComponent
+            return value.isEmpty ? nil : value
+        }
+        switch (item.agentNickname, pathName) {
+        case let (nickname?, path?): return "\(nickname) · \(path)"
+        case let (nickname?, nil): return nickname
+        case let (nil, path?): return path
+        default: return "Subtask"
+        }
+    }
 }
 
 struct ThreadTooltipRow {

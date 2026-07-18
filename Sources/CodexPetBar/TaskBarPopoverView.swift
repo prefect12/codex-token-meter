@@ -62,8 +62,10 @@ final class TaskBarPopoverContentView: NSView {
     private let onOpenThread: (String) -> Void
     private let onDismissThread: (String) -> Void
     private let onTogglePin: (String) -> Void
+    private let onSetSubtasksExpanded: (String, Bool) -> Void
     private let externalSelectTab: (TaskBarTab) -> Void
     private var selectedTab: TaskBarTab
+    private var expandedThreadIDs: Set<String>
 
     init(
         threads: [CodexThreadItem],
@@ -76,6 +78,8 @@ final class TaskBarPopoverContentView: NSView {
         onOpenThread: @escaping (String) -> Void,
         onDismissThread: @escaping (String) -> Void,
         onTogglePin: @escaping (String) -> Void,
+        collapsedThreadIDs: Set<String>,
+        onSetSubtasksExpanded: @escaping (String, Bool) -> Void,
         onSelectTab: @escaping (TaskBarTab) -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void,
@@ -89,8 +93,11 @@ final class TaskBarPopoverContentView: NSView {
         self.onOpenThread = onOpenThread
         self.onDismissThread = onDismissThread
         self.onTogglePin = onTogglePin
+        self.onSetSubtasksExpanded = onSetSubtasksExpanded
         self.externalSelectTab = onSelectTab
         self.selectedTab = selectedTab
+        let parentIDs = Set(threads.compactMap { $0.isSubtask ? $0.parentThreadID : nil })
+        self.expandedThreadIDs = parentIDs.subtracting(collapsedThreadIDs)
 
         headerView = PanelHeaderView(
             runningCount: runningCount,
@@ -101,20 +108,24 @@ final class TaskBarPopoverContentView: NSView {
 
         let total = runningCount + waitingCount + unreadCount
         totalCount = total
-        let filtered = threads.filter { selectedTab.matches($0.status) }
+        let filtered = threads.primaryThreads.filter { selectedTab.matches($0.status) }
         taskCountView = TaskCountView(shown: filtered.count, total: total)
         // "N of M tasks" footer removed: uninformative next to the header chips.
         taskCountView.isHidden = true
         taskCountHeight = 0
 
+        var initialToggleHandler: ((String) -> Void)?
         let rowViews = TaskBarPopoverContentView.makeRowViews(
-            filtered: filtered,
+            allThreads: threads,
+            filteredRoots: filtered,
             selectedTab: selectedTab,
+            expandedThreadIDs: expandedThreadIDs,
             showPlatformLabels: showPlatformLabels,
             rowLayout: rowLayout,
             onOpenThread: onOpenThread,
             onDismissThread: onDismissThread,
-            onTogglePin: onTogglePin
+            onTogglePin: onTogglePin,
+            onToggleSubtasks: { id in initialToggleHandler?(id) }
         )
         rowsView = TaskBarRowsView(rowViews: rowViews)
         rowsContentHeight = rowsView.frame.height
@@ -163,6 +174,9 @@ final class TaskBarPopoverContentView: NSView {
         tabsView.onSelect = { [weak self] tab in
             self?.selectTab(tab)
         }
+        initialToggleHandler = { [weak self] id in
+            self?.toggleSubtasks(for: id)
+        }
     }
 
     /// Re-filter and swap the list rows in place, keeping the surrounding chrome
@@ -172,15 +186,24 @@ final class TaskBarPopoverContentView: NSView {
         selectedTab = tab
         externalSelectTab(tab)
 
-        let filtered = allThreads.filter { tab.matches($0.status) }
+        rebuildRows(for: tab)
+    }
+
+    private func rebuildRows(for tab: TaskBarTab) {
+        let filtered = allThreads.primaryThreads.filter { tab.matches($0.status) }
         let rowViews = TaskBarPopoverContentView.makeRowViews(
-            filtered: filtered,
+            allThreads: allThreads,
+            filteredRoots: filtered,
             selectedTab: tab,
+            expandedThreadIDs: expandedThreadIDs,
             showPlatformLabels: showPlatformLabels,
             rowLayout: rowLayout,
             onOpenThread: onOpenThread,
             onDismissThread: onDismissThread,
-            onTogglePin: onTogglePin
+            onTogglePin: onTogglePin,
+            onToggleSubtasks: { [weak self] id in
+                self?.toggleSubtasks(for: id)
+            }
         )
         let newRowsView = TaskBarRowsView(rowViews: rowViews)
         rowsView = newRowsView
@@ -191,26 +214,46 @@ final class TaskBarPopoverContentView: NSView {
         layoutSubtreeIfNeeded()
     }
 
+    private func toggleSubtasks(for threadID: String) {
+        let expanded: Bool
+        if expandedThreadIDs.contains(threadID) {
+            expandedThreadIDs.remove(threadID)
+            expanded = false
+        } else {
+            expandedThreadIDs.insert(threadID)
+            expanded = true
+        }
+        onSetSubtasksExpanded(threadID, expanded)
+        rebuildRows(for: selectedTab)
+    }
+
     private static func makeRowViews(
-        filtered: [CodexThreadItem],
+        allThreads: [CodexThreadItem],
+        filteredRoots: [CodexThreadItem],
         selectedTab: TaskBarTab,
+        expandedThreadIDs: Set<String>,
         showPlatformLabels: Bool,
         rowLayout: TaskRowLayoutStyle,
         onOpenThread: @escaping (String) -> Void,
         onDismissThread: @escaping (String) -> Void,
-        onTogglePin: @escaping (String) -> Void
+        onTogglePin: @escaping (String) -> Void,
+        onToggleSubtasks: @escaping (String) -> Void
     ) -> [NSView] {
-        if filtered.isEmpty {
+        if filteredRoots.isEmpty {
             return [EmptyStateView(message: selectedTab.emptyMessage)]
         }
-        return filtered.map { thread in
-            ThreadRowView(
-                item: thread,
+        return filteredRoots.map { thread in
+            let children = allThreads.subtasks(parentID: thread.id)
+            return ThreadGroupView(
+                root: thread,
+                subtasks: children,
+                isExpanded: expandedThreadIDs.contains(thread.id),
                 showPlatformLabel: showPlatformLabels,
                 rowLayout: rowLayout,
                 onOpen: onOpenThread,
                 onDismiss: onDismissThread,
-                onTogglePin: onTogglePin
+                onTogglePin: onTogglePin,
+                onToggleSubtasks: onToggleSubtasks
             )
         }
     }
