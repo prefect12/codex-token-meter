@@ -217,6 +217,7 @@ private struct ClaudeScanState {
     var latestUserAt: Date?
     var latestUserIsToolResult = false
     var latestUserIsInteractiveToolResult = false
+    var latestUserIsInterrupt = false
     var latestAssistantAt: Date?
     var latestAssistantIsRunning = false
     var latestAssistantNeedsInput = false
@@ -1256,17 +1257,22 @@ final class CodexActivityReader {
             let toolResultIDs = messageContentToolResultIDs(message["content"])
             let isInteractiveToolResult = !toolResultIDs.isEmpty
                 && !state.latestAssistantInteractiveToolIDs.isDisjoint(with: toolResultIDs)
+            // A manual interrupt (Esc) is written as a role=user text marker; it
+            // stops the current turn rather than starting a new prompt to answer.
+            let isInterrupt = isInterruptMarker(contentText)
             state.latestUserIsToolResult = isToolResult
             state.latestUserIsInteractiveToolResult = isInteractiveToolResult
+            state.latestUserIsInterrupt = isInterrupt
             if let contentText {
                 state.firstUserText = state.firstUserText ?? cappedScanText(contentText)
                 state.latestUserText = cappedScanText(contentText)
             }
             // Only genuine human prompts count as turns. Tool results are
-            // role=user but automated; sidechain/meta messages are injected.
+            // role=user but automated; interrupts and sidechain/meta messages
+            // are injected, not authored by the user.
             let isSidechain = (object["isSidechain"] as? Bool) ?? false
             let isMeta = (object["isMeta"] as? Bool) ?? false
-            if !isToolResult, !isSidechain, !isMeta,
+            if !isToolResult, !isInterrupt, !isSidechain, !isMeta,
                let contentText, !contentText.isEmpty {
                 state.turns += 1
             }
@@ -1276,6 +1282,7 @@ final class CodexActivityReader {
             }
             state.latestUserIsToolResult = false
             state.latestUserIsInteractiveToolResult = false
+            state.latestUserIsInterrupt = false
             if let value = string(message["model"]), !value.isEmpty {
                 state.model = value
             }
@@ -1332,13 +1339,22 @@ final class CodexActivityReader {
         let userToolResultStillActive = state.latestUserIsToolResult
             && !state.latestUserIsInteractiveToolResult
             && (state.latestUserAt ?? .distantPast) >= (state.latestAssistantAt ?? .distantPast)
-        let looksRunning = pendingUserResponse || queuedAfterAssistant || assistantRunningTool || userToolResultStillActive
+        // If the newest event is a manual interrupt (Esc), the user stopped the turn:
+        // it is no longer running. Surface it as waiting-on-you — the session is paused
+        // and resumable, the ball is in the user's court. Without this the interrupt's
+        // role=user marker reads as a fresh pending prompt and the turn is misreported
+        // as Running until the activity timeout elapses.
+        let userStoppedTurn = state.latestUserIsInterrupt
+            && (state.latestUserAt ?? .distantPast) >= (state.latestAssistantAt ?? .distantPast)
+        let looksRunning = !userStoppedTurn
+            && (pendingUserResponse || queuedAfterAssistant || assistantRunningTool || userToolResultStillActive)
         // A running turn streams to the transcript every few seconds; if the session
         // has gone silent past the timeout the turn has stopped (window closed or died
         // mid-flight), so it is no longer running even though the log ends mid-turn.
         let isRunning = looksRunning
             && Date().timeIntervalSince(activityDate) <= runningActivityTimeout
-        let isWaitingForUser = !isRunning && (assistantWaitingForInput || interactiveToolResultWaiting)
+        let isWaitingForUser = !isRunning
+            && (assistantWaitingForInput || interactiveToolResultWaiting || userStoppedTurn)
         let status: ThreadRunStatus = isRunning ? .running : (isWaitingForUser ? .waiting : .unread)
         let startedAt: Date?
         if isRunning {
@@ -1433,6 +1449,14 @@ final class CodexActivityReader {
             return [id]
         }
         return []
+    }
+
+    /// Claude Code records a manual interrupt (Esc) as a role=user text marker such as
+    /// "[Request interrupted by user]" or "[Request interrupted by user for tool use]".
+    private func isInterruptMarker(_ text: String?) -> Bool {
+        guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return false }
+        return trimmed.hasPrefix("[Request interrupted by user")
     }
 
     private func isInteractiveUserInputTool(_ name: String) -> Bool {
