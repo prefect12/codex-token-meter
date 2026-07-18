@@ -10,18 +10,39 @@ private func printThreads() {
         print("No running or unread Codex or Claude turns")
         return
     }
-    for item in items {
+    func printItem(_ item: CodexThreadItem, prefix: String = "") {
         let folder = shortFolderName(item.cwd)
         let timing = item.status == .running
             ? item.startedAt.map { "elapsed \(durationSince($0))" } ?? relative(item.lastActivity)
             : relative(item.lastActivity)
         let preview = item.preview.map { "\t\($0)" } ?? ""
-        print("\(statusLabel(item.status))\t\(timing)\t\(folder)\t\(item.title)\t\(item.id)\t\(item.source)\(preview)")
+        let label = item.isSubtask ? "Subtask \(statusLabel(item.status))" : statusLabel(item.status)
+        let identity = item.isSubtask
+            ? [item.agentNickname, item.agentPath].compactMap { $0 }.joined(separator: " · ")
+            : item.title
+        print("\(prefix)\(label)\t\(timing)\t\(folder)\t\(identity)\t\(item.id)\t\(item.source)\(preview)")
+    }
+    for item in items.primaryThreads {
+        printItem(item)
+        for subtask in items.subtasks(parentID: item.id) {
+            printItem(subtask, prefix: "  ↳ ")
+        }
     }
 }
 
 private func mockTaskBarThreads() -> [CodexThreadItem] {
-    func item(id: String, title: String, preview: String, status: ThreadRunStatus, ago: TimeInterval, source: String) -> CodexThreadItem {
+    func item(
+        id: String,
+        title: String,
+        preview: String,
+        status: ThreadRunStatus,
+        ago: TimeInterval,
+        source: String,
+        kind: CodexThreadKind = .root,
+        parentID: String? = nil,
+        nickname: String? = nil,
+        agentPath: String? = nil
+    ) -> CodexThreadItem {
         CodexThreadItem(
             id: id,
             title: title,
@@ -38,13 +59,19 @@ private func mockTaskBarThreads() -> [CodexThreadItem] {
             codexUpdatedAt: nil,
             tokensUsed: 128_000,
             tokenBreakdown: TokenBreakdown(),
-            model: "gpt-5-codex"
+            model: "gpt-5-codex",
+            threadKind: kind,
+            parentThreadID: parentID,
+            agentNickname: nickname,
+            agentPath: agentPath
         )
     }
     return [
-        item(id: "codex:1", title: "Automation: 更新飞书 @ 我任务文档", preview: "脚本正在同步飞书，我等最终状态文件返回。", status: .running, ago: 47, source: "codex"),
-        item(id: "claude:2", title: "这个看起来不太对，帮忙看看呀 @ 杨工", preview: "已经跨过 18:54 的大批次，累计 23034 条，时间跳到现在。", status: .running, ago: 7333, source: "claude-code"),
-        item(id: "codex:3", title: "帮我安装最新的 main 的 codex bar", preview: "我会同时压三处：header 高度/字号、列表字号、底部按钮宽度。顶部间距也从上一版收紧。", status: .running, ago: 9201, source: "codex")
+        item(id: "codex:1", title: "019f68d1-3407-7621-8073-d5afe292…", preview: "我继续往目标推进，不等账户密钥。当前线上 v6 实际可用。", status: .running, ago: 103, source: "codex"),
+        item(id: "codex:poster", title: "构思 Codex 对战 Claude 海报", preview: "第一张“教父阴影”已经出来了，构图和暗示关系非常准。", status: .running, ago: 482, source: "codex"),
+        item(id: "codex:poster:wall", title: "构思 Codex 对战 Claude 海报", preview: "正在完善限额墙方案。", status: .running, ago: 86, source: "codex", kind: .subtask, parentID: "codex:poster", nickname: "Kepler", agentPath: "/root/poster_wall"),
+        item(id: "codex:poster:kickdoor", title: "构思 Codex 对战 Claude 海报", preview: "踢门方案已经完成。", status: .unread, ago: 250, source: "codex", kind: .subtask, parentID: "codex:poster", nickname: "Locke", agentPath: "/root/poster_kickdoor"),
+        item(id: "codex:poster:knockout", title: "构思 Codex 对战 Claude 海报", preview: "击倒方案已经完成。", status: .unread, ago: 280, source: "codex", kind: .subtask, parentID: "codex:poster", nickname: "Mill", agentPath: "/root/poster_knockout")
     ]
 }
 
@@ -57,9 +84,10 @@ private func renderTaskBar(to path: String) {
        let count = Int(countArg.dropFirst("--count=".count)) {
         mock = Array(mock.prefix(max(0, count)))
     }
-    let running = mock.filter { $0.status == .running }.count
-    let waiting = mock.filter { $0.status == .waiting }.count
-    let unread = mock.filter { $0.status == .unread }.count
+    let primary = mock.primaryThreads
+    let running = primary.filter { $0.status == .running }.count
+    let waiting = primary.filter { $0.status == .waiting }.count
+    let unread = primary.filter { $0.status == .unread }.count
 
     let tabArg = CommandLine.arguments.first { $0.hasPrefix("--tab=") }.map { String($0.dropFirst(6)) }
     let selectedTab: TaskBarTab
@@ -80,6 +108,8 @@ private func renderTaskBar(to path: String) {
         onOpenThread: { _ in },
         onDismissThread: { _ in },
         onTogglePin: { _ in },
+        collapsedThreadIDs: [],
+        onSetSubtasksExpanded: { _, _ in },
         onSelectTab: { _ in },
         onOpenSettings: {},
         onQuit: {},
@@ -96,14 +126,48 @@ private func renderTaskBar(to path: String) {
     )
     window.appearance = NSAppearance(named: .darkAqua)
     window.contentView = content
+    window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
+    window.orderFront(nil)
+    defer { window.orderOut(nil) }
     content.frame = NSRect(origin: .zero, size: size)
     content.layoutSubtreeIfNeeded()
+    content.needsDisplay = true
+    content.display()
+    window.displayIfNeeded()
+    RunLoop.current.run(until: Date().addingTimeInterval(0.08))
+    content.layoutSubtreeIfNeeded()
+    window.displayIfNeeded()
+    func displayHierarchy(_ view: NSView) {
+        view.needsDisplay = true
+        view.display()
+        view.subviews.forEach(displayHierarchy)
+    }
+    displayHierarchy(content)
 
-    guard let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
+    let scale = NSScreen.main?.backingScaleFactor ?? 2
+    guard let rep = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: Int(size.width * scale),
+        pixelsHigh: Int(size.height * scale),
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ), let context = NSGraphicsContext(bitmapImageRep: rep), let layer = content.layer else {
         print("render failed: no bitmap rep")
         return
     }
-    content.cacheDisplay(in: content.bounds, to: rep)
+    rep.size = size
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = context
+    context.cgContext.scaleBy(x: scale, y: scale)
+    context.cgContext.translateBy(x: 0, y: size.height)
+    context.cgContext.scaleBy(x: 1, y: -1)
+    layer.render(in: context.cgContext)
+    NSGraphicsContext.restoreGraphicsState()
     guard let data = rep.representation(using: .png, properties: [:]) else {
         print("render failed: no png data")
         return

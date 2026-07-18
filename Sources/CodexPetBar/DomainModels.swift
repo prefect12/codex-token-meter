@@ -7,6 +7,12 @@ enum ThreadRunStatus {
     case unread
 }
 
+enum CodexThreadKind: String {
+    case root
+    case subtask
+    case automation
+}
+
 struct CodexThreadItem {
     let id: String
     let title: String
@@ -24,6 +30,14 @@ struct CodexThreadItem {
     let tokensUsed: Int?
     let tokenBreakdown: TokenBreakdown
     let model: String?
+    let threadKind: CodexThreadKind
+    let parentThreadID: String?
+    let agentNickname: String?
+    let agentPath: String?
+
+    var isSubtask: Bool {
+        threadKind == .subtask
+    }
 }
 
 struct TokenBreakdown {
