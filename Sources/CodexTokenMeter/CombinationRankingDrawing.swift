@@ -379,7 +379,9 @@ extension UsageDetailsView {
     private func drawCombinationRankingModelMenu(rows: [CombinationRankingRow], content: NSRect) {
         guard let field = combinationRankingModelFieldRect else { return }
         let models = combinationRankingAvailableModels(rows)
-        let menuHeight = min(CGFloat(260), CGFloat(models.count) * 30 + 42)
+        let desiredMenuHeight = CGFloat(models.count) * 30 + 42
+        let availableMenuHeight = max(CGFloat(72), content.maxY - field.maxY - 6)
+        let menuHeight = min(desiredMenuHeight, availableMenuHeight)
         let menu = NSRect(x: field.minX, y: field.maxY + 6, width: field.width, height: menuHeight)
         NSColor(calibratedRed: 0.045, green: 0.065, blue: 0.091, alpha: 0.99).setFill(); NSBezierPath(roundedRect: menu, xRadius: 8, yRadius: 8).fill()
         borderColor.setStroke(); NSBezierPath(roundedRect: menu.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
