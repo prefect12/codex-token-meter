@@ -841,7 +841,7 @@ struct CodexServiceStatusSnapshot: Codable {
 }
 
 final class CodexServiceStatusReader {
-    private static let componentOrder = [
+    private static let codexComponentOrder = [
         "Codex Web",
         "App",
         "Codex API",
@@ -849,7 +849,10 @@ final class CodexServiceStatusReader {
         "VS Code extension"
     ]
 
-    private let summaryURL = URL(string: "https://status.openai.com/api/v2/summary.json")!
+    private let summaryURL: URL
+    private let componentOrder: [String]
+    /// Substrings that mark an incident as relevant; nil accepts all incidents.
+    private let incidentKeywords: [String]?
     private let session: URLSession
     private let isoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -857,12 +860,30 @@ final class CodexServiceStatusReader {
         return formatter
     }()
 
-    init() {
+    init(
+        summaryURL: URL = URL(string: "https://status.openai.com/api/v2/summary.json")!,
+        componentOrder: [String] = CodexServiceStatusReader.codexComponentOrder,
+        incidentKeywords: [String]? = ["codex", "cli", "vs code"]
+    ) {
+        self.summaryURL = summaryURL
+        self.componentOrder = componentOrder
+        self.incidentKeywords = incidentKeywords
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 10
         configuration.timeoutIntervalForResource = 15
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         self.session = URLSession(configuration: configuration)
+    }
+
+    /// status.claude.com is a standard Statuspage instance; component names
+    /// carry suffixes like "Claude API (api.anthropic.com)", so matching is
+    /// by prefix. All incidents on that page are Claude-related.
+    static func claude() -> CodexServiceStatusReader {
+        CodexServiceStatusReader(
+            summaryURL: URL(string: "https://status.claude.com/api/v2/summary.json")!,
+            componentOrder: ["Claude Code", "Claude API", "claude.ai", "Claude Console"],
+            incidentKeywords: nil
+        )
     }
 
     deinit {
@@ -982,19 +1003,17 @@ final class CodexServiceStatusReader {
     }
 
     private func componentSortIndex(_ name: String) -> Int {
-        Self.componentOrder.firstIndex(of: name) ?? Self.componentOrder.count
+        componentOrder.firstIndex { name == $0 || name.hasPrefix($0) } ?? componentOrder.count
     }
 
     private func isCodexComponent(_ name: String) -> Bool {
-        Self.componentOrder.contains(name)
+        componentOrder.contains { name == $0 || name.hasPrefix($0) }
     }
 
     private func isCodexRelated(_ incident: CodexServiceIncidentStatus) -> Bool {
+        guard let incidentKeywords else { return true }
         let haystack = "\(incident.name)\n\(incident.message)".lowercased()
-        if haystack.contains("codex") || haystack.contains("cli") || haystack.contains("vs code") {
-            return true
-        }
-        return false
+        return incidentKeywords.contains { haystack.contains($0) }
     }
 
     private func parseDate(_ value: String) -> Date? {

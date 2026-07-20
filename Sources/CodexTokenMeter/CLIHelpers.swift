@@ -209,6 +209,7 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
     let liveLimits = combinedLiveLimits()
     let resetCredits = RateLimitResetCreditsReader().read(timeout: 8)
     let serviceStatus = CodexServiceStatusReader().read()
+    let claudeServiceStatus = CodexServiceStatusReader.claude().read()
     let accountUsage = AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
     let profileReport = AppSettings.profileAPITotalsEnabled
         ? profileBackedReport(
@@ -238,6 +239,7 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
         liveLimits: liveLimits,
         resetCredits: resetCredits,
         serviceStatus: serviceStatus,
+        claudeServiceStatus: claudeServiceStatus,
         selectedWindow: window,
         selectedQuota: quota,
         nextRefreshAt: Date().addingTimeInterval(300),

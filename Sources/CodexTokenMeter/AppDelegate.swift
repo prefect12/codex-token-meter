@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let accountUsageReader = AccountUsageReader()
     private let resetCreditsReader = RateLimitResetCreditsReader()
     private let serviceStatusReader = CodexServiceStatusReader()
+    private let claudeServiceStatusReader = CodexServiceStatusReader.claude()
     private let localFormatter = DateFormatter()
     private let scanQueue = DispatchQueue(label: "local.codex-token-meter.scan", qos: .utility)
     private let liveQueue = DispatchQueue(label: "local.codex-token-meter.live", qos: .utility)
@@ -28,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var liveLimits: [LiveRateLimit] = []
     private var resetCredits: RateLimitResetCreditsSnapshot?
     private var serviceStatus: CodexServiceStatusSnapshot?
+    private var claudeServiceStatus: CodexServiceStatusSnapshot?
     private var refreshTimer: Timer?
     private var liveRefreshTimer: Timer?
     private var activeScans: Set<ReportCacheKey> = []
@@ -500,6 +502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let freshResetCredits = self.resetCreditsReader.read()
             let effectiveResetCredits = freshResetCredits ?? currentResetCredits
             let serviceStatus = self.serviceStatusReader.read()
+            let claudeServiceStatus = self.claudeServiceStatusReader.read()
             let freshCodexLimits = codexTrackedLiveLimits(freshLimits)
             let codexRefreshSucceeded = !freshCodexLimits.isEmpty
             if !limits.isEmpty {
@@ -520,6 +523,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.serviceStatus = serviceStatus
                     self.latestState.serviceStatus = serviceStatus
                     self.detailsController.updateServiceStatus(serviceStatus)
+                }
+                if let claudeServiceStatus {
+                    self.claudeServiceStatus = claudeServiceStatus
+                    self.latestState.claudeServiceStatus = claudeServiceStatus
                 }
                 if let freshResetCredits {
                     self.resetCredits = freshResetCredits
