@@ -380,22 +380,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return registeredURL
     }
 
-    /// Claude thread ids are `claude:<session-uuid>`. When the desktop app already
-    /// has a session wrapping this CLI transcript, deep link straight to it via
-    /// `claude://claude.ai/claude-code-desktop/<desktop-session-id>`: the app's
-    /// `resume` deep link dedupes only by its deterministic `local_<uuid>` key, so
-    /// resuming a session the desktop app created itself (random desktop id) would
-    /// import a second, duplicate list entry. `claude://resume?session=<uuid>`
-    /// remains the path for sessions the desktop app has never seen. Fall back to
-    /// just foregrounding the app (or the working folder) when we don't have a
-    /// usable session id.
+    /// Claude thread ids are `claude:<session-uuid>`. Ordered to avoid both
+    /// duplicate imports and full page reloads as far as the desktop app's deep
+    /// links allow: (1) if the desktop app is already showing this session
+    /// (its `lastFocusedAt` is the store-wide maximum), just activate the app;
+    /// (2) an imported entry is reachable smoothly via `claude://resume`, whose
+    /// import step dedupes by the deterministic `local_<uuid>` key — which is
+    /// also why (3) natively created entries (random desktop id) must instead
+    /// use `claude://claude.ai/claude-code-desktop/<id>`, the only route that
+    /// reaches them without importing a duplicate, at the cost of a full page
+    /// load; (4) sessions the desktop app has never seen resume normally.
+    /// Fall back to just foregrounding the app (or the working folder) when we
+    /// don't have a usable session id.
     private func openClaudeThread(id: String, fallbackFolder: String?) {
         let sessionID = id.hasPrefix("claude:") ? String(id.dropFirst("claude:".count)) : id
         guard UUID(uuidString: sessionID) != nil else {
             openClaudeApp(fallbackFolder: fallbackFolder)
             return
         }
-        if let desktopID = claudeDesktopSessionID(forCLISession: sessionID),
+        let match = claudeDesktopSessionMatch(forCLISession: sessionID)
+        if match.targetLastFocused > 0, match.targetLastFocused >= match.globalLastFocused,
+           let running = NSRunningApplication.runningApplications(withBundleIdentifier: claudeDesktopBundleID).first {
+            running.activate()
+            return
+        }
+        if match.importedExists, !match.importedArchived,
+           let url = URL(string: "claude://resume?session=\(sessionID)") {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        if let desktopID = match.nativeID ?? (match.importedExists ? "local_\(sessionID)" : nil),
            let url = URL(string: "claude://claude.ai/claude-code-desktop/\(desktopID)") {
             NSWorkspace.shared.open(url)
             return
@@ -407,49 +421,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openClaudeApp(fallbackFolder: fallbackFolder)
     }
 
+    private let claudeDesktopBundleID = "com.anthropic.claudefordesktop"
+
+    private struct ClaudeDesktopSessionMatch {
+        var importedExists = false
+        var importedArchived = false
+        var nativeID: String?
+        var targetLastFocused: Double = 0
+        var globalLastFocused: Double = 0
+    }
+
     /// Claude Desktop keeps one metadata JSON per session under
     /// `~/Library/Application Support/Claude/claude-code-sessions/<account>/<org>/`,
     /// named `local_<desktop-session-id>.json` with a `cliSessionId` field linking
-    /// it to the CLI transcript. Prefer a natively created session (desktop id
-    /// differs from `local_<cliID>`) because that's the entry the user knows by
-    /// title; break ties by most recent activity. An imported session's file is
-    /// recognized by name alone so it needs no parsing.
-    private func claudeDesktopSessionID(forCLISession cliID: String) -> String? {
+    /// it to the CLI transcript. The CLI session can be wrapped by an imported
+    /// entry (file named `local_<cliID>.json`, reachable smoothly via the
+    /// idempotent resume deep link) and/or a natively created entry (random
+    /// desktop id, reachable only via the hard-reloading claude-code-desktop
+    /// route); `lastFocusedAt` maxima let the caller detect that the desktop app
+    /// is already showing this session so a plain activate suffices.
+    private func claudeDesktopSessionMatch(forCLISession cliID: String) -> ClaudeDesktopSessionMatch {
+        var match = ClaudeDesktopSessionMatch()
         let fm = FileManager.default
         let root = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Application Support/Claude/claude-code-sessions", isDirectory: true)
         guard let accountDirs = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
-            return nil
+            return match
         }
-        let importedID = "local_\(cliID)"
-        var native: (id: String, activity: Double)?
-        var hasImported = false
+        let importedFile = "local_\(cliID).json"
+        var nativeActivity = 0.0
         for accountDir in accountDirs {
             guard let orgDirs = try? fm.contentsOfDirectory(at: accountDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { continue }
             for orgDir in orgDirs {
                 guard let files = try? fm.contentsOfDirectory(at: orgDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { continue }
                 for file in files {
                     let name = file.lastPathComponent
-                    guard name.hasPrefix("local_"), name.hasSuffix(".json") else { continue }
-                    if name == "\(importedID).json" {
-                        hasImported = true
+                    guard name.hasPrefix("local_"), name.hasSuffix(".json"),
+                          let data = try? Data(contentsOf: file),
+                          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                         continue
                     }
-                    guard let data = try? Data(contentsOf: file),
-                          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                          object["cliSessionId"] as? String == cliID,
-                          let desktopID = object["sessionId"] as? String else {
-                        continue
-                    }
-                    let activity = object["lastActivityAt"] as? Double ?? 0
-                    if native == nil || activity > native!.activity {
-                        native = (desktopID, activity)
+                    let lastFocused = object["lastFocusedAt"] as? Double ?? 0
+                    match.globalLastFocused = max(match.globalLastFocused, lastFocused)
+                    if name == importedFile {
+                        match.importedExists = true
+                        match.importedArchived = object["isArchived"] as? Bool ?? false
+                        match.targetLastFocused = max(match.targetLastFocused, lastFocused)
+                    } else if object["cliSessionId"] as? String == cliID {
+                        let activity = object["lastActivityAt"] as? Double ?? 0
+                        if match.nativeID == nil || activity > nativeActivity {
+                            match.nativeID = object["sessionId"] as? String ?? String(name.dropLast(".json".count))
+                            nativeActivity = activity
+                        }
+                        match.targetLastFocused = max(match.targetLastFocused, lastFocused)
                     }
                 }
             }
         }
-        if let native { return native.id }
-        return hasImported ? importedID : nil
+        return match
     }
 
     private func openClaudeApp(fallbackFolder: String?) {
