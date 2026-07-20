@@ -764,7 +764,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             text = statusPercentText(limit?.secondary?.remainingPercent, source: metric.source)
         }
         guard let text else { return nil }
-        return liveRateLimitIsStale(limit) ? "~\(text)" : text
+        return text
     }
 
     private func statusLimit(from limits: [LiveRateLimit], source: QuotaViewOption) -> LiveRateLimit? {
