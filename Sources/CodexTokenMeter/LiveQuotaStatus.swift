@@ -404,25 +404,70 @@ final class ClaudeOAuthUsageRefresher {
     @discardableResult
     func refreshIfNeeded(store: ClaudeStatuslineStore, now: Date = Date()) -> Bool {
         if let snapshot = store.read(now: now), !snapshot.isStale {
+            setOutcome("fresh-cache")
             return false
         }
-        guard shouldAttempt(now: now) else { return false }
+        guard shouldAttempt(now: now) else {
+            setOutcome("throttled")
+            return false
+        }
         guard let token = oauthAccessToken(now: now) else {
+            // oauthAccessToken records the specific credential failure.
             postpone(now: now, interval: credentialFailureBackoff)
             return false
         }
         guard let (fiveHour, sevenDay) = fetchUsageWindows(token: token, now: now) else {
+            setOutcome("fetch-failed")
             postpone(now: now, interval: failureBackoff)
             return false
         }
         do {
             _ = try store.captureUsageWindows(fiveHour: fiveHour, sevenDay: sevenDay, now: now)
+            setOutcome("refreshed")
             return true
         } catch {
             NSLog("AI Token Meter Claude OAuth usage write failed: \(error.localizedDescription)")
+            setOutcome("write-failed")
             postpone(now: now, interval: failureBackoff)
             return false
         }
+    }
+
+    /// Runs a refresh with keychain interaction allowed so macOS can show the
+    /// authorization dialog. Only for user-visible grant flows (app launch
+    /// re-ask, --grant-claude-keychain); background refreshes stay silent.
+    @discardableResult
+    func refreshWithKeychainInteraction(store: ClaudeStatuslineStore, now: Date = Date()) -> Bool {
+        lock.lock()
+        interactiveKeychainSession = true
+        nextAttemptAt = .distantPast
+        lock.unlock()
+        _ = SecKeychainSetUserInteractionAllowed(true)
+        defer {
+            lock.lock()
+            interactiveKeychainSession = false
+            lock.unlock()
+            Self.disableKeychainInteraction()
+        }
+        return refreshIfNeeded(store: store, now: now)
+    }
+
+    private var interactiveKeychainSession = false
+
+    /// Why the most recent refreshIfNeeded call ended the way it did; surfaced
+    /// by the --refresh-claude-usage diagnostic.
+    var lastOutcome: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return _lastOutcome
+    }
+
+    private var _lastOutcome = "not-attempted"
+
+    private func setOutcome(_ value: String) {
+        lock.lock()
+        _lastOutcome = value
+        lock.unlock()
     }
 
     private func shouldAttempt(now: Date) -> Bool {
@@ -487,7 +532,16 @@ final class ClaudeOAuthUsageRefresher {
         }
         lock.unlock()
 
-        guard let credentials = storedCredentials() else { return nil }
+        guard let credentials = storedCredentials() else {
+            if !AppSettings.claudeKeychainAccessEnabled {
+                setOutcome("no-credentials-keychain-disabled")
+            } else if lastKeychainStatus == errSecItemNotFound {
+                setOutcome("no-credentials")
+            } else {
+                setOutcome("keychain-read-denied-\(lastKeychainStatus)")
+            }
+            return nil
+        }
         let expiresAt = (credentials.oauth["expiresAt"] as? Double)
             .map { Date(timeIntervalSince1970: $0 / 1000) }
         if let token = credentials.oauth["accessToken"] as? String,
@@ -500,6 +554,8 @@ final class ClaudeOAuthUsageRefresher {
         return refreshAccessToken(credentials: credentials, now: now)
     }
 
+    private var lastKeychainStatus: OSStatus = errSecSuccess
+
     private func cacheToken(_ token: String, validUntil: Date) {
         lock.lock()
         cachedToken = (token, validUntil)
@@ -511,7 +567,12 @@ final class ClaudeOAuthUsageRefresher {
             return credentials
         }
         guard AppSettings.claudeKeychainAccessEnabled else { return nil }
-        Self.disableKeychainInteraction()
+        lock.lock()
+        let interactive = interactiveKeychainSession
+        lock.unlock()
+        if !interactive {
+            Self.disableKeychainInteraction()
+        }
         return parseCredentials(data: keychainCredentialsData(), source: .keychain)
     }
 
@@ -529,7 +590,9 @@ final class ClaudeOAuthUsageRefresher {
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess else {
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        lastKeychainStatus = status
+        guard status == errSecSuccess else {
             return nil
         }
         return item as? Data
@@ -549,10 +612,21 @@ final class ClaudeOAuthUsageRefresher {
     /// rotated credentials back only to Claude's private credentials file.
     /// Keychain credentials remain owned and refreshed by Claude Code.
     private func refreshAccessToken(credentials: StoredCredentials, now: Date) -> String? {
-        guard case .file(let fileURL) = credentials.source else { return nil }
         guard let refreshToken = credentials.oauth["refreshToken"] as? String, !refreshToken.isEmpty else {
+            setOutcome("no-refresh-token")
             NSLog("AI Token Meter Claude OAuth: access token expired and no refresh token available")
             return nil
+        }
+        if case .keychain = credentials.source {
+            // Prove the rotated tokens can be written back BEFORE consuming the
+            // refresh token; a rotation we could not persist would strand
+            // Claude Code with a dead refresh token.
+            guard let currentData = try? JSONSerialization.data(withJSONObject: credentials.root),
+                  updateKeychainCredentials(data: currentData) else {
+                setOutcome("keychain-write-denied")
+                NSLog("AI Token Meter Claude OAuth: cannot write back rotated tokens; skipping keychain token refresh")
+                return nil
+            }
         }
         var request = URLRequest(url: Self.tokenURL)
         request.httpMethod = "POST"
@@ -564,6 +638,7 @@ final class ClaudeOAuthUsageRefresher {
         ])
 
         guard let result = performRequest(request), let data = result.data else {
+            setOutcome("token-refresh-failed")
             NSLog("AI Token Meter Claude OAuth token refresh failed")
             return nil
         }
@@ -572,6 +647,7 @@ final class ClaudeOAuthUsageRefresher {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let accessToken = object["access_token"] as? String,
               !accessToken.isEmpty else {
+            setOutcome("token-refresh-rejected-\(status)")
             NSLog("AI Token Meter Claude OAuth token refresh rejected with status \(status)")
             return nil
         }
@@ -588,10 +664,27 @@ final class ClaudeOAuthUsageRefresher {
         updatedOAuth["expiresAt"] = expiresAt.timeIntervalSince1970 * 1000
         var updatedRoot = credentials.root
         updatedRoot["claudeAiOauth"] = updatedOAuth
-        writeBackCredentials(root: updatedRoot, fileURL: fileURL)
+        switch credentials.source {
+        case .file(let fileURL):
+            writeBackCredentials(root: updatedRoot, fileURL: fileURL)
+        case .keychain:
+            if let data = try? JSONSerialization.data(withJSONObject: updatedRoot),
+               !updateKeychainCredentials(data: data) {
+                NSLog("AI Token Meter Claude OAuth: failed to write rotated tokens back to keychain")
+            }
+        }
 
         cacheToken(accessToken, validUntil: expiresAt.addingTimeInterval(-60))
         return accessToken
+    }
+
+    private func updateKeychainCredentials(data: Data) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService
+        ]
+        let attributes: [String: Any] = [kSecValueData as String: data]
+        return SecItemUpdate(query as CFDictionary, attributes as CFDictionary) == errSecSuccess
     }
 
     private func writeBackCredentials(root: [String: Any], fileURL: URL) {

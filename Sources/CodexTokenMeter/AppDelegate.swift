@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var liveRefreshTimer: Timer?
     private var activeScans: Set<ReportCacheKey> = []
     private var liveRefreshInFlight = false
+    private var claudeKeychainRecoveryAttempted = false
     private var detailsSnapshotPrewarmInFlight = false
     private var statusSpinnerTimer: Timer?
     private var statusSpinnerFrame = 0
@@ -143,20 +144,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func requestClaudeKeychainAccessIfNeeded() {
-        guard !AppSettings.claudeKeychainAccessRequested else { return }
         guard ClaudeOAuthUsageRefresher.shared.needsInitialKeychainAccess else {
             AppSettings.claudeKeychainAccessRequested = true
             return
         }
+        // The ad-hoc code signature changes on every reinstall, which silently
+        // invalidates the keychain ACL grant, so a once-ever request flag can
+        // never recover. Re-ask on launch whenever the active channel is dead:
+        // access disabled, or the snapshot has not refreshed for over an hour.
+        if AppSettings.claudeKeychainAccessRequested {
+            let capturedAt = ClaudeStatuslineStore().read()?.capturedAt
+            let snapshotAge = capturedAt.map { Date().timeIntervalSince($0) } ?? .infinity
+            guard !AppSettings.claudeKeychainAccessEnabled || snapshotAge > 60 * 60 else { return }
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            guard !AppSettings.claudeKeychainAccessRequested else { return }
             AppSettings.claudeKeychainAccessRequested = true
+            self?.claudeKeychainRecoveryAttempted = true
             NSApp.activate(ignoringOtherApps: true)
             let granted = ClaudeOAuthUsageRefresher.shared.requestInitialKeychainAccess()
             AppSettings.claudeKeychainAccessEnabled = granted
-            if granted {
-                self?.refreshLiveLimits()
+            guard granted else { return }
+            DispatchQueue.global(qos: .userInitiated).async {
+                // Interactive so an expired keychain token can be refreshed and
+                // written back, which may need one more authorization prompt.
+                ClaudeOAuthUsageRefresher.shared.refreshWithKeychainInteraction(store: ClaudeStatuslineStore())
+                DispatchQueue.main.async {
+                    self?.refreshLiveLimits()
+                }
             }
         }
     }
@@ -479,6 +494,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveQueue.async {
             let claudeStore = ClaudeStatuslineStore()
             _ = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: claudeStore)
+            let claudeRefreshOutcome = ClaudeOAuthUsageRefresher.shared.lastOutcome
             let freshLimits = combinedLiveLimits(codexReader: self.rateLimitReader, claudeStore: claudeStore)
             let limits = self.mergedLiveLimits(fresh: freshLimits, fallback: currentLimits)
             let freshResetCredits = self.resetCreditsReader.read()
@@ -499,6 +515,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self.liveRefreshInFlight = false
                 self.scheduleNextLiveRefresh(succeeded: codexRefreshSucceeded)
+                self.recoverClaudeKeychainAccessIfNeeded(outcome: claudeRefreshOutcome)
                 if let serviceStatus {
                     self.serviceStatus = serviceStatus
                     self.latestState.serviceStatus = serviceStatus
@@ -526,6 +543,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
                 self.dashboardController.dashboardView.update(self.latestState)
                 self.detailsController.updateLiveLimits(limits, costReferenceReport: costReferenceReport, serviceStatus: self.serviceStatus)
+            }
+        }
+    }
+
+    /// A reinstall silently invalidates the keychain ACL grant, and the app can
+    /// run for days without relaunching, so the launch-time re-ask alone is not
+    /// enough. When background refreshes keep failing on keychain access and
+    /// the snapshot has gone stale, re-ask once per app run.
+    private func recoverClaudeKeychainAccessIfNeeded(outcome: String) {
+        guard !claudeKeychainRecoveryAttempted,
+              outcome.hasPrefix("keychain-read-denied") || outcome == "keychain-write-denied",
+              ClaudeOAuthUsageRefresher.shared.needsInitialKeychainAccess else { return }
+        let capturedAt = ClaudeStatuslineStore().read()?.capturedAt
+        let snapshotAge = capturedAt.map { Date().timeIntervalSince($0) } ?? .infinity
+        guard snapshotAge > 60 * 60 else { return }
+        claudeKeychainRecoveryAttempted = true
+        NSApp.activate(ignoringOtherApps: true)
+        let granted = ClaudeOAuthUsageRefresher.shared.requestInitialKeychainAccess()
+        AppSettings.claudeKeychainAccessEnabled = granted
+        guard granted else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            ClaudeOAuthUsageRefresher.shared.refreshWithKeychainInteraction(store: ClaudeStatuslineStore())
+            DispatchQueue.main.async {
+                self?.refreshLiveLimits()
             }
         }
     }
@@ -702,12 +743,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func statusMetricText(_ metric: StatusBarMetric, limits: [LiveRateLimit]) -> String? {
         let limit = statusLimit(from: limits, source: metric.source)
+        let text: String?
         switch metric.quotaMetric {
         case .fiveHour:
-            return statusPercentText(limit?.primary?.remainingPercent, source: metric.source)
+            text = statusPercentText(limit?.primary?.remainingPercent, source: metric.source)
         case .weekly:
-            return statusPercentText(limit?.secondary?.remainingPercent, source: metric.source)
+            text = statusPercentText(limit?.secondary?.remainingPercent, source: metric.source)
         }
+        guard let text else { return nil }
+        return liveRateLimitIsStale(limit) ? "~\(text)" : text
     }
 
     private func statusLimit(from limits: [LiveRateLimit], source: QuotaViewOption) -> LiveRateLimit? {

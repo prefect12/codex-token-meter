@@ -312,6 +312,8 @@ enum L10nKey {
     case cacheHitDescription
     case cached
     case claudeStatuslineRequired
+    case staleData
+    case staleDataFormat
     case calendar
     case calendarSubtitle
     case clickForDetails
@@ -584,6 +586,8 @@ enum L10nKey {
         case .cacheHitDescription: return "Cached input divided by total input for the selected window."
         case .cached: return "Cached"
         case .claudeStatuslineRequired: return "Needs statusline"
+        case .staleData: return "Stale"
+        case .staleDataFormat: return "Stale · %@ ago"
         case .calendar: return "Calendar"
         case .calendarSubtitle: return "Daily usage intensity over the last year"
         case .clickForDetails: return "Click for details"
@@ -858,6 +862,8 @@ enum L10nKey {
         case .cacheHitDescription: return "选定时间范围内，缓存输入占总输入的比例。"
         case .cached: return "缓存"
         case .claudeStatuslineRequired: return "需 statusline"
+        case .staleData: return "已过期"
+        case .staleDataFormat: return "数据过期 · %@前"
         case .calendar: return "日历"
         case .calendarSubtitle: return "过去一年的每日使用强度"
         case .clickForDetails: return "点击查看详情"
@@ -1132,6 +1138,8 @@ enum L10nKey {
         case .cacheHitDescription: return "選択した期間の総入力に対するキャッシュ入力の割合。"
         case .cached: return "キャッシュ"
         case .claudeStatuslineRequired: return "statusline 必要"
+        case .staleData: return "期限切れ"
+        case .staleDataFormat: return "%@前のデータ"
         case .calendar: return "カレンダー"
         case .calendarSubtitle: return "過去 1 年の日別使用量"
         case .clickForDetails: return "クリックで詳細"

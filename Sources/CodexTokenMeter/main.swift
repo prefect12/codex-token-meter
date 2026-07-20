@@ -97,12 +97,37 @@ if CommandLine.arguments.contains("--print-profile") {
     exit(0)
 }
 
+if CommandLine.arguments.contains("--grant-claude-keychain") {
+    let refresher = ClaudeOAuthUsageRefresher.shared
+    let granted = refresher.needsInitialKeychainAccess ? refresher.requestInitialKeychainAccess() : true
+    AppSettings.claudeKeychainAccessEnabled = granted
+    let claudeStore = ClaudeStatuslineStore()
+    let refreshed = granted ? refresher.refreshWithKeychainInteraction(store: claudeStore) : false
+    let snapshot = claudeStore.read()
+    let payload: [String: Any] = [
+        "granted": granted,
+        "refreshed": refreshed,
+        "outcome": refresher.lastOutcome,
+        "captured_at": snapshot?.capturedAt?.description ?? "",
+        "is_stale": snapshot?.isStale ?? true,
+        "five_hour_used_percent": snapshot?.fiveHour?.usedPercent ?? -1,
+        "seven_day_used_percent": snapshot?.sevenDay?.usedPercent ?? -1
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+       let text = String(data: data, encoding: .utf8) {
+        print(text)
+    }
+    exit(granted ? 0 : 1)
+}
+
 if CommandLine.arguments.contains("--refresh-claude-usage") {
     let claudeStore = ClaudeStatuslineStore()
     let refreshed = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: claudeStore)
     let snapshot = claudeStore.read()
     let payload: [String: Any] = [
         "refreshed": refreshed,
+        "outcome": ClaudeOAuthUsageRefresher.shared.lastOutcome,
+        "keychain_access_enabled": AppSettings.claudeKeychainAccessEnabled,
         "captured_at": snapshot?.capturedAt?.description ?? "",
         "is_stale": snapshot?.isStale ?? true,
         "five_hour_used_percent": snapshot?.fiveHour?.usedPercent ?? -1,
