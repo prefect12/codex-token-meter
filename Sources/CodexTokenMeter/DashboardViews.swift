@@ -229,7 +229,6 @@ final class RingView: NSView {
 final class FableQuotaSatelliteView: NSView {
     var quotaWindow: RateWindow? { didSet { updatePresentation() } }
     var capturedAt: Date? { didSet { updatePresentation() } }
-    var isStale = false { didSet { updatePresentation() } }
 
     override var isFlipped: Bool { true }
     override func isAccessibilityElement() -> Bool { true }
@@ -260,9 +259,7 @@ final class FableQuotaSatelliteView: NSView {
             color: .white
         )
         drawText("Fable 5", rect: NSRect(x: 0, y: 57, width: bounds.width, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: .systemOrange)
-        let resetText = isStale
-            ? t(.staleData)
-            : "\(t(.reset)) \(compactResetRelative(quotaWindow?.resetsAt))"
+        let resetText = "\(t(.reset)) \(compactResetRelative(quotaWindow?.resetsAt))"
         drawText(resetText, rect: NSRect(x: 0, y: 74, width: bounds.width, height: 15), font: .systemFont(ofSize: 9.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
     }
 
@@ -1188,10 +1185,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
         drawText(value, rect: NSRect(x: center.x - 50, y: center.y - 14, width: 100, height: 30), font: .monospacedDigitSystemFont(ofSize: 24, weight: .bold), color: .white, alignment: .center)
         drawText(title, rect: NSRect(x: center.x - 66, y: center.y + 51, width: 132, height: 19), font: .systemFont(ofSize: 14, weight: .bold), color: labelColor, alignment: .center)
         drawText(metric.title, rect: NSRect(x: center.x - 66, y: center.y + 70, width: 132, height: 16), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62), alignment: .center)
-        let stale = liveRateLimitIsStale(limit)
-        let footnote = stale ? staleText(limit?.capturedAt) : resetSubtitle(window)
-        let footnoteColor = stale ? NSColor.systemOrange.withAlphaComponent(0.92) : NSColor.white.withAlphaComponent(0.42)
-        drawText(footnote, rect: NSRect(x: center.x - 66, y: center.y + 86, width: 132, height: 15), font: .systemFont(ofSize: 10, weight: .semibold), color: footnoteColor, alignment: .center)
+        drawText(resetSubtitle(window), rect: NSRect(x: center.x - 66, y: center.y + 86, width: 132, height: 15), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42), alignment: .center)
         hoverRegions.append((
             rect: NSRect(x: center.x - 62, y: center.y - 58, width: 124, height: 160),
             tooltip: ringTooltip(title: title, target: target, window: window, metric: metric, capturedAt: limit?.capturedAt)
@@ -1221,8 +1215,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
             alignment: .center
         )
         drawText("Fable 5", rect: NSRect(x: center.x - 42, y: center.y + 24, width: 84, height: 15), font: .systemFont(ofSize: 10.5, weight: .bold), color: .systemOrange, alignment: .center)
-        let footnote = liveRateLimitIsStale(limit) ? staleText(limit.capturedAt) : resetSubtitle(window)
-        drawText(footnote, rect: NSRect(x: center.x - 42, y: center.y + 39, width: 84, height: 14), font: .systemFont(ofSize: 9, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42), alignment: .center)
+        drawText(resetSubtitle(window), rect: NSRect(x: center.x - 42, y: center.y + 39, width: 84, height: 14), font: .systemFont(ofSize: 9, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42), alignment: .center)
         hoverRegions.append((
             rect: NSRect(x: center.x - 44, y: center.y - 26, width: 88, height: 82),
             tooltip: ringTooltip(title: "Fable 5", target: .claude, window: window, metric: .weekly, capturedAt: limit.capturedAt)
@@ -1378,11 +1371,6 @@ final class PlatformQuotaRingsOverviewView: NSView {
     private func resetSubtitle(_ window: RateWindow?) -> String {
         guard let window else { return "\(t(.reset)) --" }
         return "\(t(.reset)) \(compactResetRelative(window.resetsAt))"
-    }
-
-    private func staleText(_ capturedAt: Date?) -> String {
-        guard let capturedAt else { return t(.staleData) }
-        return String(format: t(.staleDataFormat), compactAge(capturedAt))
     }
 
     private func ringTooltip(title: String, target: QuotaViewOption, window: RateWindow?, metric: HomeQuotaRingMetric, capturedAt: Date?) -> String {
@@ -1612,13 +1600,11 @@ final class DashboardView: NSView {
         let weeklyComparison = remainingComparison(for: weekly)
         let missingLiveLimitSubtitle = missingQuotaSubtitle(for: state.selectedQuota)
         let missingWeeklyLimitSubtitle = state.selectedQuota == .claude ? t(.claudeStatuslineRequired) : "\(t(.reset)) --"
-        let displayLimitIsStale = liveRateLimitIsStale(displayLimit)
-        let staleSubtitle = displayLimit?.capturedAt.map { String(format: t(.staleDataFormat), compactAge($0)) } ?? t(.staleData)
         let primaryRemainingPercent = displayedRemainingPercent(primary, target: state.selectedQuota)
         let weeklyRemainingPercent = displayedRemainingPercent(weekly, target: state.selectedQuota)
         primaryRing.percent = primaryRemainingPercent
         primaryRing.title = t(.fiveHourLeft)
-        primaryRing.subtitle = displayLimitIsStale ? staleSubtitle : primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingLiveLimitSubtitle
+        primaryRing.subtitle = primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingLiveLimitSubtitle
         primaryRing.color = displayedRemainingColor(primary, target: state.selectedQuota, percent: primaryRing.percent)
         primaryRing.resetTooltip = primary?.resetsAt.map { relative($0) }
         primaryRing.remainingComparison = primaryComparison
@@ -1626,7 +1612,7 @@ final class DashboardView: NSView {
 
         primaryBullet.actualRemainingPercent = primaryRemainingPercent
         primaryBullet.title = t(.fiveHourLeft)
-        primaryBullet.subtitle = displayLimitIsStale ? staleSubtitle : primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingLiveLimitSubtitle
+        primaryBullet.subtitle = primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingLiveLimitSubtitle
         primaryBullet.color = displayedRemainingColor(primary, target: state.selectedQuota, percent: primaryBullet.actualRemainingPercent)
         primaryBullet.resetTooltip = primary?.resetsAt.map { relative($0) }
         primaryBullet.remainingComparison = primaryComparison
@@ -1634,7 +1620,7 @@ final class DashboardView: NSView {
 
         weeklyRing.percent = weeklyRemainingPercent
         weeklyRing.title = t(.weeklyLeft)
-        weeklyRing.subtitle = displayLimitIsStale ? staleSubtitle : weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingWeeklyLimitSubtitle
+        weeklyRing.subtitle = weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingWeeklyLimitSubtitle
         weeklyRing.color = displayedRemainingColor(weekly, target: state.selectedQuota, percent: weeklyRing.percent)
         weeklyRing.resetTooltip = weekly?.resetsAt.map { relative($0) }
         weeklyRing.remainingComparison = weeklyComparison
@@ -1642,7 +1628,7 @@ final class DashboardView: NSView {
 
         weeklyBullet.actualRemainingPercent = weeklyRemainingPercent
         weeklyBullet.title = t(.weeklyLeft)
-        weeklyBullet.subtitle = displayLimitIsStale ? staleSubtitle : weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingWeeklyLimitSubtitle
+        weeklyBullet.subtitle = weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingWeeklyLimitSubtitle
         weeklyBullet.color = displayedRemainingColor(weekly, target: state.selectedQuota, percent: weeklyBullet.actualRemainingPercent)
         weeklyBullet.resetTooltip = weekly?.resetsAt.map { relative($0) }
         weeklyBullet.remainingComparison = weeklyComparison
@@ -1659,7 +1645,6 @@ final class DashboardView: NSView {
 
         fableSatellite.quotaWindow = fableLimit?.secondary
         fableSatellite.capturedAt = fableLimit?.capturedAt
-        fableSatellite.isStale = liveRateLimitIsStale(fableLimit)
         fableSatellite.isHidden = showsComparisonTable || quotaStyle != .rings || !showsFableSatellite
 
         cacheBullet.actualRemainingPercent = report.usage.cachePercent
