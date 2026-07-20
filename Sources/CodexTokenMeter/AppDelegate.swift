@@ -322,6 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 liveLimits: liveLimits,
                 resetCredits: resetCredits,
                 serviceStatus: serviceStatus,
+                claudeServiceStatus: claudeServiceStatus,
                 selectedWindow: selectedWindow,
                 selectedQuota: selectedQuota,
                 nextRefreshAt: latestState.nextRefreshAt,
@@ -341,6 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 liveLimits: liveLimits,
                 resetCredits: resetCredits,
                 serviceStatus: serviceStatus,
+                claudeServiceStatus: claudeServiceStatus,
                 selectedWindow: selectedWindow,
                 selectedQuota: selectedQuota,
                 nextRefreshAt: latestState.nextRefreshAt,
@@ -378,6 +380,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             liveLimits: liveLimits,
             resetCredits: resetCredits,
             serviceStatus: serviceStatus,
+            claudeServiceStatus: claudeServiceStatus,
             selectedWindow: window,
             selectedQuota: quota,
             nextRefreshAt: latestState.nextRefreshAt,
@@ -463,6 +466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         liveLimits: effectiveLimits,
                         resetCredits: effectiveResetCredits,
                         serviceStatus: self.serviceStatus,
+                        claudeServiceStatus: self.claudeServiceStatus,
                         selectedWindow: window,
                         selectedQuota: quota,
                         nextRefreshAt: nextRefresh,
@@ -475,6 +479,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.latestState.liveLimits = limits
                     self.latestState.resetCredits = effectiveResetCredits
                     self.latestState.serviceStatus = self.serviceStatus
+                    self.latestState.claudeServiceStatus = self.claudeServiceStatus
                     self.latestState.accountUsage = self.accountUsage
                     self.latestState.profileReport = self.profileReport(window: self.latestState.selectedWindow, quota: self.latestState.selectedQuota, accountUsage: self.accountUsage, localReport: self.latestState.report)
                     self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
@@ -643,6 +648,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         liveLimits: self.liveLimits,
                         resetCredits: self.resetCredits,
                         serviceStatus: self.serviceStatus,
+                        claudeServiceStatus: self.claudeServiceStatus,
                         selectedWindow: window,
                         selectedQuota: quota,
                         nextRefreshAt: self.latestState.nextRefreshAt,
