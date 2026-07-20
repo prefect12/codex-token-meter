@@ -521,6 +521,18 @@ func compactResetRelative(_ date: Date) -> String {
     return "\(minutes)m\(suffix)"
 }
 
+func compactAge(_ date: Date, now: Date = Date()) -> String {
+    let seconds = max(0, Int(now.timeIntervalSince(date)))
+    if seconds < 60 { return "0m" }
+    let totalMinutes = seconds / 60
+    let days = totalMinutes / (24 * 60)
+    let hours = (totalMinutes % (24 * 60)) / 60
+    let minutes = totalMinutes % 60
+    if days > 0 { return hours > 0 ? "\(days)d\(hours)h" : "\(days)d" }
+    if hours > 0 { return "\(hours)h" }
+    return "\(minutes)m"
+}
+
 func relative(_ date: Date) -> String {
     let seconds = Int(date.timeIntervalSinceNow)
     let absSeconds = abs(seconds)
