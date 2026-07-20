@@ -111,7 +111,8 @@ if CommandLine.arguments.contains("--grant-claude-keychain") {
         "captured_at": snapshot?.capturedAt?.description ?? "",
         "is_stale": snapshot?.isStale ?? true,
         "five_hour_used_percent": snapshot?.fiveHour?.usedPercent ?? -1,
-        "seven_day_used_percent": snapshot?.sevenDay?.usedPercent ?? -1
+        "seven_day_used_percent": snapshot?.sevenDay?.usedPercent ?? -1,
+        "fable_seven_day_used_percent": snapshot?.fableSevenDay?.usedPercent ?? -1
     ]
     if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
        let text = String(data: data, encoding: .utf8) {
@@ -131,7 +132,8 @@ if CommandLine.arguments.contains("--refresh-claude-usage") {
         "captured_at": snapshot?.capturedAt?.description ?? "",
         "is_stale": snapshot?.isStale ?? true,
         "five_hour_used_percent": snapshot?.fiveHour?.usedPercent ?? -1,
-        "seven_day_used_percent": snapshot?.sevenDay?.usedPercent ?? -1
+        "seven_day_used_percent": snapshot?.sevenDay?.usedPercent ?? -1,
+        "fable_seven_day_used_percent": snapshot?.fableSevenDay?.usedPercent ?? -1
     ]
     if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
        let text = String(data: data, encoding: .utf8) {
