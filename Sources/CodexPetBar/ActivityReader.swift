@@ -160,6 +160,7 @@ private struct RolloutDirectoryCacheEntry {
 }
 
 private struct CachedStateMetadata {
+    let databaseSignature: String
     let metadata: [String: ThreadStateMetadata]
     let readAt: Date
 }
@@ -319,8 +320,12 @@ final class CodexActivityReader {
             if let existing = byID[logged.id] {
                 let preferLoggedStatus = status == .waiting || statusRank(status) < statusRank(existing.status)
                 let tokenBreakdown = summary.tokenBreakdown.resolved(with: existing.tokenBreakdown)
-                let mergedTitle = cleanTitle(summary.title)
-                    ?? cleanTitle(existing.title)
+                // The app-server/state title can be renamed by the user. The
+                // rollout title is only derived from the first user message and
+                // must remain a fallback or a rename such as "hi" -> "Fix DNS"
+                // will be overwritten on every transcript refresh.
+                let mergedTitle = cleanTitle(existing.title)
+                    ?? cleanTitle(summary.title)
                     ?? summary.cwd.map(shortFolderName)
                     ?? existing.title
                 let startedAt = status == .waiting
@@ -437,8 +442,8 @@ final class CodexActivityReader {
         }
         let shouldUseSummaryTokens = !item.tokenBreakdown.hasDetailedCounters && summary.tokenBreakdown.hasDetailedCounters
         let compressionCount = mergedCompressionCount(item.compressionCount, summary.compressionCount)
-        let mergedTitle = cleanTitle(summary.title)
-            ?? cleanTitle(item.title)
+        let mergedTitle = cleanTitle(item.title)
+            ?? cleanTitle(summary.title)
             ?? summary.cwd.map(shortFolderName)
             ?? item.title
         guard shouldUseSummaryTokens
@@ -1032,7 +1037,12 @@ final class CodexActivityReader {
 
     private func stateThreadMetadata(limit: Int = 120) -> [String: ThreadStateMetadata] {
         let now = Date()
+        let databases = stateDatabaseURLs().filter { fileManager.fileExists(atPath: $0.path) }
+        let databaseSignature = databases
+            .map { "\($0.path)=\(sqliteFileSignature($0))" }
+            .joined(separator: ";")
         if let cached = stateMetadataCache,
+           cached.databaseSignature == databaseSignature,
            now.timeIntervalSince(cached.readAt) < sqliteSupplementCacheTTL {
             return cached.metadata
         }
@@ -1046,7 +1056,7 @@ final class CodexActivityReader {
         limit \(max(1, limit));
         """
         var result: [String: ThreadStateMetadata] = [:]
-        for db in stateDatabaseURLs() where fileManager.fileExists(atPath: db.path) {
+        for db in databases {
             for row in runSQLiteJSON(databaseURL: db, sql: sql) {
                 guard let id = string(row["id"]) else { continue }
                 let tokenBreakdown = TokenBreakdown.totalOnly(intValue(row["tokens_used"]))
@@ -1064,7 +1074,11 @@ final class CodexActivityReader {
                 )
             }
         }
-        stateMetadataCache = CachedStateMetadata(metadata: result, readAt: now)
+        stateMetadataCache = CachedStateMetadata(
+            databaseSignature: databaseSignature,
+            metadata: result,
+            readAt: now
+        )
         return result
     }
 
