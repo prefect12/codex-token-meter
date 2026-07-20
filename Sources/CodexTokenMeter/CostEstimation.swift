@@ -697,6 +697,7 @@ struct DashboardState {
     var liveLimits: [LiveRateLimit] = []
     var resetCredits: RateLimitResetCreditsSnapshot?
     var serviceStatus: CodexServiceStatusSnapshot?
+    var claudeServiceStatus: CodexServiceStatusSnapshot?
     var selectedWindow: WindowOption = .week
     var selectedQuota: QuotaViewOption = .all
     var nextRefreshAt = Date()

@@ -993,6 +993,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
     var codexReport: TokenReport? { didSet { needsDisplay = true } }
     var claudeReport: TokenReport? { didSet { needsDisplay = true } }
     var serviceStatus: CodexServiceStatusSnapshot? { didSet { needsDisplay = true } }
+    var claudeServiceStatus: CodexServiceStatusSnapshot? { didSet { needsDisplay = true } }
     var costText = "" { didSet { needsDisplay = true } }
     private var statusHitRects: [QuotaViewOption: NSRect] = [:]
     private var hoverRegions: [(rect: NSRect, tooltip: String)] = []
@@ -1153,7 +1154,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
     private func drawTableRow(table: NSRect, y: CGFloat, title: String, target: QuotaViewOption, limit: LiveRateLimit?, report: TokenReport?) {
         let primaryPercent = displayedRemainingPercent(limit?.primary, target: target)
         let primaryColor = displayedRemainingColor(limit?.primary, target: target, percent: primaryPercent)
-        let rowStatus = platformStatus(target: target, limit: limit)
+        let rowStatus = platformStatus(target: target)
         hoverRegions.append((
             rect: NSRect(x: table.minX, y: y - 4, width: table.width, height: 42),
             tooltip: rowTooltip(title: title, target: target, limit: limit, report: report)
@@ -1168,20 +1169,12 @@ final class PlatformQuotaRingsOverviewView: NSView {
         drawText(rowStatus.text, rect: NSRect(x: statusRect.minX + 14, y: y + 7, width: statusRect.width - 14, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: .white, alignment: .left)
     }
 
-    private func platformStatus(target: QuotaViewOption, limit: LiveRateLimit?) -> (text: String, color: NSColor) {
-        if target == .codex {
-            guard let serviceStatus else {
-                return (t(.codexStatusUnavailable), NSColor.white.withAlphaComponent(0.28))
-            }
-            return (localizedCodexStatus(serviceStatus.overallStatus), codexStatusColor(serviceStatus.overallStatus))
+    private func platformStatus(target: QuotaViewOption) -> (text: String, color: NSColor) {
+        let snapshot = target == .codex ? serviceStatus : claudeServiceStatus
+        guard let snapshot else {
+            return (t(.codexStatusUnavailable), NSColor.white.withAlphaComponent(0.28))
         }
-        guard let limit else {
-            return ("--", NSColor.white.withAlphaComponent(0.28))
-        }
-        if liveRateLimitIsStale(limit) {
-            return (t(.staleData), NSColor.systemOrange)
-        }
-        return (t(.codexStatusOperational), NSColor.systemGreen)
+        return (localizedCodexStatus(snapshot.overallStatus), codexStatusColor(snapshot.overallStatus))
     }
 
     private var platformHeader: String {
@@ -1466,6 +1459,7 @@ final class DashboardView: NSView {
         platformQuotaView.codexReport = state.codexReport
         platformQuotaView.claudeReport = state.claudeReport
         platformQuotaView.serviceStatus = state.serviceStatus
+        platformQuotaView.claudeServiceStatus = state.claudeServiceStatus
         platformQuotaView.isHidden = !showsComparisonTable
 
         let primary = displayLimit?.primary
