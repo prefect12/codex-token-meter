@@ -226,6 +226,110 @@ final class RingView: NSView {
     }
 }
 
+final class FableQuotaSatelliteView: NSView {
+    var quotaWindow: RateWindow? { didSet { updatePresentation() } }
+    var capturedAt: Date? { didSet { updatePresentation() } }
+    var isStale = false { didSet { updatePresentation() } }
+
+    override var isFlipped: Bool { true }
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityLabel() -> String? { "Fable 5" }
+    override func accessibilityValue() -> Any? {
+        guard let quotaWindow else { return t(.liveLimitUnavailable) }
+        return "\(Int(round(quotaWindow.remainingPercent)))%, \(t(.reset)) \(compactResetRelative(quotaWindow.resetsAt))"
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let center = NSPoint(x: bounds.midX, y: 28)
+        let radius: CGFloat = 22
+        let lineWidth: CGFloat = 6
+        let remaining = quotaWindow?.remainingPercent ?? -1
+        drawArc(center: center, radius: radius, lineWidth: lineWidth, percent: 100, color: NSColor.white.withAlphaComponent(0.12))
+        if remaining >= 0 {
+            drawArc(center: center, radius: radius, lineWidth: lineWidth, percent: remaining, color: .systemOrange)
+        }
+        if let comparison = remainingComparison(for: quotaWindow) {
+            drawExpectedMarker(comparison, center: center, radius: radius, lineWidth: lineWidth)
+        }
+        drawText(
+            remaining < 0 ? "--" : "\(Int(round(remaining)))%",
+            rect: NSRect(x: center.x - 30, y: center.y - 9, width: 60, height: 18),
+            font: .monospacedDigitSystemFont(ofSize: 14, weight: .bold),
+            color: .white
+        )
+        drawText("Fable 5", rect: NSRect(x: 0, y: 57, width: bounds.width, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: .systemOrange)
+        let resetText = isStale
+            ? t(.staleData)
+            : "\(t(.reset)) \(compactResetRelative(quotaWindow?.resetsAt))"
+        drawText(resetText, rect: NSRect(x: 0, y: 74, width: bounds.width, height: 15), font: .systemFont(ofSize: 9.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
+    }
+
+    private func updatePresentation() {
+        needsDisplay = true
+        guard let quotaWindow else {
+            toolTip = "Fable 5\n\(t(.liveLimitUnavailable))"
+            return
+        }
+        var lines = [
+            "Fable 5 \(t(.weeklyLeft))",
+            "圈内数字：实际剩余 \(Int(round(quotaWindow.remainingPercent)))%"
+        ]
+        if let comparison = remainingComparison(for: quotaWindow) {
+            lines.append("彩色标记：预计剩余 \(Int(round(comparison.expectedRemainingPercent)))%")
+            lines.append(comparison.status == .ahead ? "实际剩余低于预计，用得偏快" : "实际剩余高于预计，用得较少")
+        }
+        lines.append("\(t(.reset))：\(quotaWindow.resetsAt.map(relative) ?? "--")")
+        if let capturedAt {
+            lines.append("数据更新：\(relative(capturedAt))")
+        }
+        toolTip = lines.joined(separator: "\n")
+    }
+
+    private func remainingComparison(for window: RateWindow?) -> RingRemainingComparison? {
+        guard let window, let comparison = paceComparison(for: window) else { return nil }
+        return RingRemainingComparison(
+            expectedRemainingPercent: max(0, min(100, 100 - comparison.progressPercent)),
+            actualRemainingPercent: window.remainingPercent,
+            status: comparison.status
+        )
+    }
+
+    private func drawArc(center: NSPoint, radius: CGFloat, lineWidth: CGFloat, percent: Double, color: NSColor) {
+        let clamped = max(0, min(100, percent)) / 100
+        let path = NSBezierPath()
+        path.lineWidth = lineWidth
+        path.lineCapStyle = .round
+        color.setStroke()
+        path.appendArc(withCenter: center, radius: radius, startAngle: 125, endAngle: 125 + 290 * CGFloat(clamped))
+        path.stroke()
+    }
+
+    private func drawExpectedMarker(_ comparison: RingRemainingComparison, center: NSPoint, radius: CGFloat, lineWidth: CGFloat) {
+        let angle = (125 + 290 * CGFloat(max(0, min(100, comparison.expectedRemainingPercent)) / 100)) * .pi / 180
+        let radial = NSPoint(x: cos(angle), y: sin(angle))
+        let markerCenter = NSPoint(x: center.x + radial.x * radius, y: center.y + radial.y * radius)
+        let halfLength: CGFloat = 6
+        let marker = NSBezierPath()
+        marker.lineWidth = 2.2
+        marker.lineCapStyle = .round
+        marker.move(to: NSPoint(x: markerCenter.x - radial.x * halfLength, y: markerCenter.y - radial.y * halfLength))
+        marker.line(to: NSPoint(x: markerCenter.x + radial.x * halfLength, y: markerCenter.y + radial.y * halfLength))
+        (comparison.actualRemainingPercent >= comparison.expectedRemainingPercent
+            ? NSColor(calibratedRed: 0.56, green: 1.0, blue: 0.16, alpha: 0.98)
+            : NSColor.systemYellow.withAlphaComponent(0.98)).setStroke()
+        marker.stroke()
+    }
+
+    private func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byTruncatingTail
+        (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+    }
+}
+
 final class QuotaBulletView: NSView {
     var actualRemainingPercent: Double = 0 { didSet { needsDisplay = true } }
     var title: String = "" { didSet { needsDisplay = true } }
@@ -1025,20 +1129,27 @@ final class PlatformQuotaRingsOverviewView: NSView {
         hoverRegions.removeAll()
         let codex = codexLimit(from: limits)
         let claude = limits.first { $0.id == QuotaViewOption.claude.liveLimitID }
+        let fable = limits.first { $0.id == claudeFableLiveLimitID }
         drawRingBlock(
             title: "Codex",
             target: .codex,
             limit: codex,
             metric: AppSettings.codexHomeRingMetric,
-            center: NSPoint(x: bounds.minX + bounds.width * 0.27, y: bounds.minY + 66)
+            center: NSPoint(x: bounds.minX + bounds.width * 0.25, y: bounds.minY + 66)
         )
         drawRingBlock(
             title: "Claude",
             target: .claude,
             limit: claude,
             metric: AppSettings.claudeHomeRingMetric,
-            center: NSPoint(x: bounds.minX + bounds.width * 0.73, y: bounds.minY + 66)
+            center: NSPoint(x: bounds.minX + bounds.width * 0.62, y: bounds.minY + 66)
         )
+        if let fable {
+            drawFableSatellite(
+                limit: fable,
+                center: NSPoint(x: bounds.minX + bounds.width * 0.89, y: bounds.minY + 88)
+            )
+        }
 
         let table = NSRect(x: bounds.minX, y: bounds.minY + 172, width: bounds.width, height: 130)
         drawQuotaTable(table: table, codex: codex, claude: claude)
@@ -1084,6 +1195,37 @@ final class PlatformQuotaRingsOverviewView: NSView {
         hoverRegions.append((
             rect: NSRect(x: center.x - 62, y: center.y - 58, width: 124, height: 160),
             tooltip: ringTooltip(title: title, target: target, window: window, metric: metric, capturedAt: limit?.capturedAt)
+        ))
+    }
+
+    private func drawFableSatellite(limit: LiveRateLimit, center: NSPoint) {
+        let window = limit.secondary
+        let percent = window?.remainingPercent ?? -1
+        let radius: CGFloat = 19
+        let lineWidth: CGFloat = 5.5
+        drawRing(center: center, radius: radius, lineWidth: lineWidth, percent: percent, color: .systemOrange)
+        if let comparison = remainingComparison(for: window) {
+            drawExpectedRemainingMarker(
+                percent: comparison.expectedRemainingPercent,
+                actual: comparison.actualRemainingPercent,
+                center: center,
+                radius: radius,
+                lineWidth: lineWidth
+            )
+        }
+        drawText(
+            percent < 0 ? "--" : "\(Int(round(percent)))%",
+            rect: NSRect(x: center.x - 27, y: center.y - 9, width: 54, height: 18),
+            font: .monospacedDigitSystemFont(ofSize: 13, weight: .bold),
+            color: .white,
+            alignment: .center
+        )
+        drawText("Fable 5", rect: NSRect(x: center.x - 42, y: center.y + 24, width: 84, height: 15), font: .systemFont(ofSize: 10.5, weight: .bold), color: .systemOrange, alignment: .center)
+        let footnote = liveRateLimitIsStale(limit) ? staleText(limit.capturedAt) : resetSubtitle(window)
+        drawText(footnote, rect: NSRect(x: center.x - 42, y: center.y + 39, width: 84, height: 14), font: .systemFont(ofSize: 9, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42), alignment: .center)
+        hoverRegions.append((
+            rect: NSRect(x: center.x - 44, y: center.y - 26, width: 88, height: 82),
+            tooltip: ringTooltip(title: "Fable 5", target: .claude, window: window, metric: .weekly, capturedAt: limit.capturedAt)
         ))
     }
 
@@ -1390,6 +1532,7 @@ final class DashboardView: NSView {
     private let primaryRing = RingView()
     private let weeklyRing = RingView()
     private let cacheRing = RingView()
+    private let fableSatellite = FableQuotaSatelliteView()
     private let primaryBullet = QuotaBulletView()
     private let weeklyBullet = QuotaBulletView()
     private let cacheBullet = QuotaBulletView()
@@ -1437,6 +1580,7 @@ final class DashboardView: NSView {
         applyLanguage()
         titleLabel.stringValue = "AI Token Meter"
         let displayLimit = selectedLimit(from: state.liveLimits, quota: state.selectedQuota)
+        let fableLimit = state.liveLimits.first { $0.id == claudeFableLiveLimitID }
         subtitleLabel.stringValue = state.selectedQuota.fallbackTitle
         totalLabel.stringValue = headerTotalSummary(totalReport.usage.total)
         detailLabel.stringValue = usesProfileTotal
@@ -1510,7 +1654,13 @@ final class DashboardView: NSView {
         cacheRing.color = NSColor.systemTeal
         cacheRing.resetTooltip = nil
         cacheRing.remainingComparison = nil
-        cacheRing.isHidden = showsComparisonTable || quotaStyle == .bullet
+        let showsFableSatellite = state.selectedQuota == .claude && fableLimit?.secondary != nil
+        cacheRing.isHidden = showsComparisonTable || quotaStyle == .bullet || showsFableSatellite
+
+        fableSatellite.quotaWindow = fableLimit?.secondary
+        fableSatellite.capturedAt = fableLimit?.capturedAt
+        fableSatellite.isStale = liveRateLimitIsStale(fableLimit)
+        fableSatellite.isHidden = showsComparisonTable || quotaStyle != .rings || !showsFableSatellite
 
         cacheBullet.actualRemainingPercent = report.usage.cachePercent
         cacheBullet.title = t(.cacheHit)
@@ -1541,7 +1691,11 @@ final class DashboardView: NSView {
         dayChart.isHidden = false
         serviceStatusView.snapshot = state.serviceStatus
         serviceStatusView.isHidden = showsComparisonTable || !AppSettings.showCodexStatusEnabled || state.selectedQuota == .claude
-        sessionsLabel.stringValue = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
+        var sessionsText = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
+        if showsFableSatellite {
+            sessionsText += "   ·   \(t(.cacheHit)) \(Int(round(report.usage.cachePercent)))%"
+        }
+        sessionsLabel.stringValue = sessionsText
         var costParts: [String] = []
         if apiEstimate.hasPricedUsage {
             costParts.append("\(t(.apiEquivalent)) \(displayAPIMoney(apiEstimate.usdValue, source: state.selectedQuota))")
@@ -1667,6 +1821,7 @@ final class DashboardView: NSView {
         primaryRing.frame = .zero
         weeklyRing.frame = .zero
         cacheRing.frame = .zero
+        fableSatellite.frame = .zero
         primaryBullet.frame = .zero
         weeklyBullet.frame = .zero
         cacheBullet.frame = .zero
@@ -1695,13 +1850,25 @@ final class DashboardView: NSView {
             primaryRing.frame = .zero
             weeklyRing.frame = .zero
             cacheRing.frame = .zero
+            fableSatellite.frame = .zero
             primaryBullet.frame = NSRect(x: content.minX, y: ringY + 2, width: content.width, height: rowH)
             weeklyBullet.frame = NSRect(x: content.minX, y: ringY + 2 + rowH + rowGap, width: content.width, height: rowH)
             cacheBullet.frame = NSRect(x: content.minX, y: ringY + 2 + (rowH + rowGap) * 2, width: content.width, height: rowH)
         } else {
-            primaryRing.frame = NSRect(x: content.minX, y: ringY, width: ringW, height: 136)
-            weeklyRing.frame = NSRect(x: content.minX + ringW + 12, y: ringY, width: ringW, height: 136)
-            cacheRing.frame = NSRect(x: content.minX + (ringW + 12) * 2, y: ringY, width: ringW, height: 136)
+            let hasFable = state.selectedQuota == .claude
+                && state.liveLimits.contains { $0.id == claudeFableLiveLimitID && $0.secondary != nil }
+            if hasFable {
+                let mainRingWidth: CGFloat = 140
+                primaryRing.frame = NSRect(x: content.minX + 2, y: ringY, width: mainRingWidth, height: 136)
+                weeklyRing.frame = NSRect(x: content.minX + 128, y: ringY, width: mainRingWidth, height: 136)
+                cacheRing.frame = .zero
+                fableSatellite.frame = NSRect(x: content.maxX - 94, y: ringY + 30, width: 88, height: 92)
+            } else {
+                primaryRing.frame = NSRect(x: content.minX, y: ringY, width: ringW, height: 136)
+                weeklyRing.frame = NSRect(x: content.minX + ringW + 12, y: ringY, width: ringW, height: 136)
+                cacheRing.frame = NSRect(x: content.minX + (ringW + 12) * 2, y: ringY, width: ringW, height: 136)
+                fableSatellite.frame = .zero
+            }
             primaryBullet.frame = .zero
             weeklyBullet.frame = .zero
             cacheBullet.frame = .zero
@@ -1809,7 +1976,7 @@ final class DashboardView: NSView {
         segment.toolTip = t(.usageWindow)
         addSubview(segment)
 
-        [primaryRing, weeklyRing, primaryBullet, weeklyBullet, cacheBullet, cacheRing, dayChart, platformQuotaView, serviceStatusView].forEach { addSubview($0) }
+        [primaryRing, weeklyRing, primaryBullet, weeklyBullet, cacheBullet, cacheRing, fableSatellite, dayChart, platformQuotaView, serviceStatusView].forEach { addSubview($0) }
         serviceStatusView.toolTip = "Open OpenAI Status"
 
         buttonsStack.orientation = .horizontal
