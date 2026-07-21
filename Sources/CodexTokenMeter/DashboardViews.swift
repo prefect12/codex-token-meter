@@ -1095,8 +1095,8 @@ final class PlatformQuotaRingsOverviewView: NSView {
     private func drawFableSatellite(limit: LiveRateLimit, center: NSPoint) {
         let window = limit.secondary
         let percent = window?.remainingPercent ?? -1
-        let radius: CGFloat = 19
-        let lineWidth: CGFloat = 5.5
+        let radius: CGFloat = 26
+        let lineWidth: CGFloat = 7
         drawRing(center: center, radius: radius, lineWidth: lineWidth, percent: percent, color: .systemOrange)
         if let comparison = remainingComparison(for: window) {
             drawExpectedRemainingMarker(
@@ -1107,19 +1107,31 @@ final class PlatformQuotaRingsOverviewView: NSView {
                 lineWidth: lineWidth
             )
         }
+        let value = percent < 0 ? "--" : "\(Int(round(percent)))%"
+        let innerClearWidth = (radius - lineWidth / 2) * 2 - 2
         drawText(
-            percent < 0 ? "--" : "\(Int(round(percent)))%",
-            rect: NSRect(x: center.x - 27, y: center.y - 9, width: 54, height: 18),
-            font: .monospacedDigitSystemFont(ofSize: 13, weight: .bold),
+            value,
+            rect: NSRect(x: center.x - 32, y: center.y - 10, width: 64, height: 20),
+            font: fittedMonospacedFont(for: value, baseSize: 15, weight: .bold, maxWidth: innerClearWidth),
             color: .white,
             alignment: .center
         )
-        drawText("Fable 5", rect: NSRect(x: center.x - 42, y: center.y + 24, width: 84, height: 15), font: .systemFont(ofSize: 10.5, weight: .bold), color: .systemOrange, alignment: .center)
-        drawText(resetSubtitle(window), rect: NSRect(x: center.x - 42, y: center.y + 39, width: 84, height: 14), font: .systemFont(ofSize: 9, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42), alignment: .center)
+        drawText("Fable 5", rect: NSRect(x: center.x - 42, y: center.y + 33, width: 84, height: 15), font: .systemFont(ofSize: 10.5, weight: .bold), color: .systemOrange, alignment: .center)
+        drawText(resetSubtitle(window), rect: NSRect(x: center.x - 42, y: center.y + 48, width: 84, height: 14), font: .systemFont(ofSize: 9, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42), alignment: .center)
         hoverRegions.append((
-            rect: NSRect(x: center.x - 44, y: center.y - 26, width: 88, height: 82),
+            rect: NSRect(x: center.x - 44, y: center.y - 34, width: 88, height: 98),
             tooltip: ringTooltip(title: "Fable 5", target: .claude, window: window, metric: .weekly, capturedAt: limit.capturedAt)
         ))
+    }
+
+    private func fittedMonospacedFont(for text: String, baseSize: CGFloat, weight: NSFont.Weight, maxWidth: CGFloat) -> NSFont {
+        var size = baseSize
+        var font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
+        while (text as NSString).size(withAttributes: [.font: font]).width > maxWidth, size > 8 {
+            size -= 0.5
+            font = .monospacedDigitSystemFont(ofSize: size, weight: weight)
+        }
+        return font
     }
 
     private func drawRing(center: NSPoint, radius: CGFloat, lineWidth: CGFloat, percent: Double, color: NSColor) {
