@@ -1097,7 +1097,8 @@ final class PlatformQuotaRingsOverviewView: NSView {
         let percent = window?.remainingPercent ?? -1
         let radius: CGFloat = 26
         let lineWidth: CGFloat = 7
-        drawRing(center: center, radius: radius, lineWidth: lineWidth, percent: percent, color: .systemOrange)
+        let accent = displayedRemainingColor(window, target: .claude, percent: percent)
+        drawRing(center: center, radius: radius, lineWidth: lineWidth, percent: percent, color: accent)
         if let comparison = remainingComparison(for: window) {
             drawExpectedRemainingMarker(
                 percent: comparison.expectedRemainingPercent,
@@ -1555,14 +1556,14 @@ final class DashboardView: NSView {
             cacheRing.percent = fableRemaining
             cacheRing.title = "Fable 5"
             cacheRing.subtitle = "\(t(.reset)) \(compactResetRelative(fableWindow.resetsAt))"
-            cacheRing.color = .systemOrange
+            cacheRing.color = displayedRemainingColor(fableWindow, target: .claude, percent: fableRemaining)
             cacheRing.resetTooltip = fableWindow.resetsAt.map { relative($0) }
             cacheRing.remainingComparison = fableComparison
 
             cacheBullet.actualRemainingPercent = fableRemaining
             cacheBullet.title = "Fable 5"
             cacheBullet.subtitle = "\(t(.reset)) \(compactResetRelative(fableWindow.resetsAt))"
-            cacheBullet.color = .systemOrange
+            cacheBullet.color = displayedRemainingColor(fableWindow, target: .claude, percent: fableRemaining)
             cacheBullet.resetTooltip = fableWindow.resetsAt.map { relative($0) }
             cacheBullet.remainingComparison = fableComparison
         } else {
