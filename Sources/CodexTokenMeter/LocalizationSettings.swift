@@ -167,6 +167,7 @@ enum StatusBarMetric: String, CaseIterable {
     case codexWeekly
     case claudeFiveHour
     case claudeWeekly
+    case fableWeekly
 
     var title: String {
         switch self {
@@ -174,6 +175,7 @@ enum StatusBarMetric: String, CaseIterable {
         case .codexWeekly: return t(.statusCodexWeekly)
         case .claudeFiveHour: return t(.statusClaudeFiveHour)
         case .claudeWeekly: return t(.statusClaudeWeekly)
+        case .fableWeekly: return t(.statusFableWeekly)
         }
     }
 
@@ -181,7 +183,7 @@ enum StatusBarMetric: String, CaseIterable {
         switch self {
         case .codexFiveHour, .codexWeekly:
             return .codex
-        case .claudeFiveHour, .claudeWeekly:
+        case .claudeFiveHour, .claudeWeekly, .fableWeekly:
             return .claude
         }
     }
@@ -190,8 +192,17 @@ enum StatusBarMetric: String, CaseIterable {
         switch self {
         case .codexFiveHour, .claudeFiveHour:
             return .fiveHour
-        case .codexWeekly, .claudeWeekly:
+        case .codexWeekly, .claudeWeekly, .fableWeekly:
             return .weekly
+        }
+    }
+
+    var liveLimitID: String {
+        switch self {
+        case .fableWeekly:
+            return claudeFableLiveLimitID
+        case .codexFiveHour, .codexWeekly, .claudeFiveHour, .claudeWeekly:
+            return source.liveLimitID
         }
     }
 
@@ -509,6 +520,7 @@ enum L10nKey {
     case statusMetricOff
     case statusClaudeFiveHour
     case statusClaudeWeekly
+    case statusFableWeekly
     case statusQuotaPercents
     case statusWeeklyPercent
     case statusWeeklyTokens
@@ -830,6 +842,7 @@ enum L10nKey {
         case .statusMetricOff: return "Off"
         case .statusClaudeFiveHour: return "Claude 5h"
         case .statusClaudeWeekly: return "Claude 1w"
+        case .statusFableWeekly: return "Fable 5 1w"
         case .statusQuotaPercents: return "5h | Weekly %"
         case .statusWeeklyPercent: return "Weekly %"
         case .statusWeeklyTokens: return "7d tokens"
@@ -1110,6 +1123,7 @@ enum L10nKey {
         case .statusMetricOff: return "关闭"
         case .statusClaudeFiveHour: return "Claude 5h"
         case .statusClaudeWeekly: return "Claude 1周"
+        case .statusFableWeekly: return "Fable 5 1周"
         case .statusQuotaPercents: return "5h | 周百分比"
         case .statusWeeklyPercent: return "周百分比"
         case .statusWeeklyTokens: return "7d 用量"
@@ -1390,6 +1404,7 @@ enum L10nKey {
         case .statusMetricOff: return "オフ"
         case .statusClaudeFiveHour: return "Claude 5h"
         case .statusClaudeWeekly: return "Claude 1週"
+        case .statusFableWeekly: return "Fable 5 1週"
         case .statusQuotaPercents: return "5h | 週 %"
         case .statusWeeklyPercent: return "週 %"
         case .statusWeeklyTokens: return "7日使用量"
