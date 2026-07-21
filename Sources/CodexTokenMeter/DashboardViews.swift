@@ -1026,21 +1026,22 @@ final class PlatformQuotaRingsOverviewView: NSView {
         let codex = codexLimit(from: limits)
         let claude = limits.first { $0.id == QuotaViewOption.claude.liveLimitID }
         let fable = limits.first { $0.id == claudeFableLiveLimitID }
+        let showsFable = AppSettings.showCombinedFableEnabled && fable != nil
         drawRingBlock(
             title: "Codex",
             target: .codex,
             limit: codex,
             metric: AppSettings.codexHomeRingMetric,
-            center: NSPoint(x: bounds.minX + bounds.width * 0.25, y: bounds.minY + 66)
+            center: NSPoint(x: bounds.minX + bounds.width * (showsFable ? 0.25 : 0.27), y: bounds.minY + 66)
         )
         drawRingBlock(
             title: "Claude",
             target: .claude,
             limit: claude,
             metric: AppSettings.claudeHomeRingMetric,
-            center: NSPoint(x: bounds.minX + bounds.width * 0.62, y: bounds.minY + 66)
+            center: NSPoint(x: bounds.minX + bounds.width * (showsFable ? 0.62 : 0.73), y: bounds.minY + 66)
         )
-        if let fable {
+        if showsFable, let fable {
             drawFableSatellite(
                 limit: fable,
                 center: NSPoint(x: bounds.minX + bounds.width * 0.89, y: bounds.minY + 88)

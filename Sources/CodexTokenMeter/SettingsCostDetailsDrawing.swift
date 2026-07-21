@@ -165,8 +165,9 @@ extension UsageDetailsView {
             drawSelectablePill(metric.title, rect: optionRect, selected: metric == AppSettings.claudeThirdRingMetric)
         }
 
-        drawSwitchSetting(title: t(.showCodexStatus), hint: codexStatusSettingHint, switchFrame: showCodexStatusSwitch.frame, page: page, y: page.minY + 356)
-        drawSwitchSetting(title: t(.quotaWarnings), hint: t(.quotaWarningsHint), switchFrame: quotaWarningsSwitch.frame, page: page, y: page.minY + 430)
+        drawSwitchSetting(title: t(.showCombinedFable), hint: t(.showCombinedFableHint), switchFrame: showCombinedFableSwitch.frame, page: page, y: page.minY + 356)
+        drawSwitchSetting(title: t(.showCodexStatus), hint: codexStatusSettingHint, switchFrame: showCodexStatusSwitch.frame, page: page, y: page.minY + 418)
+        drawSwitchSetting(title: t(.quotaWarnings), hint: t(.quotaWarningsHint), switchFrame: quotaWarningsSwitch.frame, page: page, y: page.minY + 480)
     }
 
     func drawSystemSettings(in page: NSRect) {

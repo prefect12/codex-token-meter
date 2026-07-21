@@ -104,6 +104,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onClaudeThirdRingMetricChanged = { [weak self] metric in
             self?.changeClaudeThirdRingMetric(metric)
         }
+        detailsController.detailsView.onShowCombinedFableChanged = { [weak self] isOn in
+            self?.changeShowCombinedFable(isOn)
+        }
         detailsController.detailsView.onPlanCostChanged = { [weak self] value, source in self?.changePlanCost(value, source: source) }
         detailsController.detailsView.onPaymentStartDayChanged = { [weak self] value, source in self?.changePaymentStartDay(value, source: source) }
         detailsController.detailsView.onPaymentCurrencyChanged = { [weak self] currency, source in self?.changePaymentCurrency(currency, source: source) }
@@ -986,6 +989,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.needsLayout = true
+        dashboardController.dashboardView.update(latestState)
+    }
+
+    private func changeShowCombinedFable(_ value: Bool) {
+        AppSettings.showCombinedFableEnabled = value
+        detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
     }
 
