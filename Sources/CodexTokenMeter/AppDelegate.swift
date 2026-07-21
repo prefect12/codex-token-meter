@@ -761,7 +761,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func statusMetricText(_ metric: StatusBarMetric, limits: [LiveRateLimit]) -> String? {
-        let limit = statusLimit(from: limits, source: metric.source)
+        let limit = limits.first { $0.id == metric.liveLimitID }
         let text: String?
         switch metric.quotaMetric {
         case .fiveHour:
@@ -771,10 +771,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard let text else { return nil }
         return text
-    }
-
-    private func statusLimit(from limits: [LiveRateLimit], source: QuotaViewOption) -> LiveRateLimit? {
-        limits.first { $0.id == source.liveLimitID }
     }
 
     private func statusPercentText(_ percent: Double?, source: QuotaViewOption) -> String? {
