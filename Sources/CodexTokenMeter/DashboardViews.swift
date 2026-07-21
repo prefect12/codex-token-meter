@@ -1013,7 +1013,8 @@ final class PlatformQuotaRingsOverviewView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        toolTip = hoverRegions.first { $0.rect.contains(point) }?.tooltip
+        // More specific hover regions are registered after their broader row.
+        toolTip = hoverRegions.last { $0.rect.contains(point) }?.tooltip
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -1213,6 +1214,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
         drawText(inputOutputText(report), rect: NSRect(x: table.minX + 178, y: y + 7, width: 104, height: 18), font: .monospacedDigitSystemFont(ofSize: 11.5, weight: .bold), color: NSColor.white.withAlphaComponent(0.90), alignment: .left)
         let statusRect = NSRect(x: table.minX + 292, y: y + 1, width: 80, height: 32)
         statusHitRects[target] = statusRect
+        hoverRegions.append((rect: statusRect, tooltip: serviceStatusTooltip(title: title, target: target)))
         rowStatus.color.setFill()
         NSBezierPath(ovalIn: NSRect(x: statusRect.minX, y: y + 12, width: 8, height: 8)).fill()
         drawText(rowStatus.text, rect: NSRect(x: statusRect.minX + 14, y: y + 7, width: statusRect.width - 14, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: .white, alignment: .left)
@@ -1224,6 +1226,42 @@ final class PlatformQuotaRingsOverviewView: NSView {
             return (t(.codexStatusUnavailable), NSColor.white.withAlphaComponent(0.28))
         }
         return (localizedCodexStatus(snapshot.overallStatus), codexStatusColor(snapshot.overallStatus))
+    }
+
+    private func serviceStatusTooltip(title: String, target: QuotaViewOption) -> String {
+        let snapshot = target == .codex ? serviceStatus : claudeServiceStatus
+        guard let snapshot else {
+            return "\(title)\n\(t(.codexStatusUnavailable))"
+        }
+
+        let statusLabel = AppLanguage.current == .english ? "Status" : "状态"
+        let affectedLabel = AppLanguage.current == .english ? "Affected services" : "异常服务"
+        let incidentLabel = AppLanguage.current == .english ? "Incident" : "故障"
+        let separator = AppLanguage.current == .english ? ": " : "："
+        let allOperational = AppLanguage.current == .english
+            ? "All monitored services are operational"
+            : "监测到的服务均正常"
+        var lines = [title, "\(statusLabel)\(separator)\(localizedCodexStatus(snapshot.overallStatus))"]
+
+        let affected = snapshot.degradedComponents
+        if affected.isEmpty {
+            lines.append(allOperational)
+        } else {
+            lines.append("\(affectedLabel)\(separator.trimmingCharacters(in: .whitespaces))")
+            lines.append(contentsOf: affected.map {
+                "• \($0.name)\(separator)\(localizedCodexStatus($0.status))"
+            })
+        }
+
+        if let incident = snapshot.activeIncident {
+            let incidentStatus = localizedCodexStatus(incident.status)
+            if AppLanguage.current == .english {
+                lines.append("\(incidentLabel)\(separator)\(incident.name) (\(incidentStatus))")
+            } else {
+                lines.append("\(incidentLabel)\(separator)\(incident.name)（\(incidentStatus)）")
+            }
+        }
+        return lines.joined(separator: "\n")
     }
 
     private var platformHeader: String {
