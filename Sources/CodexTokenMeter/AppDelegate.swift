@@ -101,6 +101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onClaudeHomeRingMetricChanged = { [weak self] metric in
             self?.changeClaudeHomeRingMetric(metric)
         }
+        detailsController.detailsView.onClaudeThirdRingMetricChanged = { [weak self] metric in
+            self?.changeClaudeThirdRingMetric(metric)
+        }
         detailsController.detailsView.onPlanCostChanged = { [weak self] value, source in self?.changePlanCost(value, source: source) }
         detailsController.detailsView.onPaymentStartDayChanged = { [weak self] value, source in self?.changePaymentStartDay(value, source: source) }
         detailsController.detailsView.onPaymentCurrencyChanged = { [weak self] currency, source in self?.changePaymentCurrency(currency, source: source) }
@@ -954,6 +957,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func changeClaudeHomeRingMetric(_ metric: HomeQuotaRingMetric) {
         AppSettings.claudeHomeRingMetric = metric
+        detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
+        dashboardController.dashboardView.update(latestState)
+    }
+
+    private func changeClaudeThirdRingMetric(_ metric: ClaudeThirdRingMetric) {
+        AppSettings.claudeThirdRingMetric = metric
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)

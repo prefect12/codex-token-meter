@@ -574,6 +574,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var onQuotaDisplayStyleChanged: ((QuotaDisplayStyle) -> Void)?
     var onCodexHomeRingMetricChanged: ((HomeQuotaRingMetric) -> Void)?
     var onClaudeHomeRingMetricChanged: ((HomeQuotaRingMetric) -> Void)?
+    var onClaudeThirdRingMetricChanged: ((ClaudeThirdRingMetric) -> Void)?
     var onPlanCostChanged: ((Double, QuotaViewOption) -> Void)?
     var onPaymentStartDayChanged: ((String, QuotaViewOption) -> Void)?
     var onPaymentCurrencyChanged: ((CurrencyCode, QuotaViewOption) -> Void)?
@@ -705,6 +706,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var quotaDisplayStyleRects: [QuotaDisplayStyle: NSRect] = [:]
     var codexHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
     var claudeHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
+    var claudeThirdRingMetricRects: [ClaudeThirdRingMetric: NSRect] = [:]
     var settingsSubsectionRects: [SettingsSubsection: NSRect] = [:]
     var chooseLogFolderRect: NSRect?
     var resetLogFolderRect: NSRect?
@@ -1233,8 +1235,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         statusPrimaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 300, width: controlWidth, height: 36)
         statusSecondaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 370, width: controlWidth, height: 36)
         profileAPITotalsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 320, width: 48, height: 24)
-        showCodexStatusSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 306, width: 48, height: 24)
-        quotaWarningsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 390, width: 48, height: 24)
+        showCodexStatusSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 356, width: 48, height: 24)
+        quotaWarningsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 430, width: 48, height: 24)
         launchAtLoginSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 76, width: 48, height: 24)
         updateLanguagePopupFromSettings()
         updateDisplayCurrencyPopupFromSettings()
@@ -2046,6 +2048,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 onClaudeHomeRingMetricChanged?(metric)
                 return
             }
+            for (metric, rect) in claudeThirdRingMetricRects where rect.contains(point) {
+                onClaudeThirdRingMetricChanged?(metric)
+                return
+            }
             if chooseLogFolderRect?.contains(point) == true {
                 onChooseLogFolder?()
                 return
@@ -2504,6 +2510,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         insightListViewportRect = nil
         numberUnitOptionRects.removeAll()
         quotaDisplayStyleRects.removeAll()
+        codexHomeRingMetricRects.removeAll()
+        claudeHomeRingMetricRects.removeAll()
+        claudeThirdRingMetricRects.removeAll()
         settingsSubsectionRects.removeAll()
         sourceOptionRects.removeAll()
         chooseLogFolderRect = nil
