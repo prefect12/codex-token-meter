@@ -351,6 +351,18 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         }
         .first
     view.showSection(section, insightWindowDays: windowDays, source: source, insightMode: insightMode)
+    if section == .settings,
+       let rawSubsection = arguments.compactMap({ argument -> String? in
+           guard argument.hasPrefix("--settings-subsection=") else { return nil }
+           return String(argument.dropFirst("--settings-subsection=".count))
+       }).first {
+        switch rawSubsection {
+        case "data": view.selectedSettingsSubsection = .data
+        case "quota": view.selectedSettingsSubsection = .quota
+        case "system": view.selectedSettingsSubsection = .system
+        default: view.selectedSettingsSubsection = .appearance
+        }
+    }
     view.snapshot = snapshot
     let modelSearch = arguments
         .compactMap { argument -> String? in

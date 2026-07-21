@@ -259,6 +259,18 @@ enum HomeQuotaRingMetric: String, CaseIterable {
     }
 }
 
+enum ClaudeThirdRingMetric: String, CaseIterable {
+    case cacheHit
+    case fable5
+
+    var title: String {
+        switch self {
+        case .cacheHit: return t(.cacheHit)
+        case .fable5: return "Fable 5"
+        }
+    }
+}
+
 enum NumberUnitStyle: String, CaseIterable {
     case english
     case chinese
@@ -433,6 +445,8 @@ enum L10nKey {
     case overview
     case overviewSubtitle
     case claudeHomeRing
+    case claudeThirdRing
+    case claudeThirdRingHint
     case past24Hours
     case past30Days
     case past7Days
@@ -750,6 +764,8 @@ enum L10nKey {
         case .overview: return "Overview"
         case .overviewSubtitle: return "365-day token usage by source and model"
         case .claudeHomeRing: return "Claude home ring"
+        case .claudeThirdRing: return "Claude third ring"
+        case .claudeThirdRingHint: return "Choose whether the third equal-size ring shows cache hit rate or the separate Fable 5 weekly quota."
         case .past24Hours: return "Past 24 Hours"
         case .past30Days: return "Past 30 Days"
         case .past7Days: return "Past 7 Days"
@@ -1026,6 +1042,8 @@ enum L10nKey {
         case .overview: return "概览"
         case .overviewSubtitle: return "过去 365 天按来源和模型统计"
         case .claudeHomeRing: return "Claude 首页圆环"
+        case .claudeThirdRing: return "Claude 第三个圆环"
+        case .claudeThirdRingHint: return "选择第三个同尺寸圆环显示缓存命中率，还是独立的 Fable 5 周额度。"
         case .past24Hours: return "过去 24 小时"
         case .past30Days: return "过去 30 天"
         case .past7Days: return "过去 7 天"
@@ -1302,6 +1320,8 @@ enum L10nKey {
         case .overview: return "概要"
         case .overviewSubtitle: return "過去 365 日のソースとモデル別使用量"
         case .claudeHomeRing: return "Claude ホームリング"
+        case .claudeThirdRing: return "Claude の 3 番目のリング"
+        case .claudeThirdRingHint: return "3 つ目の同サイズリングにキャッシュ率または Fable 5 の週制限を表示します。"
         case .past24Hours: return "過去 24 時間"
         case .past30Days: return "過去 30 日"
         case .past7Days: return "過去 7 日"
@@ -1503,6 +1523,7 @@ enum AppSettings {
     static let showCodexStatusEnabledKey = "showCodexStatusEnabled"
     static let codexHomeRingMetricKey = "codexHomeRingMetric"
     static let claudeHomeRingMetricKey = "claudeHomeRingMetric"
+    static let claudeThirdRingMetricKey = "claudeThirdRingMetric"
     static let statusBarQuotaSourceKey = "statusBarQuotaSource"
     static let statusBarPrimaryMetricKey = "statusBarPrimaryMetric"
     static let statusBarSecondaryMetricKey = "statusBarSecondaryMetric"
@@ -2032,6 +2053,19 @@ enum AppSettings {
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: claudeHomeRingMetricKey)
+        }
+    }
+
+    static var claudeThirdRingMetric: ClaudeThirdRingMetric {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: claudeThirdRingMetricKey),
+                  let metric = ClaudeThirdRingMetric(rawValue: raw) else {
+                return .fable5
+            }
+            return metric
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: claudeThirdRingMetricKey)
         }
     }
 
