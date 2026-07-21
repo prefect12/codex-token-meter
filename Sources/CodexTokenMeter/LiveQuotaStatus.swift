@@ -268,6 +268,10 @@ enum LiveRateLimitCacheStore {
 
 final class ClaudeStatuslineStore {
     private static let ttlSeconds: TimeInterval = 10 * 60
+    /// Capture-file key for the model-scoped Fable weekly window. The old
+    /// "seven_day_overage_included" key held a different quota pool and is
+    /// intentionally no longer read.
+    static let fableWindowKey = "seven_day_fable"
     private let url: URL
 
     init(url: URL = AppSettings.claudeStatuslineCaptureURL) {
@@ -286,8 +290,25 @@ final class ClaudeStatuslineStore {
 
     func capture(stdinData: Data, now: Date = Date()) throws -> ClaudeStatuslineSnapshot? {
         let object = try JSONSerialization.jsonObject(with: stdinData) as? [String: Any] ?? [:]
-        let rateLimits = object["rate_limits"] as? [String: Any]
+        var rateLimits = object["rate_limits"] as? [String: Any]
+        // Claude Code's statusline payload carries no Fable window; keep the
+        // one the OAuth refresher captured so this rewrite doesn't drop it.
+        if rateLimits != nil, rateLimits?[Self.fableWindowKey] == nil,
+           let fable = storedFableWindowDict(now: now) {
+            rateLimits?[Self.fableWindowKey] = fable
+        }
         return try writeCapture(rateLimits: rateLimits, now: now)
+    }
+
+    private func storedFableWindowDict(now: Date) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rateLimits = object["rate_limits"] as? [String: Any],
+              let dict = rateLimits[Self.fableWindowKey] as? [String: Any],
+              parseFableWindow(dict, now: now) != nil else {
+            return nil
+        }
+        return dict
     }
 
     func captureUsageWindows(
@@ -308,7 +329,12 @@ final class ClaudeStatuslineStore {
             "seven_day": windowDict(sevenDay)
         ]
         if let fableSevenDay {
-            rateLimits["seven_day_overage_included"] = windowDict(fableSevenDay)
+            var dict = windowDict(fableSevenDay)
+            // Window-level timestamp: a statusline capture that preserves this
+            // window rewrites the top-level captured_at, so the Fable window
+            // must carry its own age for TTL checks.
+            dict["captured_at_epoch"] = Int(now.timeIntervalSince1970)
+            rateLimits[Self.fableWindowKey] = dict
         }
         return try writeCapture(rateLimits: rateLimits, now: now)
     }
@@ -363,7 +389,7 @@ final class ClaudeStatuslineStore {
         let isStale = capturedAt.map { now.timeIntervalSince($0) > Self.ttlSeconds } ?? false
         let fiveHour = parseWindow(rateLimits["five_hour"], now: now, windowMinutes: 5 * 60)
         let sevenDay = parseWindow(rateLimits["seven_day"], now: now, windowMinutes: 7 * 24 * 60)
-        let fableSevenDay = parseWindow(rateLimits["seven_day_overage_included"], now: now, windowMinutes: 7 * 24 * 60)
+        let fableSevenDay = parseFableWindow(rateLimits[Self.fableWindowKey], now: now)
         guard fiveHour != nil || sevenDay != nil || fableSevenDay != nil else { return nil }
         return ClaudeStatuslineSnapshot(
             capturedAt: capturedAt,
@@ -373,6 +399,18 @@ final class ClaudeStatuslineStore {
             sevenDay: sevenDay,
             fableSevenDay: fableSevenDay
         )
+    }
+
+    /// The Fable window carries its own capture timestamp; drop it once past
+    /// TTL so the OAuth refresher fetches a fresh value instead of serving a
+    /// preserved copy indefinitely.
+    private func parseFableWindow(_ raw: Any?, now: Date) -> ClaudeStatuslineWindow? {
+        guard let dict = raw as? [String: Any] else { return nil }
+        if let captured = finiteDouble(dict["captured_at_epoch"]),
+           now.timeIntervalSince(Date(timeIntervalSince1970: captured)) > Self.ttlSeconds {
+            return nil
+        }
+        return parseWindow(dict, now: now, windowMinutes: 7 * 24 * 60)
     }
 
     private func parseWindow(_ raw: Any?, now: Date, windowMinutes: Int) -> ClaudeStatuslineWindow? {
@@ -447,7 +485,11 @@ final class ClaudeOAuthUsageRefresher {
 
     @discardableResult
     func refreshIfNeeded(store: ClaudeStatuslineStore, now: Date = Date()) -> Bool {
-        if let snapshot = store.read(now: now), !snapshot.isStale {
+        // Statusline captures keep the snapshot perpetually fresh but carry no
+        // Fable window, so a missing Fable window forces a fetch too — unless
+        // a recent fetch already confirmed the account has no Fable quota.
+        if let snapshot = store.read(now: now), !snapshot.isStale,
+           snapshot.fableSevenDay != nil || fableConfirmedAbsent(now: now) {
             setOutcome("fresh-cache")
             return false
         }
@@ -472,6 +514,9 @@ final class ClaudeOAuthUsageRefresher {
                 fableSevenDay: windows.fableSevenDay,
                 now: now
             )
+            if windows.fableSevenDay == nil {
+                markFableAbsent(now: now)
+            }
             setOutcome("refreshed")
             return true
         } catch {
@@ -525,6 +570,22 @@ final class ClaudeOAuthUsageRefresher {
         guard now >= nextAttemptAt else { return false }
         nextAttemptAt = now.addingTimeInterval(attemptInterval)
         return true
+    }
+
+    /// Accounts without a model-scoped weekly quota would otherwise re-fetch
+    /// every attempt interval; remember the absence for one cache TTL.
+    private var fableAbsentUntil = Date.distantPast
+
+    private func fableConfirmedAbsent(now: Date) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return now < fableAbsentUntil
+    }
+
+    private func markFableAbsent(now: Date) {
+        lock.lock()
+        fableAbsentUntil = now.addingTimeInterval(10 * 60)
+        lock.unlock()
     }
 
     private func postpone(now: Date, interval: TimeInterval) {
@@ -797,21 +858,48 @@ final class ClaudeOAuthUsageRefresher {
         return UsageWindows(
             fiveHour: fiveHour,
             sevenDay: sevenDay,
-            fableSevenDay: parseUsageWindow(object["seven_day_overage_included"], now: now)
+            fableSevenDay: Self.parseFableScopedLimit(object["limits"])
         )
+    }
+
+    /// The Fable weekly quota ("Weekly · Fable" in Claude Code's /usage panel)
+    /// is not a top-level window; it arrives in the `limits` array as a
+    /// model-scoped weekly entry (kind "weekly_scoped").
+    static func parseFableScopedLimit(_ raw: Any?) -> ClaudeStatuslineWindow? {
+        guard let entries = raw as? [[String: Any]] else { return nil }
+        let scoped = entries.filter { entry in
+            guard (entry["kind"] as? String) == "weekly_scoped",
+                  let scope = entry["scope"] as? [String: Any],
+                  scope["model"] is [String: Any] else { return false }
+            return true
+        }
+        let entry = scoped.first {
+            scopedModelDisplayName($0)?.localizedCaseInsensitiveContains("fable") == true
+        } ?? scoped.first
+        guard let entry,
+              let percent = usageNumber(entry["percent"]), percent >= 0 else {
+            return nil
+        }
+        return ClaudeStatuslineWindow(usedPercent: min(100, percent), resetsAt: usageDate(entry["resets_at"]))
+    }
+
+    private static func scopedModelDisplayName(_ entry: [String: Any]) -> String? {
+        guard let scope = entry["scope"] as? [String: Any],
+              let model = scope["model"] as? [String: Any] else { return nil }
+        return model["display_name"] as? String
     }
 
     private func parseUsageWindow(_ raw: Any?, now: Date) -> ClaudeStatuslineWindow? {
         guard let dict = raw as? [String: Any] else { return nil }
-        guard let percent = usageNumber(dict["utilization"]) ?? usageNumber(dict["used_percentage"]),
+        guard let percent = Self.usageNumber(dict["utilization"]) ?? Self.usageNumber(dict["used_percentage"]),
               percent >= 0 else {
             return nil
         }
-        let resetsAt = usageDate(dict["resets_at"])
+        let resetsAt = Self.usageDate(dict["resets_at"])
         return ClaudeStatuslineWindow(usedPercent: min(100, percent), resetsAt: resetsAt)
     }
 
-    private func usageNumber(_ raw: Any?) -> Double? {
+    private static func usageNumber(_ raw: Any?) -> Double? {
         if let raw, CFGetTypeID(raw as CFTypeRef) == CFBooleanGetTypeID() {
             return nil
         }
@@ -829,7 +917,7 @@ final class ClaudeOAuthUsageRefresher {
         return value
     }
 
-    private func usageDate(_ raw: Any?) -> Date? {
+    private static func usageDate(_ raw: Any?) -> Date? {
         if let epoch = usageNumber(raw), epoch > 0 {
             return Date(timeIntervalSince1970: epoch)
         }
