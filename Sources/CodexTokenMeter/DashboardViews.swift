@@ -1039,7 +1039,8 @@ final class PlatformQuotaRingsOverviewView: NSView {
             target: .claude,
             limit: claude,
             metric: AppSettings.claudeHomeRingMetric,
-            center: NSPoint(x: bounds.minX + bounds.width * (showsFable ? 0.62 : 0.73), y: bounds.minY + 66)
+            center: NSPoint(x: bounds.minX + bounds.width * (showsFable ? 0.62 : 0.73), y: bounds.minY + 66),
+            fableWindow: fable?.secondary
         )
         if showsFable, let fable {
             drawFableSatellite(
@@ -1064,7 +1065,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
         limits.first { $0.id == QuotaViewOption.codex.liveLimitID }
     }
 
-    private func drawRingBlock(title: String, target: QuotaViewOption, limit: LiveRateLimit?, metric: HomeQuotaRingMetric, center: NSPoint) {
+    private func drawRingBlock(title: String, target: QuotaViewOption, limit: LiveRateLimit?, metric: HomeQuotaRingMetric, center: NSPoint, fableWindow: RateWindow? = nil) {
         let window = selectedWindow(from: limit, metric: metric)
         let percent = displayedRemainingPercent(window, target: target)
         let accent = displayedRemainingColor(window, target: target, percent: percent)
@@ -1088,7 +1089,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
         drawText(resetSubtitle(window), rect: NSRect(x: center.x - 66, y: center.y + 86, width: 132, height: 15), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42), alignment: .center)
         hoverRegions.append((
             rect: NSRect(x: center.x - 62, y: center.y - 58, width: 124, height: 160),
-            tooltip: ringTooltip(title: title, target: target, window: window, metric: metric, capturedAt: limit?.capturedAt)
+            tooltip: ringTooltip(title: title, target: target, window: window, metric: metric, capturedAt: limit?.capturedAt, fableWindow: fableWindow)
         ))
     }
 
@@ -1286,7 +1287,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
         return "\(t(.reset)) \(compactResetRelative(window.resetsAt))"
     }
 
-    private func ringTooltip(title: String, target: QuotaViewOption, window: RateWindow?, metric: HomeQuotaRingMetric, capturedAt: Date?) -> String {
+    private func ringTooltip(title: String, target: QuotaViewOption, window: RateWindow?, metric: HomeQuotaRingMetric, capturedAt: Date?, fableWindow: RateWindow? = nil) -> String {
         guard let window else {
             return "\(title) \(metric.title)\n\(t(.liveLimitUnavailable))"
         }
@@ -1307,6 +1308,9 @@ final class PlatformQuotaRingsOverviewView: NSView {
             lines.append("重置：\(relative(resetsAt))")
         } else {
             lines.append("重置：--")
+        }
+        if let fableWindow {
+            lines.append("Fable 5 剩余 \(Int(round(fableWindow.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(fableWindow.resetsAt))")
         }
         lines.append("数据更新：\(dataUpdatedText(capturedAt))")
         return lines.joined(separator: "\n")
