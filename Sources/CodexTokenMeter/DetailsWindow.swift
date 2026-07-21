@@ -587,6 +587,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var onOpenCodexAPISource: (() -> Void)?
     var onShowHistoricalEmptyWeeksChanged: ((Bool) -> Void)?
     var onLaunchAtLoginChanged: ((Bool) -> Void)?
+    var onShowCombinedFableChanged: ((Bool) -> Void)?
     var onShowCodexStatusChanged: ((Bool) -> Void)?
     var onQuotaWarningsChanged: ((Bool) -> Void)?
     var onProfileAPITotalsChanged: ((Bool) -> Void)?
@@ -775,6 +776,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     let storageSearchField = NSSearchField()
     let showHistoricalEmptyWeeksSwitch = NSSwitch(frame: .zero)
     let launchAtLoginSwitch = NSSwitch(frame: .zero)
+    let showCombinedFableSwitch = NSSwitch(frame: .zero)
     let showCodexStatusSwitch = NSSwitch(frame: .zero)
     let quotaWarningsSwitch = NSSwitch(frame: .zero)
     let profileAPITotalsSwitch = NSSwitch(frame: .zero)
@@ -1097,6 +1099,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         launchAtLoginSwitch.action = #selector(launchAtLoginChanged)
         addSubview(launchAtLoginSwitch)
 
+        showCombinedFableSwitch.controlSize = .small
+        showCombinedFableSwitch.isHidden = true
+        showCombinedFableSwitch.target = self
+        showCombinedFableSwitch.action = #selector(showCombinedFableChanged)
+        addSubview(showCombinedFableSwitch)
+
         showCodexStatusSwitch.controlSize = .small
         showCodexStatusSwitch.isHidden = true
         showCodexStatusSwitch.target = self
@@ -1144,6 +1152,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         statusSecondaryMetricPopup.setAccessibilityLabel(t(.statusBarMetricTwo))
         showHistoricalEmptyWeeksSwitch.setAccessibilityLabel(t(.showPastEmptyWeeks))
         launchAtLoginSwitch.setAccessibilityLabel(t(.launchAtLogin))
+        showCombinedFableSwitch.setAccessibilityLabel(t(.showCombinedFable))
         quotaWarningsSwitch.setAccessibilityLabel(t(.quotaWarnings))
         profileAPITotalsSwitch.setAccessibilityLabel(t(.profileAPITotals))
         paymentCurrencyPopup.target = self
@@ -1219,6 +1228,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         statusPrimaryMetricPopup.isHidden = !(visible && selectedSettingsSubsection == .appearance)
         statusSecondaryMetricPopup.isHidden = !(visible && selectedSettingsSubsection == .appearance)
         launchAtLoginSwitch.isHidden = !(visible && selectedSettingsSubsection == .system)
+        showCombinedFableSwitch.isHidden = !(visible && selectedSettingsSubsection == .quota)
         showCodexStatusSwitch.isHidden = !(visible && selectedSettingsSubsection == .quota)
         quotaWarningsSwitch.isHidden = !(visible && selectedSettingsSubsection == .quota)
         profileAPITotalsSwitch.isHidden = !(visible && selectedSettingsSubsection == .data)
@@ -1235,8 +1245,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         statusPrimaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 300, width: controlWidth, height: 36)
         statusSecondaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 370, width: controlWidth, height: 36)
         profileAPITotalsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 320, width: 48, height: 24)
-        showCodexStatusSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 356, width: 48, height: 24)
-        quotaWarningsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 430, width: 48, height: 24)
+        showCombinedFableSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 356, width: 48, height: 24)
+        showCodexStatusSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 418, width: 48, height: 24)
+        quotaWarningsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 480, width: 48, height: 24)
         launchAtLoginSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 76, width: 48, height: 24)
         updateLanguagePopupFromSettings()
         updateDisplayCurrencyPopupFromSettings()
@@ -1268,6 +1279,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     func updateSettingsControlsFromSystem() {
         guard selectedSection == .settings else { return }
         launchAtLoginSwitch.state = LoginItemManager.isEnabled ? .on : .off
+        showCombinedFableSwitch.state = AppSettings.showCombinedFableEnabled ? .on : .off
         showCodexStatusSwitch.state = AppSettings.showCodexStatusEnabled ? .on : .off
         quotaWarningsSwitch.state = AppSettings.quotaWarningsEnabled ? .on : .off
         profileAPITotalsSwitch.state = AppSettings.profileAPITotalsEnabled ? .on : .off
@@ -2395,6 +2407,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     @objc private func showCodexStatusChanged() {
         onShowCodexStatusChanged?(showCodexStatusSwitch.state == .on)
+        updateSettingsControlsFromSystem()
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    @objc private func showCombinedFableChanged() {
+        onShowCombinedFableChanged?(showCombinedFableSwitch.state == .on)
         updateSettingsControlsFromSystem()
         needsDisplay = true
         needsLayout = true
