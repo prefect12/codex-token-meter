@@ -445,6 +445,8 @@ final class CodexTokenScanner {
     private let dayFormatter: DateFormatter
     private let calendar: Calendar
     private let eventMsgPattern = Array(#""type":"event_msg""#.utf8)
+    private let subagentSourcePattern = Array(#""source":{"subagent":{"thread_spawn""#.utf8)
+    private let interAgentMetadataPattern = Array(#""type":"inter_agent_communication_metadata""#.utf8)
     private let turnContextPattern = Array(#""type":"turn_context""#.utf8)
     private let taskStartedPattern = Array(#""type":"task_started""#.utf8)
     private let contextCompactedPattern = Array(#""type":"context_compacted""#.utf8)
@@ -1033,7 +1035,7 @@ final class CodexTokenScanner {
 
         let timeZoneIdentifier = appTimeZone().identifier
         if let disk = try? jsonDecoder.decode(DiskFileCache.self, from: data),
-              disk.version == 8,
+              disk.version == 9,
               disk.path == fileURL.path,
               disk.size == size,
               disk.timeZoneIdentifier == timeZoneIdentifier,
@@ -1151,7 +1153,7 @@ final class CodexTokenScanner {
 
     private func writeDiskCache(_ file: FileCache, fileURL: URL) {
         let disk = DiskFileCache(
-            version: 8,
+            version: 9,
             path: fileURL.path,
             size: file.size,
             modifiedAt: file.modifiedAt.timeIntervalSinceReferenceDate,
@@ -1180,6 +1182,7 @@ final class CodexTokenScanner {
         var currentRunIndex: Int?
         var pendingTaskStartedIndex: Int?
         var currentModel = "Unknown model"
+        var awaitingSubagentBoundary = false
 
         func appendReasoningRun(timestamp: Date, model: String = "Unknown model", effort: String = "unknown") -> Int {
             reasoningRuns.append(FileReasoningRunAggregate(
@@ -1215,7 +1218,24 @@ final class CodexTokenScanner {
                 guard lineEnd > lineStart else { return }
                 let range = lineStart..<lineEnd
 
-                if self.contains(base, range: range, pattern: self.turnContextPattern),
+                if self.contains(base, range: range, pattern: self.subagentSourcePattern) {
+                    // Desktop forks serialize the parent's event history into each
+                    // child rollout before this marker. Keep advancing cumulative
+                    // counters below, but do not attribute that inherited prefix.
+                    awaitingSubagentBoundary = true
+                    return
+                }
+                if awaitingSubagentBoundary,
+                   self.contains(base, range: range, pattern: self.interAgentMetadataPattern) {
+                    awaitingSubagentBoundary = false
+                    currentRunIndex = nil
+                    pendingTaskStartedIndex = nil
+                    currentModel = "Unknown model"
+                    return
+                }
+
+                if !awaitingSubagentBoundary,
+                   self.contains(base, range: range, pattern: self.turnContextPattern),
                    let cwd = self.extractString(base, range: range, key: self.cwdKey),
                    !cwd.isEmpty {
                     cwdCounts[cwd, default: 0] += 1
@@ -1270,6 +1290,7 @@ final class CodexTokenScanner {
                     )
                     let delta = Usage.delta(from: previousTotal, to: currentTotal)
                     previousTotal = currentTotal
+                    guard !awaitingSubagentBoundary else { return }
                     updateDay(day) { $0.tokens += delta.total }
                     updateHour(timestamp, day: day) { $0.tokens += delta.total }
                     if currentRunIndex == nil {
@@ -1279,6 +1300,8 @@ final class CodexTokenScanner {
                         reasoningRuns[currentRunIndex].usage.add(delta)
                     }
                 }
+
+                guard !awaitingSubagentBoundary else { return }
 
                 guard self.contains(base, range: range, pattern: self.eventMsgPattern) else {
                     return
@@ -1438,6 +1461,7 @@ final class CodexTokenScanner {
         var events: [TokenEvent] = []
         var turns: [Date] = []
         var currentModel: String?
+        var awaitingSubagentBoundary = false
 
         data.withUnsafeBytes { rawBuffer in
             guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
@@ -1447,12 +1471,26 @@ final class CodexTokenScanner {
             func handleLine(_ lineEnd: Int) {
                 guard lineEnd > lineStart else { return }
                 let range = lineStart..<lineEnd
+
+                if self.contains(base, range: range, pattern: self.subagentSourcePattern) {
+                    // A forked rollout starts with a replay of its parent's events.
+                    // The inter-agent metadata marks the child's own event stream.
+                    awaitingSubagentBoundary = true
+                    return
+                }
+                if awaitingSubagentBoundary,
+                   self.contains(base, range: range, pattern: self.interAgentMetadataPattern) {
+                    awaitingSubagentBoundary = false
+                    currentModel = nil
+                    return
+                }
                 guard let timestampString = self.extractString(base, range: range, key: self.timestampKey),
                       let timestamp = self.parseDate(timestampString) else {
                     return
                 }
 
-                if self.contains(base, range: range, pattern: self.turnContextPattern),
+                if !awaitingSubagentBoundary,
+                   self.contains(base, range: range, pattern: self.turnContextPattern),
                    let model = self.extractString(base, range: range, key: self.modelKey),
                    !model.isEmpty {
                     currentModel = model
@@ -1481,6 +1519,7 @@ final class CodexTokenScanner {
                 )
                 let delta = Usage.delta(from: previousTotal, to: currentTotal)
                 previousTotal = currentTotal
+                guard !awaitingSubagentBoundary else { return }
                 guard delta.total > 0 || delta.input > 0 || delta.output > 0 else {
                     return
                 }
