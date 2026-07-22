@@ -1,6 +1,6 @@
 # AI Token Meter：macOS 上的 Codex 与 Claude Code Token 用量、额度和成本追踪器
 
-[English README](README.en.md) · [下载最新版](https://github.com/prefect12/codex-token-meter/releases/latest)
+[普通用户安装教程](docs/INSTALL.zh-CN.md) · [English README](README.en.md) · [下载最新版](https://github.com/prefect12/codex-token-meter/releases/latest)
 
 AI Token Meter（原 Codex Token Meter）是一款免费、开源、原生的 **macOS 菜单栏 Token 统计工具**。它可以追踪 **OpenAI Codex / Codex CLI** 和 **Anthropic Claude Code** 的本地 token 用量、缓存命中率、5 小时与每周剩余额度、重置时间、模型级统计，以及 API 等价成本。
 
@@ -15,6 +15,8 @@ AI Token Meter（原 Codex Token Meter）是一款免费、开源、原生的 **
 - **原生 macOS 应用**：轻量 AppKit 菜单栏体验，支持 Apple Silicon 和 Intel Mac。
 
 > [从 GitHub Releases 下载 AI Token Meter for macOS](https://github.com/prefect12/codex-token-meter/releases/latest)
+
+第一次安装请查看 **[DMG 拖拽安装、首次启动、macOS 安全拦截、权限与安装验证完整教程](docs/INSTALL.zh-CN.md)**。普通用户不需要安装 Xcode，也不需要运行终端命令。
 
 它直接读取本地 Codex 会话日志和 Claude Code 项目日志：
 
@@ -255,7 +257,9 @@ $CODEX_HOME/archived_sessions
 
 这些数据只在本机使用。应用不会上传会话日志。为了兼容旧版本，App Support 目录名仍保留为 `Codex Token Meter`。应用会只读请求 `https://status.openai.com/api/v2/summary.json` 展示 Codex 状态，并请求正常的 `https://chatgpt.com/backend-api/wham/` 用量接口读取实时额度、Profile 汇总和 reset credits。应用只用现有本机 ChatGPT access token 验证这些请求，不会为轮询启动 Codex 运行时。
 
-## 构建
+## 构建与源码安装（开发者）
+
+普通用户请使用 [DMG 安装教程](docs/INSTALL.zh-CN.md)，不需要执行本节命令。
 
 要求：
 

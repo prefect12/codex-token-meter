@@ -2,7 +2,7 @@
 
 两个免费、开源、原生的 macOS 状态栏工具，面向 OpenAI Codex / Codex CLI 和 Anthropic Claude Code 工作流。AI Token Meter 是 Codex 与 Claude Code 的 token 用量、5 小时/每周额度、重置时间、缓存命中率和成本追踪器；Task Bar 用来集中查看正在运行、等待回复和已完成未读的 AI 编程任务。
 
-[中文详细说明](README.zh-CN.md) · [English](README.en.md) · [下载最新版](https://github.com/prefect12/codex-token-meter/releases/latest)
+[中文详细说明](README.zh-CN.md) · [普通用户安装教程](docs/INSTALL.zh-CN.md) · [English](README.en.md) · [下载最新版](https://github.com/prefect12/codex-token-meter/releases/latest)
 
 - **AI Token Meter**：查看 Codex / Claude Code 的本地 token 用量、缓存命中率、实时剩余额度、模型统计、仓库洞察和订阅价值估算。
 - **Task Bar**：把正在运行、等待输入、已完成但未读的 Codex / Claude Code 任务集中到一个轻量状态栏列表里，方便快速回到任务。
@@ -17,10 +17,12 @@
 
 | App | 安装包 | 安装位置 |
 | --- | --- | --- |
-| AI Token Meter | `AI-Token-Meter-0.2.11.dmg` | `/Applications/AI Token Meter.app` |
-| Task Bar | `Task-Bar-0.1.12.dmg` | `/Applications/Task Bar.app` |
+| AI Token Meter | `AI-Token-Meter-*.dmg` | `/Applications/AI Token Meter.app` |
+| Task Bar | `Task-Bar-*.dmg` | `/Applications/Task Bar.app` |
 
 如果只安装 AI Token Meter，就只会得到 token / 额度面板；Task Bar 是独立状态栏 app，需要下载并安装 `Task-Bar-*.dmg`。
+
+普通用户请查看 **[DMG 拖拽安装、首次启动、macOS 安全拦截、权限与安装验证完整教程](docs/INSTALL.zh-CN.md)**。两个应用安装后都显示在屏幕顶部菜单栏，不会出现在 Dock 中。
 
 ## 截图与交互
 
@@ -110,8 +112,8 @@ Repo 对话体检：按项目和文件夹定位长线程，统计对话长度分
 
 | App | Version | Build | Bundle |
 | --- | --- | --- | --- |
-| AI Token Meter | `0.2.11` | `25` | `/Applications/AI Token Meter.app` |
-| Task Bar | `0.1.12` | `13` | `/Applications/Task Bar.app` |
+| AI Token Meter | `0.2.15` | `29` | `/Applications/AI Token Meter.app` |
+| Task Bar | `0.1.16` | `17` | `/Applications/Task Bar.app` |
 
 ## 数据来源
 
@@ -187,15 +189,17 @@ Task Bar 读取：
 ./build_petbar.sh
 ```
 
-## 安装
+## 从源码安装（开发者）
 
-安装并启动 AI Token Meter：
+普通用户不需要运行下面的命令，请直接使用 [DMG 安装教程](docs/INSTALL.zh-CN.md)。
+
+从源码构建、安装并启动 AI Token Meter：
 
 ```bash
 ./install.sh
 ```
 
-安装并启动 Task Bar：
+从源码构建、安装并启动 Task Bar：
 
 ```bash
 ./install_petbar.sh
@@ -212,7 +216,7 @@ Task Bar 读取：
 输出：
 
 ```text
-dist/AI-Token-Meter-0.2.11.dmg
+dist/AI-Token-Meter-0.2.15.dmg
 ```
 
 打包 Task Bar：
@@ -224,7 +228,7 @@ dist/AI-Token-Meter-0.2.11.dmg
 输出：
 
 ```text
-dist/Task-Bar-0.1.12.dmg
+dist/Task-Bar-0.1.16.dmg
 ```
 
 ## 命令行检查
