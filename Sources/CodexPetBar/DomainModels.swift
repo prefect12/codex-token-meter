@@ -13,6 +13,47 @@ enum CodexThreadKind: String {
     case automation
 }
 
+enum TaskPlanStepStatus: String {
+    case pending
+    case inProgress = "in_progress"
+    case completed
+}
+
+struct TaskPlanStep {
+    let text: String
+    let status: TaskPlanStepStatus
+}
+
+struct TaskPlan {
+    let explanation: String?
+    let steps: [TaskPlanStep]
+
+    var completedCount: Int {
+        steps.filter { $0.status == .completed }.count
+    }
+
+    var activeIndex: Int? {
+        steps.firstIndex { $0.status == .inProgress }
+    }
+
+    var displayedStepNumber: Int {
+        activeIndex.map { $0 + 1 } ?? min(completedCount + 1, max(steps.count, 1))
+    }
+
+    var progress: Double {
+        guard !steps.isEmpty else { return 0 }
+        return min(1, max(0, Double(displayedStepNumber) / Double(steps.count)))
+    }
+
+    var currentStepText: String? {
+        if let activeIndex {
+            return steps[activeIndex].text
+        }
+        return steps.first(where: { $0.status == .pending })?.text
+            ?? steps.last?.text
+    }
+}
+
 struct CodexThreadItem {
     let id: String
     let title: String
@@ -34,6 +75,7 @@ struct CodexThreadItem {
     let parentThreadID: String?
     let agentNickname: String?
     let agentPath: String?
+    let plan: TaskPlan?
 
     var isSubtask: Bool {
         threadKind == .subtask

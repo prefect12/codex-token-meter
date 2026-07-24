@@ -37,6 +37,39 @@ private struct CodexUnreadStateCacheEntry {
 private let codexUnreadStateCacheLock = NSLock()
 private var codexUnreadStateCache: [String: CodexUnreadStateCacheEntry] = [:]
 
+func parseTaskPlanFunctionCall(_ line: String) -> TaskPlan? {
+    guard let data = line.data(using: .utf8),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          object["type"] as? String == "response_item",
+          let payload = object["payload"] as? [String: Any],
+          payload["type"] as? String == "function_call",
+          let name = payload["name"] as? String,
+          name == "update_plan" || name == "functions.update_plan",
+          let arguments = payload["arguments"] as? String,
+          let argumentsData = arguments.data(using: .utf8),
+          let argumentsObject = try? JSONSerialization.jsonObject(with: argumentsData) as? [String: Any],
+          let rawSteps = argumentsObject["plan"] as? [[String: Any]] else {
+        return nil
+    }
+    let steps = rawSteps.compactMap { raw -> TaskPlanStep? in
+        guard let text = (raw["step"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty,
+              let rawStatus = raw["status"] as? String,
+              let status = TaskPlanStepStatus(rawValue: rawStatus) else {
+            return nil
+        }
+        return TaskPlanStep(text: text, status: status)
+    }
+    guard !steps.isEmpty else { return nil }
+    let explanation = (argumentsObject["explanation"] as? String)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return TaskPlan(
+        explanation: explanation?.isEmpty == false ? explanation : nil,
+        steps: steps
+    )
+}
+
 func configuredCodexHomeURLs(home: String = NSHomeDirectory()) -> [URL] {
     var urls = [
         URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
@@ -185,6 +218,7 @@ private struct RolloutSummary {
     var tokenBreakdown = TokenBreakdown()
     var compressionCount = 0
     var sawActivity = false
+    var plan: TaskPlan?
 }
 
 /// Byte-offset bookmark into a JSONL file that is only ever appended to.
@@ -361,7 +395,8 @@ final class CodexActivityReader {
                     threadKind: existing.threadKind,
                     parentThreadID: existing.parentThreadID,
                     agentNickname: existing.agentNickname,
-                    agentPath: existing.agentPath
+                    agentPath: existing.agentPath,
+                    plan: summary.plan ?? existing.plan
                 )
                 continue
             }
@@ -391,7 +426,8 @@ final class CodexActivityReader {
                 threadKind: .root,
                 parentThreadID: nil,
                 agentNickname: nil,
-                agentPath: nil
+                agentPath: nil,
+                plan: summary.plan
             )
         }
 
@@ -443,7 +479,8 @@ final class CodexActivityReader {
             threadKind: metadata.threadKind,
             parentThreadID: item.parentThreadID ?? hierarchy?.parentThreadID,
             agentNickname: item.agentNickname ?? metadata.agentNickname ?? hierarchy?.agentNickname,
-            agentPath: item.agentPath ?? metadata.agentPath ?? hierarchy?.agentPath
+            agentPath: item.agentPath ?? metadata.agentPath ?? hierarchy?.agentPath,
+            plan: item.plan
         )
     }
 
@@ -487,7 +524,8 @@ final class CodexActivityReader {
             threadKind: item.threadKind,
             parentThreadID: item.parentThreadID,
             agentNickname: item.agentNickname,
-            agentPath: item.agentPath
+            agentPath: item.agentPath,
+            plan: summary.plan ?? item.plan
         )
     }
 
@@ -649,7 +687,8 @@ final class CodexActivityReader {
                     agentNickname: string(dict["agentNickname"] ?? dict["agent_nickname"])
                         ?? string(nestedValue(in: dict["source"], keys: ["agentNickname", "agent_nickname"])),
                     agentPath: string(dict["agentPath"] ?? dict["agent_path"])
-                        ?? string(nestedValue(in: dict["source"], keys: ["agentPath", "agent_path"]))
+                        ?? string(nestedValue(in: dict["source"], keys: ["agentPath", "agent_path"])),
+                    plan: nil
                 ))
         }
         return AppServerThreadSnapshot(items: items.limitedForTaskBar(limit: limit), externalReadAtByID: externalReadAtByID)
@@ -1068,7 +1107,8 @@ final class CodexActivityReader {
                             rolloutHierarchyMetadata($0)?.parentThreadID
                         },
                         agentNickname: string(row["agent_nickname"]),
-                        agentPath: string(row["agent_path"])
+                        agentPath: string(row["agent_path"]),
+                        plan: nil
                     )
                 }
             }
@@ -1545,7 +1585,8 @@ final class CodexActivityReader {
             threadKind: .root,
             parentThreadID: nil,
             agentNickname: nil,
-            agentPath: nil
+            agentPath: nil,
+            plan: nil
         )
     }
 
@@ -1806,6 +1847,13 @@ final class CodexActivityReader {
            let preview = cleanPreview(candidate) {
             state.summary.preview = preview
         }
+        if header.contains(#""type":"response_item""#),
+           header.contains(#""payload":{"type":"function_call""#),
+           (header.contains(#""name":"update_plan""#) || header.contains(#""name":"functions.update_plan""#)),
+           lineFitsRolloutPayloadParseLimit(line),
+           let plan = taskPlan(from: line) {
+            state.summary.plan = plan
+        }
         if let call = functionCallInfo(fromHeader: header),
            isInteractiveUserInputTool(call.name) {
             state.summary.isRunning = true
@@ -1978,6 +2026,10 @@ final class CodexActivityReader {
             return nil
         }
         return payload
+    }
+
+    private func taskPlan(from line: String) -> TaskPlan? {
+        parseTaskPlanFunctionCall(line)
     }
 
     private func tokenCounters(from line: String) -> TokenBreakdown? {

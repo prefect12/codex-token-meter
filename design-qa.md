@@ -38,3 +38,64 @@ No actionable P0, P1, or P2 differences remain.
 No P3 follow-up is required for this scope.
 
 final result: passed
+
+---
+
+# Task Bar Plan Hover Design QA
+
+## Evidence
+
+- Source visual truth: `/var/folders/hm/pmxxw3v90wl7nql88zsgljym0000gn/T/codex-clipboard-e3df5924-8091-4107-9d06-5254d7711395.png`
+- Implementation screenshot: `/tmp/task-bar-plan-no-title-large-text.png`
+- Combined comparison: `/tmp/task-bar-plan-comparison.png`
+- Source pixels: 740 x 604
+- Implementation pixels: 1556 x 892
+- Implementation AppKit size: 778 x 446 points at 2x density
+- Comparison normalization: both captures scaled to 604 px high and placed side by side without changing aspect ratio
+- State: dark appearance, fourth plan step active, task row hovered, complete five-step plan visible
+
+## Full-View Comparison
+
+The implementation intentionally removes the reference's `任务计划` header per the latest user direction. The recovered vertical space is given to the checklist: step labels are larger while the complete five-step plan and `Step 4 / 5` footer remain visible. The Task Bar header, filters, row density, fixed progress-ring column, hover highlight, and panel attachment point remain unchanged.
+
+## Focused Region Comparison
+
+The panel was checked at original 2x output:
+
+- The panel uses a 360 pt card width, 10 pt pointer inset, 16 pt top inset, dynamically measured checklist rows, and a 42 pt footer.
+- Step text increased from 10.5 pt to 12.5 pt; the active step uses semibold weight and the footer increased to 11.5 pt.
+- Long Chinese and mixed Chinese/English labels wrap naturally with no truncation.
+- Completed, active, and pending markers match the source's gray check, blue ring, and muted empty-ring hierarchy.
+- All markers share one fixed x-axis and retain continuous dashed connectors.
+
+## Required Fidelity Surfaces
+
+- Fonts and typography: passed. Native system fonts preserve the existing Task Bar family; the requested larger 12.5 pt checklist text is readable, wraps fully, and uses an appropriate semibold active state.
+- Spacing and layout rhythm: passed. Removing the redundant title leaves a compact 16 pt top inset, marker and text columns remain aligned, and the larger text does not collide with the footer or card edge.
+- Colors and visual tokens: existing Task Bar charcoal surfaces and semantic green, amber, and blue are reused. The plan panel uses the same dark surface with restrained white opacity and the existing blue progress accent.
+- Image quality and asset fidelity: the logo remains the repository's native Task Bar asset; icons use AppKit/SF Symbols; rings and checklist states are native vector drawing at display density with no raster placeholders.
+- Copy and content: passed. The five runtime plan steps and step fraction remain complete; only the explicitly removed redundant title is absent.
+
+## Comparison History
+
+1. Earlier implementation included a `任务计划` heading and 10.5 pt step labels.
+2. Fix: removed the heading, reduced the top region to a 16 pt inset, increased checklist text to 12.5 pt and footer text to 11.5 pt, and made row heights follow wrapped text.
+3. Post-fix evidence: `/tmp/task-bar-plan-comparison.png` shows the deliberate title removal, larger readable steps, complete plan content, and unchanged status hierarchy.
+
+## Findings
+
+No actionable P0, P1, or P2 visual mismatches remain.
+
+## Follow-up Polish
+
+- P3: Image-generated source text has slightly softer antialiasing than native AppKit rendering; native rendering is intentionally retained for production sharpness.
+- P3: The source is a focused crop while the implementation includes the full Task Bar fixture; this framing difference does not affect the hover-card comparison.
+
+## Verification
+
+- Task Bar build: passed with `./build_petbar.sh`
+- Task Bar plan-hover render: passed at 778 x 446 points / 1556 x 892 pixels
+- Hover routing: task-row entry and movement use the existing details card by default; only the 15 pt progress ring with a 4 pt hit inset selects the plan card.
+- `git diff --check`: passed
+
+final result: passed
