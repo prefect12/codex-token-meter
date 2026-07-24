@@ -38,6 +38,22 @@ struct CodexThreadItem {
     var isSubtask: Bool {
         threadKind == .subtask
     }
+
+    var isInternalApprovalSubtask: Bool {
+        guard isSubtask,
+              agentNickname == nil,
+              agentPath == nil,
+              let preview else {
+            return false
+        }
+        if let data = preview.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           object["outcome"] is String {
+            return true
+        }
+        // App-server previews may be truncated before Task Bar receives them.
+        return preview.hasPrefix("{") && preview.contains(#""outcome":"#)
+    }
 }
 
 struct TokenBreakdown {

@@ -185,7 +185,11 @@ extension Array where Element == CodexThreadItem {
     }
 
     func subtasks(parentID: String) -> [CodexThreadItem] {
-        filter { $0.isSubtask && $0.parentThreadID == parentID }
+        filter {
+            $0.isSubtask
+                && !$0.isInternalApprovalSubtask
+                && $0.parentThreadID == parentID
+        }
             .sorted { lhs, rhs in
                 let rank: (ThreadRunStatus) -> Int = { status in
                     switch status {
@@ -220,6 +224,7 @@ extension Array where Element == CodexThreadItem {
         let retainedRootIDs = Set(retainedRoots.map(\.id))
         return filter { item in
             if item.isSubtask {
+                guard !item.isInternalApprovalSubtask else { return false }
                 guard let parentID = item.parentThreadID else { return false }
                 return retainedRootIDs.contains(parentID)
             }
@@ -823,6 +828,7 @@ func iso8601Date(_ value: String) -> Date? {
 }
 
 func string(_ value: Any?) -> String? {
+    guard !(value is NSNull) else { return nil }
     if let value = value as? String { return value }
     if let value { return "\(value)" }
     return nil
