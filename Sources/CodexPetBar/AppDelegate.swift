@@ -130,7 +130,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func threadsSignature(_ items: [CodexThreadItem]) -> String {
         items.map {
-            "\($0.id)|\(statusRank($0.status))|\($0.title)|\($0.preview ?? "")|\($0.threadKind.rawValue)|\($0.parentThreadID ?? "")|\($0.agentNickname ?? "")|\($0.agentPath ?? "")"
+            let planSignature = $0.plan?.steps
+                .map { "\($0.status.rawValue):\($0.text)" }
+                .joined(separator: ",") ?? ""
+            return "\($0.id)|\(statusRank($0.status))|\($0.title)|\($0.preview ?? "")|\($0.threadKind.rawValue)|\($0.parentThreadID ?? "")|\($0.agentNickname ?? "")|\($0.agentPath ?? "")|\(planSignature)"
         }
             .joined(separator: ";")
     }

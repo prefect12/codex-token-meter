@@ -1,6 +1,22 @@
 import Cocoa
 import Foundation
 
+private final class FlippedCanvasView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+private func descendantThreadRow(in view: NSView, threadID: String) -> ThreadRowView? {
+    if let row = view as? ThreadRowView, row.representedThreadID == threadID {
+        return row
+    }
+    for child in view.subviews {
+        if let row = descendantThreadRow(in: child, threadID: threadID) {
+            return row
+        }
+    }
+    return nil
+}
+
 private func printThreads() {
     let items = ReadStateStore()
         .visibleThreads(from: CodexActivityReader().read(limit: taskBarCandidateThreadLimit))
@@ -20,7 +36,8 @@ private func printThreads() {
         let identity = item.isSubtask
             ? [item.agentNickname, item.agentPath].compactMap { $0 }.joined(separator: " · ")
             : item.title
-        print("\(prefix)\(label)\t\(timing)\t\(folder)\t\(identity)\t\(item.id)\t\(item.source)\(preview)")
+        let plan = item.plan.map { "\tplan=\($0.displayedStepNumber)/\($0.steps.count)" } ?? ""
+        print("\(prefix)\(label)\t\(timing)\t\(folder)\t\(identity)\t\(item.id)\t\(item.source)\(preview)\(plan)")
     }
     for item in items.primaryThreads {
         printItem(item)
@@ -28,6 +45,30 @@ private func printThreads() {
             printItem(subtask, prefix: "  ↳ ")
         }
     }
+}
+
+private func testPlanParser() {
+    let arguments = #"{"explanation":"fixture","plan":[{"step":"读取数据","status":"completed"},{"step":"实现界面","status":"in_progress"},{"step":"验证结果","status":"pending"}]}"#
+    let payload: [String: Any] = [
+        "type": "function_call",
+        "name": "update_plan",
+        "arguments": arguments
+    ]
+    let object: [String: Any] = [
+        "type": "response_item",
+        "payload": payload
+    ]
+    guard let data = try? JSONSerialization.data(withJSONObject: object),
+          let line = String(data: data, encoding: .utf8),
+          let plan = parseTaskPlanFunctionCall(line),
+          plan.steps.count == 3,
+          plan.displayedStepNumber == 2,
+          Int(round(plan.progress * 100)) == 67,
+          plan.currentStepText == "实现界面" else {
+        fputs("plan parser self-test failed\n", stderr)
+        exit(1)
+    }
+    print("plan parser self-test passed: \(plan.displayedStepNumber)/\(plan.steps.count)")
 }
 
 private func mockTaskBarThreads() -> [CodexThreadItem] {
@@ -41,7 +82,8 @@ private func mockTaskBarThreads() -> [CodexThreadItem] {
         kind: CodexThreadKind = .root,
         parentID: String? = nil,
         nickname: String? = nil,
-        agentPath: String? = nil
+        agentPath: String? = nil,
+        plan: TaskPlan? = nil
     ) -> CodexThreadItem {
         CodexThreadItem(
             id: id,
@@ -63,23 +105,39 @@ private func mockTaskBarThreads() -> [CodexThreadItem] {
             threadKind: kind,
             parentThreadID: parentID,
             agentNickname: nickname,
-            agentPath: agentPath
+            agentPath: agentPath,
+            plan: plan
         )
     }
+    let demoPlan = TaskPlan(
+        explanation: "正在验证正式匹配的多竞品处理",
+        steps: [
+            TaskPlanStep(text: "梳理正式匹配现有多路召回与 small match 召回入口", status: .completed),
+            TaskPlanStep(text: "设计并实现 small match 主产品与竞品多路召回及来源归因", status: .completed),
+            TaskPlanStep(text: "补充单元与回归测试，覆盖去重、来源优先级、name/url 返回", status: .completed),
+            TaskPlanStep(text: "运行 Arachne 目标测试及相关回归测试", status: .inProgress),
+            TaskPlanStep(text: "整理改动、测试证据与后续测试环境验证项", status: .pending)
+        ]
+    )
     return [
-        item(id: "codex:1", title: "019f68d1-3407-7621-8073-d5afe292…", preview: "我继续往目标推进，不等账户密钥。当前线上 v6 实际可用。", status: .running, ago: 103, source: "codex"),
-        item(id: "codex:poster", title: "构思 Codex 对战 Claude 海报", preview: "第一张“教父阴影”已经出来了，构图和暗示关系非常准。", status: .running, ago: 482, source: "codex"),
+        item(id: "codex:1", title: "这是怎么回事", preview: "已通过 PR 合并到 `main`。", status: .unread, ago: 75, source: "codex"),
+        item(id: "codex:poster", title: "我在川西形成我之前做了个地图，你找找那…", preview: "我会用 `generate-trip-map` 增加独立的“一键最短路径”按钮。", status: .running, ago: 482, source: "codex", plan: demoPlan),
+        item(id: "codex:claude-home", title: "挖掘 Task Bar 支持 Claude Home 对话", preview: "候选验证通过：双 App 构建、周统计解析、实时额度。", status: .running, ago: 230, source: "codex", plan: demoPlan),
+        item(id: "codex:campaign", title: "实现这个需求", preview: "测试 Mongo 查询正在等待集群响应；不会修改任何数据。", status: .running, ago: 888, source: "codex"),
         item(id: "codex:poster:wall", title: "构思 Codex 对战 Claude 海报", preview: "正在完善限额墙方案。", status: .running, ago: 86, source: "codex", kind: .subtask, parentID: "codex:poster", nickname: "Kepler", agentPath: "/root/poster_wall"),
         item(id: "codex:poster:kickdoor", title: "构思 Codex 对战 Claude 海报", preview: "踢门方案已经完成。", status: .unread, ago: 250, source: "codex", kind: .subtask, parentID: "codex:poster", nickname: "Locke", agentPath: "/root/poster_kickdoor"),
         item(id: "codex:poster:knockout", title: "构思 Codex 对战 Claude 海报", preview: "击倒方案已经完成。", status: .unread, ago: 280, source: "codex", kind: .subtask, parentID: "codex:poster", nickname: "Mill", agentPath: "/root/poster_knockout")
     ]
 }
 
-private func renderTaskBar(to path: String) {
+private func renderTaskBar(to path: String, showPlanHover: Bool = false) {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
 
     var mock = mockTaskBarThreads().sorted(by: stableThreadOrder)
+    if showPlanHover {
+        mock = mock.filter { !$0.isSubtask }
+    }
     if let countArg = CommandLine.arguments.first(where: { $0.hasPrefix("--count=") }),
        let count = Int(countArg.dropFirst("--count=".count)) {
         mock = Array(mock.prefix(max(0, count)))
@@ -117,7 +175,45 @@ private func renderTaskBar(to path: String) {
         onResize: { _, _ in }
     )
 
-    let size = content.frame.size
+    let renderedView: NSView
+    if showPlanHover,
+       let planItem = mock.first(where: { $0.plan != nil }),
+       let plan = planItem.plan {
+        let planView = taskPlanPreviewView(for: plan)
+        let contentSize = content.frame.size
+        let size = NSSize(
+            width: contentSize.width + planView.frame.width - 12,
+            height: max(contentSize.height, planView.frame.height)
+        )
+        let canvas = FlippedCanvasView(frame: NSRect(origin: .zero, size: size))
+        canvas.wantsLayer = true
+        canvas.layer?.backgroundColor = NSColor.clear.cgColor
+        content.frame = NSRect(
+            x: 0,
+            y: (size.height - contentSize.height) / 2,
+            width: contentSize.width,
+            height: contentSize.height
+        )
+        canvas.addSubview(content)
+        canvas.addSubview(planView)
+        canvas.layoutSubtreeIfNeeded()
+        content.layoutSubtreeIfNeeded()
+        let row = descendantThreadRow(in: content, threadID: planItem.id)
+        row?.setRenderPreviewHovering(true)
+        row?.needsDisplay = true
+        let rowRect = row.map { $0.convert($0.bounds, to: content) }
+        let desiredY = content.frame.minY
+            + (rowRect?.midY ?? contentSize.height / 2)
+            - planView.frame.height / 2
+        planView.frame.origin = NSPoint(
+            x: contentSize.width - 12,
+            y: min(max(0, desiredY), size.height - planView.frame.height)
+        )
+        renderedView = canvas
+    } else {
+        renderedView = content
+    }
+    let size = renderedView.frame.size
     let window = NSWindow(
         contentRect: NSRect(origin: .zero, size: size),
         styleMask: [.borderless],
@@ -125,24 +221,24 @@ private func renderTaskBar(to path: String) {
         defer: false
     )
     window.appearance = NSAppearance(named: .darkAqua)
-    window.contentView = content
+    window.contentView = renderedView
     window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
     window.orderFront(nil)
     defer { window.orderOut(nil) }
-    content.frame = NSRect(origin: .zero, size: size)
-    content.layoutSubtreeIfNeeded()
-    content.needsDisplay = true
-    content.display()
+    renderedView.frame = NSRect(origin: .zero, size: size)
+    renderedView.layoutSubtreeIfNeeded()
+    renderedView.needsDisplay = true
+    renderedView.display()
     window.displayIfNeeded()
     RunLoop.current.run(until: Date().addingTimeInterval(0.08))
-    content.layoutSubtreeIfNeeded()
+    renderedView.layoutSubtreeIfNeeded()
     window.displayIfNeeded()
     func displayHierarchy(_ view: NSView) {
         view.needsDisplay = true
         view.display()
         view.subviews.forEach(displayHierarchy)
     }
-    displayHierarchy(content)
+    displayHierarchy(renderedView)
 
     let scale = NSScreen.main?.backingScaleFactor ?? 2
     guard let rep = NSBitmapImageRep(
@@ -156,7 +252,7 @@ private func renderTaskBar(to path: String) {
         colorSpaceName: .deviceRGB,
         bytesPerRow: 0,
         bitsPerPixel: 0
-    ), let context = NSGraphicsContext(bitmapImageRep: rep), let layer = content.layer else {
+    ), let context = NSGraphicsContext(bitmapImageRep: rep), let layer = renderedView.layer else {
         print("render failed: no bitmap rep")
         return
     }
@@ -180,10 +276,17 @@ private func renderTaskBar(to path: String) {
     }
 }
 
-if CommandLine.arguments.contains("--print") {
+if CommandLine.arguments.contains("--self-test-plan-parser") {
+    testPlanParser()
+} else if CommandLine.arguments.contains("--print") {
     printThreads()
 } else if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--render-taskbar=") }) {
     renderTaskBar(to: String(arg.dropFirst("--render-taskbar=".count)))
+} else if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--render-taskbar-plan-hover=") }) {
+    renderTaskBar(
+        to: String(arg.dropFirst("--render-taskbar-plan-hover=".count)),
+        showPlanHover: true
+    )
 } else {
     let app = NSApplication.shared
     let delegate = AppDelegate()

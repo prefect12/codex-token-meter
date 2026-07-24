@@ -178,7 +178,8 @@ final class ClaudeHomeActivityReader {
             threadKind: .root,
             parentThreadID: nil,
             agentNickname: nil,
-            agentPath: nil
+            agentPath: nil,
+            plan: nil
         )
     }
 }

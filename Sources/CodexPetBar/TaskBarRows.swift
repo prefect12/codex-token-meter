@@ -1,17 +1,62 @@
 import Cocoa
 import Foundation
 
+final class TaskProgressRingView: NSView {
+    var progress: Double = 0 {
+        didSet { needsDisplay = true }
+    }
+    var lineWidth: CGFloat = 2.5 {
+        didSet { needsDisplay = true }
+    }
+    var trackColor = NSColor.white.withAlphaComponent(0.18) {
+        didSet { needsDisplay = true }
+    }
+    var progressColor = NSColor(calibratedRed: 0.28, green: 0.61, blue: 1.0, alpha: 1) {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let diameter = min(bounds.width, bounds.height) - lineWidth
+        guard diameter > 0 else { return }
+        let ringRect = NSRect(
+            x: bounds.midX - diameter / 2,
+            y: bounds.midY - diameter / 2,
+            width: diameter,
+            height: diameter
+        )
+        let track = NSBezierPath(ovalIn: ringRect)
+        track.lineWidth = lineWidth
+        trackColor.setStroke()
+        track.stroke()
+
+        let clamped = min(1, max(0, progress))
+        guard clamped > 0 else { return }
+        let arc = NSBezierPath()
+        arc.appendArc(
+            withCenter: NSPoint(x: bounds.midX, y: bounds.midY),
+            radius: diameter / 2,
+            startAngle: 90,
+            endAngle: 90 - CGFloat(clamped) * 360,
+            clockwise: true
+        )
+        arc.lineWidth = lineWidth
+        arc.lineCapStyle = .round
+        progressColor.setStroke()
+        arc.stroke()
+    }
+}
+
 private final class SubtaskCountBadgeView: NSView {
-    private let label = NSTextField(labelWithString: "")
+    private let text: String
+    private let font = NSFont.systemFont(ofSize: 9.5, weight: .medium)
 
     init(count: Int) {
+        text = "\(count) \(count == 1 ? "Subtask" : "Subtasks")"
         super.init(frame: NSRect(x: 0, y: 0, width: 66, height: 22))
         wantsLayer = true
-        label.stringValue = "\(count) Subtasks"
-        label.font = .systemFont(ofSize: 9.5, weight: .medium)
-        label.textColor = NSColor(calibratedWhite: 0.65, alpha: 1)
-        label.alignment = .center
-        addSubview(label)
     }
 
     required init?(coder: NSCoder) {
@@ -26,11 +71,23 @@ private final class SubtaskCountBadgeView: NSView {
         NSColor.white.withAlphaComponent(0.10).setStroke()
         path.lineWidth = 1
         path.stroke()
-    }
 
-    override func layout() {
-        super.layout()
-        label.frame = NSRect(x: 5, y: 3, width: bounds.width - 10, height: 16)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byClipping
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor(calibratedWhite: 0.65, alpha: 1),
+            .paragraphStyle: paragraph
+        ]
+        let textHeight = ceil((text as NSString).size(withAttributes: attributes).height)
+        let textRect = NSRect(
+            x: 5,
+            y: floor((bounds.height - textHeight) / 2) - 0.5,
+            width: bounds.width - 10,
+            height: textHeight + 1
+        )
+        (text as NSString).draw(in: textRect, withAttributes: attributes)
     }
 }
 
@@ -53,6 +110,7 @@ final class ThreadRowView: NSView {
     private let platformLabel = NSTextField(labelWithString: "")
     private let pinIconView = NSImageView()
     private let disclosureIconView = NSImageView()
+    private let planProgressView = TaskProgressRingView()
     private let subtaskBadgeView: SubtaskCountBadgeView
     private var isPinned: Bool
     private var trackingAreaRef: NSTrackingArea?
@@ -68,6 +126,12 @@ final class ThreadRowView: NSView {
             needsDisplay = true
             updatePinIcon()
         }
+    }
+
+    var representedThreadID: String { item.id }
+
+    func setRenderPreviewHovering(_ hovering: Bool) {
+        isHovering = hovering
     }
 
     init(
@@ -155,6 +219,15 @@ final class ThreadRowView: NSView {
         subtaskBadgeView.isHidden = subtaskCount == 0
         addSubview(subtaskBadgeView)
 
+        if let plan = item.plan {
+            planProgressView.progress = plan.progress
+            planProgressView.setAccessibilityLabel("任务进度 \(plan.displayedStepNumber) / \(plan.steps.count)")
+            planProgressView.toolTip = "任务计划 \(plan.displayedStepNumber) / \(plan.steps.count)"
+            addSubview(planProgressView)
+        } else {
+            planProgressView.isHidden = true
+        }
+
         switch rowLayout {
         case .standard:
             // Status word plus the source label share a single trailing line.
@@ -186,12 +259,12 @@ final class ThreadRowView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         isHovering = true
-        ThreadHoverPanel.shared.show(item: item, from: self)
+        updateHoverPanel(with: event)
     }
 
     override func mouseMoved(with event: NSEvent) {
         guard isHovering else { return }
-        ThreadHoverPanel.shared.show(item: item, from: self)
+        updateHoverPanel(with: event)
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -264,6 +337,20 @@ final class ThreadRowView: NSView {
         return disclosureIconView.frame.union(subtaskBadgeView.frame).insetBy(dx: -7, dy: -7)
     }
 
+    private var planHoverHitRect: NSRect {
+        guard item.plan != nil else { return .zero }
+        return planProgressView.frame.insetBy(dx: -4, dy: -4)
+    }
+
+    private func updateHoverPanel(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        ThreadHoverPanel.shared.show(
+            item: item,
+            from: self,
+            content: planHoverHitRect.contains(point) ? .plan : .details
+        )
+    }
+
     private func togglePinTapped() {
         isPinned.toggle()
         updatePinIcon()
@@ -280,7 +367,9 @@ final class ThreadRowView: NSView {
             ? NSColor(calibratedRed: 0.98, green: 0.68, blue: 0.20, alpha: 1)
             : NSColor(calibratedWhite: 0.5, alpha: 1)
         pinIconView.toolTip = isPinned ? "取消置顶" : "置顶"
-        pinIconView.isHidden = !(isPinned || isHovering)
+        pinIconView.isHidden = item.plan == nil
+            ? !(isPinned || isHovering)
+            : !isPinned
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -366,7 +455,10 @@ final class ThreadRowView: NSView {
             drawDismissLabel(in: revealRect)
         }
         guard isHovering, !isSwipeTracking else { return }
-        NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
+        let hoverColor = item.plan == nil
+            ? NSColor.controlAccentColor.withAlphaComponent(0.12)
+            : NSColor.white.withAlphaComponent(0.055)
+        hoverColor.setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 8, dy: 4), xRadius: 12, yRadius: 12).fill()
     }
 
@@ -434,9 +526,25 @@ final class ThreadRowView: NSView {
         disclosureIconView.frame = NSRect(x: x + offset, y: y + 4, width: 11, height: 11)
         let titleX = x + disclosureWidth + offset
         let pinX = bounds.width - ThreadRowView.pinTrailingInset - ThreadRowView.pinIconSize + offset
+        let planSize: CGFloat = item.plan == nil ? 0 : 15
+        let planX = item.plan == nil ? pinX : pinX - planSize - 6
         let badgeWidth: CGFloat = subtaskCount > 0 ? 66 : 0
-        let badgeX = pinX - (subtaskCount > 0 ? badgeWidth + 6 : 0)
-        let titleTrailingX = subtaskCount > 0 ? badgeX - 6 : pinX - ThreadRowView.titlePinGap
+        let badgeTrailingX = item.plan == nil ? pinX : planX
+        let badgeX = badgeTrailingX - (subtaskCount > 0 ? badgeWidth + 6 : 0)
+        planProgressView.frame = NSRect(
+            x: planX,
+            y: y + 1,
+            width: planSize,
+            height: planSize
+        )
+        let titleTrailingX: CGFloat
+        if subtaskCount > 0 {
+            titleTrailingX = badgeX - 6
+        } else if item.plan != nil {
+            titleTrailingX = planX - 8
+        } else {
+            titleTrailingX = pinX - ThreadRowView.titlePinGap
+        }
         let titleWidth = max(0, min(width, titleTrailingX - titleX))
 
         titleLabel.frame = NSRect(x: titleX, y: y, width: titleWidth, height: 20)
@@ -784,10 +892,16 @@ struct ThreadTooltipRow {
 }
 
 final class ThreadHoverPanel {
+    enum Content {
+        case details
+        case plan
+    }
+
     static let shared = ThreadHoverPanel()
 
     private weak var owner: NSView?
     private let tooltipView = ThreadTooltipView()
+    private let planTooltipView = TaskPlanTooltipView()
     private lazy var panel: NSPanel = {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 220, height: 132),
@@ -805,17 +919,33 @@ final class ThreadHoverPanel {
         return panel
     }()
 
-    func show(item: CodexThreadItem, from sourceView: NSView) {
+    func show(
+        item: CodexThreadItem,
+        from sourceView: NSView,
+        content: Content = .details
+    ) {
         owner = sourceView
-        let rows = tooltipRows(for: item)
-        guard !rows.isEmpty else {
-            panel.orderOut(nil)
-            return
+        let size: NSSize
+        if content == .plan, let plan = item.plan {
+            planTooltipView.plan = plan
+            size = planTooltipView.preferredSize
+            planTooltipView.frame = NSRect(origin: .zero, size: size)
+            panel.contentView = planTooltipView
+        } else {
+            let rows = tooltipRows(for: item)
+            guard !rows.isEmpty else {
+                panel.orderOut(nil)
+                return
+            }
+            tooltipView.rows = rows
+            size = tooltipView.preferredSize
+            tooltipView.frame = NSRect(origin: .zero, size: size)
+            panel.contentView = tooltipView
         }
-        tooltipView.rows = rows
-        let size = tooltipView.preferredSize
-        tooltipView.frame = NSRect(origin: .zero, size: size)
-        panel.setFrame(NSRect(origin: origin(for: size), size: size), display: true)
+        panel.setFrame(
+            NSRect(origin: origin(for: size, sourceView: sourceView), size: size),
+            display: true
+        )
         panel.orderFrontRegardless()
     }
 
@@ -830,26 +960,240 @@ final class ThreadHoverPanel {
         panel.orderOut(nil)
     }
 
-    private func origin(for size: NSSize) -> NSPoint {
-        let mouse = NSEvent.mouseLocation
-        let visibleFrame = NSScreen.screens.first { $0.frame.contains(mouse) }?.visibleFrame
+    private func origin(for size: NSSize, sourceView: NSView) -> NSPoint {
+        let sourceRect = sourceView.window.map {
+            $0.convertToScreen(sourceView.convert(sourceView.bounds, to: nil))
+        }
+        let anchor = sourceRect.map { NSPoint(x: $0.maxX, y: $0.midY) } ?? NSEvent.mouseLocation
+        let visibleFrame = NSScreen.screens.first { $0.frame.contains(anchor) }?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let margin: CGFloat = 8
-        var x = mouse.x + 16
-        var y = mouse.y - size.height - 12
+        var x = (sourceRect?.maxX ?? anchor.x) + 4
+        var y = (sourceRect?.midY ?? anchor.y) - size.height / 2
 
         if x + size.width > visibleFrame.maxX - margin {
-            x = mouse.x - size.width - 16
+            x = (sourceRect?.minX ?? anchor.x) - size.width - 4
         }
         if y < visibleFrame.minY + margin {
-            y = mouse.y + 16
+            y = visibleFrame.minY + margin
         }
 
         x = min(max(x, visibleFrame.minX + margin), visibleFrame.maxX - size.width - margin)
         y = min(max(y, visibleFrame.minY + margin), visibleFrame.maxY - size.height - margin)
         return NSPoint(x: x, y: y)
     }
+}
+
+private final class TaskPlanTooltipView: NSView {
+    var plan: TaskPlan? {
+        didSet { needsDisplay = true }
+    }
+
+    private let cardInset: CGFloat = 10
+    private let cardWidth: CGFloat = 360
+    private let horizontalPadding: CGFloat = 16
+    private let headerHeight: CGFloat = 16
+    private let footerHeight: CGFloat = 42
+    private let stepFont = NSFont.systemFont(ofSize: 12.5, weight: .medium)
+    private let footerFont = NSFont.monospacedDigitSystemFont(ofSize: 11.5, weight: .medium)
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    var preferredSize: NSSize {
+        let stepsHeight = plan?.steps.reduce(CGFloat(0)) {
+            $0 + stepRowHeight(for: $1)
+        } ?? 32
+        return NSSize(
+            width: cardInset + cardWidth,
+            height: headerHeight + stepsHeight + footerHeight
+        )
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let plan else { return }
+        let cardRect = NSRect(x: cardInset, y: 0, width: cardWidth, height: bounds.height)
+            .insetBy(dx: 0.5, dy: 0.5)
+        NSColor(calibratedWhite: 0.095, alpha: 0.985).setFill()
+        NSBezierPath(roundedRect: cardRect, xRadius: 12, yRadius: 12).fill()
+        NSColor.white.withAlphaComponent(0.17).setStroke()
+        let border = NSBezierPath(roundedRect: cardRect, xRadius: 12, yRadius: 12)
+        border.lineWidth = 1
+        border.stroke()
+
+        let pointerY = min(max(64, bounds.height * 0.42), bounds.height - 64)
+        let pointer = NSBezierPath()
+        pointer.move(to: NSPoint(x: cardInset + 0.5, y: pointerY - 11))
+        pointer.line(to: NSPoint(x: 1.5, y: pointerY))
+        pointer.line(to: NSPoint(x: cardInset + 0.5, y: pointerY + 11))
+        pointer.close()
+        NSColor(calibratedWhite: 0.095, alpha: 0.985).setFill()
+        pointer.fill()
+        NSColor.white.withAlphaComponent(0.17).setStroke()
+        pointer.lineWidth = 1
+        pointer.stroke()
+
+        let markerX = cardInset + horizontalPadding + 8
+        var y = headerHeight
+        for (index, step) in plan.steps.enumerated() {
+            let rowHeight = stepRowHeight(for: step)
+            let centerY = y + rowHeight / 2
+            if index < plan.steps.count - 1 {
+                let nextRowHeight = stepRowHeight(for: plan.steps[index + 1])
+                let nextCenterY = y + rowHeight + nextRowHeight / 2
+                let connectorColor = step.status == .completed
+                    ? NSColor.white.withAlphaComponent(0.32)
+                    : NSColor.white.withAlphaComponent(0.17)
+                connectorColor.setStroke()
+                let connector = NSBezierPath()
+                connector.move(to: NSPoint(x: markerX, y: centerY + 9))
+                connector.line(to: NSPoint(x: markerX, y: nextCenterY - 9))
+                connector.lineWidth = 1
+                connector.setLineDash([2, 3], count: 2, phase: 0)
+                connector.stroke()
+            }
+            drawStepMarker(step.status, center: NSPoint(x: markerX, y: centerY))
+            let textColor: NSColor
+            switch step.status {
+            case .completed: textColor = NSColor.white.withAlphaComponent(0.42)
+            case .inProgress: textColor = NSColor.white.withAlphaComponent(0.95)
+            case .pending: textColor = NSColor.white.withAlphaComponent(0.38)
+            }
+            let textFont = stepFont(for: step)
+            drawWrappedText(
+                step.text,
+                rect: NSRect(
+                    x: markerX + 22,
+                    y: y + 8,
+                    width: cardWidth - horizontalPadding * 2 - 30,
+                    height: rowHeight - 16
+                ),
+                font: textFont,
+                color: textColor
+            )
+            y += rowHeight
+        }
+
+        NSColor.white.withAlphaComponent(0.14).setFill()
+        NSRect(
+            x: cardInset + horizontalPadding,
+            y: y + 4,
+            width: cardWidth - horizontalPadding * 2,
+            height: 1
+        ).fill()
+        drawText(
+            "Step \(plan.displayedStepNumber) / \(plan.steps.count)",
+            rect: NSRect(
+                x: cardInset + horizontalPadding,
+                y: y + 14,
+                width: cardWidth - horizontalPadding * 2,
+                height: 16
+            ),
+            font: footerFont,
+            color: NSColor.white.withAlphaComponent(0.48)
+        )
+    }
+
+    private func drawStepMarker(_ status: TaskPlanStepStatus, center: NSPoint) {
+        let radius: CGFloat = 8
+        let rect = NSRect(
+            x: center.x - radius,
+            y: center.y - radius,
+            width: radius * 2,
+            height: radius * 2
+        )
+        switch status {
+        case .completed:
+            NSColor.white.withAlphaComponent(0.55).setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            let check = NSBezierPath()
+            check.move(to: NSPoint(x: center.x - 3.5, y: center.y))
+            check.line(to: NSPoint(x: center.x - 0.5, y: center.y + 3))
+            check.line(to: NSPoint(x: center.x + 4, y: center.y - 3.5))
+            check.lineWidth = 1.6
+            check.lineCapStyle = .round
+            check.lineJoinStyle = .round
+            NSColor(calibratedWhite: 0.10, alpha: 1).setStroke()
+            check.stroke()
+        case .inProgress:
+            NSColor(calibratedRed: 0.28, green: 0.61, blue: 1.0, alpha: 1).setStroke()
+            let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+            ring.lineWidth = 1.8
+            ring.stroke()
+        case .pending:
+            NSColor.white.withAlphaComponent(0.40).setStroke()
+            let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+            ring.lineWidth = 1.4
+            ring.stroke()
+        }
+    }
+
+    private func stepFont(for step: TaskPlanStep) -> NSFont {
+        step.status == .inProgress
+            ? NSFont.systemFont(ofSize: 12.5, weight: .semibold)
+            : stepFont
+    }
+
+    private func stepRowHeight(for step: TaskPlanStep) -> CGFloat {
+        let width = cardWidth - horizontalPadding * 2 - 30
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        let rect = (step.text as NSString).boundingRect(
+            with: NSSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [
+                .font: stepFont(for: step),
+                .paragraphStyle: paragraph
+            ]
+        )
+        return max(36, ceil(rect.height) + 16)
+    }
+
+    private func drawWrappedText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        (text as NSString).draw(
+            with: rect,
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [
+                .font: font,
+                .foregroundColor: color,
+                .paragraphStyle: paragraph
+            ]
+        )
+    }
+
+    private func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        (text as NSString).draw(
+            with: rect,
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            attributes: [
+                .font: font,
+                .foregroundColor: color,
+                .paragraphStyle: paragraph
+            ]
+        )
+    }
+}
+
+func taskPlanPreviewView(for plan: TaskPlan) -> NSView {
+    let view = TaskPlanTooltipView(frame: .zero)
+    view.plan = plan
+    view.frame = NSRect(origin: .zero, size: view.preferredSize)
+    view.layoutSubtreeIfNeeded()
+    return view
 }
 
 private final class ThreadTooltipView: NSView {
