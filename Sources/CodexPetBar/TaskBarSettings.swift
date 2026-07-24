@@ -733,7 +733,7 @@ private final class TaskBarSettingsView: NSView {
             color: .white
         )
         drawText(
-            "字段显隐、顺序和分隔线",
+            "只显示拿得到的数据；可调整字段显隐、顺序和分隔线",
             rect: NSRect(x: content.minX, y: content.minY + 36, width: content.width, height: 20),
             font: .systemFont(ofSize: 13, weight: .medium),
             color: NSColor.white.withAlphaComponent(0.56)
