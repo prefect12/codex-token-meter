@@ -389,7 +389,10 @@ func isReadDismissible(_ status: ThreadRunStatus) -> Bool {
 }
 
 func isClaudeThread(_ item: CodexThreadItem) -> Bool {
-    item.source == "claude-code" || item.id.hasPrefix("claude:")
+    item.source == "claude-code"
+        || item.source == "claude-home"
+        || item.id.hasPrefix("claude:")
+        || item.id.hasPrefix("claude-home:")
 }
 
 func isCodexAPIThread(_ item: CodexThreadItem) -> Bool {

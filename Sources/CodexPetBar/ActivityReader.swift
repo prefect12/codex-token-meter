@@ -244,6 +244,7 @@ private struct ClaudeScanState {
 final class CodexActivityReader {
     private let fileManager = FileManager.default
     private let home = NSHomeDirectory()
+    private let claudeHomeReader = ClaudeHomeActivityReader()
     private var rolloutScanCache: [String: RolloutScanState] = [:]
     private var claudeScanCache: [String: ClaudeScanState] = [:]
     private var rolloutURLCacheByThreadID: [String: URL] = [:]
@@ -400,6 +401,10 @@ final class CodexActivityReader {
         }
 
         for item in readClaudeThreads(limit: max(limit, 8), lookbackHours: lookbackHours) {
+            byID[item.id] = item
+        }
+        let claudeHomeCutoff = Date().addingTimeInterval(-TimeInterval(max(1, lookbackHours)) * 3600)
+        for item in claudeHomeReader.read(limit: max(limit, 8), cutoff: claudeHomeCutoff) {
             byID[item.id] = item
         }
 
