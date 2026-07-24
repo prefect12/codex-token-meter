@@ -288,8 +288,15 @@ final class CodexActivityReader {
                 (logged, rolloutURL(threadID: logged.id, lastActivity: logged.lastActivity, lookbackHours: lookbackHours))
             }
             : loggedRollouts.map { ($0.logged, $0.fileURL) }
+        let archivedStateByThreadID = archivedState(
+            threadIDs: Set(loggedCandidates.map(\.logged.id))
+        )
         for candidate in loggedCandidates {
             let logged = candidate.logged
+            let isArchived = archivedStateByThreadID[logged.id]
+                ?? candidate.rolloutURL.map(isArchivedRolloutURL)
+                ?? false
+            guard !isArchived else { continue }
             let summary = candidate.rolloutURL.flatMap { rolloutSummary(fileURL: $0, tailOnly: true) }
             guard let summary, summary.turns > 0 else { continue }
             let activityDate: Date
@@ -849,6 +856,35 @@ final class CodexActivityReader {
             .sorted { $0.lastActivity > $1.lastActivity }
             .prefix(limit)
             .map { $0 }
+    }
+
+    /// Rollout discovery intentionally includes `archived_sessions` because an
+    /// unarchived or resumed thread may still reference its original file there.
+    /// The state database is therefore authoritative when it has a row; only
+    /// orphaned rollout files fall back to their containing directory.
+    private func archivedState(threadIDs: Set<String>) -> [String: Bool] {
+        guard !threadIDs.isEmpty else { return [:] }
+        let ids = threadIDs.map(sqlStringLiteral).joined(separator: ",")
+        let sql = """
+        select id, archived
+        from threads
+        where id in (\(ids));
+        """
+        var result: [String: Bool] = [:]
+        for databaseURL in stateDatabaseURLs().filter({ fileManager.fileExists(atPath: $0.path) }) {
+            for row in runSQLiteJSON(databaseURL: databaseURL, sql: sql) {
+                guard let id = string(row["id"]) else { continue }
+                let archived = (intValue(row["archived"]) ?? 0) != 0
+                // An active row wins if the same thread ID appears in more than
+                // one configured Codex home.
+                result[id] = (result[id] ?? true) && archived
+            }
+        }
+        return result
+    }
+
+    private func isArchivedRolloutURL(_ url: URL) -> Bool {
+        url.standardizedFileURL.pathComponents.contains("archived_sessions")
     }
 
     private func recentRolloutThreads(limit: Int, lookbackHours: Int) -> [LoggedRolloutThread] {
