@@ -476,7 +476,7 @@ private enum TaskBarSettingsInfo: CaseIterable {
         case .threadSort:
             return "只调整同一状态分组内的任务顺序；置顶任务始终保持在列表最上方。"
         case .sourceLabel:
-            return "显示任务来自哪个本地来源：Claude Code 项目日志标为 Claude；普通 Codex 标为 Codex；API 专用来源标为 Codex API。"
+            return "显示任务来自哪个本地来源：Claude Code 项目日志和 Claude Desktop Home 本地缓存标为 Claude；普通 Codex 标为 Codex；API 专用来源标为 Codex API。"
         case .codexAPI:
             return "开启后才读取 ~/.codex-api 和 Codex API.app；任务会标为 Codex API，点击会打开 Codex API。默认关闭，避免普通 Codex 任务跳到 API 客户端。"
         case .tokenUnit:
@@ -802,7 +802,7 @@ private final class TaskBarSettingsView: NSView {
             color: .white
         )
         drawText(
-            "Task Bar 读取本机 Codex 会话和 Claude Code 项目日志，只在本地整理任务状态。",
+            "Task Bar 只在本地读取 Codex、Claude Code 与 Claude Desktop Home 会话数据。",
             rect: NSRect(x: dataCard.minX + 18, y: dataCard.minY + 58, width: dataCard.width - 36, height: 18),
             font: .systemFont(ofSize: 12.5, weight: .medium),
             color: NSColor.white.withAlphaComponent(0.62)

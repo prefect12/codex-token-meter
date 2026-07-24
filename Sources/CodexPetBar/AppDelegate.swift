@@ -380,7 +380,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return registeredURL
     }
 
-    /// Claude thread ids are `claude:<session-uuid>`. Ordered to avoid both
+    /// Claude Home thread ids are `claude-home:<conversation-uuid>` and use the
+    /// desktop app's native conversation route. Claude Code thread ids are
+    /// `claude:<session-uuid>` and are ordered to avoid both
     /// duplicate imports and full page reloads as far as the desktop app's deep
     /// links allow: (1) if the desktop app is already showing this session
     /// (its `lastFocusedAt` is the store-wide maximum), just activate the app;
@@ -393,6 +395,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Fall back to just foregrounding the app (or the working folder) when we
     /// don't have a usable session id.
     private func openClaudeThread(id: String, fallbackFolder: String?) {
+        if id.hasPrefix("claude-home:") {
+            let conversationID = String(id.dropFirst("claude-home:".count))
+            guard UUID(uuidString: conversationID) != nil,
+                  let url = URL(string: "claude://claude.ai/chat/\(conversationID)") else {
+                openClaudeApp(fallbackFolder: fallbackFolder)
+                return
+            }
+            NSWorkspace.shared.open(url)
+            return
+        }
         let sessionID = id.hasPrefix("claude:") ? String(id.dropFirst("claude:".count)) : id
         guard UUID(uuidString: sessionID) != nil else {
             openClaudeApp(fallbackFolder: fallbackFolder)
