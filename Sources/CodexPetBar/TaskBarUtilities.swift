@@ -243,11 +243,16 @@ func statusLabel(_ status: ThreadRunStatus) -> String {
 }
 
 func detailText(for item: CodexThreadItem) -> String {
-    let folder = shortFolderName(item.cwd)
-    if item.status == .running || item.status == .stale {
-        return folder
+    let folder = item.cwd.flatMap { cwd -> String? in
+        guard !cwd.isEmpty else { return nil }
+        return shortFolderName(cwd)
     }
-    return "\(folder)  ·  \(relative(item.lastActivity))"
+    if item.status == .running || item.status == .stale {
+        return folder ?? relative(item.lastActivity)
+    }
+    return [folder, relative(item.lastActivity)]
+        .compactMap { $0 }
+        .joined(separator: "  ·  ")
 }
 
 func statusElapsedText(for item: CodexThreadItem) -> String? {
@@ -292,17 +297,11 @@ func tooltipRow(for field: TaskHoverField, item: CodexThreadItem) -> ThreadToolt
         guard let cwd = item.cwd, !cwd.isEmpty else { return nil }
         return ThreadTooltipRow("项目", shortFolderName(cwd))
     case .branch:
-        if let branch = gitBranchName(for: item.cwd), !branch.isEmpty {
-            return ThreadTooltipRow("分支", branch)
-        }
-        guard item.cwd?.isEmpty == false else { return unavailableContextRow("分支", "未知") }
-        return unavailableContextRow("分支", "非 Git 仓库")
+        guard let branch = gitBranchName(for: item.cwd), !branch.isEmpty else { return nil }
+        return ThreadTooltipRow("分支", branch)
     case .worktree:
-        if let worktree = worktreeName(for: item.cwd), !worktree.isEmpty {
-            return ThreadTooltipRow("Worktree", worktree)
-        }
-        guard item.cwd?.isEmpty == false else { return unavailableContextRow("Worktree", "未知") }
-        return unavailableContextRow("Worktree", gitBranchName(for: item.cwd) == nil ? "普通目录" : "默认工作区")
+        guard let worktree = worktreeName(for: item.cwd), !worktree.isEmpty else { return nil }
+        return ThreadTooltipRow("Worktree", worktree)
     case .input:
         guard item.tokenBreakdown.hasDetailedCounters else { return nil }
         return ThreadTooltipRow("输入", compactTokenCount(item.tokenBreakdown.input))
@@ -318,7 +317,8 @@ func tooltipRow(for field: TaskHoverField, item: CodexThreadItem) -> ThreadToolt
               let total = item.tokenBreakdown.displayTotal else { return nil }
         return ThreadTooltipRow("Token 消耗", compactTokenCount(total))
     case .turns:
-        return ThreadTooltipRow("对话轮次", item.turns > 0 ? "\(item.turns)" : "未知")
+        guard item.turns > 0 else { return nil }
+        return ThreadTooltipRow("对话轮次", "\(item.turns)")
     case .compression:
         guard let compressionCount = item.compressionCount else { return nil }
         return ThreadTooltipRow("压缩次数", "\(compressionCount)")
@@ -326,10 +326,6 @@ func tooltipRow(for field: TaskHoverField, item: CodexThreadItem) -> ThreadToolt
         guard let model = item.model, !model.isEmpty else { return nil }
         return ThreadTooltipRow("模型", model)
     }
-}
-
-private func unavailableContextRow(_ label: String, _ value: String) -> ThreadTooltipRow {
-    ThreadTooltipRow(label, value, valueColor: NSColor.white.withAlphaComponent(0.42))
 }
 
 func cleanedTooltipRows(_ rows: [ThreadTooltipRow]) -> [ThreadTooltipRow] {

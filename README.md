@@ -5,7 +5,7 @@
 [中文详细说明](README.zh-CN.md) · [普通用户安装教程](docs/INSTALL.zh-CN.md) · [English](README.en.md) · [下载最新版](https://github.com/prefect12/codex-token-meter/releases/latest)
 
 - **AI Token Meter**：查看 Codex / Claude Code 的本地 token 用量、缓存命中率、实时剩余额度、模型统计、仓库洞察和订阅价值估算。
-- **Task Bar**：把正在运行、等待输入、已完成但未读的 Codex / Claude Code 任务集中到一个轻量状态栏列表里，方便快速回到任务。
+- **Task Bar**：把正在运行、等待输入、已完成但未读的 Codex / Claude Code 任务，以及 Claude Desktop Home 最近对话集中到一个轻量状态栏列表里，方便快速回到任务。
 
 两者都只读取本机数据，不上传会话日志。
 
@@ -34,7 +34,7 @@
   <img src="docs/images/task-bar-release.webp" alt="Task Bar popover" width="420">
 </p>
 
-Task Bar 把 Codex 和 Claude Code 任务合在一个小面板里，支持 `All / Running / Waiting / Done` 筛选。行内会显示任务状态、来源、标题、最近摘要和未读/等待状态，适合在多个 Codex 线程和 Claude 会话之间快速切换。
+Task Bar 把 Codex、Claude Code 和 Claude Desktop Home 最近对话合在一个小面板里，支持 `All / Running / Waiting / Done` 筛选。行内会显示任务状态、来源、标题、最近摘要和未读/等待状态，适合在多个 Codex 线程和 Claude 会话之间快速切换。Home 对话只使用本地缓存的更新时间显示为最近/未读，不会推断运行状态。
 
 ### Task Bar Hover
 
@@ -112,8 +112,8 @@ Repo 对话体检：按项目和文件夹定位长线程，统计对话长度分
 
 | App | Version | Build | Bundle |
 | --- | --- | --- | --- |
-| AI Token Meter | `0.2.15` | `29` | `/Applications/AI Token Meter.app` |
-| Task Bar | `0.1.16` | `17` | `/Applications/Task Bar.app` |
+| AI Token Meter | `0.2.16` | `30` | `/Applications/AI Token Meter.app` |
+| Task Bar | `0.1.17` | `18` | `/Applications/Task Bar.app` |
 
 ## 数据来源
 
@@ -140,6 +140,7 @@ Task Bar 读取：
 ~/.codex-api/sessions/**/rollout-*.jsonl
 设置中添加的额外 Codex 文件夹下的 logs_2.sqlite / state_5.sqlite / sessions / archived_sessions
 ~/.claude/projects/**/*.jsonl
+~/Library/Application Support/Claude/IndexedDB/https_claude.ai_0.indexeddb.blob
 ```
 
 实时额度通过现有本机 ChatGPT 登录直接只读请求正常的 Codex 用量接口，不会启动 `codex app-server`；成功时仍按 15 秒刷新并缓存，失败后按 1、5、15 分钟退避。Codex 服务状态 chip 会只读请求 `https://status.openai.com/api/v2/summary.json`。
@@ -216,7 +217,7 @@ Task Bar 读取：
 输出：
 
 ```text
-dist/AI-Token-Meter-0.2.15.dmg
+dist/AI-Token-Meter-0.2.16.dmg
 ```
 
 打包 Task Bar：
@@ -228,7 +229,7 @@ dist/AI-Token-Meter-0.2.15.dmg
 输出：
 
 ```text
-dist/Task-Bar-0.1.16.dmg
+dist/Task-Bar-0.1.17.dmg
 ```
 
 ## 命令行检查
