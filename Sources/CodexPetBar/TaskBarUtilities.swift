@@ -185,10 +185,12 @@ extension Array where Element == CodexThreadItem {
     }
 
     func subtasks(parentID: String) -> [CodexThreadItem] {
-        filter {
+        let parent = first { !$0.isSubtask && $0.id == parentID }
+        return filter {
             $0.isSubtask
                 && !$0.isInternalApprovalSubtask
                 && $0.parentThreadID == parentID
+                && isSubtaskFromCurrentRun($0, parent: parent)
         }
             .sorted { lhs, rhs in
                 let rank: (ThreadRunStatus) -> Int = { status in
@@ -226,11 +228,29 @@ extension Array where Element == CodexThreadItem {
             if item.isSubtask {
                 guard !item.isInternalApprovalSubtask else { return false }
                 guard let parentID = item.parentThreadID else { return false }
-                return retainedRootIDs.contains(parentID)
+                guard retainedRootIDs.contains(parentID) else { return false }
+                let parent = retainedRoots.first { $0.id == parentID }
+                return isSubtaskFromCurrentRun(item, parent: parent)
             }
             return retainedRootIDs.contains(item.id)
         }
     }
+}
+
+/// A Codex thread can be resumed days after its earlier subagents completed.
+/// The state database keeps those child threads attached to the same parent,
+/// but Task Bar should describe the parent's current run rather than its full
+/// lifetime history.
+private func isSubtaskFromCurrentRun(_ item: CodexThreadItem, parent: CodexThreadItem?) -> Bool {
+    guard item.status == .unread,
+          let parent,
+          parent.status != .unread,
+          let currentRunStartedAt = parent.startedAt else {
+        return true
+    }
+    // Allow a small timestamp tolerance because rollout and state-database
+    // timestamps can be written independently around the spawn boundary.
+    return item.lastActivity.timeIntervalSince(currentRunStartedAt) >= -2
 }
 
 func statusLabel(_ status: ThreadRunStatus) -> String {
