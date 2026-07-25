@@ -14,8 +14,35 @@ final class TaskProgressRingView: NSView {
     var progressColor = NSColor(calibratedRed: 0.28, green: 0.61, blue: 1.0, alpha: 1) {
         didSet { needsDisplay = true }
     }
+    var isAnimating = false {
+        didSet { updateAnimationTimer() }
+    }
+    private var animationPhase: CGFloat = 0
+    private var animationTimer: Timer?
 
     override var isFlipped: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateAnimationTimer()
+    }
+
+    deinit {
+        animationTimer?.invalidate()
+    }
+
+    private func updateAnimationTimer() {
+        animationTimer?.invalidate()
+        animationTimer = nil
+        guard isAnimating, window != nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.animationPhase = (self.animationPhase + 4).truncatingRemainder(dividingBy: 360)
+            self.needsDisplay = true
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        animationTimer = timer
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -34,12 +61,13 @@ final class TaskProgressRingView: NSView {
 
         let clamped = min(1, max(0, progress))
         guard clamped > 0 else { return }
+        let drawnProgress = isAnimating ? min(clamped, 0.82) : clamped
         let arc = NSBezierPath()
         arc.appendArc(
             withCenter: NSPoint(x: bounds.midX, y: bounds.midY),
             radius: diameter / 2,
-            startAngle: 90,
-            endAngle: 90 - CGFloat(clamped) * 360,
+            startAngle: 90 - animationPhase,
+            endAngle: 90 - animationPhase - CGFloat(drawnProgress) * 360,
             clockwise: true
         )
         arc.lineWidth = lineWidth
@@ -219,12 +247,14 @@ final class ThreadRowView: NSView {
         subtaskBadgeView.isHidden = subtaskCount == 0
         addSubview(subtaskBadgeView)
 
-        if let plan = item.plan {
+        if let plan = item.displayedPlan {
             planProgressView.progress = plan.progress
+            planProgressView.isAnimating = item.status == .running
             planProgressView.setAccessibilityLabel("任务进度 \(plan.displayedStepNumber) / \(plan.steps.count)")
             planProgressView.toolTip = "任务计划 \(plan.displayedStepNumber) / \(plan.steps.count)"
             addSubview(planProgressView)
         } else {
+            planProgressView.isAnimating = false
             planProgressView.isHidden = true
         }
 
@@ -338,7 +368,7 @@ final class ThreadRowView: NSView {
     }
 
     private var planHoverHitRect: NSRect {
-        guard item.plan != nil else { return .zero }
+        guard item.displayedPlan != nil else { return .zero }
         return planProgressView.frame.insetBy(dx: -4, dy: -4)
     }
 
@@ -926,7 +956,7 @@ final class ThreadHoverPanel {
     ) {
         owner = sourceView
         let size: NSSize
-        if content == .plan, let plan = item.plan {
+        if content == .plan, let plan = item.displayedPlan {
             planTooltipView.plan = plan
             size = planTooltipView.preferredSize
             planTooltipView.frame = NSRect(origin: .zero, size: size)
@@ -987,7 +1017,10 @@ final class ThreadHoverPanel {
 
 private final class TaskPlanTooltipView: NSView {
     var plan: TaskPlan? {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            updateAnimationTimer()
+        }
     }
 
     private let cardInset: CGFloat = 10
@@ -997,6 +1030,8 @@ private final class TaskPlanTooltipView: NSView {
     private let footerHeight: CGFloat = 42
     private let stepFont = NSFont.systemFont(ofSize: 12.5, weight: .medium)
     private let footerFont = NSFont.monospacedDigitSystemFont(ofSize: 11.5, weight: .medium)
+    private var animationPhase: CGFloat = 0
+    private var animationTimer: Timer?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1008,6 +1043,30 @@ private final class TaskPlanTooltipView: NSView {
     }
 
     override var isFlipped: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateAnimationTimer()
+    }
+
+    deinit {
+        animationTimer?.invalidate()
+    }
+
+    private func updateAnimationTimer() {
+        animationTimer?.invalidate()
+        animationTimer = nil
+        guard window != nil, plan?.steps.contains(where: { $0.status == .inProgress }) == true else {
+            return
+        }
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.animationPhase = (self.animationPhase + 5).truncatingRemainder(dividingBy: 360)
+            self.needsDisplay = true
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        animationTimer = timer
+    }
 
     var preferredSize: NSSize {
         let stepsHeight = plan?.steps.reduce(CGFloat(0)) {
@@ -1126,10 +1185,23 @@ private final class TaskPlanTooltipView: NSView {
             NSColor(calibratedWhite: 0.10, alpha: 1).setStroke()
             check.stroke()
         case .inProgress:
-            NSColor(calibratedRed: 0.28, green: 0.61, blue: 1.0, alpha: 1).setStroke()
-            let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
-            ring.lineWidth = 1.8
-            ring.stroke()
+            let color = NSColor(calibratedRed: 0.28, green: 0.61, blue: 1.0, alpha: 1)
+            color.withAlphaComponent(0.22).setStroke()
+            let track = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+            track.lineWidth = 1.8
+            track.stroke()
+            color.setStroke()
+            let arc = NSBezierPath()
+            arc.appendArc(
+                withCenter: center,
+                radius: radius - 0.5,
+                startAngle: 90 - animationPhase,
+                endAngle: -80 - animationPhase,
+                clockwise: true
+            )
+            arc.lineWidth = 2
+            arc.lineCapStyle = .round
+            arc.stroke()
         case .pending:
             NSColor.white.withAlphaComponent(0.40).setStroke()
             let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))

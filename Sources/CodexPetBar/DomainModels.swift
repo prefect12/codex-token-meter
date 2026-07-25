@@ -81,6 +81,21 @@ struct CodexThreadItem {
         threadKind == .subtask
     }
 
+    /// Plans are snapshots from the most recent `update_plan` call, so a turn can
+    /// finish without writing one final "all completed" snapshot. Keep the raw
+    /// plan intact for diagnostics, but make the presentation agree with the
+    /// thread's authoritative terminal status.
+    var displayedPlan: TaskPlan? {
+        guard let plan else { return nil }
+        guard status == .unread else { return plan }
+        return TaskPlan(
+            explanation: plan.explanation,
+            steps: plan.steps.map {
+                TaskPlanStep(text: $0.text, status: .completed)
+            }
+        )
+    }
+
     var isInternalApprovalSubtask: Bool {
         guard isSubtask,
               agentNickname == nil,
