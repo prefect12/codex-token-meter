@@ -2373,6 +2373,16 @@ final class ReadStateStore {
 
         var visible: [CodexThreadItem] = []
         for item in items {
+            if item.status == .unread,
+               completedSubtaskWasAcknowledgedWithParent(item, items: items, state: current) {
+                let timestamp = readThroughTime(for: item)
+                current.openedAt[item.id] = timestamp
+                var userReadAt = current.userReadAt ?? [:]
+                userReadAt[item.id] = timestamp
+                current.userReadAt = userReadAt
+                didChange = true
+                continue
+            }
             switch item.status {
             case .running, .stale:
                 visible.append(item)
@@ -2416,6 +2426,34 @@ final class ReadStateStore {
         }
         lock.unlock()
         return visible
+    }
+
+    private func completedSubtaskWasAcknowledgedWithParent(
+        _ item: CodexThreadItem,
+        items: [CodexThreadItem],
+        state: ReadStateFile
+    ) -> Bool {
+        guard item.isSubtask,
+              let parentID = item.parentThreadID,
+              let parent = items.first(where: { !$0.isSubtask && $0.id == parentID }) else {
+            return false
+        }
+        let completedAt = item.lastActivity.timeIntervalSince1970
+        let parentReadAt = [
+            state.openedAt[parentID] ?? 0,
+            state.userReadAt?[parentID] ?? 0,
+            parent.externalReadAt?.timeIntervalSince1970 ?? 0
+        ].max() ?? 0
+        if parentReadAt >= completedAt {
+            return true
+        }
+        // Sending a later prompt proves the parent conversation was revisited,
+        // even when Codex did not expose a separate read timestamp.
+        guard parent.status != .unread,
+              let currentRunStartedAt = parent.startedAt else {
+            return false
+        }
+        return currentRunStartedAt.timeIntervalSince1970 >= completedAt
     }
 
     func markRead(_ item: CodexThreadItem) {
