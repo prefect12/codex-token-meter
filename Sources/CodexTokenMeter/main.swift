@@ -100,6 +100,7 @@ if CommandLine.arguments.contains("--print-profile") {
 if CommandLine.arguments.contains("--grant-claude-keychain") {
     let refresher = ClaudeOAuthUsageRefresher.shared
     let granted = refresher.needsInitialKeychainAccess ? refresher.requestInitialKeychainAccess() : true
+    AppSettings.claudeKeychainAccessRequested = true
     AppSettings.claudeKeychainAccessEnabled = granted
     let claudeStore = ClaudeStatuslineStore()
     let refreshed = granted ? refresher.refreshIfNeeded(store: claudeStore) : false

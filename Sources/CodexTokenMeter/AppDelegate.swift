@@ -34,7 +34,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var liveRefreshTimer: Timer?
     private var activeScans: Set<ReportCacheKey> = []
     private var liveRefreshInFlight = false
-    private var claudeKeychainRecoveryAttempted = false
     private var detailsSnapshotPrewarmInFlight = false
     private var statusSpinnerTimer: Timer?
     private var statusSpinnerFrame = 0
@@ -148,35 +147,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.openDetailsWindow()
             }
         }
-        requestClaudeKeychainAccessIfNeeded()
+        configureClaudeKeychainAccess()
     }
 
-    private func requestClaudeKeychainAccessIfNeeded() {
-        guard ClaudeOAuthUsageRefresher.shared.needsInitialKeychainAccess else {
+    /// Reuses an existing persistent grant without ever opening SecurityAgent.
+    /// New or revoked grants must be requested explicitly by the user through
+    /// `--grant-claude-keychain`; automatic app lifecycle work stays silent.
+    private func configureClaudeKeychainAccess() {
+        let refresher = ClaudeOAuthUsageRefresher.shared
+        guard refresher.needsInitialKeychainAccess else {
             AppSettings.claudeKeychainAccessRequested = true
             return
         }
-        // Re-ask on launch only when the stable /usr/bin/security grant is
-        // missing or the snapshot has not refreshed for over an hour.
-        if AppSettings.claudeKeychainAccessRequested {
-            let capturedAt = ClaudeStatuslineStore().read()?.capturedAt
-            let snapshotAge = capturedAt.map { Date().timeIntervalSince($0) } ?? .infinity
-            guard !AppSettings.claudeKeychainAccessEnabled || snapshotAge > 60 * 60 else { return }
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+        let authorized = refresher.hasPersistentKeychainAccess
+        AppSettings.claudeKeychainAccessEnabled = authorized
+        if authorized {
             AppSettings.claudeKeychainAccessRequested = true
-            self?.claudeKeychainRecoveryAttempted = true
-            NSApp.activate(ignoringOtherApps: true)
-            let granted = ClaudeOAuthUsageRefresher.shared.requestInitialKeychainAccess()
-            AppSettings.claudeKeychainAccessEnabled = granted
-            guard granted else { return }
-            DispatchQueue.global(qos: .userInitiated).async {
-                ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: ClaudeStatuslineStore())
-                DispatchQueue.main.async {
-                    self?.refreshLiveLimits()
-                }
-            }
         }
     }
 
@@ -503,7 +489,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveQueue.async {
             let claudeStore = ClaudeStatuslineStore()
             _ = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: claudeStore)
-            let claudeRefreshOutcome = ClaudeOAuthUsageRefresher.shared.lastOutcome
             let freshLimits = combinedLiveLimits(codexReader: self.rateLimitReader, claudeStore: claudeStore)
             let limits = self.mergedLiveLimits(fresh: freshLimits, fallback: currentLimits)
             let freshResetCredits = self.resetCreditsReader.read()
@@ -525,7 +510,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self.liveRefreshInFlight = false
                 self.scheduleNextLiveRefresh(succeeded: codexRefreshSucceeded)
-                self.recoverClaudeKeychainAccessIfNeeded(outcome: claudeRefreshOutcome)
                 if let serviceStatus {
                     self.serviceStatus = serviceStatus
                     self.latestState.serviceStatus = serviceStatus
@@ -557,28 +541,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.updateStatusTitle(report: self.latestState.report, limits: limits, quota: self.latestState.selectedQuota)
                 self.dashboardController.dashboardView.update(self.latestState)
                 self.detailsController.updateLiveLimits(limits, costReferenceReport: costReferenceReport, serviceStatus: self.serviceStatus)
-            }
-        }
-    }
-
-    /// If the stable system-tool grant is revoked while the app remains open,
-    /// re-ask once per app run after the cached snapshot becomes stale.
-    private func recoverClaudeKeychainAccessIfNeeded(outcome: String) {
-        guard !claudeKeychainRecoveryAttempted,
-              outcome.hasPrefix("keychain-read-denied") || outcome == "keychain-write-denied",
-              ClaudeOAuthUsageRefresher.shared.needsInitialKeychainAccess else { return }
-        let capturedAt = ClaudeStatuslineStore().read()?.capturedAt
-        let snapshotAge = capturedAt.map { Date().timeIntervalSince($0) } ?? .infinity
-        guard snapshotAge > 60 * 60 else { return }
-        claudeKeychainRecoveryAttempted = true
-        NSApp.activate(ignoringOtherApps: true)
-        let granted = ClaudeOAuthUsageRefresher.shared.requestInitialKeychainAccess()
-        AppSettings.claudeKeychainAccessEnabled = granted
-        guard granted else { return }
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: ClaudeStatuslineStore())
-            DispatchQueue.main.async {
-                self?.refreshLiveLimits()
             }
         }
     }
