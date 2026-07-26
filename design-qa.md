@@ -99,3 +99,51 @@ No actionable P0, P1, or P2 visual mismatches remain.
 - `git diff --check`: passed
 
 final result: passed
+
+---
+
+# AI Token Meter Overview Weekly Quota Design QA
+
+- Source visual truth: `/Users/kadewu/.codex/generated_images/019f9bb4-12c0-7e92-ad26-dd3bb00c646a/exec-03139954-67b0-48f8-b679-b25e902edce6.png`
+- Implementation screenshot: `/tmp/ai-token-meter-overview-weekly-compact.png`
+- Combined comparison: `/tmp/ai-token-meter-weekly-comparison.png`
+- Viewport: native AppKit details view at 920 x 996 CSS points, 2x backing scale
+- Source pixels: 1419 x 1109; window title bar removed for content comparison, then normalized to 1840 x 1370
+- Implementation pixels: 1840 x 1992; top 1840 x 1370 compared at 1:1 pixels
+- State: Overview, All sources, Chinese, live Codex and Claude weekly quota available
+
+## Full-view comparison evidence
+
+The selected asymmetrical layout is preserved: a two-row weekly quota panel occupies the left side of the top metric region, the five existing metrics use a 3-over-2 grid on the right, and the reset-credit, source, and model panels retain their established order and styling below. Sidebar proportions, source selector placement, panel fills, borders, radii, and semantic Codex/Claude colors align with the selected design.
+
+Dynamic values intentionally differ from the design mock. The implementation displays the current Codex weekly used percentage, Claude weekly remaining percentage, and each provider's actual reset timestamp rather than the mock's 68% and 42% examples.
+
+## Focused region comparison evidence
+
+The top quota-and-metrics region was inspected at equal pixel density in the combined comparison. Titles, percentage/suffix hierarchy, divider, progress tracks, reset timestamps, and 3-over-2 metric-card alignment are readable without overlap or truncation. A second full render at 1280 points confirmed that the same hierarchy expands cleanly at a wider desktop size.
+
+## Findings
+
+- No actionable P0, P1, or P2 mismatch.
+- P3: the generated mock slightly reduces some pre-existing header and sidebar typography. The implementation intentionally preserves the app's native typography instead of restyling unrelated surfaces.
+- P3: the design mock contains static example quota values; the implementation correctly uses live or cached quota data and shows an unavailable state when a weekly window is missing.
+
+## Required fidelity surfaces
+
+- Fonts and typography: native SF system fonts, weights, monospaced percentage digits, and existing hierarchy preserved; no wrapping or truncation at 920 and 1280 points.
+- Spacing and layout rhythm: selected 40/60 top-region composition, 12-point gaps, two equal quota rows, and downstream vertical reflow match the design intent.
+- Colors and visual tokens: existing panel, border, blue, amber, cyan, orange, green, and teal tokens are reused.
+- Image quality and asset fidelity: no raster assets are required by this native data UI; existing SF Symbols and AppKit drawing remain unchanged.
+- Copy and content: Chinese labels match the selected design; reset timestamps and quota values are live data.
+- Interaction and states: existing source tabs remain functional; the quota panel is read-only, as indicated by the design.
+- Accessibility: text keeps the app's existing contrast and scalable native font rendering; meaning is conveyed by labels and numbers in addition to color.
+
+## Comparison history
+
+- Initial comparison: no P0/P1/P2 findings, so no design-QA fix iteration was required.
+
+## Follow-up polish
+
+- If product feedback prefers the mock's smaller surrounding typography, evaluate that as a separate whole-page typography change rather than coupling it to this quota feature.
+
+final result: passed

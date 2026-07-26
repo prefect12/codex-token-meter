@@ -1366,11 +1366,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             // The Claude view hides the Codex reset-credits row (see drawOverview),
             // while Codex/all expands it when reset credits wrap to another row.
             if selectedDetailsSource == .claude {
-                targetHeight = 746
+                targetHeight = 840
             } else if let snapshot {
-                targetHeight = 762 + resetCreditPanelHeight(for: snapshot)
+                targetHeight = 856 + resetCreditPanelHeight(for: snapshot)
             } else {
-                targetHeight = 850
+                targetHeight = 944
             }
         case .insights:
             let heatmapHeight: CGFloat = 148
