@@ -527,27 +527,6 @@ final class ClaudeOAuthUsageRefresher {
         }
     }
 
-    /// Runs a refresh with keychain interaction allowed so macOS can show the
-    /// authorization dialog. Only for user-visible grant flows (app launch
-    /// re-ask, --grant-claude-keychain); background refreshes stay silent.
-    @discardableResult
-    func refreshWithKeychainInteraction(store: ClaudeStatuslineStore, now: Date = Date()) -> Bool {
-        lock.lock()
-        interactiveKeychainSession = true
-        nextAttemptAt = .distantPast
-        lock.unlock()
-        _ = SecKeychainSetUserInteractionAllowed(true)
-        defer {
-            lock.lock()
-            interactiveKeychainSession = false
-            lock.unlock()
-            Self.disableKeychainInteraction()
-        }
-        return refreshIfNeeded(store: store, now: now)
-    }
-
-    private var interactiveKeychainSession = false
-
     /// Why the most recent refreshIfNeeded call ended the way it did; surfaced
     /// by the --refresh-claude-usage diagnostic.
     var lastOutcome: String {
@@ -628,9 +607,13 @@ final class ClaudeOAuthUsageRefresher {
 
     func requestInitialKeychainAccess() -> Bool {
         guard needsInitialKeychainAccess else { return false }
-        _ = SecKeychainSetUserInteractionAllowed(true)
-        defer { Self.disableKeychainInteraction() }
-        return parseCredentials(data: keychainCredentialsData(), source: .keychain) != nil
+        // Claude Code itself reads this legacy item through Apple's stable
+        // /usr/bin/security executable. Authorize that system tool once
+        // instead of authorizing each newly built AI Token Meter CDHash.
+        return parseCredentials(
+            data: keychainCredentialsData(allowInteraction: true),
+            source: .keychain
+        ) != nil
     }
 
     private func oauthAccessToken(now: Date) -> String? {
@@ -647,6 +630,8 @@ final class ClaudeOAuthUsageRefresher {
                 setOutcome("no-credentials-keychain-disabled")
             } else if lastKeychainStatus == errSecItemNotFound {
                 setOutcome("no-credentials")
+            } else if lastKeychainStatus == errSecInteractionNotAllowed {
+                setOutcome("keychain-locked")
             } else {
                 setOutcome("keychain-read-denied-\(lastKeychainStatus)")
             }
@@ -677,13 +662,11 @@ final class ClaudeOAuthUsageRefresher {
             return credentials
         }
         guard AppSettings.claudeKeychainAccessEnabled else { return nil }
-        lock.lock()
-        let interactive = interactiveKeychainSession
-        lock.unlock()
-        if !interactive {
-            Self.disableKeychainInteraction()
-        }
-        return parseCredentials(data: keychainCredentialsData(), source: .keychain)
+        Self.disableKeychainInteraction()
+        return parseCredentials(
+            data: keychainCredentialsData(allowInteraction: false),
+            source: .keychain
+        )
     }
 
     private func fileCredentials() -> StoredCredentials? {
@@ -692,20 +675,152 @@ final class ClaudeOAuthUsageRefresher {
         return parseCredentials(data: try? Data(contentsOf: fileURL), source: .file(fileURL))
     }
 
-    private func keychainCredentialsData() -> Data? {
+    private func keychainCredentialsData(allowInteraction: Bool) -> Data? {
+        if !allowInteraction {
+            // The security CLI has no "fail instead of prompt" switch. Inspect
+            // the legacy decrypt ACL and keychain lock state first so a
+            // background refresh never launches a password dialog.
+            guard securityToolHasPersistentAccess(requireUnlocked: true) else {
+                if lastKeychainStatus == errSecSuccess {
+                    lastKeychainStatus = errSecAuthFailed
+                }
+                return nil
+            }
+        }
+
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = [
+            "find-generic-password",
+            "-s", Self.keychainService,
+            "-w"
+        ]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            lastKeychainStatus = errSecNotAvailable
+            return nil
+        }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationReason == .exit, process.terminationStatus == 0 else {
+            lastKeychainStatus = errSecAuthFailed
+            return nil
+        }
+
+        // "Allow" authorizes only this invocation. Require the ACL entry that
+        // "Always Allow" adds before enabling future background reads.
+        if allowInteraction && !securityToolHasPersistentAccess(requireUnlocked: false) {
+            lastKeychainStatus = errSecAuthFailed
+            return nil
+        }
+        lastKeychainStatus = errSecSuccess
+        return data
+    }
+
+    /// Read-only check for the persistent decrypt authorization Claude Code
+    /// and AI Token Meter share through Apple's /usr/bin/security executable.
+    /// The legacy ACL API is required because `Claude Code-credentials` is a
+    /// legacy login-keychain item rather than a data-protection keychain item.
+    private func securityToolHasPersistentAccess(requireUnlocked: Bool) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.keychainService,
-            kSecReturnData as String: true,
+            kSecReturnRef as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         lastKeychainStatus = status
-        guard status == errSecSuccess else {
-            return nil
+        guard status == errSecSuccess,
+              let item,
+              CFGetTypeID(item) == SecKeychainItemGetTypeID() else {
+            return false
         }
-        return item as? Data
+        let keychainItem = unsafeBitCast(item, to: SecKeychainItem.self)
+
+        if requireUnlocked {
+            var keychain: SecKeychain?
+            var keychainStatus: SecKeychainStatus = 0
+            guard SecKeychainItemCopyKeychain(keychainItem, &keychain) == errSecSuccess,
+                  SecKeychainGetStatus(keychain, &keychainStatus) == errSecSuccess,
+                  (keychainStatus & UInt32(kSecUnlockStateStatus)) != 0 else {
+                lastKeychainStatus = errSecInteractionNotAllowed
+                return false
+            }
+        }
+
+        var access: SecAccess?
+        guard SecKeychainItemCopyAccess(keychainItem, &access) == errSecSuccess,
+              let access else {
+            lastKeychainStatus = errSecAuthFailed
+            return false
+        }
+        var aclArray: CFArray?
+        guard SecAccessCopyACLList(access, &aclArray) == errSecSuccess,
+              let acls = aclArray as? [SecACL] else {
+            lastKeychainStatus = errSecAuthFailed
+            return false
+        }
+
+        var securityApplication: SecTrustedApplication?
+        guard SecTrustedApplicationCreateFromPath(
+            "/usr/bin/security",
+            &securityApplication
+        ) == errSecSuccess,
+              let securityApplication else {
+            lastKeychainStatus = errSecAuthFailed
+            return false
+        }
+        var securityApplicationData: CFData?
+        guard SecTrustedApplicationCopyData(
+            securityApplication,
+            &securityApplicationData
+        ) == errSecSuccess,
+              let securityApplicationData else {
+            lastKeychainStatus = errSecAuthFailed
+            return false
+        }
+
+        for acl in acls {
+            let authorizations = SecACLCopyAuthorizations(acl) as? [String]
+            guard authorizations?.contains("ACLAuthorizationDecrypt") == true else {
+                continue
+            }
+            var applications: CFArray?
+            var description: CFString?
+            var selector = SecKeychainPromptSelector()
+            guard SecACLCopyContents(
+                acl,
+                &applications,
+                &description,
+                &selector
+            ) == errSecSuccess else {
+                continue
+            }
+            // A nil list means any application is already trusted.
+            if applications == nil {
+                lastKeychainStatus = errSecSuccess
+                return true
+            }
+            for application in (applications as? [SecTrustedApplication]) ?? [] {
+                var applicationData: CFData?
+                if SecTrustedApplicationCopyData(
+                    application,
+                    &applicationData
+                ) == errSecSuccess,
+                   applicationData == securityApplicationData {
+                    lastKeychainStatus = errSecSuccess
+                    return true
+                }
+            }
+        }
+        lastKeychainStatus = errSecAuthFailed
+        return false
     }
 
     private func parseCredentials(data: Data?, source: CredentialSource) -> StoredCredentials? {
@@ -718,9 +833,9 @@ final class ClaudeOAuthUsageRefresher {
         return StoredCredentials(root: root, oauth: oauth, source: source)
     }
 
-    /// Exchanges the stored refresh token for a fresh access token and writes
-    /// rotated credentials back only to Claude's private credentials file.
-    /// Keychain credentials remain owned and refreshed by Claude Code.
+    /// Exchanges the stored refresh token for a fresh access token. Rotated
+    /// credentials are written back to their original shared source so Claude
+    /// Code and AI Token Meter never race on different refresh-token versions.
     private func refreshAccessToken(credentials: StoredCredentials, now: Date) -> String? {
         guard let refreshToken = credentials.oauth["refreshToken"] as? String, !refreshToken.isEmpty else {
             setOutcome("no-refresh-token")

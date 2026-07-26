@@ -156,10 +156,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.claudeKeychainAccessRequested = true
             return
         }
-        // The ad-hoc code signature changes on every reinstall, which silently
-        // invalidates the keychain ACL grant, so a once-ever request flag can
-        // never recover. Re-ask on launch whenever the active channel is dead:
-        // access disabled, or the snapshot has not refreshed for over an hour.
+        // Re-ask on launch only when the stable /usr/bin/security grant is
+        // missing or the snapshot has not refreshed for over an hour.
         if AppSettings.claudeKeychainAccessRequested {
             let capturedAt = ClaudeStatuslineStore().read()?.capturedAt
             let snapshotAge = capturedAt.map { Date().timeIntervalSince($0) } ?? .infinity
@@ -174,9 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.claudeKeychainAccessEnabled = granted
             guard granted else { return }
             DispatchQueue.global(qos: .userInitiated).async {
-                // Interactive so an expired keychain token can be refreshed and
-                // written back, which may need one more authorization prompt.
-                ClaudeOAuthUsageRefresher.shared.refreshWithKeychainInteraction(store: ClaudeStatuslineStore())
+                ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: ClaudeStatuslineStore())
                 DispatchQueue.main.async {
                     self?.refreshLiveLimits()
                 }
@@ -565,10 +561,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// A reinstall silently invalidates the keychain ACL grant, and the app can
-    /// run for days without relaunching, so the launch-time re-ask alone is not
-    /// enough. When background refreshes keep failing on keychain access and
-    /// the snapshot has gone stale, re-ask once per app run.
+    /// If the stable system-tool grant is revoked while the app remains open,
+    /// re-ask once per app run after the cached snapshot becomes stale.
     private func recoverClaudeKeychainAccessIfNeeded(outcome: String) {
         guard !claudeKeychainRecoveryAttempted,
               outcome.hasPrefix("keychain-read-denied") || outcome == "keychain-write-denied",
@@ -582,7 +576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppSettings.claudeKeychainAccessEnabled = granted
         guard granted else { return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            ClaudeOAuthUsageRefresher.shared.refreshWithKeychainInteraction(store: ClaudeStatuslineStore())
+            ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: ClaudeStatuslineStore())
             DispatchQueue.main.async {
                 self?.refreshLiveLimits()
             }
