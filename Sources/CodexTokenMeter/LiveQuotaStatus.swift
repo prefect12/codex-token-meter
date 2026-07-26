@@ -605,6 +605,14 @@ final class ClaudeOAuthUsageRefresher {
         fileCredentials() == nil
     }
 
+    /// Checks only legacy ACL metadata. This never decrypts the credential and
+    /// never enables Keychain UI, so app launch can reuse an existing grant
+    /// without risking a password prompt.
+    var hasPersistentKeychainAccess: Bool {
+        Self.disableKeychainInteraction()
+        return securityToolHasPersistentAccess(requireUnlocked: false)
+    }
+
     func requestInitialKeychainAccess() -> Bool {
         guard needsInitialKeychainAccess else { return false }
         // Claude Code itself reads this legacy item through Apple's stable
