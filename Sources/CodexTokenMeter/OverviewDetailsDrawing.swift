@@ -116,17 +116,13 @@ extension UsageDetailsView {
 
         drawWeeklyQuotaRow(
             title: weeklyQuotaTitle(source: .codex),
-            percent: codexWindow?.usedPercent,
-            suffix: t(.used),
-            resetsAt: codexWindow?.resetsAt,
+            window: codexWindow,
             color: accentBlue,
             rect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height / 2)
         )
         drawWeeklyQuotaRow(
             title: weeklyQuotaTitle(source: .claude),
-            percent: claudeWindow?.remainingPercent,
-            suffix: t(.remaining),
-            resetsAt: claudeWindow?.resetsAt,
+            window: claudeWindow,
             color: accentAmber,
             rect: NSRect(x: rect.minX, y: dividerY, width: rect.width, height: rect.height / 2)
         )
@@ -134,9 +130,7 @@ extension UsageDetailsView {
 
     func drawWeeklyQuotaRow(
         title: String,
-        percent: Double?,
-        suffix: String,
-        resetsAt: Date?,
+        window: RateWindow?,
         color: NSColor,
         rect: NSRect
     ) {
@@ -148,14 +142,14 @@ extension UsageDetailsView {
             color: NSColor.white.withAlphaComponent(0.78)
         )
 
-        let normalizedPercent = percent.map { min(100, max(0, $0)) }
+        let normalizedPercent = window.map { min(100, max(0, $0.remainingPercent)) }
         let value = normalizedPercent.map { String(format: "%.0f%%", $0) } ?? "--%"
         let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 26, weight: .bold)
         let valueRect = NSRect(x: rect.minX + horizontalPadding, y: rect.minY + 29, width: rect.width - horizontalPadding * 2, height: 31)
         drawText(value, rect: valueRect, font: valueFont, color: normalizedPercent == nil ? NSColor.white.withAlphaComponent(0.36) : color)
         let suffixX = valueRect.minX + measuredTextWidth(value, font: valueFont) + 10
         drawText(
-            suffix,
+            t(.remaining),
             rect: NSRect(x: suffixX, y: valueRect.minY + 6, width: max(0, valueRect.maxX - suffixX), height: 20),
             font: .systemFont(ofSize: 12, weight: .semibold),
             color: NSColor.white.withAlphaComponent(0.64)
@@ -169,8 +163,27 @@ extension UsageDetailsView {
             color.setFill()
             NSBezierPath(roundedRect: fillRect, xRadius: fillRect.height / 2, yRadius: fillRect.height / 2).fill()
         }
+        if let window, let comparison = paceComparison(for: window) {
+            let expectedRemaining = min(100, max(0, 100 - comparison.progressPercent))
+            let markerCenterX = min(
+                trackRect.maxX - 1.5,
+                max(trackRect.minX + 1.5, trackRect.minX + trackRect.width * expectedRemaining / 100)
+            )
+            let actualRemaining = min(100, max(0, window.remainingPercent))
+            let markerColor = actualRemaining >= expectedRemaining
+                ? NSColor(calibratedRed: 0.56, green: 1.0, blue: 0.16, alpha: 0.98)
+                : NSColor.systemYellow.withAlphaComponent(0.98)
+            let markerRect = NSRect(
+                x: markerCenterX - 1.5,
+                y: trackRect.minY - 4,
+                width: 3,
+                height: trackRect.height + 8
+            )
+            markerColor.setFill()
+            NSBezierPath(roundedRect: markerRect, xRadius: 1.5, yRadius: 1.5).fill()
+        }
 
-        let resetText = resetsAt.map {
+        let resetText = window?.resetsAt.map {
             "\(shortMonthDayTimeFormatter().string(from: $0)) \(t(.reset))"
         } ?? t(.liveLimitUnavailable)
         drawText(
@@ -184,13 +197,13 @@ extension UsageDetailsView {
     func weeklyQuotaTitle(source: QuotaViewOption) -> String {
         switch AppLanguage.current {
         case .chinese:
-            return source == .codex ? "Codex 一周用量" : "Claude 一周剩余"
+            return source == .codex ? "Codex 一周剩余" : "Claude 一周剩余"
         case .traditionalChinese:
-            return source == .codex ? "Codex 一週用量" : "Claude 一週剩餘"
+            return source == .codex ? "Codex 一週剩餘" : "Claude 一週剩餘"
         case .japanese:
-            return source == .codex ? "Codex 週間使用量" : "Claude 週間残量"
+            return source == .codex ? "Codex 週間残量" : "Claude 週間残量"
         default:
-            return source == .codex ? "Codex Weekly Usage" : "Claude Weekly Remaining"
+            return source == .codex ? "Codex Weekly Remaining" : "Claude Weekly Remaining"
         }
     }
 
