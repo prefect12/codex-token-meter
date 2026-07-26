@@ -116,7 +116,7 @@ final result: passed
 
 The selected asymmetrical layout is preserved: a two-row weekly quota panel occupies the left side of the top metric region, the five existing metrics use a 3-over-2 grid on the right, and the reset-credit, source, and model panels retain their established order and styling below. Sidebar proportions, source selector placement, panel fills, borders, radii, and semantic Codex/Claude colors align with the selected design.
 
-Dynamic values intentionally differ from the design mock. The implementation displays the current Codex weekly used percentage, Claude weekly remaining percentage, and each provider's actual reset timestamp rather than the mock's 68% and 42% examples.
+Dynamic values intentionally differed from the design mock in that initial pass. It displayed the current Codex weekly used percentage, Claude weekly remaining percentage, and each provider's actual reset timestamp rather than the mock's 68% and 42% examples. The later weekly-remaining QA entry records the follow-up semantic correction.
 
 ## Focused region comparison evidence
 
@@ -145,5 +145,51 @@ The top quota-and-metrics region was inspected at equal pixel density in the com
 ## Follow-up polish
 
 - If product feedback prefers the mock's smaller surrounding typography, evaluate that as a separate whole-page typography change rather than coupling it to this quota feature.
+
+final result: passed
+
+---
+
+# AI Token Meter Weekly Remaining Pace Marker Design QA
+
+- Source visual truth: `/var/folders/hm/pmxxw3v90wl7nql88zsgljym0000gn/T/codex-clipboard-3c97bcc5-792a-4d57-89f1-736a7e205fc9.png`
+- Implementation screenshot: `/tmp/ai-token-meter-overview-weekly-remaining.png`
+- Combined comparison: `/tmp/ai-token-meter-weekly-remaining-comparison.png`
+- Source pixels: 686 x 450
+- Implementation pixels: 1840 x 1992 at 2x backing scale
+- Comparison pixels: 1504 x 450; the implementation quota panel was cropped without changing its aspect ratio, scaled to the source height, and placed beside the source
+- State: Overview, All sources, Chinese, live Codex and Claude weekly windows available
+
+## Comparison evidence
+
+The source and implementation were inspected together in one comparison image. Both providers now use the same remaining-quota semantics: the percentage, suffix, and filled rail represent actual weekly quota remaining. Each rail also includes a short expected-remaining marker derived from the elapsed portion of that provider's current weekly window.
+
+The linear rail adapts the source's circular indicator to the already selected overview-card design. A yellow marker means actual remaining is below expected remaining at the current time; a lime marker means actual remaining is at or above the time-based expectation. The marker does not replace or distort the provider-colored actual-remaining fill.
+
+## Required fidelity surfaces
+
+- Fonts and typography: passed. Both rows use identical remaining labels, monospaced percentage digits, weight, size, and alignment.
+- Spacing and layout rhythm: passed. The new marker stays on the existing rail, preserves the divider and reset-time rows, and does not change the selected overview geometry.
+- Colors and visual tokens: passed. Codex blue and Claude amber continue to identify actual quota; yellow and lime reuse the existing quota pace-marker semantics elsewhere in the app.
+- Copy and content: passed. Codex and Claude both say weekly remaining in Chinese, Traditional Chinese, Japanese, and English. Percentages come from `remainingPercent`.
+- Dynamic behavior: passed. Marker position comes from elapsed window time, uses each provider's own reset timestamp and window duration, and is hidden when the pace comparison cannot be calculated.
+- Accessibility: passed. Provider labels, percentage values, the explicit remaining suffix, and reset timestamp convey the state without relying on marker color alone.
+
+## Findings
+
+No actionable P0, P1, or P2 visual or semantic mismatches remain.
+
+## Comparison history
+
+1. Initial implementation mixed Codex used percentage with Claude remaining percentage and had no time-position marker.
+2. Fix: both rows now render remaining percentage and add the expected-remaining marker on the same rail.
+3. Post-fix comparison shows Codex at 90% remaining with a yellow marker and Claude at 96% remaining with a lime marker, matching the supplied reference semantics.
+
+## Verification
+
+- `git diff --check`: passed
+- `./build.sh`: passed; only pre-existing Codable and deprecated Security warnings were emitted
+- Overview details render: passed at 920 x 996 points / 1840 x 1992 pixels
+- Live quota check: Codex weekly remaining 90%; Claude weekly remaining 96%
 
 final result: passed
