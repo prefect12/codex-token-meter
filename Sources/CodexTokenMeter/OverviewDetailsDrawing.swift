@@ -6,7 +6,8 @@ extension UsageDetailsView {
         // and pull the panels below it up to fill the gap.
         let showResetCredits = selectedDetailsSource != .claude
         let cardsY = content.minY + 78
-        let resetY = cardsY + 98
+        let cardsHeight: CGFloat = 176
+        let resetY = cardsY + cardsHeight + 16
         let resetHeight = resetCreditPanelHeight(for: snapshot)
         let quotaY = showResetCredits ? resetY + resetHeight + 16 : resetY
         let modelsY = quotaY + 136
@@ -35,6 +36,12 @@ extension UsageDetailsView {
 
     func drawMetricCards(snapshot: DetailsSnapshot, content: NSRect) {
         let gap: CGFloat = 12
+        let cardsY = content.minY + 78
+        let cardsHeight: CGFloat = 176
+        let quotaCardWidth = min(440, max(320, content.width * 0.40))
+        let quotaRect = NSRect(x: content.minX, y: cardsY, width: quotaCardWidth, height: cardsHeight)
+        drawWeeklyQuotaSummary(snapshot: snapshot, rect: quotaRect)
+
         let report = sourceReport(for: snapshot)
         let apiEstimate = APICostEstimator.estimate(report: report)
         let displayCurrency = AppSettings.displayCurrency(for: selectedDetailsSource)
@@ -66,12 +73,23 @@ extension UsageDetailsView {
                 (t(.apiEquivalent), apiMoney, nil, accentTeal)
             ]
         }
-        let cardW = (content.width - gap * CGFloat(cards.count - 1)) / CGFloat(cards.count)
-        let valueFontSize: CGFloat = cardW < 136 ? 18 : (cardW < 176 ? 21 : 24)
-        let titleFontSize: CGFloat = cardW < 136 ? 11 : 12
+        let metricsX = quotaRect.maxX + gap
+        let metricsWidth = content.maxX - metricsX
+        let rowHeight = (cardsHeight - gap) / 2
         for (index, card) in cards.enumerated() {
-            let rect = NSRect(x: content.minX + CGFloat(index) * (cardW + gap), y: content.minY + 78, width: cardW, height: 82)
+            let row = index < 3 ? 0 : 1
+            let indexInRow = row == 0 ? index : index - 3
+            let columnCount = row == 0 ? 3 : 2
+            let cardW = (metricsWidth - gap * CGFloat(columnCount - 1)) / CGFloat(columnCount)
+            let rect = NSRect(
+                x: metricsX + CGFloat(indexInRow) * (cardW + gap),
+                y: cardsY + CGFloat(row) * (rowHeight + gap),
+                width: cardW,
+                height: rowHeight
+            )
             drawPanel(rect)
+            let valueFontSize: CGFloat = cardW < 136 ? 17 : (cardW < 176 ? 20 : 22)
+            let titleFontSize: CGFloat = cardW < 136 ? 10.5 : 11.5
             drawText(card.title, rect: NSRect(x: rect.minX + 14, y: rect.minY + 12, width: rect.width - 28, height: 18), font: .systemFont(ofSize: titleFontSize, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
             let valueY = card.subtitle == nil ? rect.minY + 34 : rect.minY + 31
             let valueRect = NSRect(x: rect.minX + 14, y: valueY, width: rect.width - 28, height: 28)
@@ -80,6 +98,99 @@ extension UsageDetailsView {
             if let subtitle = card.subtitle {
                 drawText(subtitle, rect: NSRect(x: rect.minX + 14, y: rect.minY + 60, width: rect.width - 28, height: 15), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
             }
+        }
+    }
+
+    func drawWeeklyQuotaSummary(snapshot: DetailsSnapshot, rect: NSRect) {
+        drawPanel(rect)
+        let dividerY = rect.midY
+        NSColor.white.withAlphaComponent(0.08).setFill()
+        NSRect(x: rect.minX + 14, y: dividerY, width: rect.width - 28, height: 1).fill()
+
+        let codexWindow = snapshot.liveLimits
+            .first(where: { $0.id == QuotaViewOption.codex.liveLimitID })?
+            .secondary
+        let claudeWindow = snapshot.liveLimits
+            .first(where: { $0.id == QuotaViewOption.claude.liveLimitID })?
+            .secondary
+
+        drawWeeklyQuotaRow(
+            title: weeklyQuotaTitle(source: .codex),
+            percent: codexWindow?.usedPercent,
+            suffix: t(.used),
+            resetsAt: codexWindow?.resetsAt,
+            color: accentBlue,
+            rect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height / 2)
+        )
+        drawWeeklyQuotaRow(
+            title: weeklyQuotaTitle(source: .claude),
+            percent: claudeWindow?.remainingPercent,
+            suffix: t(.remaining),
+            resetsAt: claudeWindow?.resetsAt,
+            color: accentAmber,
+            rect: NSRect(x: rect.minX, y: dividerY, width: rect.width, height: rect.height / 2)
+        )
+    }
+
+    func drawWeeklyQuotaRow(
+        title: String,
+        percent: Double?,
+        suffix: String,
+        resetsAt: Date?,
+        color: NSColor,
+        rect: NSRect
+    ) {
+        let horizontalPadding: CGFloat = 14
+        drawText(
+            title,
+            rect: NSRect(x: rect.minX + horizontalPadding, y: rect.minY + 10, width: rect.width - horizontalPadding * 2, height: 17),
+            font: .systemFont(ofSize: 12, weight: .semibold),
+            color: NSColor.white.withAlphaComponent(0.78)
+        )
+
+        let normalizedPercent = percent.map { min(100, max(0, $0)) }
+        let value = normalizedPercent.map { String(format: "%.0f%%", $0) } ?? "--%"
+        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 26, weight: .bold)
+        let valueRect = NSRect(x: rect.minX + horizontalPadding, y: rect.minY + 29, width: rect.width - horizontalPadding * 2, height: 31)
+        drawText(value, rect: valueRect, font: valueFont, color: normalizedPercent == nil ? NSColor.white.withAlphaComponent(0.36) : color)
+        let suffixX = valueRect.minX + measuredTextWidth(value, font: valueFont) + 10
+        drawText(
+            suffix,
+            rect: NSRect(x: suffixX, y: valueRect.minY + 6, width: max(0, valueRect.maxX - suffixX), height: 20),
+            font: .systemFont(ofSize: 12, weight: .semibold),
+            color: NSColor.white.withAlphaComponent(0.64)
+        )
+
+        let trackRect = NSRect(x: rect.minX + horizontalPadding, y: rect.minY + 61, width: rect.width - horizontalPadding * 2, height: 7)
+        NSColor.black.withAlphaComponent(0.28).setFill()
+        NSBezierPath(roundedRect: trackRect, xRadius: trackRect.height / 2, yRadius: trackRect.height / 2).fill()
+        if let normalizedPercent, normalizedPercent > 0 {
+            let fillRect = NSRect(x: trackRect.minX, y: trackRect.minY, width: max(trackRect.height, trackRect.width * normalizedPercent / 100), height: trackRect.height)
+            color.setFill()
+            NSBezierPath(roundedRect: fillRect, xRadius: fillRect.height / 2, yRadius: fillRect.height / 2).fill()
+        }
+
+        let resetText = resetsAt.map {
+            "\(shortMonthDayTimeFormatter().string(from: $0)) \(t(.reset))"
+        } ?? t(.liveLimitUnavailable)
+        drawText(
+            resetText,
+            rect: NSRect(x: rect.minX + horizontalPadding, y: rect.minY + 71, width: rect.width - horizontalPadding * 2, height: 15),
+            font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold),
+            color: NSColor.white.withAlphaComponent(0.43)
+        )
+    }
+
+    func weeklyQuotaTitle(source: QuotaViewOption) -> String {
+        switch AppLanguage.current {
+        case .chinese:
+            return source == .codex ? "Codex 一周用量" : "Claude 一周剩余"
+        case .traditionalChinese:
+            return source == .codex ? "Codex 一週用量" : "Claude 一週剩餘"
+        case .japanese:
+            return source == .codex ? "Codex 週間使用量" : "Claude 週間残量"
+        default:
+            return source == .codex ? "Codex Weekly Usage" : "Claude Weekly Remaining"
         }
     }
 
