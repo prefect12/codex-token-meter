@@ -102,7 +102,7 @@ if CommandLine.arguments.contains("--grant-claude-keychain") {
     let granted = refresher.needsInitialKeychainAccess ? refresher.requestInitialKeychainAccess() : true
     AppSettings.claudeKeychainAccessEnabled = granted
     let claudeStore = ClaudeStatuslineStore()
-    let refreshed = granted ? refresher.refreshWithKeychainInteraction(store: claudeStore) : false
+    let refreshed = granted ? refresher.refreshIfNeeded(store: claudeStore) : false
     let snapshot = claudeStore.read()
     let payload: [String: Any] = [
         "granted": granted,
