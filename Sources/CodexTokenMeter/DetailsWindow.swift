@@ -55,6 +55,11 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
         detailsView.canDrawConcurrently = false
+        // Keep the long, custom-drawn details page in a compositor-backed layer.
+        // Without this, every newly exposed strip during scrolling reruns the
+        // complete page drawing and hit-area construction on the main thread.
+        detailsView.wantsLayer = true
+        detailsView.layerContentsRedrawPolicy = .onSetNeedsDisplay
         scrollView.documentView = detailsView
         window.contentView = scrollView
         super.init(window: window)
@@ -1020,6 +1025,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     override var isFlipped: Bool { true }
+    override var isOpaque: Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
