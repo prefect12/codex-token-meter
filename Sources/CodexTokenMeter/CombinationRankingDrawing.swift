@@ -38,7 +38,14 @@ extension UsageDetailsView {
         let models = combinationRankingAvailableModels(rows)
         selectedCombinationRankingModels.formIntersection(Set(models))
         if selectedCombinationRankingModels.isEmpty {
-            selectedCombinationRankingModels = Set(combinationRankingHighestUsageModel(rows).map { [$0] } ?? [])
+            let preferredModels = ["gpt-5.6-sol", "gpt-5.6-terra"].compactMap { preferred in
+                models.first { $0.caseInsensitiveCompare(preferred) == .orderedSame }
+            }
+            selectedCombinationRankingModels = Set(
+                preferredModels.isEmpty
+                    ? combinationRankingHighestUsageModel(rows).map { [$0] } ?? []
+                    : preferredModels
+            )
         }
         let visible = combinationRankingVisibleRows(rows)
         if let selectedCombinationRankingCell, visible.contains(where: { $0.key == selectedCombinationRankingCell }) { return }
