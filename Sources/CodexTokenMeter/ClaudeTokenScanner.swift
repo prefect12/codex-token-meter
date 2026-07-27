@@ -128,7 +128,6 @@ final class ClaudeTokenScanner {
     private let isoFormatter: ISO8601DateFormatter
     private let dayFormatter: DateFormatter
     private let calendar: Calendar
-
     init(rootURLs: [URL] = AppSettings.claudeLogFolderURLs) {
         self.rootURLs = Self.uniqueRootURLs(rootURLs)
         self.isoFormatter = ISO8601DateFormatter()
@@ -172,6 +171,30 @@ final class ClaudeTokenScanner {
         return scan(start: start, now: now, fillDayCount: dayCount)
     }
 
+    func scanWithRepoInsights(days: Int, insightWindows: [Int]) -> (report: TokenReport, repoInsights: [Int: RepoInsightsReport]) {
+        let now = Date()
+        let dayCount = max(days, 1)
+        let start = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -(dayCount - 1), to: now) ?? now)
+        let windowDays = Array(Set(insightWindows.map { max($0, 1) })).sorted()
+        let starts = Dictionary(uniqueKeysWithValues: windowDays.map { days in
+            (days, calendar.startOfDay(for: calendar.date(byAdding: .day, value: -(days - 1), to: now) ?? now))
+        })
+        let fileStart = min(start, starts.values.min() ?? start)
+        var aggregateByWindow: [Int: [String: RepoAccumulator]] = [:]
+        let report = scan(start: start, now: now, fillDayCount: dayCount, fileStart: fileStart) { parsed in
+            self.accumulateRepoInsights(
+                parsed: parsed,
+                starts: starts,
+                now: now,
+                aggregateByWindow: &aggregateByWindow
+            )
+        }
+        return (
+            report,
+            repoInsightsReports(aggregateByWindow: aggregateByWindow, windowDays: windowDays, now: now)
+        )
+    }
+
     func scanRepoInsights(days: Int = 90) -> RepoInsightsReport {
         let windowDays = max(days, 1)
         return scanRepoInsights(windows: [windowDays])[windowDays] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: windowDays)
@@ -188,21 +211,42 @@ final class ClaudeTokenScanner {
         var aggregateByWindow: [Int: [String: RepoAccumulator]] = [:]
 
         for fileURL in logFiles(modifiedSince: earliestStart) {
-            let parsed = parse(fileURL: fileURL)
-            for (days, start) in starts {
-                let conversation = repoConversation(from: parsed, start: start, now: now)
-                guard conversation.turns > 0 || conversation.tokens > 0 else { continue }
-                let cwd = conversation.cwd ?? "(unknown)"
-                let key = repoInsightKey(for: cwd)
-                var rows = aggregateByWindow[days] ?? [:]
-                var accumulator = rows[key] ?? RepoAccumulator(key: key, displayName: repoInsightDisplayName(for: key), primaryFolder: cwd)
-                accumulator.add(conversation)
-                rows[key] = accumulator
-                aggregateByWindow[days] = rows
-            }
+            accumulateRepoInsights(
+                parsed: parse(fileURL: fileURL),
+                starts: starts,
+                now: now,
+                aggregateByWindow: &aggregateByWindow
+            )
         }
 
-        return Dictionary(uniqueKeysWithValues: windowDays.map { days in
+        return repoInsightsReports(aggregateByWindow: aggregateByWindow, windowDays: windowDays, now: now)
+    }
+
+    private func accumulateRepoInsights(
+        parsed: ParsedClaudeFile,
+        starts: [Int: Date],
+        now: Date,
+        aggregateByWindow: inout [Int: [String: RepoAccumulator]]
+    ) {
+        for (days, start) in starts {
+            let conversation = repoConversation(from: parsed, start: start, now: now)
+            guard conversation.turns > 0 || conversation.tokens > 0 else { continue }
+            let cwd = conversation.cwd ?? "(unknown)"
+            let key = repoInsightKey(for: cwd)
+            var rows = aggregateByWindow[days] ?? [:]
+            var accumulator = rows[key] ?? RepoAccumulator(key: key, displayName: repoInsightDisplayName(for: key), primaryFolder: cwd)
+            accumulator.add(conversation)
+            rows[key] = accumulator
+            aggregateByWindow[days] = rows
+        }
+    }
+
+    private func repoInsightsReports(
+        aggregateByWindow: [Int: [String: RepoAccumulator]],
+        windowDays: [Int],
+        now: Date
+    ) -> [Int: RepoInsightsReport] {
+        Dictionary(uniqueKeysWithValues: windowDays.map { days in
             let rows = (aggregateByWindow[days] ?? [:]).values
                 .map { $0.repoInsight() }
                 .sorted {
@@ -218,7 +262,13 @@ final class ClaudeTokenScanner {
         })
     }
 
-    private func scan(start: Date, now: Date, fillDayCount: Int?) -> TokenReport {
+    private func scan(
+        start: Date,
+        now: Date,
+        fillDayCount: Int?,
+        fileStart: Date? = nil,
+        parsedFileHandler: ((ParsedClaudeFile) -> Void)? = nil
+    ) -> TokenReport {
         var report = TokenReport(scannedAt: now)
         var seenEvents = Set<String>()
         var seenTurns = Set<String>()
@@ -235,8 +285,9 @@ final class ClaudeTokenScanner {
         var modelSessions: [String: Int] = [:]
         var sessions: [SessionUsage] = []
 
-        for fileURL in logFiles(modifiedSince: start) {
+        for fileURL in logFiles(modifiedSince: fileStart ?? start) {
             let parsed = parse(fileURL: fileURL)
+            parsedFileHandler?(parsed)
             var sessionUsage = Usage()
             var sessionTurns = 0
             var sessionModels = Set<String>()

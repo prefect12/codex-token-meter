@@ -12,13 +12,20 @@ enum DetailsSnapshotCacheStore {
     }
 
     static func read() -> DetailsSnapshot? {
+        readWithFreshness(maxAge: .greatestFiniteMagnitude)?.snapshot
+    }
+
+    static func readWithFreshness(maxAge: TimeInterval, now: Date = Date()) -> (snapshot: DetailsSnapshot, isFresh: Bool)? {
         let url = AppSettings.detailsSnapshotCacheURL
         guard let data = try? Data(contentsOf: url),
               let payload = try? JSONDecoder().decode(Payload.self, from: data),
               payload.version == version else {
             return nil
         }
-        return sanitized(payload.snapshot)
+        return (
+            sanitized(payload.snapshot),
+            now.timeIntervalSince(payload.writtenAt) <= maxAge
+        )
     }
 
     static func isFresh(maxAge: TimeInterval, now: Date = Date()) -> Bool {
