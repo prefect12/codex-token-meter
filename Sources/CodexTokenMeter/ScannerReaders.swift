@@ -922,7 +922,7 @@ final class CodexTokenScanner {
            limitName.localizedCaseInsensitiveContains(AppSettings.modelLimitName) {
             return AppSettings.modelLimitName
         }
-        return event.limitID ?? "Unknown model"
+        return "Unknown model"
     }
 
     private func matchesLimit(_ event: TokenEvent, limitID: String?) -> Bool {
@@ -1035,7 +1035,7 @@ final class CodexTokenScanner {
 
         let timeZoneIdentifier = appTimeZone().identifier
         if let disk = try? jsonDecoder.decode(DiskFileCache.self, from: data),
-              disk.version == 9,
+              disk.version == 10,
               disk.path == fileURL.path,
               disk.size == size,
               disk.timeZoneIdentifier == timeZoneIdentifier,
@@ -1153,7 +1153,7 @@ final class CodexTokenScanner {
 
     private func writeDiskCache(_ file: FileCache, fileURL: URL) {
         let disk = DiskFileCache(
-            version: 9,
+            version: 10,
             path: fileURL.path,
             size: file.size,
             modifiedAt: file.modifiedAt.timeIntervalSinceReferenceDate,
@@ -1183,6 +1183,7 @@ final class CodexTokenScanner {
         var pendingTaskStartedIndex: Int?
         var currentModel = "Unknown model"
         var awaitingSubagentBoundary = false
+        var pendingSubagentModel: String?
 
         func appendReasoningRun(timestamp: Date, model: String = "Unknown model", effort: String = "unknown") -> Int {
             reasoningRuns.append(FileReasoningRunAggregate(
@@ -1223,6 +1224,17 @@ final class CodexTokenScanner {
                     // child rollout before this marker. Keep advancing cumulative
                     // counters below, but do not attribute that inherited prefix.
                     awaitingSubagentBoundary = true
+                    pendingSubagentModel = nil
+                    return
+                }
+                if awaitingSubagentBoundary,
+                   self.contains(base, range: range, pattern: self.turnContextPattern),
+                   let model = self.extractString(base, range: range, key: self.modelKey),
+                   !model.isEmpty {
+                    // The child's turn context is serialized immediately before
+                    // the boundary marker. Preserve its model while continuing to
+                    // ignore the inherited parent event prefix.
+                    pendingSubagentModel = Self.normalizedReasoningModel(model)
                     return
                 }
                 if awaitingSubagentBoundary,
@@ -1230,7 +1242,8 @@ final class CodexTokenScanner {
                     awaitingSubagentBoundary = false
                     currentRunIndex = nil
                     pendingTaskStartedIndex = nil
-                    currentModel = "Unknown model"
+                    currentModel = pendingSubagentModel ?? "Unknown model"
+                    pendingSubagentModel = nil
                     return
                 }
 
@@ -1462,6 +1475,7 @@ final class CodexTokenScanner {
         var turns: [Date] = []
         var currentModel: String?
         var awaitingSubagentBoundary = false
+        var pendingSubagentModel: String?
 
         data.withUnsafeBytes { rawBuffer in
             guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
@@ -1474,14 +1488,24 @@ final class CodexTokenScanner {
 
                 if self.contains(base, range: range, pattern: self.subagentSourcePattern) {
                     // A forked rollout starts with a replay of its parent's events.
-                    // The inter-agent metadata marks the child's own event stream.
+                    // The child turn context and following inter-agent metadata
+                    // mark the child's own event stream.
                     awaitingSubagentBoundary = true
+                    pendingSubagentModel = nil
+                    return
+                }
+                if awaitingSubagentBoundary,
+                   self.contains(base, range: range, pattern: self.turnContextPattern),
+                   let model = self.extractString(base, range: range, key: self.modelKey),
+                   !model.isEmpty {
+                    pendingSubagentModel = model
                     return
                 }
                 if awaitingSubagentBoundary,
                    self.contains(base, range: range, pattern: self.interAgentMetadataPattern) {
                     awaitingSubagentBoundary = false
-                    currentModel = nil
+                    currentModel = pendingSubagentModel
+                    pendingSubagentModel = nil
                     return
                 }
                 guard let timestampString = self.extractString(base, range: range, key: self.timestampKey),
