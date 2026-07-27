@@ -637,6 +637,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
     var resetCreditCountdownTimer: Timer?
+    var isResetCreditCountdownOnlyInvalidationPending = false
     var hoveredResetCreditIndex: Int?
     var resetCreditHitAreas: [(rect: NSRect, index: Int)] = []
     var resetCreditTooltipRows: [RateLimitResetCredit] = []
@@ -870,7 +871,22 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                     self.resetCreditCountdownTimer = nil
                     return
                 }
-                self.needsDisplay = true
+                guard let snapshot = self.snapshot else {
+                    self.needsDisplay = true
+                    return
+                }
+                let content = self.sectionContent(
+                    for: .overview,
+                    in: self.bounds,
+                    sidebarWidth: self.detailsSidebarWidth
+                )
+                guard let rect = self.overviewResetCreditRect(snapshot: snapshot, content: content),
+                      self.hoveredResetCreditIndex == nil else {
+                    self.needsDisplay = true
+                    return
+                }
+                self.isResetCreditCountdownOnlyInvalidationPending = true
+                self.setNeedsDisplay(rect.insetBy(dx: -1, dy: -1))
             }
             resetCreditCountdownTimer = timer
             RunLoop.main.add(timer, forMode: .common)
@@ -2489,6 +2505,28 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        if isResetCreditCountdownOnlyInvalidationPending,
+           let snapshot,
+           hoveredResetCreditIndex == nil {
+            let content = sectionContent(for: .overview, in: bounds, sidebarWidth: detailsSidebarWidth)
+            if let resetRect = overviewResetCreditRect(snapshot: snapshot, content: content),
+               resetRect.insetBy(dx: -2, dy: -2).contains(dirtyRect) {
+                isResetCreditCountdownOnlyInvalidationPending = false
+                resetCreditHitAreas.removeAll()
+                resetCreditTooltipRows.removeAll()
+                NSGradient(starting: appBackgroundTop, ending: appBackgroundBottom)?
+                    .draw(in: bounds, angle: -90)
+                drawResetCreditCountdownRow(
+                    snapshot: snapshot,
+                    content: content,
+                    y: resetRect.minY,
+                    height: resetRect.height
+                )
+                return
+            }
+        }
+        isResetCreditCountdownOnlyInvalidationPending = false
+
         NSGradient(starting: appBackgroundTop, ending: appBackgroundBottom)?.draw(in: bounds, angle: -90)
 
         let sidebarWidth = detailsSidebarWidth
