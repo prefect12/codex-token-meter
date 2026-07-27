@@ -5,6 +5,12 @@ import UserNotifications
 
 // MARK: - App Lifecycle
 
+private struct LiveCostReferenceCache {
+    let cycleStart: Date
+    let cachedAt: Date
+    let report: TokenReport
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
@@ -41,8 +47,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var detailsLoadGeneration = 0
     private let refreshInterval: TimeInterval = 300
     private let liveRefreshInterval: TimeInterval = 60
+    private let detailsSnapshotPrewarmInterval: TimeInterval = 30 * 60
+    private let liveCostReferenceCacheTTL: TimeInterval = 5 * 60
     private let liveRefreshFailureIntervals: [TimeInterval] = [60, 300, 900]
     private var liveRefreshFailureCount = 0
+    private let liveCostReferenceCacheLock = NSLock()
+    private var liveCostReferenceCache: LiveCostReferenceCache?
     private let statusIconSize = NSSize(width: 14, height: 14)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -697,7 +707,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let start = resetsAt.addingTimeInterval(-TimeInterval(weekly.windowMinutes) * 60)
         let now = Date()
         guard start < now else { return nil }
-        return scanner.scan(from: start, to: now)
+        liveCostReferenceCacheLock.lock()
+        if let cached = liveCostReferenceCache,
+           abs(cached.cycleStart.timeIntervalSince(start)) < 1,
+           now.timeIntervalSince(cached.cachedAt) < liveCostReferenceCacheTTL {
+            liveCostReferenceCacheLock.unlock()
+            return cached.report
+        }
+        liveCostReferenceCacheLock.unlock()
+
+        let report = scanner.scan(from: start, to: now)
+        liveCostReferenceCacheLock.lock()
+        liveCostReferenceCache = LiveCostReferenceCache(cycleStart: start, cachedAt: now, report: report)
+        liveCostReferenceCacheLock.unlock()
+        return report
     }
 
     private func updateStatusTitle(report: TokenReport, limits: [LiveRateLimit], quota: QuotaViewOption) {
@@ -978,7 +1001,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatusTitle(report: latestState.report, limits: liveLimits, quota: selectedQuota)
         refresh(forceLive: false)
         if detailsController.window?.isVisible == true {
-            openDetailsWindow()
+            openDetailsWindow(forceRefresh: true)
         }
     }
 
@@ -986,6 +1009,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
         reportCache.removeAll()
         activeScans.removeAll()
+        liveCostReferenceCacheLock.lock()
+        liveCostReferenceCache = nil
+        liveCostReferenceCacheLock.unlock()
         DashboardReportCacheStore.write(reportCache)
         DetailsSnapshotCacheStore.remove()
         detailsController.detailsView.needsDisplay = true
@@ -1016,10 +1042,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openDetailsWindow(showLoading: false)
     }
 
-    private func openDetailsWindow(showLoading: Bool = true) {
+    private func openDetailsWindow(showLoading: Bool = true, forceRefresh: Bool = false) {
         detailsLoadGeneration += 1
         let loadGeneration = detailsLoadGeneration
-        let cachedSnapshot = DetailsSnapshotCacheStore.read().map(hydratedDetailsSnapshot)
+        let cached = DetailsSnapshotCacheStore.readWithFreshness(maxAge: refreshInterval)
+        let cachedSnapshot = cached.map { hydratedDetailsSnapshot($0.snapshot) }
         if let cachedSnapshot {
             detailsController.showCached(snapshot: cachedSnapshot)
         } else if showLoading {
@@ -1029,6 +1056,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if liveLimits.isEmpty {
             refreshLiveLimits()
+        }
+        if !forceRefresh, cached?.isFresh == true {
+            return
         }
         let limits = liveLimits
         let currentServiceStatus = serviceStatus
@@ -1075,7 +1105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func prewarmDetailsSnapshot() {
         guard !detailsSnapshotPrewarmInFlight,
               detailsController.window?.isVisible != true,
-              !DetailsSnapshotCacheStore.isFresh(maxAge: 10 * 60) else { return }
+              !DetailsSnapshotCacheStore.isFresh(maxAge: detailsSnapshotPrewarmInterval) else { return }
         detailsSnapshotPrewarmInFlight = true
         let limits = liveLimits
         let currentServiceStatus = serviceStatus
@@ -1109,7 +1139,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var hydrated = snapshot
         if !liveLimits.isEmpty {
             hydrated.liveLimits = liveLimits
-            hydrated.costReferenceReport = liveCostReferenceReport(limits: liveLimits) ?? hydrated.costReferenceReport
+            if hydrated.costReferenceReport == nil {
+                hydrated.costReferenceReport = reportCache[ReportCacheKey(window: .week, quota: .codex)]
+            }
         }
         if let serviceStatus {
             hydrated.serviceStatus = serviceStatus
@@ -1137,12 +1169,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateProgress?(0.12, .loadingCodexUsage)
         let codex = scanner.scan(days: 365)
         updateProgress?(0.28, .loadingClaudeUsage)
-        let claude = claudeScanner.scan(days: 365)
+        let claudeDetails = claudeScanner.scanWithRepoInsights(days: 365, insightWindows: [7, 30, 90])
+        let claude = claudeDetails.report
         updateProgress?(0.44, .loadingAllUsage)
         let all = mergedTokenReport([codex, claude])
         updateProgress?(0.62, .loadingRepoInsights)
         let codexRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90])
-        let claudeRepoInsightReports = claudeScanner.scanRepoInsights(windows: [7, 30, 90])
+        let claudeRepoInsightReports = claudeDetails.repoInsights
         let repoInsightReports = Dictionary(uniqueKeysWithValues: [7, 30, 90].map { days in
             let report = mergedRepoInsightsReport(
                 [

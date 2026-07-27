@@ -266,6 +266,7 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let resetCredits = isInsightsSection ? nil : RateLimitResetCreditsReader().read(timeout: 8)
     let codex: TokenReport
     let claude: TokenReport
+    var combinedClaudeRepoInsightReports: [Int: RepoInsightsReport]?
     if isInsightsSection {
         codex = TokenReport(scannedAt: Date())
         claude = TokenReport(scannedAt: Date())
@@ -273,19 +274,26 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         // The quota-cycle page attributes local usage to each cycle, which
         // needs more than the one-week window the other sections use.
         codex = scanner.scan(days: 365)
-        claude = claudeScanner.scan(days: 365)
+        let details = claudeScanner.scanWithRepoInsights(days: 365, insightWindows: [7, 30, 90])
+        claude = details.report
+        combinedClaudeRepoInsightReports = details.repoInsights
     } else if section == .reasoning || section == .combinationRanking {
         // The ranking page can switch between 7/30/90 days and combines Codex
         // reasoning rows with Claude model totals from the same local window.
         codex = scanner.scan(days: 90)
-        claude = claudeScanner.scan(days: 90)
+        let details = claudeScanner.scanWithRepoInsights(days: 90, insightWindows: [7, 30, 90])
+        claude = details.report
+        combinedClaudeRepoInsightReports = details.repoInsights
     } else {
         codex = scanner.scan(window: .week)
-        claude = claudeScanner.scan(window: .week)
+        let details = claudeScanner.scanWithRepoInsights(days: 7, insightWindows: [7, 30, 90])
+        claude = details.report
+        combinedClaudeRepoInsightReports = details.repoInsights
     }
     let all = mergedTokenReport([codex, claude])
     let codexRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90])
-    let claudeRepoInsightReports = claudeScanner.scanRepoInsights(windows: [7, 30, 90])
+    let claudeRepoInsightReports = combinedClaudeRepoInsightReports
+        ?? claudeScanner.scanRepoInsights(windows: [7, 30, 90])
     let repoInsightReports = Dictionary(uniqueKeysWithValues: [7, 30, 90].map { days in
         let report = mergedRepoInsightsReport(
             [
