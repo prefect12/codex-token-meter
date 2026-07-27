@@ -27,6 +27,21 @@ extension UsageDetailsView {
         drawContributionGrid(report: gridReport, rect: gridRect, title: gridTitle, compact: true)
     }
 
+    func overviewResetCreditRect(snapshot: DetailsSnapshot, content: NSRect) -> NSRect? {
+        guard selectedSection == .overview, selectedDetailsSource != .claude else {
+            return nil
+        }
+        let cardsY = content.minY + 78
+        let cardsHeight: CGFloat = 176
+        let resetY = cardsY + cardsHeight + 16
+        return NSRect(
+            x: content.minX,
+            y: resetY,
+            width: content.width,
+            height: resetCreditPanelHeight(for: snapshot)
+        )
+    }
+
     func resetCreditPanelHeight(for snapshot: DetailsSnapshot) -> CGFloat {
         let columns = 3
         let availableCount = max(0, snapshot.resetCredits?.availableCount ?? 0)
