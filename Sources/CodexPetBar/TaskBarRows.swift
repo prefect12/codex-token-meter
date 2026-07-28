@@ -377,6 +377,7 @@ final class ThreadRowView: NSView {
         ThreadHoverPanel.shared.show(
             item: item,
             from: self,
+            near: NSEvent.mouseLocation,
             content: planHoverHitRect.contains(point) ? .plan : .details
         )
     }
@@ -830,12 +831,12 @@ final class SubtaskRowView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         isHovering = true
-        ThreadHoverPanel.shared.show(item: item, from: self)
+        ThreadHoverPanel.shared.show(item: item, from: self, near: NSEvent.mouseLocation)
     }
 
     override func mouseMoved(with event: NSEvent) {
         guard isHovering else { return }
-        ThreadHoverPanel.shared.show(item: item, from: self)
+        ThreadHoverPanel.shared.show(item: item, from: self, near: NSEvent.mouseLocation)
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -952,6 +953,7 @@ final class ThreadHoverPanel {
     func show(
         item: CodexThreadItem,
         from sourceView: NSView,
+        near cursorLocation: NSPoint,
         content: Content = .details
     ) {
         owner = sourceView
@@ -973,7 +975,7 @@ final class ThreadHoverPanel {
             panel.contentView = tooltipView
         }
         panel.setFrame(
-            NSRect(origin: origin(for: size, sourceView: sourceView), size: size),
+            NSRect(origin: origin(for: size, near: cursorLocation), size: size),
             display: true
         )
         panel.orderFrontRegardless()
@@ -990,23 +992,20 @@ final class ThreadHoverPanel {
         panel.orderOut(nil)
     }
 
-    private func origin(for size: NSSize, sourceView: NSView) -> NSPoint {
-        let sourceRect = sourceView.window.map {
-            $0.convertToScreen(sourceView.convert(sourceView.bounds, to: nil))
-        }
-        let anchor = sourceRect.map { NSPoint(x: $0.maxX, y: $0.midY) } ?? NSEvent.mouseLocation
-        let visibleFrame = NSScreen.screens.first { $0.frame.contains(anchor) }?.visibleFrame
+    private func origin(for size: NSSize, near cursorLocation: NSPoint) -> NSPoint {
+        let visibleFrame = NSScreen.screens.first { $0.frame.contains(cursorLocation) }?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let margin: CGFloat = 8
-        var x = (sourceRect?.maxX ?? anchor.x) + 4
-        var y = (sourceRect?.midY ?? anchor.y) - size.height / 2
+        let cursorGap: CGFloat = 14
+        var x = cursorLocation.x + cursorGap
+        var y = cursorLocation.y - size.height - cursorGap
 
         if x + size.width > visibleFrame.maxX - margin {
-            x = (sourceRect?.minX ?? anchor.x) - size.width - 4
+            x = cursorLocation.x - size.width - cursorGap
         }
         if y < visibleFrame.minY + margin {
-            y = visibleFrame.minY + margin
+            y = cursorLocation.y + cursorGap
         }
 
         x = min(max(x, visibleFrame.minX + margin), visibleFrame.maxX - size.width - margin)
