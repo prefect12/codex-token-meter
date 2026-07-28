@@ -1210,65 +1210,11 @@ final class CodexActivityReader {
         if let cached = sqliteQueryCache[cacheKey], cached.signature == signature {
             return cached.data
         }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-        process.arguments = arguments
-        let output = Pipe()
-        let errorPipe = Pipe()
-        let outputLock = NSLock()
-        var outputData = Data()
-        process.standardOutput = output
-        process.standardError = errorPipe
-
-        output.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            outputLock.lock()
-            outputData.append(chunk)
-            outputLock.unlock()
-        }
-        errorPipe.fileHandleForReading.readabilityHandler = { handle in
-            _ = handle.availableData
-        }
-
-        do {
-            try process.run()
-        } catch {
-            output.fileHandleForReading.readabilityHandler = nil
-            errorPipe.fileHandleForReading.readabilityHandler = nil
-            return nil
-        }
-
-        let waitGroup = DispatchGroup()
-        waitGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
-            process.waitUntilExit()
-            waitGroup.leave()
-        }
-
-        var timedOut = false
-        if waitGroup.wait(timeout: .now() + timeout) == .timedOut {
-            timedOut = true
-            process.terminate()
-            if waitGroup.wait(timeout: .now() + 0.25) == .timedOut, process.isRunning {
-                Darwin.kill(process.processIdentifier, SIGKILL)
-                _ = waitGroup.wait(timeout: .now() + 0.25)
-            }
-        }
-
-        output.fileHandleForReading.readabilityHandler = nil
-        errorPipe.fileHandleForReading.readabilityHandler = nil
-        let trailingOutput = output.fileHandleForReading.readDataToEndOfFile()
-        if !trailingOutput.isEmpty {
-            outputLock.lock()
-            outputData.append(trailingOutput)
-            outputLock.unlock()
-        }
-        outputLock.lock()
-        let data = outputData
-        outputLock.unlock()
-
-        guard !timedOut, process.terminationStatus == 0 else {
+        guard let data = TaskBarProcessRunner.run(
+            executableURL: URL(fileURLWithPath: "/usr/bin/sqlite3"),
+            arguments: arguments,
+            timeout: timeout
+        ) else {
             return nil
         }
         sqliteQueryCache[cacheKey] = SQLiteQueryCacheEntry(signature: signature, data: data)
