@@ -263,7 +263,8 @@ enum APICostEstimator {
         if name.contains("claude-fable-5") || name.contains("claude-mythos-5") {
             return APIModelRate(inputPerMillionUSD: 10, cachedInputPerMillionUSD: 1, outputPerMillionUSD: 50, cacheCreationInputPerMillionUSD: 12.5, cacheCreationInput1hPerMillionUSD: 20)
         }
-        if name.contains("claude-opus-4-8")
+        if name.contains("claude-opus-5")
+            || name.contains("claude-opus-4-8")
             || name.contains("claude-opus-4-7")
             || name.contains("claude-opus-4-6")
             || name.contains("claude-opus-4-5") {
