@@ -46,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusIsLoading = false
     private var detailsLoadGeneration = 0
     private let refreshInterval: TimeInterval = 300
+    private let popoverRefreshMaxAge: TimeInterval = 60
     private let liveRefreshInterval: TimeInterval = 60
     private let detailsSnapshotPrewarmInterval: TimeInterval = 30 * 60
     private let liveCostReferenceCacheTTL: TimeInterval = 5 * 60
@@ -143,9 +144,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             scheduleNextLiveRefresh(succeeded: true)
         }
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh(forceLive: false)
         }
+        refreshTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
         if CommandLine.arguments.contains("--open-details=reasoning") {
             detailsController.detailsView.showSection(.reasoning, insightWindowDays: 90, source: .codex)
             DispatchQueue.main.async { [weak self] in
@@ -282,6 +285,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
+            if Date().timeIntervalSince(latestState.report.scannedAt) >= popoverRefreshMaxAge {
+                refresh(forceLive: false)
+            }
             refreshLiveLimits()
         }
     }
