@@ -10,6 +10,12 @@ final class RingView: NSView {
     var title: String = "" { didSet { needsDisplay = true } }
     var subtitle: String = "" { didSet { needsDisplay = true } }
     var color: NSColor = NSColor.systemGreen { didSet { needsDisplay = true } }
+    fileprivate var tooltipHeader: String? {
+        didSet { updateTooltip() }
+    }
+    fileprivate var dataUpdatedTooltip: String? {
+        didSet { updateTooltip() }
+    }
     fileprivate var resetTooltip: String? {
         didSet { updateTooltip() }
     }
@@ -165,11 +171,17 @@ final class RingView: NSView {
     }
 
     private func updateTooltip() {
-        guard remainingComparison != nil || resetTooltip != nil else {
+        guard tooltipHeader != nil || remainingComparison != nil || resetTooltip != nil || dataUpdatedTooltip != nil else {
             toolTip = nil
             return
         }
         var lines: [String] = []
+        if let tooltipHeader {
+            lines.append(tooltipHeader)
+        }
+        if percent >= 0 {
+            lines.append("圈内数字：实际剩余 \(Int(round(percent)))%")
+        }
         if let comparison = remainingComparison {
             let statusText: String
             switch comparison.status {
@@ -178,12 +190,14 @@ final class RingView: NSView {
             case .behind:
                 statusText = "实际剩余高于预计，用得较少"
             }
-            lines.append("圈内数字：实际剩余 \(Int(round(comparison.actualRemainingPercent)))%")
             lines.append("彩色标记：预计剩余 \(Int(round(comparison.expectedRemainingPercent)))%")
             lines.append(statusText)
         }
         if let resetTooltip {
             lines.append("重置：\(resetTooltip)")
+        }
+        if let dataUpdatedTooltip {
+            lines.append("数据更新：\(dataUpdatedTooltip)")
         }
         toolTip = lines.joined(separator: "\n")
     }
@@ -231,6 +245,12 @@ final class QuotaBulletView: NSView {
     var title: String = "" { didSet { needsDisplay = true } }
     var subtitle: String = "" { didSet { needsDisplay = true } }
     var color: NSColor = NSColor.systemGreen { didSet { needsDisplay = true } }
+    fileprivate var tooltipHeader: String? {
+        didSet { updateTooltip() }
+    }
+    fileprivate var dataUpdatedTooltip: String? {
+        didSet { updateTooltip() }
+    }
     fileprivate var resetTooltip: String? {
         didSet { updateTooltip() }
     }
@@ -291,11 +311,17 @@ final class QuotaBulletView: NSView {
     }
 
     private func updateTooltip() {
-        guard remainingComparison != nil || resetTooltip != nil else {
+        guard tooltipHeader != nil || remainingComparison != nil || resetTooltip != nil || dataUpdatedTooltip != nil else {
             toolTip = nil
             return
         }
         var lines: [String] = []
+        if let tooltipHeader {
+            lines.append(tooltipHeader)
+        }
+        if actualRemainingPercent >= 0 {
+            lines.append("填充条：实际剩余 \(Int(round(actualRemainingPercent)))%")
+        }
         if let comparison = remainingComparison {
             let statusText: String
             switch comparison.status {
@@ -304,12 +330,14 @@ final class QuotaBulletView: NSView {
             case .behind:
                 statusText = "实际剩余高于预计，用得较少"
             }
-            lines.append("填充条：实际剩余 \(Int(round(comparison.actualRemainingPercent)))%")
             lines.append("竖标线：预计剩余 \(Int(round(comparison.expectedRemainingPercent)))%")
             lines.append(statusText)
         }
         if let resetTooltip {
             lines.append("重置：\(resetTooltip)")
+        }
+        if let dataUpdatedTooltip {
+            lines.append("数据更新：\(dataUpdatedTooltip)")
         }
         toolTip = lines.joined(separator: "\n")
     }
@@ -1556,10 +1584,15 @@ final class DashboardView: NSView {
         let missingWeeklyLimitSubtitle = state.selectedQuota == .claude ? t(.claudeStatuslineRequired) : "\(t(.reset)) --"
         let primaryRemainingPercent = displayedRemainingPercent(primary, target: state.selectedQuota)
         let weeklyRemainingPercent = displayedRemainingPercent(weekly, target: state.selectedQuota)
+        let primaryTooltipHeader = "\(state.selectedQuota.shortTitle) \(t(.fiveHourLeft))"
+        let weeklyTooltipHeader = "\(state.selectedQuota.shortTitle) \(t(.weeklyLeft))"
+        let quotaDataUpdatedTooltip = dataUpdatedText(displayLimit?.capturedAt)
         primaryRing.percent = primaryRemainingPercent
         primaryRing.title = t(.fiveHourLeft)
         primaryRing.subtitle = primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingLiveLimitSubtitle
         primaryRing.color = displayedRemainingColor(primary, target: state.selectedQuota, percent: primaryRing.percent)
+        primaryRing.tooltipHeader = primaryTooltipHeader
+        primaryRing.dataUpdatedTooltip = quotaDataUpdatedTooltip
         primaryRing.resetTooltip = primary?.resetsAt.map { relative($0) }
         primaryRing.remainingComparison = primaryComparison
         primaryRing.isHidden = showsComparisonTable || quotaStyle != .rings
@@ -1568,6 +1601,8 @@ final class DashboardView: NSView {
         primaryBullet.title = t(.fiveHourLeft)
         primaryBullet.subtitle = primary.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingLiveLimitSubtitle
         primaryBullet.color = displayedRemainingColor(primary, target: state.selectedQuota, percent: primaryBullet.actualRemainingPercent)
+        primaryBullet.tooltipHeader = primaryTooltipHeader
+        primaryBullet.dataUpdatedTooltip = quotaDataUpdatedTooltip
         primaryBullet.resetTooltip = primary?.resetsAt.map { relative($0) }
         primaryBullet.remainingComparison = primaryComparison
         primaryBullet.isHidden = showsComparisonTable || quotaStyle != .bullet
@@ -1576,6 +1611,8 @@ final class DashboardView: NSView {
         weeklyRing.title = t(.weeklyLeft)
         weeklyRing.subtitle = weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingWeeklyLimitSubtitle
         weeklyRing.color = displayedRemainingColor(weekly, target: state.selectedQuota, percent: weeklyRing.percent)
+        weeklyRing.tooltipHeader = weeklyTooltipHeader
+        weeklyRing.dataUpdatedTooltip = quotaDataUpdatedTooltip
         weeklyRing.resetTooltip = weekly?.resetsAt.map { relative($0) }
         weeklyRing.remainingComparison = weeklyComparison
         weeklyRing.isHidden = showsComparisonTable || quotaStyle != .rings
@@ -1584,6 +1621,8 @@ final class DashboardView: NSView {
         weeklyBullet.title = t(.weeklyLeft)
         weeklyBullet.subtitle = weekly.map { "\(t(.reset)) \(compactResetRelative($0.resetsAt))" } ?? missingWeeklyLimitSubtitle
         weeklyBullet.color = displayedRemainingColor(weekly, target: state.selectedQuota, percent: weeklyBullet.actualRemainingPercent)
+        weeklyBullet.tooltipHeader = weeklyTooltipHeader
+        weeklyBullet.dataUpdatedTooltip = quotaDataUpdatedTooltip
         weeklyBullet.resetTooltip = weekly?.resetsAt.map { relative($0) }
         weeklyBullet.remainingComparison = weeklyComparison
         weeklyBullet.isHidden = showsComparisonTable || quotaStyle != .bullet
@@ -1599,6 +1638,8 @@ final class DashboardView: NSView {
             cacheRing.title = "Fable 5"
             cacheRing.subtitle = "\(t(.reset)) \(compactResetRelative(fableWindow.resetsAt))"
             cacheRing.color = displayedRemainingColor(fableWindow, target: .claude, percent: fableRemaining)
+            cacheRing.tooltipHeader = "Fable 5 \(t(.weeklyLeft))"
+            cacheRing.dataUpdatedTooltip = dataUpdatedText(fableLimit?.capturedAt)
             cacheRing.resetTooltip = fableWindow.resetsAt.map { relative($0) }
             cacheRing.remainingComparison = fableComparison
 
@@ -1606,6 +1647,8 @@ final class DashboardView: NSView {
             cacheBullet.title = "Fable 5"
             cacheBullet.subtitle = "\(t(.reset)) \(compactResetRelative(fableWindow.resetsAt))"
             cacheBullet.color = displayedRemainingColor(fableWindow, target: .claude, percent: fableRemaining)
+            cacheBullet.tooltipHeader = "Fable 5 \(t(.weeklyLeft))"
+            cacheBullet.dataUpdatedTooltip = dataUpdatedText(fableLimit?.capturedAt)
             cacheBullet.resetTooltip = fableWindow.resetsAt.map { relative($0) }
             cacheBullet.remainingComparison = fableComparison
         } else {
@@ -1613,6 +1656,8 @@ final class DashboardView: NSView {
             cacheRing.title = t(.cacheHit)
             cacheRing.subtitle = "\(compact(report.usage.freshInput)) \(t(.fresh).lowercased())"
             cacheRing.color = NSColor.systemTeal
+            cacheRing.tooltipHeader = nil
+            cacheRing.dataUpdatedTooltip = nil
             cacheRing.resetTooltip = nil
             cacheRing.remainingComparison = nil
 
@@ -1620,6 +1665,8 @@ final class DashboardView: NSView {
             cacheBullet.title = t(.cacheHit)
             cacheBullet.subtitle = "\(compact(report.usage.freshInput)) \(t(.fresh).lowercased())"
             cacheBullet.color = NSColor.systemTeal
+            cacheBullet.tooltipHeader = nil
+            cacheBullet.dataUpdatedTooltip = nil
             cacheBullet.resetTooltip = nil
             cacheBullet.remainingComparison = nil
         }
@@ -1996,6 +2043,13 @@ final class DashboardView: NSView {
 
     private func displayedRemainingColor(_ window: RateWindow?, target: QuotaViewOption, percent: Double) -> NSColor {
         return colorForRemaining(percent: percent)
+    }
+
+    private func dataUpdatedText(_ capturedAt: Date?) -> String {
+        guard let capturedAt else { return "--" }
+        let seconds = -capturedAt.timeIntervalSinceNow
+        if seconds < 60 { return "刚刚" }
+        return "\(relative(capturedAt).replacingOccurrences(of: " ago", with: ""))前"
     }
 
     private func missingQuotaSubtitle(for target: QuotaViewOption) -> String {
