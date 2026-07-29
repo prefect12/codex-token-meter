@@ -682,10 +682,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var hoveredReasoningDay: String?
     var selectedCombinationRankingMetric: CombinationRankingMetric = .averageTokens
     var selectedCombinationRankingModels = Set<String>()
+    var selectedCombinationRankingEffortsByModel: [String: Set<String>] = [:]
+    var activeCombinationRankingModel: String?
     var selectedCombinationRankingCell: ReasoningCellKey?
     var combinationRankingMetricRects: [CombinationRankingMetric: NSRect] = [:]
     var combinationRankingModelFieldRect: NSRect?
+    var combinationRankingModelMenuRect: NSRect?
     var combinationRankingModelOptionRects: [String: NSRect] = [:]
+    var combinationRankingModelCheckboxRects: [String: NSRect] = [:]
+    var combinationRankingEffortOptionRects: [String: NSRect] = [:]
     var combinationRankingSortRects: [CombinationRankingSortColumn: NSRect] = [:]
     var combinationRankingRowRects: [ReasoningCellKey: NSRect] = [:]
     var combinationRankingBubbleRects: [ReasoningCellKey: NSRect] = [:]
@@ -2004,11 +2009,28 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
             if isCombinationRankingModelMenuOpen {
                 for (model, rect) in combinationRankingModelOptionRects where rect.contains(point) {
-                    if selectedCombinationRankingModels.contains(model), selectedCombinationRankingModels.count > 1 {
-                        selectedCombinationRankingModels.remove(model)
-                    } else {
-                        selectedCombinationRankingModels.insert(model)
+                    activeCombinationRankingModel = model
+                    if combinationRankingModelCheckboxRects[model]?.contains(point) == true {
+                        if selectedCombinationRankingModels.contains(model), selectedCombinationRankingModels.count > 1 {
+                            selectedCombinationRankingModels.remove(model)
+                        } else {
+                            selectedCombinationRankingModels.insert(model)
+                        }
                     }
+                    normalizeCombinationRankingSelection(snapshot: snapshot)
+                    needsDisplay = true
+                    return
+                }
+                for (effort, rect) in combinationRankingEffortOptionRects where rect.contains(point) {
+                    guard let model = activeCombinationRankingModel else { return }
+                    selectedCombinationRankingModels.insert(model)
+                    var efforts = selectedCombinationRankingEffortsByModel[model] ?? []
+                    if efforts.contains(effort), efforts.count > 1 {
+                        efforts.remove(effort)
+                    } else {
+                        efforts.insert(effort)
+                    }
+                    selectedCombinationRankingEffortsByModel[model] = efforts
                     normalizeCombinationRankingSelection(snapshot: snapshot)
                     needsDisplay = true
                     return
@@ -2020,6 +2042,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 return
             }
             if isCombinationRankingModelMenuOpen {
+                if combinationRankingModelMenuRect?.contains(point) == true {
+                    return
+                }
                 isCombinationRankingModelMenuOpen = false
                 needsDisplay = true
                 return
@@ -2562,7 +2587,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         reasoningTrendDayRects.removeAll()
         combinationRankingMetricRects.removeAll()
         combinationRankingModelFieldRect = nil
+        combinationRankingModelMenuRect = nil
         combinationRankingModelOptionRects.removeAll()
+        combinationRankingModelCheckboxRects.removeAll()
+        combinationRankingEffortOptionRects.removeAll()
         combinationRankingSortRects.removeAll()
         combinationRankingRowRects.removeAll()
         combinationRankingBubbleRects.removeAll()

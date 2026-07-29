@@ -31,6 +31,8 @@ extension UsageDetailsView {
     func normalizeCombinationRankingSelection(snapshot: DetailsSnapshot?) {
         guard let snapshot else {
             selectedCombinationRankingModels.removeAll()
+            selectedCombinationRankingEffortsByModel.removeAll()
+            activeCombinationRankingModel = nil
             selectedCombinationRankingCell = nil
             return
         }
@@ -46,6 +48,21 @@ extension UsageDetailsView {
                     ? combinationRankingHighestUsageModel(rows).map { [$0] } ?? []
                     : preferredModels
             )
+        }
+        if activeCombinationRankingModel == nil || !models.contains(activeCombinationRankingModel ?? "") {
+            activeCombinationRankingModel = selectedCombinationRankingModels.sorted().first ?? models.first
+        }
+        selectedCombinationRankingEffortsByModel = selectedCombinationRankingEffortsByModel.filter {
+            models.contains($0.key)
+        }
+        for model in selectedCombinationRankingModels {
+            let available = Set(combinationRankingAvailableEfforts(rows, model: model))
+            var selected = selectedCombinationRankingEffortsByModel[model] ?? available
+            selected.formIntersection(available)
+            if selected.isEmpty {
+                selected = available
+            }
+            selectedCombinationRankingEffortsByModel[model] = selected
         }
         let visible = combinationRankingVisibleRows(rows)
         if let selectedCombinationRankingCell, visible.contains(where: { $0.key == selectedCombinationRankingCell }) { return }
@@ -118,11 +135,11 @@ extension UsageDetailsView {
 
         let projectW: CGFloat = content.width < 820 ? 0 : 132
         let modelW = max(CGFloat(220), content.maxX - x - projectW - (projectW > 0 ? 16 : 0))
-        drawFilterLabel(reasoningLocalized("模型", english: "Models"), x: x, y: y - 20, width: modelW)
+        drawFilterLabel(reasoningLocalized("模型与思考强度", english: "Models & Reasoning Effort"), x: x, y: y - 20, width: modelW)
         let modelRect = NSRect(x: x, y: y, width: modelW, height: h)
         combinationRankingModelFieldRect = modelRect
         drawCombinationRankingFieldBackground(modelRect)
-        drawCombinationRankingSelectedModelChips(rows: rows, rect: modelRect)
+        drawCombinationRankingSelectedFilterChips(rows: rows, rect: modelRect)
         drawSymbolIcon(isCombinationRankingModelMenuOpen ? "chevron.up" : "chevron.down", in: NSRect(x: modelRect.maxX - 23, y: modelRect.minY + 11, width: 11, height: 11), color: NSColor.white.withAlphaComponent(0.62), pointSize: 9)
         if projectW > 0 {
             x = modelRect.maxX + 16
@@ -366,18 +383,27 @@ extension UsageDetailsView {
         return report?.dailyModelEfforts.filter { $0.model == row.model && $0.effort == row.effort }.sorted { $0.day < $1.day } ?? []
     }
 
-    private func drawCombinationRankingSelectedModelChips(rows: [CombinationRankingRow], rect: NSRect) {
+    private func drawCombinationRankingSelectedFilterChips(rows: [CombinationRankingRow], rect: NSRect) {
         let models = combinationRankingAvailableModels(rows).filter(selectedCombinationRankingModels.contains)
         var x = rect.minX + 8
         var shown = 0
         for model in models {
             let font = NSFont.systemFont(ofSize: 10, weight: .medium)
-            let width = min(CGFloat(158), measuredTextWidth(model, font: font) + 22)
+            let selectedEfforts = combinationRankingAvailableEfforts(rows, model: model)
+                .filter { selectedCombinationRankingEffortsByModel[model]?.contains($0) == true }
+            let effortSummary: String
+            if selectedEfforts.count == 1, let effort = selectedEfforts.first {
+                effortSummary = combinationRankingEffortTitle(effort)
+            } else {
+                effortSummary = reasoningLocalized("\(selectedEfforts.count) 档", english: "\(selectedEfforts.count) levels")
+            }
+            let title = "\(model) · \(effortSummary)"
+            let width = min(CGFloat(190), measuredTextWidth(title, font: font) + 22)
             guard x + width < rect.maxX - 42 else { break }
             let chip = NSRect(x: x, y: rect.minY + 6, width: width, height: 24)
             NSColor.white.withAlphaComponent(0.055).setFill(); NSBezierPath(roundedRect: chip, xRadius: 5, yRadius: 5).fill()
             borderColor.setStroke(); NSBezierPath(roundedRect: chip.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5).stroke()
-            drawTruncatedText(model, rect: NSRect(x: chip.minX + 7, y: chip.minY + 5, width: chip.width - 14, height: 15), font: font, color: NSColor.white.withAlphaComponent(0.82))
+            drawTruncatedText(title, rect: NSRect(x: chip.minX + 7, y: chip.minY + 5, width: chip.width - 14, height: 15), font: font, color: NSColor.white.withAlphaComponent(0.82))
             x += width + 6; shown += 1
         }
         if shown < models.count { drawText("+\(models.count - shown)", rect: NSRect(x: x, y: rect.minY + 10, width: 30, height: 17), font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold), color: accentBlue) }
@@ -386,20 +412,43 @@ extension UsageDetailsView {
     private func drawCombinationRankingModelMenu(rows: [CombinationRankingRow], content: NSRect) {
         guard let field = combinationRankingModelFieldRect else { return }
         let models = combinationRankingAvailableModels(rows)
-        let desiredMenuHeight = CGFloat(models.count) * 30 + 42
+        let activeModel = activeCombinationRankingModel ?? selectedCombinationRankingModels.sorted().first ?? models.first
+        let efforts = activeModel.map { combinationRankingAvailableEfforts(rows, model: $0) } ?? []
+        let desiredMenuHeight = CGFloat(max(models.count, efforts.count)) * 30 + 42
         let availableMenuHeight = max(CGFloat(72), content.maxY - field.maxY - 6)
         let menuHeight = min(desiredMenuHeight, availableMenuHeight)
         let menu = NSRect(x: field.minX, y: field.maxY + 6, width: field.width, height: menuHeight)
+        combinationRankingModelMenuRect = menu
         NSColor(calibratedRed: 0.045, green: 0.065, blue: 0.091, alpha: 0.99).setFill(); NSBezierPath(roundedRect: menu, xRadius: 8, yRadius: 8).fill()
         borderColor.setStroke(); NSBezierPath(roundedRect: menu.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
-        drawText(reasoningLocalized("选择模型", english: "Select Models"), rect: NSRect(x: menu.minX + 14, y: menu.minY + 10, width: menu.width - 28, height: 18), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
+        let dividerX = menu.minX + floor(menu.width * 0.58)
+        drawText(reasoningLocalized("选择模型", english: "Select Models"), rect: NSRect(x: menu.minX + 14, y: menu.minY + 10, width: dividerX - menu.minX - 22, height: 18), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
+        drawText(activeModel.map { "\($0) · \(reasoningLocalized("思考强度", english: "Effort"))" } ?? reasoningLocalized("思考强度", english: "Reasoning Effort"), rect: NSRect(x: dividerX + 12, y: menu.minY + 10, width: menu.maxX - dividerX - 24, height: 18), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
+        NSColor.white.withAlphaComponent(0.07).setFill()
+        NSRect(x: dividerX, y: menu.minY + 8, width: 1, height: menu.height - 16).fill()
         for (index, model) in models.prefix(Int((menuHeight - 36) / 30)).enumerated() {
-            let row = NSRect(x: menu.minX + 8, y: menu.minY + 34 + CGFloat(index) * 30, width: menu.width - 16, height: 28)
+            let row = NSRect(x: menu.minX + 8, y: menu.minY + 34 + CGFloat(index) * 30, width: dividerX - menu.minX - 16, height: 28)
             combinationRankingModelOptionRects[model] = row
             let checked = selectedCombinationRankingModels.contains(model)
-            (checked ? accentBlue : NSColor.white.withAlphaComponent(0.08)).setFill(); NSBezierPath(roundedRect: NSRect(x: row.minX + 7, y: row.minY + 7, width: 14, height: 14), xRadius: 3, yRadius: 3).fill()
+            if activeModel == model {
+                NSColor.white.withAlphaComponent(0.055).setFill()
+                NSBezierPath(roundedRect: row, xRadius: 5, yRadius: 5).fill()
+            }
+            let checkbox = NSRect(x: row.minX + 7, y: row.minY + 7, width: 14, height: 14)
+            combinationRankingModelCheckboxRects[model] = checkbox.insetBy(dx: -4, dy: -4)
+            (checked ? accentBlue : NSColor.white.withAlphaComponent(0.08)).setFill(); NSBezierPath(roundedRect: checkbox, xRadius: 3, yRadius: 3).fill()
             if checked { drawSymbolIcon("checkmark", in: NSRect(x: row.minX + 9, y: row.minY + 9, width: 10, height: 10), color: .white, pointSize: 8) }
-            drawText(model, rect: NSRect(x: row.minX + 30, y: row.minY + 6, width: row.width - 40, height: 17), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.82))
+            drawText(model, rect: NSRect(x: row.minX + 30, y: row.minY + 6, width: row.width - 54, height: 17), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.82))
+            drawSymbolIcon("chevron.right", in: NSRect(x: row.maxX - 16, y: row.minY + 10, width: 7, height: 9), color: NSColor.white.withAlphaComponent(activeModel == model ? 0.72 : 0.3), pointSize: 7)
+        }
+        for (index, effort) in efforts.prefix(Int((menuHeight - 36) / 30)).enumerated() {
+            let row = NSRect(x: dividerX + 5, y: menu.minY + 34 + CGFloat(index) * 30, width: menu.maxX - dividerX - 13, height: 28)
+            combinationRankingEffortOptionRects[effort] = row
+            let checked = activeModel.flatMap { selectedCombinationRankingEffortsByModel[$0] }?.contains(effort) == true
+            (checked ? combinationRankingEffortColor(effort).withAlphaComponent(0.88) : NSColor.white.withAlphaComponent(0.08)).setFill()
+            NSBezierPath(roundedRect: NSRect(x: row.minX + 7, y: row.minY + 7, width: 14, height: 14), xRadius: 3, yRadius: 3).fill()
+            if checked { drawSymbolIcon("checkmark", in: NSRect(x: row.minX + 9, y: row.minY + 9, width: 10, height: 10), color: .white, pointSize: 8) }
+            drawText(combinationRankingEffortTitle(effort), rect: NSRect(x: row.minX + 30, y: row.minY + 6, width: row.width - 38, height: 17), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.82))
         }
     }
 
@@ -446,6 +495,11 @@ extension UsageDetailsView {
     private func combinationRankingAvailableModels(_ rows: [CombinationRankingRow]) -> [String] {
         Set(rows.map(\.model)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
+    private func combinationRankingAvailableEfforts(_ rows: [CombinationRankingRow], model: String) -> [String] {
+        let available = Set(rows.filter { $0.model == model }.map(\.effort))
+        let order = ["low", "medium", "high", "xhigh", "ultra", "max", "none"]
+        return order.filter(available.contains) + available.filter { !order.contains($0) }.sorted()
+    }
     private func combinationRankingHighestUsageModel(_ rows: [CombinationRankingRow]) -> String? {
         Dictionary(grouping: rows, by: \.model).max { lhs, rhs in
             let lhsTotal = lhs.value.reduce(Int64(0)) { $0 + $1.usage.total }
@@ -454,7 +508,12 @@ extension UsageDetailsView {
             return lhs.key.localizedStandardCompare(rhs.key) == .orderedDescending
         }?.key
     }
-    private func combinationRankingVisibleRows(_ rows: [CombinationRankingRow]) -> [CombinationRankingRow] { rows.filter { selectedCombinationRankingModels.contains($0.model) } }
+    private func combinationRankingVisibleRows(_ rows: [CombinationRankingRow]) -> [CombinationRankingRow] {
+        rows.filter {
+            selectedCombinationRankingModels.contains($0.model)
+                && selectedCombinationRankingEffortsByModel[$0.model]?.contains($0.effort) == true
+        }
+    }
     private func combinationRankingSortedRows(_ rows: [CombinationRankingRow]) -> [CombinationRankingRow] {
         rows.sorted { lhs, rhs in
             if selectedCombinationRankingSort == .model {
