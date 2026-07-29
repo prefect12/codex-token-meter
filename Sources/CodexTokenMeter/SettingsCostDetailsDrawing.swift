@@ -6,7 +6,6 @@ extension UsageDetailsView {
         quotaDisplayStyleRects.removeAll()
         codexHomeRingMetricRects.removeAll()
         claudeHomeRingMetricRects.removeAll()
-        claudeThirdRingMetricRects.removeAll()
         settingsSubsectionRects.removeAll()
         chooseLogFolderRect = nil
         resetLogFolderRect = nil
@@ -157,17 +156,8 @@ extension UsageDetailsView {
             drawSelectablePill(metric.title, rect: claudeRect, selected: metric == AppSettings.claudeHomeRingMetric)
         }
 
-        drawSettingText(title: t(.claudeThirdRing), hint: t(.claudeThirdRingHint), x: page.minX, y: page.minY + 290, width: labelW)
-        let thirdRingRects = segmentedRects(count: ClaudeThirdRingMetric.allCases.count, in: NSRect(x: optionX, y: page.minY + 284, width: optionW, height: 36), preferredWidth: 122)
-        for (index, metric) in ClaudeThirdRingMetric.allCases.enumerated() {
-            let optionRect = thirdRingRects[index]
-            claudeThirdRingMetricRects[metric] = optionRect
-            drawSelectablePill(metric.title, rect: optionRect, selected: metric == AppSettings.claudeThirdRingMetric)
-        }
-
-        drawSwitchSetting(title: t(.showCombinedFable), hint: t(.showCombinedFableHint), switchFrame: showCombinedFableSwitch.frame, page: page, y: page.minY + 356)
-        drawSwitchSetting(title: t(.showCodexStatus), hint: codexStatusSettingHint, switchFrame: showCodexStatusSwitch.frame, page: page, y: page.minY + 418)
-        drawSwitchSetting(title: t(.quotaWarnings), hint: t(.quotaWarningsHint), switchFrame: quotaWarningsSwitch.frame, page: page, y: page.minY + 480)
+        drawSwitchSetting(title: t(.showCodexStatus), hint: codexStatusSettingHint, switchFrame: showCodexStatusSwitch.frame, page: page, y: page.minY + 290)
+        drawSwitchSetting(title: t(.quotaWarnings), hint: t(.quotaWarningsHint), switchFrame: quotaWarningsSwitch.frame, page: page, y: page.minY + 356)
     }
 
     func drawSystemSettings(in page: NSRect) {
