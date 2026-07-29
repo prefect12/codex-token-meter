@@ -1054,29 +1054,20 @@ final class PlatformQuotaRingsOverviewView: NSView {
         hoverRegions.removeAll()
         let codex = codexLimit(from: limits)
         let claude = limits.first { $0.id == QuotaViewOption.claude.liveLimitID }
-        let fable = limits.first { $0.id == claudeFableLiveLimitID }
-        let showsFable = AppSettings.showCombinedFableEnabled && fable != nil
         drawRingBlock(
             title: "Codex",
             target: .codex,
             limit: codex,
             metric: AppSettings.codexHomeRingMetric,
-            center: NSPoint(x: bounds.minX + bounds.width * (showsFable ? 0.25 : 0.27), y: bounds.minY + 66)
+            center: NSPoint(x: bounds.minX + bounds.width * 0.27, y: bounds.minY + 66)
         )
         drawRingBlock(
             title: "Claude",
             target: .claude,
             limit: claude,
             metric: AppSettings.claudeHomeRingMetric,
-            center: NSPoint(x: bounds.minX + bounds.width * (showsFable ? 0.62 : 0.73), y: bounds.minY + 66),
-            fableWindow: fable?.secondary
+            center: NSPoint(x: bounds.minX + bounds.width * 0.73, y: bounds.minY + 66)
         )
-        if showsFable, let fable {
-            drawFableSatellite(
-                limit: fable,
-                center: NSPoint(x: bounds.minX + bounds.width * 0.89, y: bounds.minY + 88)
-            )
-        }
 
         let table = NSRect(x: bounds.minX, y: bounds.minY + 172, width: bounds.width, height: 130)
         drawQuotaTable(table: table, codex: codex, claude: claude)
@@ -1094,7 +1085,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
         limits.first { $0.id == QuotaViewOption.codex.liveLimitID }
     }
 
-    private func drawRingBlock(title: String, target: QuotaViewOption, limit: LiveRateLimit?, metric: HomeQuotaRingMetric, center: NSPoint, fableWindow: RateWindow? = nil) {
+    private func drawRingBlock(title: String, target: QuotaViewOption, limit: LiveRateLimit?, metric: HomeQuotaRingMetric, center: NSPoint) {
         let window = selectedWindow(from: limit, metric: metric)
         let percent = displayedRemainingPercent(window, target: target)
         let accent = displayedRemainingColor(window, target: target, percent: percent)
@@ -1118,51 +1109,8 @@ final class PlatformQuotaRingsOverviewView: NSView {
         drawText(resetSubtitle(window), rect: NSRect(x: center.x - 66, y: center.y + 86, width: 132, height: 15), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42), alignment: .center)
         hoverRegions.append((
             rect: NSRect(x: center.x - 62, y: center.y - 58, width: 124, height: 160),
-            tooltip: ringTooltip(title: title, target: target, window: window, metric: metric, capturedAt: limit?.capturedAt, fableWindow: fableWindow)
+            tooltip: ringTooltip(title: title, target: target, window: window, metric: metric, capturedAt: limit?.capturedAt)
         ))
-    }
-
-    private func drawFableSatellite(limit: LiveRateLimit, center: NSPoint) {
-        let window = limit.secondary
-        let percent = window?.remainingPercent ?? -1
-        let radius: CGFloat = 26
-        let lineWidth: CGFloat = 7
-        let accent = displayedRemainingColor(window, target: .claude, percent: percent)
-        drawRing(center: center, radius: radius, lineWidth: lineWidth, percent: percent, color: accent)
-        if let comparison = remainingComparison(for: window) {
-            drawExpectedRemainingMarker(
-                percent: comparison.expectedRemainingPercent,
-                actual: comparison.actualRemainingPercent,
-                center: center,
-                radius: radius,
-                lineWidth: lineWidth
-            )
-        }
-        let value = percent < 0 ? "--" : "\(Int(round(percent)))%"
-        let innerClearWidth = (radius - lineWidth / 2) * 2 - 2
-        drawText(
-            value,
-            rect: NSRect(x: center.x - 32, y: center.y - 10, width: 64, height: 20),
-            font: fittedMonospacedFont(for: value, baseSize: 15, weight: .bold, maxWidth: innerClearWidth),
-            color: .white,
-            alignment: .center
-        )
-        drawText("Fable 5", rect: NSRect(x: center.x - 42, y: center.y + 33, width: 84, height: 15), font: .systemFont(ofSize: 10.5, weight: .bold), color: .systemOrange, alignment: .center)
-        drawText(resetSubtitle(window), rect: NSRect(x: center.x - 42, y: center.y + 48, width: 84, height: 14), font: .systemFont(ofSize: 9, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42), alignment: .center)
-        hoverRegions.append((
-            rect: NSRect(x: center.x - 44, y: center.y - 34, width: 88, height: 98),
-            tooltip: ringTooltip(title: "Fable 5", target: .claude, window: window, metric: .weekly, capturedAt: limit.capturedAt)
-        ))
-    }
-
-    private func fittedMonospacedFont(for text: String, baseSize: CGFloat, weight: NSFont.Weight, maxWidth: CGFloat) -> NSFont {
-        var size = baseSize
-        var font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
-        while (text as NSString).size(withAttributes: [.font: font]).width > maxWidth, size > 8 {
-            size -= 0.5
-            font = .monospacedDigitSystemFont(ofSize: size, weight: weight)
-        }
-        return font
     }
 
     private func drawRing(center: NSPoint, radius: CGFloat, lineWidth: CGFloat, percent: Double, color: NSColor) {
@@ -1353,7 +1301,7 @@ final class PlatformQuotaRingsOverviewView: NSView {
         return "\(t(.reset)) \(compactResetRelative(window.resetsAt))"
     }
 
-    private func ringTooltip(title: String, target: QuotaViewOption, window: RateWindow?, metric: HomeQuotaRingMetric, capturedAt: Date?, fableWindow: RateWindow? = nil) -> String {
+    private func ringTooltip(title: String, target: QuotaViewOption, window: RateWindow?, metric: HomeQuotaRingMetric, capturedAt: Date?) -> String {
         guard let window else {
             return "\(title) \(metric.title)\n\(t(.liveLimitUnavailable))"
         }
@@ -1374,9 +1322,6 @@ final class PlatformQuotaRingsOverviewView: NSView {
             lines.append("重置：\(relative(resetsAt))")
         } else {
             lines.append("重置：--")
-        }
-        if let fableWindow {
-            lines.append("Fable 5 剩余 \(Int(round(fableWindow.remainingPercent)))% · \(t(.reset)) \(compactResetRelative(fableWindow.resetsAt))")
         }
         lines.append("数据更新：\(dataUpdatedText(capturedAt))")
         return lines.joined(separator: "\n")
@@ -1550,7 +1495,6 @@ final class DashboardView: NSView {
         applyLanguage()
         titleLabel.stringValue = "AI Token Meter"
         let displayLimit = selectedLimit(from: state.liveLimits, quota: state.selectedQuota)
-        let fableLimit = state.liveLimits.first { $0.id == claudeFableLiveLimitID }
         subtitleLabel.stringValue = state.selectedQuota.fallbackTitle
         totalLabel.stringValue = headerTotalSummary(totalReport.usage.total)
         detailLabel.stringValue = usesProfileTotal
@@ -1627,49 +1571,23 @@ final class DashboardView: NSView {
         weeklyBullet.remainingComparison = weeklyComparison
         weeklyBullet.isHidden = showsComparisonTable || quotaStyle != .bullet
 
-        let fableWindow = fableLimit?.secondary
-        let showsFableAsThirdRing = state.selectedQuota == .claude
-            && AppSettings.claudeThirdRingMetric == .fable5
-            && fableWindow != nil
-        if showsFableAsThirdRing, let fableWindow {
-            let fableRemaining = fableWindow.remainingPercent
-            let fableComparison = remainingComparison(for: fableWindow)
-            cacheRing.percent = fableRemaining
-            cacheRing.title = "Fable 5"
-            cacheRing.subtitle = "\(t(.reset)) \(compactResetRelative(fableWindow.resetsAt))"
-            cacheRing.color = displayedRemainingColor(fableWindow, target: .claude, percent: fableRemaining)
-            cacheRing.tooltipHeader = "Fable 5 \(t(.weeklyLeft))"
-            cacheRing.dataUpdatedTooltip = dataUpdatedText(fableLimit?.capturedAt)
-            cacheRing.resetTooltip = fableWindow.resetsAt.map { relative($0) }
-            cacheRing.remainingComparison = fableComparison
+        cacheRing.percent = report.usage.cachePercent
+        cacheRing.title = t(.cacheHit)
+        cacheRing.subtitle = "\(compact(report.usage.freshInput)) \(t(.fresh).lowercased())"
+        cacheRing.color = NSColor.systemTeal
+        cacheRing.tooltipHeader = nil
+        cacheRing.dataUpdatedTooltip = nil
+        cacheRing.resetTooltip = nil
+        cacheRing.remainingComparison = nil
 
-            cacheBullet.actualRemainingPercent = fableRemaining
-            cacheBullet.title = "Fable 5"
-            cacheBullet.subtitle = "\(t(.reset)) \(compactResetRelative(fableWindow.resetsAt))"
-            cacheBullet.color = displayedRemainingColor(fableWindow, target: .claude, percent: fableRemaining)
-            cacheBullet.tooltipHeader = "Fable 5 \(t(.weeklyLeft))"
-            cacheBullet.dataUpdatedTooltip = dataUpdatedText(fableLimit?.capturedAt)
-            cacheBullet.resetTooltip = fableWindow.resetsAt.map { relative($0) }
-            cacheBullet.remainingComparison = fableComparison
-        } else {
-            cacheRing.percent = report.usage.cachePercent
-            cacheRing.title = t(.cacheHit)
-            cacheRing.subtitle = "\(compact(report.usage.freshInput)) \(t(.fresh).lowercased())"
-            cacheRing.color = NSColor.systemTeal
-            cacheRing.tooltipHeader = nil
-            cacheRing.dataUpdatedTooltip = nil
-            cacheRing.resetTooltip = nil
-            cacheRing.remainingComparison = nil
-
-            cacheBullet.actualRemainingPercent = report.usage.cachePercent
-            cacheBullet.title = t(.cacheHit)
-            cacheBullet.subtitle = "\(compact(report.usage.freshInput)) \(t(.fresh).lowercased())"
-            cacheBullet.color = NSColor.systemTeal
-            cacheBullet.tooltipHeader = nil
-            cacheBullet.dataUpdatedTooltip = nil
-            cacheBullet.resetTooltip = nil
-            cacheBullet.remainingComparison = nil
-        }
+        cacheBullet.actualRemainingPercent = report.usage.cachePercent
+        cacheBullet.title = t(.cacheHit)
+        cacheBullet.subtitle = "\(compact(report.usage.freshInput)) \(t(.fresh).lowercased())"
+        cacheBullet.color = NSColor.systemTeal
+        cacheBullet.tooltipHeader = nil
+        cacheBullet.dataUpdatedTooltip = nil
+        cacheBullet.resetTooltip = nil
+        cacheBullet.remainingComparison = nil
         cacheRing.isHidden = showsComparisonTable || quotaStyle == .bullet
         cacheBullet.isHidden = showsComparisonTable || quotaStyle != .bullet
 
