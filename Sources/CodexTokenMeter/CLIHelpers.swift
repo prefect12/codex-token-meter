@@ -463,6 +463,19 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         })
         .first {
         view.hoveredWeeklyQuotaSource = QuotaViewOption.option(from: rawHoverSource)
+        view.weeklyQuotaHoverPoint = arguments
+            .compactMap({ argument -> CGPoint? in
+                guard argument.hasPrefix("--weekly-quota-hover-point=") else { return nil }
+                let value = String(argument.dropFirst("--weekly-quota-hover-point=".count))
+                let parts = value.split(separator: ",", maxSplits: 1)
+                guard parts.count == 2,
+                      let x = Double(parts[0]),
+                      let y = Double(parts[1]) else {
+                    return nil
+                }
+                return CGPoint(x: x, y: y)
+            })
+            .first
     }
     let height = max(requestedRenderHeight ?? 760, view.preferredDocumentHeight(for: renderWidth))
     view.frame = NSRect(x: 0, y: 0, width: renderWidth, height: height)

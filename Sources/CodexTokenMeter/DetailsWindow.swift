@@ -617,6 +617,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             if selectedSection != .overview {
                 hoveredContributionDay = nil
                 hoveredWeeklyQuotaSource = nil
+                weeklyQuotaHoverPoint = nil
             }
             if selectedSection != .models {
                 hoveredModelUsageRowIndex = nil
@@ -641,6 +642,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var resetCreditHitAreas: [(rect: NSRect, index: Int)] = []
     var resetCreditTooltipRows: [RateLimitResetCredit] = []
     var hoveredWeeklyQuotaSource: QuotaViewOption?
+    var weeklyQuotaHoverPoint: CGPoint?
     var weeklyQuotaHitAreas: [(rect: NSRect, source: QuotaViewOption)] = []
     var sidebarItemRects: [DetailsSection: NSRect] = [:]
     var insightRowRects: [String: NSRect] = [:]
@@ -1690,6 +1692,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hoveredReasoningDay = nil
         hoveredResetCreditIndex = nil
         hoveredWeeklyQuotaSource = nil
+        weeklyQuotaHoverPoint = nil
         hoveredModelUsageRowIndex = nil
         hoveredStorageCellKey = nil
         hoveredStorageSourceID = nil
@@ -1730,6 +1733,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         if hoveredWeeklyQuotaSource != nil {
             hoveredWeeklyQuotaSource = nil
+            weeklyQuotaHoverPoint = nil
             shouldRedraw = true
         }
         if hoveredModelUsageRowIndex != nil {
