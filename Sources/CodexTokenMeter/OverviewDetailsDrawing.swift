@@ -228,15 +228,18 @@ extension UsageDetailsView {
 
     func updateWeeklyQuotaHover(at point: CGPoint) {
         guard selectedSection == .overview else {
-            if hoveredWeeklyQuotaSource != nil {
+            if hoveredWeeklyQuotaSource != nil || weeklyQuotaHoverPoint != nil {
                 hoveredWeeklyQuotaSource = nil
+                weeklyQuotaHoverPoint = nil
                 needsDisplay = true
             }
             return
         }
         let source = weeklyQuotaHitAreas.first { $0.rect.contains(point) }?.source
-        if hoveredWeeklyQuotaSource != source {
+        let hoverPoint = source == nil ? nil : point
+        if hoveredWeeklyQuotaSource != source || weeklyQuotaHoverPoint != hoverPoint {
             hoveredWeeklyQuotaSource = source
+            weeklyQuotaHoverPoint = hoverPoint
             needsDisplay = true
         }
     }
@@ -284,9 +287,14 @@ extension UsageDetailsView {
 
         let width: CGFloat = 286
         let height = CGFloat(34 + rows.count * 17 + 8)
-        var origin = CGPoint(x: hit.rect.maxX + 10, y: hit.rect.midY - height / 2)
+        let anchor = weeklyQuotaHoverPoint ?? CGPoint(x: hit.rect.midX, y: hit.rect.midY)
+        let cursorGap: CGFloat = 14
+        var origin = CGPoint(x: anchor.x + cursorGap, y: anchor.y - height - cursorGap)
         if origin.x + width > container.maxX - 10 {
-            origin.x = hit.rect.minX - width - 10
+            origin.x = anchor.x - width - cursorGap
+        }
+        if origin.y < container.minY + 10 {
+            origin.y = anchor.y + cursorGap
         }
         origin.x = max(container.minX + 10, min(origin.x, container.maxX - width - 10))
         origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
