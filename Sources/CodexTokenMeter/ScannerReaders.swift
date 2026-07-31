@@ -474,8 +474,18 @@ final class CodexTokenScanner {
     }
 
     private static func normalizedReasoningModel(_ value: String?) -> String {
+        canonicalModelName(value)
+    }
+
+    private static func canonicalModelName(_ value: String?) -> String {
         let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return normalized.isEmpty ? "Unknown model" : normalized
+        guard !normalized.isEmpty else { return "Unknown model" }
+        // Automatic review turns use an internal model label. Present them in
+        // the selected Sol bucket so every report uses one consistent model row.
+        if normalized.caseInsensitiveCompare("codex-auto-review") == .orderedSame {
+            return "gpt-5.6-sol"
+        }
+        return normalized
     }
 
     static func reasoningEffortRank(_ effort: String) -> Int {
@@ -829,7 +839,7 @@ final class CodexTokenScanner {
                 }
 
                 for model in matchingModels {
-                    let modelName = model.name
+                    let modelName = Self.canonicalModelName(model.name)
                     sessionModels.insert(modelName)
                     sessionDayModels[day.day, default: []].insert(modelName)
                     var totalModelUsage = modelBuckets[modelName] ?? Usage()
@@ -902,10 +912,13 @@ final class CodexTokenScanner {
     }
 
     private func matchesAggregateModel(_ value: String, includedModelName: String?, excludedModelName: String?) -> Bool {
-        if let includedModelName, !modelNameMatches(value.lowercased(), target: includedModelName) {
+        let canonicalValue = Self.canonicalModelName(value).lowercased()
+        if let includedModelName,
+           !modelNameMatches(canonicalValue, target: Self.canonicalModelName(includedModelName)) {
             return false
         }
-        if let excludedModelName, modelNameMatches(value.lowercased(), target: excludedModelName) {
+        if let excludedModelName,
+           modelNameMatches(canonicalValue, target: Self.canonicalModelName(excludedModelName)) {
             return false
         }
         return true
@@ -913,14 +926,14 @@ final class CodexTokenScanner {
 
     private func modelDisplayName(for event: TokenEvent) -> String {
         if let model = event.model, !model.isEmpty {
-            return model
+            return Self.canonicalModelName(model)
         }
         if event.limitID == AppSettings.modelLimitID {
-            return AppSettings.modelLimitName
+            return Self.canonicalModelName(AppSettings.modelLimitName)
         }
         if let limitName = event.limitName,
            limitName.localizedCaseInsensitiveContains(AppSettings.modelLimitName) {
-            return AppSettings.modelLimitName
+            return Self.canonicalModelName(AppSettings.modelLimitName)
         }
         return "Unknown model"
     }
