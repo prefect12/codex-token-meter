@@ -455,6 +455,15 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         view.isStorageScanning = false
     }
     view.isLoading = false
+    if section == .overview,
+       let rawHoverSource = arguments
+        .compactMap({ argument -> String? in
+            guard argument.hasPrefix("--weekly-quota-hover=") else { return nil }
+            return String(argument.dropFirst("--weekly-quota-hover=".count))
+        })
+        .first {
+        view.hoveredWeeklyQuotaSource = QuotaViewOption.option(from: rawHoverSource)
+    }
     let height = max(requestedRenderHeight ?? 760, view.preferredDocumentHeight(for: renderWidth))
     view.frame = NSRect(x: 0, y: 0, width: renderWidth, height: height)
     view.layoutSubtreeIfNeeded()
