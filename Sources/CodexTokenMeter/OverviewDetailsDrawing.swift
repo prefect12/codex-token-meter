@@ -130,12 +130,14 @@ extension UsageDetailsView {
             .secondary
 
         drawWeeklyQuotaRow(
+            source: .codex,
             title: weeklyQuotaTitle(source: .codex),
             window: codexWindow,
             color: accentBlue,
             rect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height / 2)
         )
         drawWeeklyQuotaRow(
+            source: .claude,
             title: weeklyQuotaTitle(source: .claude),
             window: claudeWindow,
             color: accentAmber,
@@ -144,11 +146,13 @@ extension UsageDetailsView {
     }
 
     func drawWeeklyQuotaRow(
+        source: QuotaViewOption,
         title: String,
         window: RateWindow?,
         color: NSColor,
         rect: NSRect
     ) {
+        weeklyQuotaHitAreas.append((rect: rect, source: source))
         let horizontalPadding: CGFloat = 14
         drawText(
             title,
@@ -219,6 +223,92 @@ extension UsageDetailsView {
             return source == .codex ? "Codex 週間残量" : "Claude 週間残量"
         default:
             return source == .codex ? "Codex Weekly Remaining" : "Claude Weekly Remaining"
+        }
+    }
+
+    func updateWeeklyQuotaHover(at point: CGPoint) {
+        guard selectedSection == .overview else {
+            if hoveredWeeklyQuotaSource != nil {
+                hoveredWeeklyQuotaSource = nil
+                needsDisplay = true
+            }
+            return
+        }
+        let source = weeklyQuotaHitAreas.first { $0.rect.contains(point) }?.source
+        if hoveredWeeklyQuotaSource != source {
+            hoveredWeeklyQuotaSource = source
+            needsDisplay = true
+        }
+    }
+
+    func drawWeeklyQuotaTooltip(snapshot: DetailsSnapshot, container: NSRect) {
+        guard let source = hoveredWeeklyQuotaSource,
+              let hit = weeklyQuotaHitAreas.first(where: { $0.source == source }) else {
+            return
+        }
+        let limit = snapshot.liveLimits.first { $0.id == source.liveLimitID }
+        let window = limit?.secondary
+        let actualRemaining = window.map { min(100, max(0, $0.remainingPercent)) }
+        let comparison = window.flatMap { paceComparison(for: $0) }
+
+        var rows: [(String, String, NSColor)] = []
+        rows.append((
+            "实际剩余",
+            actualRemaining.map { "\(Int(round($0)))%" } ?? "--",
+            source == .codex ? accentBlue : accentAmber
+        ))
+        if let comparison {
+            let expectedRemaining = min(100, max(0, 100 - comparison.progressPercent))
+            rows.append(("预计剩余", "\(Int(round(expectedRemaining)))%", NSColor.white.withAlphaComponent(0.88)))
+            rows.append((
+                "使用节奏",
+                comparison.status == .ahead ? "用得偏快" : "用得较少",
+                comparison.status == .ahead ? NSColor.systemYellow : NSColor.systemGreen
+            ))
+        }
+        rows.append((
+            "重置",
+            window?.resetsAt.map { relative($0) } ?? "--",
+            NSColor.white.withAlphaComponent(0.88)
+        ))
+        let updatedText: String
+        if let capturedAt = limit?.capturedAt {
+            let seconds = -capturedAt.timeIntervalSinceNow
+            updatedText = seconds < 60
+                ? "刚刚"
+                : "\(relative(capturedAt).replacingOccurrences(of: " ago", with: ""))前"
+        } else {
+            updatedText = "--"
+        }
+        rows.append(("数据更新", updatedText, NSColor.white.withAlphaComponent(0.72)))
+
+        let width: CGFloat = 286
+        let height = CGFloat(34 + rows.count * 17 + 8)
+        var origin = CGPoint(x: hit.rect.maxX + 10, y: hit.rect.midY - height / 2)
+        if origin.x + width > container.maxX - 10 {
+            origin.x = hit.rect.minX - width - 10
+        }
+        origin.x = max(container.minX + 10, min(origin.x, container.maxX - width - 10))
+        origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
+        let tooltipRect = NSRect(origin: origin, size: NSSize(width: width, height: height))
+
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: tooltipRect, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        let border = NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        border.lineWidth = 1
+        border.stroke()
+
+        drawText(
+            weeklyQuotaTitle(source: source),
+            rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.minY + 8, width: tooltipRect.width - 20, height: 16),
+            font: .systemFont(ofSize: 11, weight: .bold),
+            color: .white
+        )
+        for (index, row) in rows.enumerated() {
+            let y = tooltipRect.minY + 31 + CGFloat(index) * 17
+            drawText(row.0, rect: NSRect(x: tooltipRect.minX + 10, y: y, width: 70, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.5))
+            drawRight(row.1, rect: NSRect(x: tooltipRect.minX + 84, y: y - 1, width: tooltipRect.width - 94, height: 15), color: row.2, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
         }
     }
 

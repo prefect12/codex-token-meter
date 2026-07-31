@@ -616,6 +616,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
             if selectedSection != .overview {
                 hoveredContributionDay = nil
+                hoveredWeeklyQuotaSource = nil
             }
             if selectedSection != .models {
                 hoveredModelUsageRowIndex = nil
@@ -639,6 +640,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var hoveredResetCreditIndex: Int?
     var resetCreditHitAreas: [(rect: NSRect, index: Int)] = []
     var resetCreditTooltipRows: [RateLimitResetCredit] = []
+    var hoveredWeeklyQuotaSource: QuotaViewOption?
+    var weeklyQuotaHitAreas: [(rect: NSRect, source: QuotaViewOption)] = []
     var sidebarItemRects: [DetailsSection: NSRect] = [:]
     var insightRowRects: [String: NSRect] = [:]
     var insightWindowRects: [Int: NSRect] = [:]
@@ -1644,6 +1647,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         updateContributionDayHover(at: point)
         updateContributionWeekHover(at: point)
         updateResetCreditHover(at: point)
+        updateWeeklyQuotaHover(at: point)
         updateInsightUsageTimeHover(at: point)
         updateReasoningTrendHover(at: point)
         updateModelUsageRowHover(at: point)
@@ -1685,6 +1689,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hoveredInsightPeriod = nil
         hoveredReasoningDay = nil
         hoveredResetCreditIndex = nil
+        hoveredWeeklyQuotaSource = nil
         hoveredModelUsageRowIndex = nil
         hoveredStorageCellKey = nil
         hoveredStorageSourceID = nil
@@ -1721,6 +1726,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         if hoveredResetCreditIndex != nil {
             hoveredResetCreditIndex = nil
+            shouldRedraw = true
+        }
+        if hoveredWeeklyQuotaSource != nil {
+            hoveredWeeklyQuotaSource = nil
             shouldRedraw = true
         }
         if hoveredModelUsageRowIndex != nil {
@@ -2545,6 +2554,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionGridSelectionRect = nil
         resetCreditHitAreas.removeAll()
         resetCreditTooltipRows.removeAll()
+        weeklyQuotaHitAreas.removeAll()
         costHistoryBarRects.removeAll()
         costHistoryRows.removeAll()
         quotaCycleHitAreas.removeAll()
@@ -2652,6 +2662,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawProfileAPIInfoTooltip()
         } else if selectedSection == .overview {
             drawResetCreditTooltip(container: content)
+            drawWeeklyQuotaTooltip(snapshot: snapshot, container: content)
         } else if selectedSection == .insights {
             drawInsightUsageTimeTooltip()
         } else if selectedSection == .reasoning {
