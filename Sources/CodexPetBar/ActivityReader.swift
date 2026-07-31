@@ -11,6 +11,7 @@ private let runningActivityTimeout: TimeInterval = 10 * 60
 private let rolloutHeaderScanLimit = 4_096
 private let rolloutPayloadParseByteLimit = 200_000
 private let rolloutTailScanByteLimit: UInt64 = 512 * 1024
+private let rolloutPlanSearchBlockSize: UInt64 = 512 * 1024
 
 private struct ReadStateFile: Codable {
     var schemaVersion: Int?
@@ -68,6 +69,94 @@ func parseTaskPlanFunctionCall(_ line: String) -> TaskPlan? {
         explanation: explanation?.isEmpty == false ? explanation : nil,
         steps: steps
     )
+}
+
+/// Finds the newest plan snapshot without parsing the whole rollout. This is
+/// used when Task Bar starts after the latest `update_plan` line has already
+/// fallen outside the normal tail scan window.
+func latestTaskPlan(
+    inRollout fileURL: URL,
+    beforeOffset requestedEndOffset: UInt64? = nil
+) -> TaskPlan? {
+    guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
+    defer { try? handle.close() }
+    guard let fileSize = try? handle.seekToEnd(), fileSize > 0 else { return nil }
+
+    let markers = [
+        Data(#""name":"update_plan""#.utf8),
+        Data(#""name":"functions.update_plan""#.utf8)
+    ]
+    let markerOverlap = UInt64(max(0, (markers.map(\.count).max() ?? 1) - 1))
+    var cursor = min(requestedEndOffset ?? fileSize, fileSize)
+
+    while cursor > 0 {
+        let start = cursor > rolloutPlanSearchBlockSize
+            ? cursor - rolloutPlanSearchBlockSize
+            : 0
+        guard (try? handle.seek(toOffset: start)) != nil,
+              let data = try? handle.read(upToCount: Int(cursor - start)),
+              !data.isEmpty else {
+            return nil
+        }
+
+        let newestMarker = markers.compactMap {
+            data.range(of: $0, options: .backwards)?.lowerBound
+        }.max()
+        if let markerIndex = newestMarker {
+            let markerOffset = start + UInt64(markerIndex)
+            if let line = rolloutLine(
+                containing: markerOffset,
+                fileSize: fileSize,
+                handle: handle
+            ),
+               let plan = parseTaskPlanFunctionCall(line) {
+                return plan
+            }
+            cursor = markerOffset
+            continue
+        }
+
+        guard start > 0 else { break }
+        cursor = start + markerOverlap
+    }
+    return nil
+}
+
+private func rolloutLine(
+    containing offset: UInt64,
+    fileSize: UInt64,
+    handle: FileHandle
+) -> String? {
+    let parseLimit = UInt64(rolloutPayloadParseByteLimit)
+    let windowStart = offset > parseLimit ? offset - parseLimit : 0
+    let windowEnd = min(fileSize, offset + parseLimit)
+    guard windowEnd > windowStart,
+          (try? handle.seek(toOffset: windowStart)) != nil,
+          let data = try? handle.read(upToCount: Int(windowEnd - windowStart)),
+          !data.isEmpty else {
+        return nil
+    }
+
+    let markerIndex = data.index(
+        data.startIndex,
+        offsetBy: Int(offset - windowStart)
+    )
+    let lineStart: Data.Index
+    if let newline = data[..<markerIndex].lastIndex(of: 0x0A) {
+        lineStart = data.index(after: newline)
+    } else {
+        guard windowStart == 0 else { return nil }
+        lineStart = data.startIndex
+    }
+    let lineEnd: Data.Index
+    if let newline = data[markerIndex...].firstIndex(of: 0x0A) {
+        lineEnd = newline
+    } else {
+        guard windowEnd == fileSize else { return nil }
+        lineEnd = data.endIndex
+    }
+    guard lineStart < lineEnd else { return nil }
+    return String(decoding: data[lineStart..<lineEnd], as: UTF8.self)
 }
 
 func configuredCodexHomeURLs(home: String = NSHomeDirectory()) -> [URL] {
@@ -1709,6 +1798,7 @@ final class CodexActivityReader {
 
     private func rolloutSummary(fileURL: URL, tailOnly: Bool) -> RolloutSummary? {
         let key = fileURL.path
+        let isInitialScan = rolloutScanCache[key] == nil
         var state = rolloutScanCache[key] ?? RolloutScanState()
         let initialReadLimit = tailOnly ? rolloutTailScanByteLimit : nil
         guard let chunk = appendedContent(fileURL: fileURL, position: state.position, initialReadLimit: initialReadLimit) else {
@@ -1720,6 +1810,12 @@ final class CodexActivityReader {
         }
         for line in chunk.body.split(separator: "\n", omittingEmptySubsequences: true) {
             applyRolloutLine(String(line), to: &state)
+        }
+        if isInitialScan,
+           tailOnly,
+           state.summary.plan == nil,
+           let plan = latestTaskPlan(inRollout: fileURL, beforeOffset: chunk.position.size) {
+            state.summary.plan = plan
         }
         state.position = chunk.position
         finalizeTailOnlySummary(&state.summary)

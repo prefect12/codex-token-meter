@@ -68,7 +68,28 @@ private func testPlanParser() {
         fputs("plan parser self-test failed\n", stderr)
         exit(1)
     }
-    print("plan parser self-test passed: \(plan.displayedStepNumber)/\(plan.steps.count)")
+    let temporaryURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("task-bar-plan-\(UUID().uuidString).jsonl")
+    defer { try? FileManager.default.removeItem(at: temporaryURL) }
+    let filler = String(repeating: "x", count: 600 * 1024)
+    let fixture = [
+        #"{"type":"event_msg","payload":{"type":"agent_message","message":"\#(filler)"}}"#,
+        line,
+        #"{"type":"event_msg","payload":{"type":"agent_message","message":"\#(filler)"}}"#
+    ].joined(separator: "\n") + "\n"
+    do {
+        try Data(fixture.utf8).write(to: temporaryURL)
+    } catch {
+        fputs("plan history self-test fixture failed: \(error)\n", stderr)
+        exit(1)
+    }
+    guard let recovered = latestTaskPlan(inRollout: temporaryURL),
+          recovered.steps.count == 3,
+          recovered.displayedStepNumber == 2 else {
+        fputs("plan history self-test failed\n", stderr)
+        exit(1)
+    }
+    print("plan parser self-test passed: \(plan.displayedStepNumber)/\(plan.steps.count), restart recovery passed")
 }
 
 private func mockTaskBarThreads() -> [CodexThreadItem] {
