@@ -224,7 +224,11 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             japanese: "プロジェクトを検索"
         )
         searchField.setAccessibilityLabel(searchField.placeholderString ?? "")
-        searchField.frame = modelRoutingSearchRect(in: layout.toolbarRect).insetBy(dx: 7, dy: 1)
+        // A borderless NSSearchField draws its icon and text slightly above the
+        // visual center of our custom search surface.
+        searchField.frame = modelRoutingSearchRect(in: layout.toolbarRect)
+            .insetBy(dx: 7, dy: 1)
+            .offsetBy(dx: 0, dy: 2)
 
         filterControl.setLabel(localized(chinese: "全部", english: "All", japanese: "すべて"), forSegment: 0)
         filterControl.setLabel(localized(chinese: "项目设置", english: "Project setting", japanese: "プロジェクト設定"), forSegment: 1)
