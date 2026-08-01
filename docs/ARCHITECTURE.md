@@ -30,6 +30,7 @@ The split is intentionally conservative: code moved by section, with behavior pr
 - `Sources/CodexTokenMeter/CodexModelRoutingStore.swift`: read/write support for Codex global and trusted-project model defaults. It discovers Codex Desktop projects, reads the local model catalog, and updates only top-level `model` and `model_reasoning_effort` keys while preserving unrelated TOML content.
 - `Sources/CodexTokenMeter/ModelRoutingDetailsDrawing.swift`: the native global/project default-model page, including search, inherited/overridden filtering, inline model and reasoning controls, and effective inheritance state.
 - `Sources/CodexTokenMeter/DiagnosticsDetailsDrawing.swift`: diagnostics-page source health, API file, tool detection, and local log probe rendering. Keeping these read-only probes out of the window orchestrator makes their filesystem work and UI presentation easier to review together.
+- `Sources/CodexTokenMeter/CodexConfigWatcher.swift`: debounced directory watcher for global and per-project Codex routing inputs. It compares target file contents after directory events so atomic config replacement is detected without refreshing for unrelated project-file changes.
 - `Sources/CodexTokenMeter/AppDelegate.swift`: timers, background scan queues, live refresh orchestration, settings callbacks.
 - `Sources/CodexTokenMeter/FormattingCostHelpers.swift`: number formatting, date helpers, weekly/monthly cost rows.
 - `Sources/CodexTokenMeter/CLIHelpers.swift`: CLI argument parsing and dashboard snapshot rendering.

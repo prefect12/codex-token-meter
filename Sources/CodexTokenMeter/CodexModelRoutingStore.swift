@@ -146,6 +146,16 @@ final class CodexModelRoutingStore {
         return CodexModelRoutingSnapshot(global: global, models: models, projects: projects)
     }
 
+    func routingInputURLs(for snapshot: CodexModelRoutingSnapshot) -> [URL] {
+        [
+            globalConfigURL,
+            globalStateURL,
+            modelCacheURL,
+        ] + snapshot.projects.flatMap { project in
+            project.project.rootPaths.map(projectConfigURL(rootPath:))
+        }
+    }
+
     func writeGlobal(model: String, reasoningEffort: String) throws {
         try writeSelection(
             CodexConfigSelection(model: model, reasoningEffort: reasoningEffort),
