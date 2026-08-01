@@ -227,8 +227,8 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         searchField.frame = modelRoutingSearchRect(in: layout.toolbarRect).insetBy(dx: 7, dy: 1)
 
         filterControl.setLabel(localized(chinese: "全部", english: "All", japanese: "すべて"), forSegment: 0)
-        filterControl.setLabel(localized(chinese: "已覆盖", english: "Overridden", japanese: "上書き"), forSegment: 1)
-        filterControl.setLabel(localized(chinese: "继承全局", english: "Inherited", japanese: "継承"), forSegment: 2)
+        filterControl.setLabel(localized(chinese: "项目设置", english: "Project setting", japanese: "プロジェクト設定"), forSegment: 1)
+        filterControl.setLabel(localized(chinese: "跟随全局", english: "Follows global", japanese: "グローバルに従う"), forSegment: 2)
         let filterWidth = min(332, max(264, layout.toolbarRect.width * 0.31))
         filterControl.frame = NSRect(
             x: layout.toolbarRect.maxX - filterWidth,
@@ -459,7 +459,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         if selected == .mixed {
             addItem(
                 to: popup,
-                title: localized(chinese: "多个根目录不一致", english: "Mixed across roots", japanese: "ルート間で不一致"),
+                title: localized(chinese: "多个根目录设置不同", english: "Settings differ across roots", japanese: "ルート間で設定が異なる"),
                 value: modelRoutingMixedValue,
                 enabled: false
             )
@@ -510,7 +510,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         if selectedEffort == .mixed {
             addItem(
                 to: popup,
-                title: localized(chinese: "多个值", english: "Mixed values", japanese: "複数の値"),
+                title: localized(chinese: "多个根目录设置不同", english: "Settings differ across roots", japanese: "ルート間で設定が異なる"),
                 value: modelRoutingMixedValue,
                 enabled: false
             )
@@ -767,7 +767,7 @@ extension UsageDetailsView {
             rect: columns.effort
         )
         drawTableHeader(
-            modelRoutingLocalized(chinese: "状态", english: "Status", japanese: "状態"),
+            modelRoutingLocalized(chinese: "配置来源", english: "Configuration source", japanese: "設定元"),
             rect: columns.status
         )
         drawRoutingSeparator(y: layout.tableHeaderRect.maxY, table: layout.tableRect, strong: false)
@@ -832,13 +832,13 @@ extension UsageDetailsView {
         let title: String
         let color: NSColor
         if project.hasMixedValues {
-            title = modelRoutingLocalized(chinese: "根目录不一致", english: "Mixed roots", japanese: "ルート不一致")
+            title = modelRoutingLocalized(chinese: "设置不一致", english: "Settings differ", japanese: "設定が不一致")
             color = accentAmber
         } else if project.inheritsEverything {
-            title = modelRoutingLocalized(chinese: "继承全局", english: "Inherited", japanese: "継承")
+            title = modelRoutingLocalized(chinese: "跟随全局", english: "Follows global", japanese: "グローバルに従う")
             color = NSColor.white.withAlphaComponent(0.56)
         } else {
-            title = modelRoutingLocalized(chinese: "已覆盖", english: "Overridden", japanese: "上書き")
+            title = modelRoutingLocalized(chinese: "项目设置", english: "Project setting", japanese: "プロジェクト設定")
             color = NSColor.white.withAlphaComponent(0.72)
         }
         drawTruncatedText(
