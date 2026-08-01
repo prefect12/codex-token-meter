@@ -179,6 +179,7 @@ enum DetailsSection: CaseIterable {
     case overview
     case calendar
     case models
+    case modelRouting
     case reasoning
     case combinationRanking
     case insights
@@ -211,6 +212,9 @@ enum DetailsSection: CaseIterable {
         case .reasoning: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "思考分析" : "Reasoning"
         case .combinationRanking: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "思考分析" : "Reasoning"
         case .models: return t(.models)
+        case .modelRouting:
+            if AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese { return "默认模型" }
+            return AppLanguage.current == .japanese ? "モデル既定値" : "Model Defaults"
         case .calendar: return t(.calendar)
         case .costs: return t(.quotaCycles)
         case .storage: return AppLanguage.current.storageCopy.sidebarTitle
@@ -227,6 +231,13 @@ enum DetailsSection: CaseIterable {
         case .reasoning: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "比较模型在不同思考强度下的 Token 与成本" : "Compare Token usage and cost across reasoning efforts"
         case .combinationRanking: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "实际使用的模型 × 思考强度组合表现" : "Actual model × reasoning-effort performance"
         case .models: return t(.modelsSubtitle)
+        case .modelRouting:
+            if AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese {
+                return "设置全局与每个 Codex 项目的默认模型和思考强度"
+            }
+            return AppLanguage.current == .japanese
+                ? "グローバルと各 Codex プロジェクトの既定モデルと思考強度"
+                : "Set the default model and reasoning effort globally and per Codex project"
         case .calendar: return t(.calendarSubtitle)
         case .costs: return t(.quotaCyclesSubtitle)
         case .storage: return AppLanguage.current.storageCopy.headerSubtitle
@@ -255,7 +266,7 @@ enum DetailsSection: CaseIterable {
 
     var canRenderWithoutSnapshot: Bool {
         switch self {
-        case .settings, .about, .storage:
+        case .settings, .about, .storage, .modelRouting:
             return true
         default:
             return false
@@ -630,6 +641,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             if selectedSection == .storage {
                 requestStorageScanIfNeeded()
             }
+            if selectedSection == .modelRouting {
+                modelRoutingControls.reload()
+            }
             updateResetCreditCountdownTimer()
             onPreferredHeightChanged?()
             needsDisplay = true
@@ -758,6 +772,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var hoveredModelUsageRowIndex: Int?
     var modelSortColumnRects: [ModelListSortOption: NSRect] = [:]
     let modelControls = ModelDetailsControls()
+    let modelRoutingControls = ModelRoutingControls()
     var hoveredCostOverviewInfo: CostOverviewInfo?
     var isHoveringDayValueInfo = false
     var isHoveringProfileAPIInfo = false
@@ -965,7 +980,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         switch selectedSection {
         case .overview, .models, .calendar, .costs, .diagnostics, .storage:
             return true
-        case .insights, .reasoning, .combinationRanking, .settings, .about:
+        case .insights, .reasoning, .combinationRanking, .modelRouting, .settings, .about:
             return false
         }
     }
@@ -1066,6 +1081,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         layoutSettingsControls()
         layoutStorageControls()
         layoutModelControls()
+        modelRoutingControls.layout(
+            in: sectionContent(for: .modelRouting, in: bounds, sidebarWidth: detailsSidebarWidth),
+            visible: selectedSection == .modelRouting
+        )
     }
 
     override func updateTrackingAreas() {
@@ -1221,6 +1240,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             self.needsDisplay = true
             self.needsLayout = true
         }
+        modelRoutingControls.install(in: self)
 
         contributionWeekHoverOverlay.frame = bounds
         contributionWeekHoverOverlay.autoresizingMask = [.width, .height]
@@ -1410,6 +1430,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         case .models:
             let tableHeight = snapshot.map { modelListPresentation(for: $0).tableHeight } ?? 132
             targetHeight = 410 + tableHeight
+        case .modelRouting:
+            targetHeight = 398 + CGFloat(max(1, modelRoutingControls.visibleProjects.count)) * 72
         case .calendar:
             let gridHeight: CGFloat = normalizedWidth >= 1200 ? 246 : 232
             let detailHeight = selectedCalendarRangeSummary() != nil
@@ -2626,6 +2648,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         guard let snapshot else {
             if selectedSection == .settings {
                 drawSettingsPage(content: content)
+            } else if selectedSection == .modelRouting {
+                drawModelRoutingPage(content: content)
             } else if selectedSection == .about {
                 drawAboutPage(content: content)
             } else if isLoading {
@@ -2647,6 +2671,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawCombinationRankingPage(snapshot: snapshot, content: content)
         case .models:
             drawModelsPage(snapshot: snapshot, content: content)
+        case .modelRouting:
+            drawModelRoutingPage(content: content)
         case .calendar:
             drawCalendarPage(snapshot: snapshot, content: content)
         case .costs:
@@ -2800,6 +2826,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         case .combinationRanking: return "chart.bar.xaxis.ascending"
         case .costs: return "clock.arrow.circlepath"
         case .models: return "cpu"
+        case .modelRouting: return "switch.2"
         case .storage: return "internaldrive"
         case .settings: return "gearshape"
         case .diagnostics: return "stethoscope"

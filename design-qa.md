@@ -1,152 +1,51 @@
-# Task Bar Plan Hover Design QA
+# Follow Global Control Design QA
 
 ## Evidence
 
-- Source visual truth: `/var/folders/hm/pmxxw3v90wl7nql88zsgljym0000gn/T/codex-clipboard-e3df5924-8091-4107-9d06-5254d7711395.png`
-- Implementation screenshot: `/tmp/task-bar-plan-no-title-large-text.png`
-- Combined comparison: `/tmp/task-bar-plan-comparison.png`
-- Source pixels: 740 x 604
-- Implementation pixels: 1556 x 892
-- Implementation AppKit size: 778 x 446 points at 2x density
-- Comparison normalization: both captures scaled to 604 px high and placed side by side without changing aspect ratio
-- State: dark appearance, fourth plan step active, task row hovered, complete five-step plan visible
+- Source visual truth: `/var/folders/hm/pmxxw3v90wl7nql88zsgljym0000gn/T/codex-clipboard-3f1c7242-d3ee-404c-837e-768015ce57f7.png`
+- Wide implementation: `/tmp/model-routing-follow-global-final.png`
+- Compact implementation: `/tmp/model-routing-follow-global-final-compact.png`
+- Combined comparison: `/tmp/model-routing-follow-global-comparison.png`
+- Live-data implementation: `/tmp/model-routing-follow-global-v1.png`
 
-## Full-View Comparison
+## Normalization
 
-The implementation intentionally removes the reference's `任务计划` header per the latest user direction. The recovered vertical space is given to the checklist: step labels are larger while the complete five-step plan and `Step 4 / 5` footer remain visible. The Task Bar header, filters, row density, fixed progress-ring column, hover highlight, and panel attachment point remain unchanged.
+- Source pixels: 1760 x 1374.
+- Wide implementation pixels: 2560 x 1520 for a 1280 x 760 point AppKit view at 2x density.
+- Compact implementation pixels: 1720 x 1520 for an 860 x 760 point AppKit view at 2x density.
+- The source is a written interaction specification with the previous inherited controls, not a pixel-exact mock. The combined comparison scales both full views to 1600 pixels wide and judges the requested state changes rather than unrelated chat chrome.
+- States shown together: multiple-root conflict, project settings, and following global.
 
-## Focused Region Comparison
+## Findings
 
-The panel was checked at original 2x output:
+No actionable P0, P1, or P2 differences remain.
 
-- The panel uses a 360 pt card width, 10 pt pointer inset, 16 pt top inset, dynamically measured checklist rows, and a 42 pt footer.
-- Step text increased from 10.5 pt to 12.5 pt; the active step uses semibold weight and the footer increased to 11.5 pt.
-- Long Chinese and mixed Chinese/English labels wrap naturally with no truncation.
-- Completed, active, and pending markers match the source's gray check, blue ring, and muted empty-ring hierarchy.
-- All markers share one fixed x-axis and retain continuous dashed connectors.
-
-## Required Fidelity Surfaces
-
-- Fonts and typography: passed. Native system fonts preserve the existing Task Bar family; the requested larger 12.5 pt checklist text is readable, wraps fully, and uses an appropriate semibold active state.
-- Spacing and layout rhythm: passed. Removing the redundant title leaves a compact 16 pt top inset, marker and text columns remain aligned, and the larger text does not collide with the footer or card edge.
-- Colors and visual tokens: existing Task Bar charcoal surfaces and semantic green, amber, and blue are reused. The plan panel uses the same dark surface with restrained white opacity and the existing blue progress accent.
-- Image quality and asset fidelity: the logo remains the repository's native Task Bar asset; icons use AppKit/SF Symbols; rings and checklist states are native vector drawing at display density with no raster placeholders.
-- Copy and content: passed. The five runtime plan steps and step fraction remain complete; only the explicitly removed redundant title is absent.
+- Fonts and typography: the implementation retains the app's native San Francisco hierarchy. Inherited values no longer repeat `· 继承`; the single `跟随全局` column expresses the state.
+- Spacing and layout rhythm: the checkbox is centered in the former status column at both 1280- and 860-point widths. Model and effort controls retain their existing column dimensions and row alignment.
+- Colors and visual tokens: enabled controls keep the existing input treatment. Following-global controls use 52% opacity and are disabled. Mixed state uses the existing amber warning color and the native indeterminate checkbox.
+- Image quality and asset fidelity: the design contains no raster assets. Native AppKit checkboxes and existing controls are used; no replacement drawings or placeholder icons were introduced.
+- Copy and content: inherited controls show the actual effective global model and effort without duplicate inheritance labels. The table header is `跟随全局`.
+- Interaction states: checking removes both project overrides; unchecking writes the current effective global model and effort as explicit project values before enabling editing. Multiple roots render as an amber indeterminate checkbox; AppKit advances the mixed checkbox to checked on activation.
+- Accessibility: the checkbox is a native keyboard-focusable control with a project-specific accessibility label. Disabled pop-ups are removed from editing while still showing their effective values.
 
 ## Comparison History
 
-1. Earlier implementation included a `任务计划` heading and 10.5 pt step labels.
-2. Fix: removed the heading, reduced the top region to a 16 pt inset, increased checklist text to 12.5 pt and footer text to 11.5 pt, and made row heights follow wrapped text.
-3. Post-fix evidence: `/tmp/task-bar-plan-comparison.png` shows the deliberate title removal, larger readable steps, complete plan content, and unchanged status hierarchy.
+### Iteration 1
 
-## Findings
+- The selected direction required one row-level inheritance control, disabled inherited pop-ups, effective values without `· 继承`, and an indeterminate multiple-root state.
+- The first implementation render contains all three states without layout collisions or repeated inheritance copy.
+- Wide and compact post-implementation evidence: `/tmp/model-routing-follow-global-final.png` and `/tmp/model-routing-follow-global-final-compact.png`.
 
-No actionable P0, P1, or P2 visual mismatches remain.
+## Primary Interactions Tested
+
+- Store test verifies different root values produce a mixed state.
+- Store test verifies checking follow-global clears model and reasoning overrides from every root.
+- Store test verifies unchecking creates project settings using the global Terra/medium values.
+- AppKit probe verifies a mixed native checkbox advances to checked when activated.
+- Build and both render widths completed without UI runtime errors.
 
 ## Follow-up Polish
 
-- P3: Image-generated source text has slightly softer antialiasing than native AppKit rendering; native rendering is intentionally retained for production sharpness.
-- P3: The source is a focused crop while the implementation includes the full Task Bar fixture; this framing difference does not affect the hover-card comparison.
-
-## Verification
-
-- Task Bar build: passed with `./build_petbar.sh`
-- Task Bar plan-hover render: passed at 778 x 446 points / 1556 x 892 pixels
-- Hover routing: task-row entry and movement use the existing details card by default; only the 15 pt progress ring with a 4 pt hit inset selects the plan card.
-- `git diff --check`: passed
-
-final result: passed
-
----
-
-# AI Token Meter Overview Weekly Quota Design QA
-
-- Source visual truth: `/Users/kadewu/.codex/generated_images/019f9bb4-12c0-7e92-ad26-dd3bb00c646a/exec-03139954-67b0-48f8-b679-b25e902edce6.png`
-- Implementation screenshot: `/tmp/ai-token-meter-overview-weekly-compact.png`
-- Combined comparison: `/tmp/ai-token-meter-weekly-comparison.png`
-- Viewport: native AppKit details view at 920 x 996 CSS points, 2x backing scale
-- Source pixels: 1419 x 1109; window title bar removed for content comparison, then normalized to 1840 x 1370
-- Implementation pixels: 1840 x 1992; top 1840 x 1370 compared at 1:1 pixels
-- State: Overview, All sources, Chinese, live Codex and Claude weekly quota available
-
-## Full-view comparison evidence
-
-The selected asymmetrical layout is preserved: a two-row weekly quota panel occupies the left side of the top metric region, the five existing metrics use a 3-over-2 grid on the right, and the reset-credit, source, and model panels retain their established order and styling below. Sidebar proportions, source selector placement, panel fills, borders, radii, and semantic Codex/Claude colors align with the selected design.
-
-Dynamic values intentionally differed from the design mock in that initial pass. It displayed the current Codex weekly used percentage, Claude weekly remaining percentage, and each provider's actual reset timestamp rather than the mock's 68% and 42% examples. The later weekly-remaining QA entry records the follow-up semantic correction.
-
-## Focused region comparison evidence
-
-The top quota-and-metrics region was inspected at equal pixel density in the combined comparison. Titles, percentage/suffix hierarchy, divider, progress tracks, reset timestamps, and 3-over-2 metric-card alignment are readable without overlap or truncation. A second full render at 1280 points confirmed that the same hierarchy expands cleanly at a wider desktop size.
-
-## Findings
-
-- No actionable P0, P1, or P2 mismatch.
-- P3: the generated mock slightly reduces some pre-existing header and sidebar typography. The implementation intentionally preserves the app's native typography instead of restyling unrelated surfaces.
-- P3: the design mock contains static example quota values; the implementation correctly uses live or cached quota data and shows an unavailable state when a weekly window is missing.
-
-## Required fidelity surfaces
-
-- Fonts and typography: native SF system fonts, weights, monospaced percentage digits, and existing hierarchy preserved; no wrapping or truncation at 920 and 1280 points.
-- Spacing and layout rhythm: selected 40/60 top-region composition, 12-point gaps, two equal quota rows, and downstream vertical reflow match the design intent.
-- Colors and visual tokens: existing panel, border, blue, amber, cyan, orange, green, and teal tokens are reused.
-- Image quality and asset fidelity: no raster assets are required by this native data UI; existing SF Symbols and AppKit drawing remain unchanged.
-- Copy and content: Chinese labels match the selected design; reset timestamps and quota values are live data.
-- Interaction and states: existing source tabs remain functional; the quota panel is read-only, as indicated by the design.
-- Accessibility: text keeps the app's existing contrast and scalable native font rendering; meaning is conveyed by labels and numbers in addition to color.
-
-## Comparison history
-
-- Initial comparison: no P0/P1/P2 findings, so no design-QA fix iteration was required.
-
-## Follow-up polish
-
-- If product feedback prefers the mock's smaller surrounding typography, evaluate that as a separate whole-page typography change rather than coupling it to this quota feature.
-
-final result: passed
-
----
-
-# AI Token Meter Weekly Remaining Pace Marker Design QA
-
-- Source visual truth: `/var/folders/hm/pmxxw3v90wl7nql88zsgljym0000gn/T/codex-clipboard-3c97bcc5-792a-4d57-89f1-736a7e205fc9.png`
-- Implementation screenshot: `/tmp/ai-token-meter-overview-weekly-remaining.png`
-- Combined comparison: `/tmp/ai-token-meter-weekly-remaining-comparison.png`
-- Source pixels: 686 x 450
-- Implementation pixels: 1840 x 1992 at 2x backing scale
-- Comparison pixels: 1504 x 450; the implementation quota panel was cropped without changing its aspect ratio, scaled to the source height, and placed beside the source
-- State: Overview, All sources, Chinese, live Codex and Claude weekly windows available
-
-## Comparison evidence
-
-The source and implementation were inspected together in one comparison image. Both providers now use the same remaining-quota semantics: the percentage, suffix, and filled rail represent actual weekly quota remaining. Each rail also includes a short expected-remaining marker derived from the elapsed portion of that provider's current weekly window.
-
-The linear rail adapts the source's circular indicator to the already selected overview-card design. A yellow marker means actual remaining is below expected remaining at the current time; a lime marker means actual remaining is at or above the time-based expectation. The marker does not replace or distort the provider-colored actual-remaining fill.
-
-## Required fidelity surfaces
-
-- Fonts and typography: passed. Both rows use identical remaining labels, monospaced percentage digits, weight, size, and alignment.
-- Spacing and layout rhythm: passed. The new marker stays on the existing rail, preserves the divider and reset-time rows, and does not change the selected overview geometry.
-- Colors and visual tokens: passed. Codex blue and Claude amber continue to identify actual quota; yellow and lime reuse the existing quota pace-marker semantics elsewhere in the app.
-- Copy and content: passed. Codex and Claude both say weekly remaining in Chinese, Traditional Chinese, Japanese, and English. Percentages come from `remainingPercent`.
-- Dynamic behavior: passed. Marker position comes from elapsed window time, uses each provider's own reset timestamp and window duration, and is hidden when the pace comparison cannot be calculated.
-- Accessibility: passed. Provider labels, percentage values, the explicit remaining suffix, and reset timestamp convey the state without relying on marker color alone.
-
-## Findings
-
-No actionable P0, P1, or P2 visual or semantic mismatches remain.
-
-## Comparison history
-
-1. Initial implementation mixed Codex used percentage with Claude remaining percentage and had no time-position marker.
-2. Fix: both rows now render remaining percentage and add the expected-remaining marker on the same rail.
-3. Post-fix comparison shows Codex at 90% remaining with a yellow marker and Claude at 96% remaining with a lime marker, matching the supplied reference semantics.
-
-## Verification
-
-- `git diff --check`: passed
-- `./build.sh`: passed; only pre-existing Codable and deprecated Security warnings were emitted
-- Overview details render: passed at 920 x 996 points / 1840 x 1992 pixels
-- Live quota check: Codex weekly remaining 90%; Claude weekly remaining 96%
+- P3: run a manual VoiceOver announcement pass in the installed application.
 
 final result: passed

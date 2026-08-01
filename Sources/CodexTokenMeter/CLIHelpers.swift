@@ -75,6 +75,7 @@ func requestedDetailsSection(from arguments: [String]) -> DetailsSection {
     case "ranking", "combination-ranking", "combination_ranking": return .combinationRanking
     case "costs": return .costs
     case "models": return .models
+    case "model-defaults", "model_defaults", "model-routing", "model_routing": return .modelRouting
     case "storage": return .storage
     case "settings": return .settings
     case "diagnostics": return .diagnostics
@@ -262,12 +263,14 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let section = requestedDetailsSection(from: arguments)
     let source = requestedDetailsSource(from: arguments) ?? .all
     let isInsightsSection = section == .insights
-    let accountUsage = !isInsightsSection && AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
-    let resetCredits = isInsightsSection ? nil : RateLimitResetCreditsReader().read(timeout: 8)
+    let isModelRoutingSection = section == .modelRouting
+    let canRenderWithoutUsage = isInsightsSection || isModelRoutingSection
+    let accountUsage = !canRenderWithoutUsage && AppSettings.profileAPITotalsEnabled ? AccountUsageReader().read() : nil
+    let resetCredits = canRenderWithoutUsage ? nil : RateLimitResetCreditsReader().read(timeout: 8)
     let codex: TokenReport
     let claude: TokenReport
     var combinedClaudeRepoInsightReports: [Int: RepoInsightsReport]?
-    if isInsightsSection {
+    if canRenderWithoutUsage {
         codex = TokenReport(scannedAt: Date())
         claude = TokenReport(scannedAt: Date())
     } else if section == .costs {
@@ -291,9 +294,12 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         combinedClaudeRepoInsightReports = details.repoInsights
     }
     let all = mergedTokenReport([codex, claude])
-    let codexRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90])
-    let claudeRepoInsightReports = combinedClaudeRepoInsightReports
-        ?? claudeScanner.scanRepoInsights(windows: [7, 30, 90])
+    let codexRepoInsightReports = isModelRoutingSection
+        ? [:]
+        : scanner.scanRepoInsights(windows: [7, 30, 90])
+    let claudeRepoInsightReports = isModelRoutingSection
+        ? [:]
+        : (combinedClaudeRepoInsightReports ?? claudeScanner.scanRepoInsights(windows: [7, 30, 90]))
     let repoInsightReports = Dictionary(uniqueKeysWithValues: [7, 30, 90].map { days in
         let report = mergedRepoInsightsReport(
             [
@@ -318,8 +324,8 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         codexRepoInsightReports: codexRepoInsightReports,
         claudeRepoInsights: claudeRepoInsights,
         claudeRepoInsightReports: claudeRepoInsightReports,
-        liveLimits: isInsightsSection ? [] : combinedLiveLimits(),
-        serviceStatus: isInsightsSection ? nil : CodexServiceStatusReader().read(),
+        liveLimits: canRenderWithoutUsage ? [] : combinedLiveLimits(),
+        serviceStatus: canRenderWithoutUsage ? nil : CodexServiceStatusReader().read(),
         costReferenceReport: source == .codex ? codex : all,
         accountUsage: accountUsage,
         resetCredits: resetCredits
@@ -394,6 +400,23 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         .first
     if section == .models, modelSearch != nil || modelSort != nil {
         view.configureModelList(query: modelSearch, sort: modelSort)
+    }
+    if section == .modelRouting {
+        let routingSearch = arguments
+            .compactMap { argument -> String? in
+                guard argument.hasPrefix("--model-routing-search=") else { return nil }
+                return String(argument.dropFirst("--model-routing-search=".count))
+            }
+            .first
+        let routingFilter = arguments
+            .compactMap { argument -> String? in
+                guard argument.hasPrefix("--model-routing-filter=") else { return nil }
+                return String(argument.dropFirst("--model-routing-filter=".count))
+            }
+            .first
+        if routingSearch != nil || routingFilter != nil {
+            view.modelRoutingControls.configure(query: routingSearch, filter: routingFilter)
+        }
     }
     if section == .reasoning || section == .combinationRanking {
         if let rawSort = arguments
