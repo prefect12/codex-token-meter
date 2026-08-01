@@ -327,7 +327,7 @@ extension UsageDetailsView {
 
     func drawContributionDayTooltip(_ summary: ContributionDaySummary, container: NSRect) {
         let width: CGFloat = 214
-        let height: CGFloat = 92
+        let height: CGFloat = 108
         let gap: CGFloat = 12
         var origin = CGPoint(x: summary.hitRect.maxX + gap, y: summary.hitRect.midY - height / 2)
         if origin.x + width > container.maxX - 12 {
@@ -352,11 +352,11 @@ extension UsageDetailsView {
         border.stroke()
 
         let day = summary.day
-        let planValue = contributionDayPlanValue(day)
         let apiEstimate = contributionDayAPIEstimate(day)
         let rows: [(String, String)] = [
             ("Token", compactDashboardTotal(day.usage.total)),
-            (contributionPlanAmountLabel(), planValue.map { displayMoney($0, source: selectedDetailsSource) } ?? "--"),
+            (contributionInputTokenLabel(), compactDashboardTotal(day.usage.input)),
+            (contributionOutputTokenLabel(), compactDashboardTotal(day.usage.output)),
             (contributionAPIAmountLabel(), apiEstimate.hasPricedUsage ? displayAPIMoney(apiEstimate.usdValue, source: selectedDetailsSource) : "--")
         ]
         drawText(localizedContributionDate(day.day), rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.minY + 8, width: tooltipRect.width - 20, height: 14), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.82))
@@ -366,20 +366,6 @@ extension UsageDetailsView {
             drawRight(row.1, rect: NSRect(x: tooltipRect.minX + 92, y: y - 1, width: tooltipRect.width - 102, height: 15), color: NSColor.white.withAlphaComponent(0.86), font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
         }
         drawText(t(.clickForDetails), rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.maxY - 18, width: tooltipRect.width - 20, height: 13), font: .systemFont(ofSize: 9, weight: .medium), color: accentTeal.withAlphaComponent(0.74))
-    }
-
-    func contributionDayPlanValue(_ day: DayUsage) -> Double? {
-        guard let snapshot else { return nil }
-        let report = calendarReport(for: snapshot)
-        let reportDay = report.byDay.first { $0.day == day.day } ?? day
-        return planCostEstimate(
-            report: report,
-            selectedDay: reportDay,
-            limit: sourceCostLimit(for: snapshot),
-            quotaReferenceReport: sourceCostReferenceReport(for: snapshot),
-            monthlyCost: AppSettings.monthlyPlanCost(for: selectedDetailsSource),
-            paymentStartDay: AppSettings.paymentStartDay(for: selectedDetailsSource)
-        )?.selectedDayValue
     }
 
     func contributionDayAPIEstimate(_ day: DayUsage) -> APICostEstimate {
@@ -398,6 +384,28 @@ extension UsageDetailsView {
             return "対応金額"
         default:
             return "Plan value"
+        }
+    }
+
+    func contributionInputTokenLabel() -> String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese:
+            return "输入 Token"
+        case .japanese:
+            return "入力 Token"
+        default:
+            return "Input Token"
+        }
+    }
+
+    func contributionOutputTokenLabel() -> String {
+        switch AppLanguage.current {
+        case .chinese, .traditionalChinese:
+            return "输出 Token"
+        case .japanese:
+            return "出力 Token"
+        default:
+            return "Output Token"
         }
     }
 

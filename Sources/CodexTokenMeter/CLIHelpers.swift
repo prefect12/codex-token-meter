@@ -372,6 +372,14 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         }
     }
     view.snapshot = snapshot
+    if section == .overview {
+        view.hoveredContributionDay = arguments
+            .compactMap { argument -> String? in
+                guard argument.hasPrefix("--contribution-hover-day=") else { return nil }
+                return String(argument.dropFirst("--contribution-hover-day=".count))
+            }
+            .first
+    }
     let modelSearch = arguments
         .compactMap { argument -> String? in
             guard argument.hasPrefix("--model-search=") else { return nil }
