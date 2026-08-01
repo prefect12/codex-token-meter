@@ -3,7 +3,9 @@ import Foundation
 // MARK: - Dashboard Report Cache
 
 enum DashboardReportCacheStore {
-    private static let version = 2
+    // Version 3 invalidates reports written before per-day events and
+    // per-model turn counts were persisted.
+    private static let version = 3
 
     private struct Entry: Codable {
         let windowHours: Int
