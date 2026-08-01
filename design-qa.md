@@ -1,58 +1,51 @@
-# Default Model Page Design QA
+# Follow Global Control Design QA
 
 ## Evidence
 
-- Source visual truth: `/Users/kadewu/.codex/generated_images/019fbb0d-6957-7be0-93b4-8909ce1a6cff/call_qhEnGlFUew4eT2J1AVGSxCTG.png`
-- Implementation screenshot: `/tmp/codex-token-meter-model-defaults-final-v2.png`
-- Normalized implementation: `/tmp/codex-token-meter-model-defaults-final-v2-1x.png`
-- Full-view comparison: `/tmp/codex-token-meter-model-defaults-comparison-v2.png`
-- Focused content comparison: `/tmp/model-routing-focused-comparison.png`
-- Search state: `/tmp/codex-token-meter-model-defaults-search-v2-1x.png`
-- Inherited-only state: `/tmp/codex-token-meter-model-defaults-inherited-v2-1x.png`
-- Compact-width state: `/tmp/codex-token-meter-model-defaults-compact-v2-1x.png`
+- Source visual truth: `/var/folders/hm/pmxxw3v90wl7nql88zsgljym0000gn/T/codex-clipboard-3f1c7242-d3ee-404c-837e-768015ce57f7.png`
+- Wide implementation: `/tmp/model-routing-follow-global-final.png`
+- Compact implementation: `/tmp/model-routing-follow-global-final-compact.png`
+- Combined comparison: `/tmp/model-routing-follow-global-comparison.png`
+- Live-data implementation: `/tmp/model-routing-follow-global-v1.png`
 
 ## Normalization
 
-- Target viewport and state: native macOS details window, dark appearance, default-model page, 1440 x 1024 points, global Terra/medium, four overridden projects, one inherited project.
-- Source pixels: 1488 x 1058. It was normalized to 1440 x 1024 for full-view comparison.
-- Implementation pixels: 2880 x 2048 from the AppKit 2x renderer. CSS/AppKit size: 1440 x 1024 points at density 2. It was downsampled to 1440 x 1024 before comparison.
-- Compact implementation: 1720 x 1520 pixels, normalized to 860 x 760 points.
+- Source pixels: 1760 x 1374.
+- Wide implementation pixels: 2560 x 1520 for a 1280 x 760 point AppKit view at 2x density.
+- Compact implementation pixels: 1720 x 1520 for an 860 x 760 point AppKit view at 2x density.
+- The source is a written interaction specification with the previous inherited controls, not a pixel-exact mock. The combined comparison scales both full views to 1600 pixels wide and judges the requested state changes rather than unrelated chat chrome.
+- States shown together: multiple-root conflict, project settings, and following global.
 
 ## Findings
 
 No actionable P0, P1, or P2 differences remain.
 
-- Fonts and typography: both use the native San Francisco system family and the same bold-title/semibold-control hierarchy. The implementation retains AI Token Meter's existing 26/13-point page header and compact table type, which is slightly denser than the concept but consistent with every other details page.
-- Spacing and layout rhythm: global defaults, search/filter toolbar, unified table, inherited divider, and footer follow the source hierarchy. The implementation keeps the product's existing 200-point sidebar instead of widening it to the generated concept's approximate 290-point sidebar. At 860 points, project text truncates and controls remain usable without overlap.
-- Colors and visual tokens: the implementation uses the app's existing background, panel, input, border, and accent-blue tokens. Selected navigation and filter states are blue; inherited and saved states remain deliberately quieter.
-- Image quality and asset fidelity: the target contains no photographic or illustrative assets. All icons are native SF Symbols, matching the existing app; no replacement image, custom SVG, or placeholder asset is present.
-- Copy and content: all core labels match the selected concept. In inherited rows, the implementation adds `· 继承` to the effective model/effort values so the control remains truthful. The footer action is `重新读取项目…` rather than `添加项目…` because Codex owns its project registry and this app should not create opaque registry records.
-- Accessibility and behavior: native search, segmented filters, pop-up controls, accessibility labels, focus behavior, and keyboard semantics are retained. Search and inherited-only render states passed. The config-store test passed for global writes, multi-root project writes, inheritance removal, and preservation of unrelated TOML.
+- Fonts and typography: the implementation retains the app's native San Francisco hierarchy. Inherited values no longer repeat `· 继承`; the single `跟随全局` column expresses the state.
+- Spacing and layout rhythm: the checkbox is centered in the former status column at both 1280- and 860-point widths. Model and effort controls retain their existing column dimensions and row alignment.
+- Colors and visual tokens: enabled controls keep the existing input treatment. Following-global controls use 52% opacity and are disabled. Mixed state uses the existing amber warning color and the native indeterminate checkbox.
+- Image quality and asset fidelity: the design contains no raster assets. Native AppKit checkboxes and existing controls are used; no replacement drawings or placeholder icons were introduced.
+- Copy and content: inherited controls show the actual effective global model and effort without duplicate inheritance labels. The table header is `跟随全局`.
+- Interaction states: checking removes both project overrides; unchecking writes the current effective global model and effort as explicit project values before enabling editing. Multiple roots render as an amber indeterminate checkbox; AppKit advances the mixed checkbox to checked on activation.
+- Accessibility: the checkbox is a native keyboard-focusable control with a project-specific accessibility label. Disabled pop-ups are removed from editing while still showing their effective values.
 
 ## Comparison History
 
 ### Iteration 1
 
-- Earlier P2: inherited pop-up items reused the exact title of a model/effort item. `NSPopUpButton` de-duplicated that title and displayed the first catalog value (`Sol/low`) instead of the effective inherited value.
-- Fix: make inherited display titles unique (`GPT-5.6-Terra · 继承`, `medium · 继承`) while preserving the inheritance sentinel as the represented value.
-- Post-fix evidence: `/tmp/codex-token-meter-model-defaults-final-v2-1x.png` and `/tmp/codex-token-meter-model-defaults-inherited-v2-1x.png`.
-
-### Iteration 2
-
-- Earlier P2: the default AppKit segmented renderer showed a neutral-gray selected filter, and the search field had a doubled bezel in bitmap rendering.
-- Fix: apply the app accent blue through `selectedSegmentBezelColor`; draw one shared input surface and make the native search field bezel/background transparent.
-- Post-fix evidence: `/tmp/codex-token-meter-model-defaults-comparison-v2.png`.
+- The selected direction required one row-level inheritance control, disabled inherited pop-ups, effective values without `· 继承`, and an indeterminate multiple-root state.
+- The first implementation render contains all three states without layout collisions or repeated inheritance copy.
+- Wide and compact post-implementation evidence: `/tmp/model-routing-follow-global-final.png` and `/tmp/model-routing-follow-global-final-compact.png`.
 
 ## Primary Interactions Tested
 
-- Search query state: `Arachne` filters the table to one row.
-- Filter state: `继承全局` filters the table to the inherited project.
-- Responsive state: 860 x 760 keeps all columns and controls usable.
-- Persistence path: isolated temporary `CODEX_HOME` tests write and read global and project-local TOML without touching real user configuration.
-- Build/render console: no UI runtime error was emitted. Existing unrelated Swift deprecation and immutable-decoding warnings remain.
+- Store test verifies different root values produce a mixed state.
+- Store test verifies checking follow-global clears model and reasoning overrides from every root.
+- Store test verifies unchecking creates project settings using the global Terra/medium values.
+- AppKit probe verifies a mixed native checkbox advances to checked when activated.
+- Build and both render widths completed without UI runtime errors.
 
 ## Follow-up Polish
 
-- P3: a future live UI automation test could click each native pop-up control end-to-end; current coverage exercises its persistence path and rendered states separately.
+- P3: run a manual VoiceOver announcement pass in the installed application.
 
 final result: passed

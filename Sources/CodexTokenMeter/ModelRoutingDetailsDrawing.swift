@@ -1,6 +1,5 @@
 import Cocoa
 
-private let modelRoutingInheritedValue = "__inherit__"
 private let modelRoutingMixedValue = "__mixed__"
 
 private struct ModelRoutingColumns {
@@ -93,8 +92,10 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     private let store: CodexModelRoutingStore
     private weak var host: UsageDetailsView?
     private var bindings: [ObjectIdentifier: Binding] = [:]
+    private var inheritanceBindings: [ObjectIdentifier: String] = [:]
     private var modelPopups: [Scope: NSPopUpButton] = [:]
     private var effortPopups: [Scope: NSPopUpButton] = [:]
+    private var inheritanceCheckboxes: [String: NSButton] = [:]
     private let searchField = NSSearchField()
     private let filterControl = NSSegmentedControl(
         labels: ["", "", ""],
@@ -216,6 +217,9 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         for popup in effortPopups.values {
             popup.isHidden = true
         }
+        for checkbox in inheritanceCheckboxes.values {
+            checkbox.isHidden = true
+        }
         guard visible, let layout else { return }
 
         searchField.placeholderString = localized(
@@ -256,7 +260,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         layoutGlobalPopups(in: layout.globalRect)
         for project in visibleProjects {
             guard let row = layout.projectRows[project.project.id] else { continue }
-            layoutProjectPopups(scope: .project(project.project.id), row: row)
+            layoutProjectControls(project: project, row: row)
         }
     }
 
@@ -317,6 +321,31 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         reload()
     }
 
+    @objc private func inheritanceChanged(_ sender: NSButton) {
+        guard let id = inheritanceBindings[ObjectIdentifier(sender)] else { return }
+        do {
+            if sender.state == .on {
+                try store.writeProject(id: id, model: nil, reasoningEffort: nil)
+            } else {
+                try store.writeProject(
+                    id: id,
+                    model: effectiveGlobalModel(),
+                    reasoningEffort: effectiveGlobalEffort()
+                )
+            }
+            statusMessage = localized(
+                chinese: "已保存",
+                english: "Saved",
+                japanese: "保存済み"
+            )
+            statusIsError = false
+        } catch {
+            statusMessage = error.localizedDescription
+            statusIsError = true
+        }
+        reload()
+    }
+
     private func invalidateLayout() {
         host?.onPreferredHeightChanged?()
         host?.needsDisplay = true
@@ -352,18 +381,15 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         guard let project = snapshot.projects.first(where: { $0.project.id == id }) else {
             throw CodexModelRoutingStoreError.missingProject(id)
         }
-        var model = project.model.explicitValue
-        var effort = project.reasoningEffort.explicitValue
-        let selected = selectedValue(in: sender)
-        let value = selected == modelRoutingInheritedValue ? nil : selected
+        var model = project.model.explicitValue ?? effectiveGlobalModel()
+        var effort = project.reasoningEffort.explicitValue ?? effectiveGlobalEffort()
+        let value = selectedValue(in: sender)
 
         switch field {
         case .model:
             model = value
-            let effectiveModel = model ?? effectiveGlobalModel()
-            let effectiveEffort = effort ?? effectiveGlobalEffort()
-            if !(modelOption(slug: effectiveModel)?.supportedReasoningEfforts ?? []).contains(effectiveEffort) {
-                effort = preferredEffort(for: effectiveModel)
+            if !(modelOption(slug: model)?.supportedReasoningEfforts ?? []).contains(effort) {
+                effort = preferredEffort(for: model)
             }
         case .effort:
             effort = value
@@ -378,9 +404,14 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         for popup in effortPopups.values {
             popup.removeFromSuperview()
         }
+        for checkbox in inheritanceCheckboxes.values {
+            checkbox.removeFromSuperview()
+        }
         bindings.removeAll()
+        inheritanceBindings.removeAll()
         modelPopups.removeAll()
         effortPopups.removeAll()
+        inheritanceCheckboxes.removeAll()
 
         installPopups(scope: .global, project: nil)
         for project in snapshot.projects {
@@ -409,13 +440,26 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             selectedModel = snapshot.global.model.map(CodexProjectConfigValue.value) ?? .inherited
             selectedEffort = snapshot.global.reasoningEffort.map(CodexProjectConfigValue.value) ?? .inherited
         }
-        configureModelPopup(modelPopup, scope: scope, selected: selectedModel)
+        configureModelPopup(modelPopup, selected: selectedModel)
         configureEffortPopup(
             effortPopup,
             scope: scope,
             selectedModel: selectedModel,
             selectedEffort: selectedEffort
         )
+
+        if let project {
+            let checkbox = makeInheritanceCheckbox(project: project)
+            inheritanceCheckboxes[project.project.id] = checkbox
+            inheritanceBindings[ObjectIdentifier(checkbox)] = project.project.id
+            host.addSubview(checkbox)
+
+            let controlsEnabled = !project.inheritsEverything && !project.hasMixedValues
+            modelPopup.isEnabled = controlsEnabled
+            effortPopup.isEnabled = controlsEnabled
+            modelPopup.alphaValue = controlsEnabled ? 1 : 0.52
+            effortPopup.alphaValue = controlsEnabled ? 1 : 0.52
+        }
     }
 
     private func makePopup() -> NSPopUpButton {
@@ -435,31 +479,50 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         return popup
     }
 
+    private func makeInheritanceCheckbox(project: CodexProjectRoutingSnapshot) -> NSButton {
+        let checkbox = NSButton(checkboxWithTitle: "", target: self, action: #selector(inheritanceChanged(_:)))
+        checkbox.controlSize = .small
+        checkbox.appearance = NSAppearance(named: .darkAqua)
+        checkbox.allowsMixedState = true
+        if project.hasMixedValues {
+            checkbox.state = .mixed
+            checkbox.contentTintColor = host?.accentAmber
+            checkbox.toolTip = localized(
+                chinese: "多个根目录设置不同。勾选后统一跟随全局；取消后使用当前全局值创建项目设置。",
+                english: "Settings differ across roots. Check to follow global everywhere, or uncheck to create project settings from the current global values.",
+                japanese: "ルート間で設定が異なります。チェックするとすべてグローバルに従い、外すと現在のグローバル値からプロジェクト設定を作成します。"
+            )
+        } else if project.inheritsEverything {
+            checkbox.state = .on
+            checkbox.toolTip = localized(
+                chinese: "正在跟随全局。取消勾选后可修改项目设置。",
+                english: "Following global. Uncheck to edit project settings.",
+                japanese: "グローバルに従っています。チェックを外すとプロジェクト設定を編集できます。"
+            )
+        } else {
+            checkbox.state = .off
+            checkbox.toolTip = localized(
+                chinese: "正在使用项目设置。勾选后将移除项目设置并跟随全局。",
+                english: "Using project settings. Check to remove them and follow global.",
+                japanese: "プロジェクト設定を使用しています。チェックすると設定を削除してグローバルに従います。"
+            )
+        }
+        checkbox.setAccessibilityLabel(
+            localized(
+                chinese: "\(project.project.name) 跟随全局",
+                english: "\(project.project.name) follows global",
+                japanese: "\(project.project.name) はグローバルに従う"
+            )
+        )
+        checkbox.isHidden = true
+        return checkbox
+    }
+
     private func configureModelPopup(
         _ popup: NSPopUpButton,
-        scope: Scope,
         selected: CodexProjectConfigValue
     ) {
         popup.removeAllItems()
-        if case .project = scope {
-            let inheritedTitle: String
-            if selected == .inherited {
-                let modelTitle = modelOption(slug: effectiveGlobalModel())?.displayName
-                    ?? effectiveGlobalModel()
-                inheritedTitle = "\(modelTitle) · \(localized(chinese: "继承", english: "Inherited", japanese: "継承"))"
-            } else {
-                inheritedTitle = localized(
-                    chinese: "继承全局",
-                    english: "Inherit global",
-                    japanese: "グローバルを継承"
-                )
-            }
-            addItem(
-                to: popup,
-                title: inheritedTitle,
-                value: modelRoutingInheritedValue
-            )
-        }
         if selected == .mixed {
             addItem(
                 to: popup,
@@ -475,7 +538,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         let selectedValue: String
         switch selected {
         case .inherited:
-            selectedValue = scope == .global ? effectiveGlobalModel() : modelRoutingInheritedValue
+            selectedValue = effectiveGlobalModel()
         case let .value(value):
             if !snapshot.models.contains(where: { $0.slug == value }) {
                 addItem(to: popup, title: value, value: value)
@@ -497,20 +560,6 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         selectedEffort: CodexProjectConfigValue
     ) {
         popup.removeAllItems()
-        if case .project = scope {
-            let inheritedTitle = selectedEffort == .inherited
-                ? "\(effectiveGlobalEffort()) · \(localized(chinese: "继承", english: "Inherited", japanese: "継承"))"
-                : localized(
-                    chinese: "继承全局",
-                    english: "Inherit global",
-                    japanese: "グローバルを継承"
-                )
-            addItem(
-                to: popup,
-                title: inheritedTitle,
-                value: modelRoutingInheritedValue
-            )
-        }
         if selectedEffort == .mixed {
             addItem(
                 to: popup,
@@ -532,9 +581,11 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         let selectedValue: String
         switch selectedEffort {
         case .inherited:
-            selectedValue = scope == .global
-                ? (snapshot.global.reasoningEffort ?? preferredEffort(for: model))
-                : modelRoutingInheritedValue
+            if case .project = scope {
+                selectedValue = effectiveGlobalEffort()
+            } else {
+                selectedValue = snapshot.global.reasoningEffort ?? preferredEffort(for: model)
+            }
         case let .value(value):
             selectedValue = value
         case .mixed:
@@ -560,12 +611,22 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         effortPopups[.global]?.isHidden = false
     }
 
-    private func layoutProjectPopups(scope: Scope, row: NSRect) {
+    private func layoutProjectControls(project: CodexProjectRoutingSnapshot, row: NSRect) {
+        let scope = Scope.project(project.project.id)
         let columns = modelRoutingColumns(in: row)
         modelPopups[scope]?.frame = columns.model.insetBy(dx: 0, dy: 18)
         effortPopups[scope]?.frame = columns.effort.insetBy(dx: 0, dy: 18)
         modelPopups[scope]?.isHidden = false
         effortPopups[scope]?.isHidden = false
+        if let checkbox = inheritanceCheckboxes[project.project.id] {
+            checkbox.frame = NSRect(
+                x: columns.status.midX - 10,
+                y: columns.status.midY - 10,
+                width: 20,
+                height: 20
+            )
+            checkbox.isHidden = false
+        }
     }
 
     private func preferredEffort(for model: String) -> String {
@@ -770,9 +831,11 @@ extension UsageDetailsView {
             modelRoutingLocalized(chinese: "思考强度", english: "Reasoning effort", japanese: "思考強度"),
             rect: columns.effort
         )
-        drawTableHeader(
-            modelRoutingLocalized(chinese: "配置来源", english: "Configuration source", japanese: "設定元"),
-            rect: columns.status
+        drawCentered(
+            modelRoutingLocalized(chinese: "跟随全局", english: "Follow global", japanese: "グローバルに従う"),
+            rect: columns.status.insetBy(dx: 0, dy: 15),
+            font: .systemFont(ofSize: 10.5, weight: .bold),
+            color: NSColor.white.withAlphaComponent(0.58)
         )
         drawRoutingSeparator(y: layout.tableHeaderRect.maxY, table: layout.tableRect, strong: false)
 
@@ -819,7 +882,6 @@ extension UsageDetailsView {
                 font: .systemFont(ofSize: 13, weight: .semibold),
                 color: NSColor.white.withAlphaComponent(0.90)
             )
-            drawProjectStatus(project, rect: rowColumns.status)
         }
     }
 
@@ -829,27 +891,6 @@ extension UsageDetailsView {
             rect: rect.insetBy(dx: 0, dy: 15),
             font: .systemFont(ofSize: 10.5, weight: .bold),
             color: NSColor.white.withAlphaComponent(0.58)
-        )
-    }
-
-    private func drawProjectStatus(_ project: CodexProjectRoutingSnapshot, rect: NSRect) {
-        let title: String
-        let color: NSColor
-        if project.hasMixedValues {
-            title = modelRoutingLocalized(chinese: "设置不一致", english: "Settings differ", japanese: "設定が不一致")
-            color = accentAmber
-        } else if project.inheritsEverything {
-            title = modelRoutingLocalized(chinese: "跟随全局", english: "Follows global", japanese: "グローバルに従う")
-            color = NSColor.white.withAlphaComponent(0.56)
-        } else {
-            title = modelRoutingLocalized(chinese: "项目设置", english: "Project setting", japanese: "プロジェクト設定")
-            color = NSColor.white.withAlphaComponent(0.72)
-        }
-        drawTruncatedText(
-            title,
-            rect: rect.insetBy(dx: 0, dy: 25),
-            font: .systemFont(ofSize: 11.5, weight: .semibold),
-            color: color
         )
     }
 

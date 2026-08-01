@@ -88,6 +88,23 @@ struct ModelRoutingStoreTests {
         try require(snapshot.projects.count == 1, "saved projects should be discovered")
         try require(snapshot.projects[0].model == .value("gpt-5.6-sol"), "project model should be read back")
         try require(snapshot.projects[0].reasoningEffort == .value("high"), "project effort should be read back")
+
+        try Data("""
+        model = "gpt-5.6-terra"
+        model_reasoning_effort = "medium"
+        """.utf8).write(to: store.projectConfigURL(rootPath: secondRoot.path))
+        let mixedSnapshot = store.loadSnapshot()
+        try require(mixedSnapshot.projects[0].hasMixedValues, "different root settings should produce a mixed project state")
+
+        try store.writeProject(id: "local-test", model: nil, reasoningEffort: nil)
+        let inheritedSnapshot = store.loadSnapshot()
+        try require(inheritedSnapshot.projects[0].inheritsEverything, "following global should clear every root override")
+
+        try store.writeProject(id: "local-test", model: "gpt-5.6-terra", reasoningEffort: "medium")
+        let projectSnapshot = store.loadSnapshot()
+        try require(!projectSnapshot.projects[0].inheritsEverything, "turning off inheritance should create project settings")
+        try require(projectSnapshot.projects[0].model == .value("gpt-5.6-terra"), "project model should copy the global value")
+        try require(projectSnapshot.projects[0].reasoningEffort == .value("medium"), "project effort should copy the global value")
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
