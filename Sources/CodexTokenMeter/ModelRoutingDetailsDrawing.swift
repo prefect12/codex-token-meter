@@ -90,6 +90,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     private(set) var projectFilter: ProjectFilter = .all
 
     private let store: CodexModelRoutingStore
+    private var configWatcher: CodexConfigWatcher?
     private weak var host: UsageDetailsView?
     private var bindings: [ObjectIdentifier: Binding] = [:]
     private var inheritanceBindings: [ObjectIdentifier: String] = [:]
@@ -109,6 +110,10 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         self.store = store
         snapshot = store.loadSnapshot()
         super.init()
+        configWatcher = CodexConfigWatcher { [weak self] in
+            self?.reloadFromExternalChange()
+        }
+        updateConfigWatcher()
     }
 
     var visibleProjects: [CodexProjectRoutingSnapshot] {
@@ -182,6 +187,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
 
     func reload() {
         snapshot = store.loadSnapshot()
+        updateConfigWatcher()
         rebuildPopups()
         invalidateLayout()
     }
@@ -297,6 +303,20 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         statusMessage = nil
         statusIsError = false
         reload()
+    }
+
+    private func reloadFromExternalChange() {
+        statusMessage = localized(
+            chinese: "已从 Codex 同步",
+            english: "Synced from Codex",
+            japanese: "Codex から同期済み"
+        )
+        statusIsError = false
+        reload()
+    }
+
+    private func updateConfigWatcher() {
+        configWatcher?.watch(targetURLs: store.routingInputURLs(for: snapshot))
     }
 
     @objc private func popupChanged(_ sender: NSPopUpButton) {
