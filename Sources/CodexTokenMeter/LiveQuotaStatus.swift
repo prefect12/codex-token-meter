@@ -825,10 +825,62 @@ final class ClaudeOAuthUsageRefresher {
     private func updateKeychainCredentials(data: Data) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.keychainService
+            kSecAttrService as String: Self.keychainService,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
         ]
-        let attributes: [String: Any] = [kSecValueData as String: data]
-        return SecItemUpdate(query as CFDictionary, attributes as CFDictionary) == errSecSuccess
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let attributes = result as? [String: Any],
+              let account = attributes[kSecAttrAccount as String] as? String,
+              !account.isEmpty,
+              let credential = String(data: data, encoding: .utf8) else {
+            return false
+        }
+
+        // Keep credential writes tied to Apple's stable /usr/bin/security
+        // executable, just like reads. Direct SecItemUpdate calls authorize
+        // this app's ad-hoc CDHash; every rebuild can then leave another stale
+        // trusted-application entry and cause recurring password prompts.
+        //
+        // Run security's interactive command parser through stdin so the value
+        // never appears in argv / process listings. The direct `-w` prompt is
+        // backed by readpassphrase(3) and truncates values at 128 bytes, which
+        // is far too small for Claude's JSON credential. `security -i` accepts
+        // the complete command stream without that limit.
+        func quotedSecurityArgument(_ value: String) -> String {
+            "\"" + value
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        }
+        let command = [
+            "add-generic-password",
+            "-U",
+            "-a", quotedSecurityArgument(account),
+            "-s", quotedSecurityArgument(Self.keychainService),
+            "-w", quotedSecurityArgument(credential)
+        ].joined(separator: " ") + "\n"
+
+        let process = Process()
+        let input = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = ["-i"]
+        process.standardInput = input
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            try input.fileHandleForWriting.write(contentsOf: Data(command.utf8))
+            try input.fileHandleForWriting.close()
+        } catch {
+            try? input.fileHandleForWriting.close()
+            if process.isRunning {
+                process.terminate()
+            }
+            return false
+        }
+        process.waitUntilExit()
+        return process.terminationReason == .exit && process.terminationStatus == 0
     }
 
     private func writeBackCredentials(root: [String: Any], fileURL: URL) {
