@@ -3,7 +3,9 @@ import Foundation
 // MARK: - Details Snapshot Cache
 
 enum DetailsSnapshotCacheStore {
-    private static let version = 5
+    // Version 6 invalidates snapshots written before per-day events and
+    // per-model turn counts were persisted.
+    private static let version = 6
 
     private struct Payload: Codable {
         let version: Int
