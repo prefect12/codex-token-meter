@@ -92,7 +92,44 @@ struct DayUsage: Codable {
     let day: String
     var usage: Usage
     var turns: Int
+    var sessions: Int
+    var events: Int
     var modelBreakdown: [ModelUsage] = []
+
+    init(
+        day: String,
+        usage: Usage,
+        turns: Int,
+        sessions: Int = 0,
+        events: Int = 0,
+        modelBreakdown: [ModelUsage] = []
+    ) {
+        self.day = day
+        self.usage = usage
+        self.turns = turns
+        self.sessions = sessions
+        self.events = events
+        self.modelBreakdown = modelBreakdown
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case day
+        case usage
+        case turns
+        case sessions
+        case events
+        case modelBreakdown
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        day = try container.decode(String.self, forKey: .day)
+        usage = try container.decode(Usage.self, forKey: .usage)
+        turns = try container.decode(Int.self, forKey: .turns)
+        sessions = try container.decodeIfPresent(Int.self, forKey: .sessions) ?? 0
+        events = try container.decodeIfPresent(Int.self, forKey: .events) ?? 0
+        modelBreakdown = try container.decodeIfPresent([ModelUsage].self, forKey: .modelBreakdown) ?? []
+    }
 }
 
 struct HourUsage: Codable {
@@ -111,8 +148,34 @@ struct SessionUsage: Codable {
 struct ModelUsage: Codable {
     let name: String
     var usage: Usage
+    var turns: Int
     var events: Int
     var sessions: Int
+
+    init(name: String, usage: Usage, turns: Int = 0, events: Int, sessions: Int) {
+        self.name = name
+        self.usage = usage
+        self.turns = turns
+        self.events = events
+        self.sessions = sessions
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case usage
+        case turns
+        case events
+        case sessions
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        usage = try container.decode(Usage.self, forKey: .usage)
+        turns = try container.decodeIfPresent(Int.self, forKey: .turns) ?? 0
+        events = try container.decode(Int.self, forKey: .events)
+        sessions = try container.decode(Int.self, forKey: .sessions)
+    }
 }
 
 struct APICostEstimate {

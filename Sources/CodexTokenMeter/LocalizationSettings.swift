@@ -362,7 +362,7 @@ enum L10nKey {
     case disabled
     case displayCurrency
     case displayCurrencyHint
-    case dayValueHint
+    case selectedDayQuotaShareHint
     case displayEquivalent
     case enabled
     case english
@@ -504,6 +504,7 @@ enum L10nKey {
     case tokenMeter
     case tracked
     case total
+    case totalEvents
     case totalSpendValue
     case totalSpendValueHint
     case totalWasteValue
@@ -679,11 +680,11 @@ enum L10nKey {
         case .disabled: return "Disabled"
         case .displayCurrency: return "Display currency"
         case .displayCurrencyHint: return "Controls money displays in the dashboard and details."
-        case .dayValueHint: return "Estimated by converting that day's token usage into money based on your plan price, not official billing."
+        case .selectedDayQuotaShareHint: return "That day's token usage as a share of the estimated weekly quota. The model table shows the contribution from each model."
         case .displayEquivalent: return "Display equivalent"
         case .enabled: return "Enabled"
         case .english: return "English"
-        case .events: return "events"
+        case .events: return "Token events"
         case .externalAPICost: return "External API cost"
         case .externalAPICostHint: return "Optional local JSON at api-usage.json can add direct OpenAI API usage that bypasses Codex logs."
         case .fileMissing: return "File missing"
@@ -693,7 +694,7 @@ enum L10nKey {
         case .input: return "Input"
         case .interfaceLanguage: return "Interface Language"
         case .insights: return "Insights"
-        case .insightsSubtitle: return "Find long-running repo threads and context compaction"
+        case .insightsSubtitle: return "Find long-running repo sessions and context compaction"
         case .japanese: return "Japanese"
         case .language: return "Language"
         case .languageHint: return "Changes apply immediately to the popover and details window."
@@ -821,12 +822,13 @@ enum L10nKey {
         case .tokenMeter: return "Token Meter"
         case .tracked: return "Tracked"
         case .total: return "total"
+        case .totalEvents: return "Total events"
         case .totalSpendValue: return "Total spend"
         case .totalSpendValueHint: return "Accumulated plan value since the paid-start date, estimated from local token usage and weekly quota references."
         case .totalWasteValue: return "Total waste"
         case .totalWasteValueHint: return "Accrued budget minus total spend. Negative values are clamped to zero."
         case .totalsObservedNote: return "local-observed usage, not official billing"
-        case .turns: return "turns"
+        case .turns: return "Turns"
         case .todayValue: return "Today value"
         case .updated: return "Updated"
         case .used: return "Used"
@@ -955,11 +957,11 @@ enum L10nKey {
         case .disabled: return "已关闭"
         case .displayCurrency: return "展示币种"
         case .displayCurrencyHint: return "控制概览和详情里的金额显示币种。"
-        case .dayValueHint: return "按你的套餐价格，把当天 token 开销折算成金额的估算值，不是官方账单。"
+        case .selectedDayQuotaShareHint: return "当天 Token 用量占估算周额度的比例；下方模型表会分别列出每个模型贡献的占比。"
         case .displayEquivalent: return "展示折合"
         case .enabled: return "已开启"
         case .english: return "英语"
-        case .events: return "事件"
+        case .events: return "Token 事件"
         case .externalAPICost: return "外部 API 成本"
         case .externalAPICostHint: return "可选读取本地 api-usage.json，用来补充绕过 Codex 日志的 OpenAI API 用量。"
         case .fileMissing: return "文件不存在"
@@ -969,7 +971,7 @@ enum L10nKey {
         case .input: return "输入"
         case .interfaceLanguage: return "界面语言"
         case .insights: return "洞察"
-        case .insightsSubtitle: return "按项目和文件夹定位长线程"
+        case .insightsSubtitle: return "按项目和文件夹定位长会话"
         case .japanese: return "日语"
         case .language: return "语言"
         case .languageHint: return "切换后会立即应用到弹窗和详情窗口。"
@@ -1076,7 +1078,7 @@ enum L10nKey {
         case .sourceHealth: return "数据源健康"
         case .sourceSplit: return "Codex / Claude 占比"
         case .spark: return "Spark"
-        case .sparkDescription: return "模型为 GPT-5.3-Codex-Spark 的事件。"
+        case .sparkDescription: return "模型为 GPT-5.3-Codex-Spark 的 Token 事件。"
         case .sparkModel: return "GPT-5.3-Codex-Spark 模型"
         case .statusBarDisplay: return "状态栏显示"
         case .statusBarMetricOne: return "状态栏数字 1"
@@ -1097,6 +1099,7 @@ enum L10nKey {
         case .tokenMeter: return "Token 统计"
         case .tracked: return "已计入"
         case .total: return "总计"
+        case .totalEvents: return "总事件数"
         case .totalSpendValue: return "总开销"
         case .totalSpendValueHint: return "从付费开始日起，按本地 token 用量和周额度参考值折算出的累计套餐价值。"
         case .totalWasteValue: return "总浪费"
@@ -1231,11 +1234,11 @@ enum L10nKey {
         case .disabled: return "無効"
         case .displayCurrency: return "表示通貨"
         case .displayCurrencyHint: return "ダッシュボードと詳細の金額表示に使う通貨です。"
-        case .dayValueHint: return "プラン料金を基準に、その日の token 使用量を金額換算した推定値であり、公式請求ではありません。"
+        case .selectedDayQuotaShareHint: return "当日の Token 使用量が推定週制限に占める割合です。下のモデル表にモデル別の寄与を表示します。"
         case .displayEquivalent: return "表示換算"
         case .enabled: return "有効"
         case .english: return "英語"
-        case .events: return "イベント"
+        case .events: return "Token イベント"
         case .externalAPICost: return "外部 API コスト"
         case .externalAPICostHint: return "任意のローカル api-usage.json で Codex ログ外の OpenAI API 使用量を補足できます。"
         case .fileMissing: return "ファイルなし"
@@ -1373,6 +1376,7 @@ enum L10nKey {
         case .tokenMeter: return "Token メーター"
         case .tracked: return "集計対象"
         case .total: return "合計"
+        case .totalEvents: return "イベント合計"
         case .totalSpendValue: return "総支出"
         case .totalSpendValueHint: return "課金開始日からの累積プラン価値を、ローカル token 使用量と週制限の参照値から推定します。"
         case .totalWasteValue: return "総浪費"

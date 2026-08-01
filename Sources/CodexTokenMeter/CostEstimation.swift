@@ -461,6 +461,8 @@ func mergedTokenReport(_ reports: [TokenReport], scannedAt: Date = Date()) -> To
             var existing = dayBuckets[day.day] ?? DayUsage(day: day.day, usage: Usage(), turns: 0, modelBreakdown: [])
             existing.usage.add(day.usage)
             existing.turns += day.turns
+            existing.sessions += day.sessions
+            existing.events += day.events
             existing.modelBreakdown = mergedModelBreakdown(existing.modelBreakdown + day.modelBreakdown)
             dayBuckets[day.day] = existing
         }
@@ -475,6 +477,7 @@ func mergedTokenReport(_ reports: [TokenReport], scannedAt: Date = Date()) -> To
         for model in report.modelBreakdown {
             var existing = modelBuckets[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
             existing.usage.add(model.usage)
+            existing.turns += model.turns
             existing.events += model.events
             existing.sessions += model.sessions
             modelBuckets[model.name] = existing
@@ -493,6 +496,7 @@ private func mergedModelBreakdown(_ models: [ModelUsage]) -> [ModelUsage] {
     for model in models {
         var existing = buckets[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
         existing.usage.add(model.usage)
+        existing.turns += model.turns
         existing.events += model.events
         existing.sessions += model.sessions
         buckets[model.name] = existing
@@ -609,11 +613,19 @@ func profileReportWithLocalFallback(_ profileReport: TokenReport, localReport: T
         for model in localDay.modelBreakdown {
             var existing = fallbackModels[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
             existing.usage.add(model.usage)
+            existing.turns += model.turns
             existing.events += model.events
             existing.sessions += model.sessions
             fallbackModels[model.name] = existing
         }
-        return DayUsage(day: profileDay.day, usage: localDay.usage, turns: localDay.turns, modelBreakdown: localDay.modelBreakdown)
+        return DayUsage(
+            day: profileDay.day,
+            usage: localDay.usage,
+            turns: localDay.turns,
+            sessions: localDay.sessions,
+            events: localDay.events,
+            modelBreakdown: localDay.modelBreakdown
+        )
     }
 
     guard didFallback else { return profileReport }
@@ -629,6 +641,7 @@ func profileReportWithLocalFallback(_ profileReport: TokenReport, localReport: T
         for model in fallbackModels.values {
             var existing = modelsByName[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
             existing.usage.add(model.usage)
+            existing.turns += model.turns
             existing.events += model.events
             existing.sessions += model.sessions
             modelsByName[model.name] = existing

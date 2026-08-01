@@ -1593,8 +1593,6 @@ extension UsageDetailsView {
             return
         }
 
-        let maxTotal = max(report.byDay.map { $0.usage.total }.max() ?? 1, 1)
-        let intensity = Double(day.usage.total) / Double(maxTotal)
         drawText(day.day, rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: 180, height: 24), font: .monospacedDigitSystemFont(ofSize: 17, weight: .bold), color: .white)
         drawText(compact(day.usage.total), rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: 260, height: 34), font: .monospacedDigitSystemFont(ofSize: 28, weight: .bold), color: .systemGreen)
         let limit = sourceCostLimit(for: snapshot)
@@ -1606,21 +1604,15 @@ extension UsageDetailsView {
             monthlyCost: AppSettings.monthlyPlanCost(for: selectedDetailsSource),
             paymentStartDay: AppSettings.paymentStartDay(for: selectedDetailsSource)
         )
-        var dayMeta = "\(day.turns) \(t(.turns).lowercased())  |  \(Int(round(intensity * 100)))% \(t(.peakDay))"
-        if let cost {
-            dayMeta += "  |  \(String(format: "%.1f%%", cost.selectedDayQuotaPercent)) \(t(.weeklyQuotaShare))"
-        }
-        drawText(dayMeta, rect: NSRect(x: rect.minX + 18, y: rect.minY + 90, width: 420, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.48))
-
         typealias DayMetric = (title: String, value: String, color: NSColor, infoAnchor: Bool, footer: String?)
         var metrics: [DayMetric] = [
             (t(.input), compact(day.usage.input), NSColor.systemGreen, false, nil),
             (t(.output), compact(day.usage.output), NSColor.systemCyan, false, nil),
             (t(.cached), compact(day.usage.cachedInput), NSColor.systemTeal, false, nil),
-            (t(.fresh), compact(day.usage.freshInput), NSColor.systemOrange, false, nil)
+            (t(.totalEvents), format(Int64(day.events)), NSColor.systemOrange, false, nil)
         ]
         if let cost {
-            metrics.append(("\(t(.dayValue)) ?", displayMoney(cost.selectedDayValue, source: selectedDetailsSource), NSColor.systemGreen, true, nil))
+            metrics.append(("\(t(.weeklyQuotaShare)) ?", String(format: "%.1f%%", cost.selectedDayQuotaPercent), NSColor.systemGreen, true, nil))
         }
         let apiEstimate = APICostEstimator.estimate(day: day)
         if apiEstimate.hasPricedUsage {
@@ -1650,7 +1642,7 @@ extension UsageDetailsView {
             let row = index / columns
             let card = NSRect(x: startX + CGFloat(col) * (metricW + gap), y: rect.minY + 24 + CGFloat(row) * (metricH + 10), width: metricW, height: metricH)
             if metric.infoAnchor {
-                dayValueInfoRect = card
+                dayQuotaShareInfoRect = card
             }
             NSColor.black.withAlphaComponent(0.12).setFill()
             NSBezierPath(roundedRect: card, xRadius: 7, yRadius: 7).fill()
@@ -1685,7 +1677,7 @@ extension UsageDetailsView {
             width: rect.width - 36,
             height: max(minimumModelHeight, rect.maxY - modelY - 18)
         )
-        drawSelectedDayModels(day.modelBreakdown, rect: modelRect)
+        drawSelectedDayModels(day.modelBreakdown, weeklyQuotaTotal: cost?.weeklyQuotaTotal, rect: modelRect)
     }
 
     func drawSelectedWeekPanel(snapshot: DetailsSnapshot, report: TokenReport, summary: ContributionWeekSummary, rect: NSRect) {
@@ -1695,7 +1687,7 @@ extension UsageDetailsView {
         let intensity = Double(summary.total) / Double(maxTotal)
         drawText(contributionWeekRangeLabel(summary), rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: 274, height: 24), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
         drawText(compact(summary.total), rect: NSRect(x: rect.minX + 18, y: rect.minY + 48, width: 260, height: 34), font: .monospacedDigitSystemFont(ofSize: 28, weight: .bold), color: .systemGreen)
-        var weekMeta = "\(summary.turns) \(t(.turns).lowercased())  |  \(contributionWeekLabel(.activeDays)) \(summary.activeDays)/\(summary.days.count)"
+        var weekMeta = "\(summary.turns) \(t(.turns))  |  \(contributionWeekLabel(.activeDays)) \(summary.activeDays)/\(summary.days.count)"
         if isSingleCalendarWeek(summary) {
             weekMeta += "  |  \(Int(round(intensity * 100)))% \(t(.peakWeek))"
         }
@@ -1781,6 +1773,7 @@ extension UsageDetailsView {
             for model in day.modelBreakdown {
                 if var existing = byName[model.name] {
                     existing.usage.add(model.usage)
+                    existing.turns += model.turns
                     existing.events += model.events
                     existing.sessions += model.sessions
                     byName[model.name] = existing
@@ -1862,7 +1855,7 @@ extension UsageDetailsView {
         }
     }
 
-    func drawSelectedDayModels(_ models: [ModelUsage], rect: NSRect) {
+    func drawSelectedDayModels(_ models: [ModelUsage], weeklyQuotaTotal: Double? = nil, rect: NSRect) {
         drawText(t(.models), rect: NSRect(x: rect.minX, y: rect.minY, width: 120, height: 18), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
         guard !models.isEmpty else {
             drawText(t(.noModelLabelForDay), rect: NSRect(x: rect.minX, y: rect.minY + 24, width: rect.width, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
@@ -1871,21 +1864,28 @@ extension UsageDetailsView {
 
         let maxTotal = max(models.map { $0.usage.total }.max() ?? 1, 1)
         let costX = rect.maxX - 92
-        let totalX = costX - 88
+        let quotaX = costX - 82
+        let totalX = quotaX - 88
         let outputX = totalX - 88
         let inputX = outputX - 90
+        let eventsX = inputX - 78
+        let sessionsX = eventsX - 64
+        let turnsX = sessionsX - 64
         let nameW = min(220, rect.width * 0.30)
         let barX = rect.minX + nameW + 18
-        let barW = max(0, inputX - barX - 24)
+        let barW = max(0, turnsX - barX - 24)
+        drawRight(t(.turns), rect: NSRect(x: turnsX, y: rect.minY, width: 56, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
+        drawRight(t(.sessions), rect: NSRect(x: sessionsX, y: rect.minY, width: 56, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
+        drawRight(t(.totalEvents), rect: NSRect(x: eventsX, y: rect.minY, width: 70, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         drawRight(t(.input), rect: NSRect(x: inputX, y: rect.minY, width: 80, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         drawRight(t(.output), rect: NSRect(x: outputX, y: rect.minY, width: 80, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         drawRight(t(.total), rect: NSRect(x: totalX, y: rect.minY, width: 82, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
+        drawRight(t(.weeklyQuotaShare), rect: NSRect(x: quotaX, y: rect.minY, width: 74, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         drawRight(t(.apiEquivalent), rect: NSRect(x: costX, y: rect.minY, width: 92, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         for (index, model) in models.enumerated() {
             let y = rect.minY + 22 + CGFloat(index) * 22
             guard y + 18 <= rect.maxY else { break }
-            drawText(model.name, rect: NSRect(x: rect.minX, y: y, width: nameW, height: 12), font: .systemFont(ofSize: 10, weight: .semibold), color: .white)
-            drawText("\(model.events) \(t(.events).lowercased())", rect: NSRect(x: rect.minX, y: y + 11, width: nameW, height: 11), font: .systemFont(ofSize: 8, weight: .semibold), color: NSColor.white.withAlphaComponent(0.42))
+            drawText(model.name, rect: NSRect(x: rect.minX, y: y + 1, width: nameW, height: 16), font: .systemFont(ofSize: 10.5, weight: .semibold), color: .white)
 
             if barW >= 18 {
                 let bar = NSRect(x: barX, y: y + 6, width: barW, height: 6)
@@ -1901,9 +1901,20 @@ extension UsageDetailsView {
                 NSBezierPath(roundedRect: NSRect(x: bar.minX + inputWidth, y: bar.minY, width: max(0, filledWidth - inputWidth), height: bar.height), xRadius: 4, yRadius: 4).fill()
             }
 
+            drawRight(format(Int64(model.turns)), rect: NSRect(x: turnsX, y: y + 1, width: 56, height: 16), color: NSColor.white.withAlphaComponent(0.70))
+            drawRight(format(Int64(model.sessions)), rect: NSRect(x: sessionsX, y: y + 1, width: 56, height: 16), color: NSColor.white.withAlphaComponent(0.70))
+            drawRight(format(Int64(model.events)), rect: NSRect(x: eventsX, y: y + 1, width: 70, height: 16), color: NSColor.systemOrange)
             drawRight(compact(model.usage.input), rect: NSRect(x: inputX, y: y + 1, width: 80, height: 16), color: .systemGreen)
             drawRight(compact(model.usage.output), rect: NSRect(x: outputX, y: y + 1, width: 80, height: 16), color: .systemCyan)
             drawRight(compact(model.usage.total), rect: NSRect(x: totalX, y: y + 1, width: 82, height: 16), color: .white)
+            let quotaText: String
+            if let weeklyQuotaTotal, weeklyQuotaTotal > 0 {
+                quotaText = String(format: "%.2f%%", Double(model.usage.total) / weeklyQuotaTotal * 100)
+            } else {
+                quotaText = "—"
+            }
+            let quotaColor = (weeklyQuotaTotal ?? 0) > 0 ? NSColor.systemGreen : NSColor.white.withAlphaComponent(0.38)
+            drawRight(quotaText, rect: NSRect(x: quotaX, y: y + 1, width: 74, height: 16), color: quotaColor)
             let modelCost = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
             let costText = modelCost.hasPricedUsage ? compactDisplayAPIMoney(modelCost.usdValue) : "—"
             drawRight(costText, rect: NSRect(x: costX, y: y + 1, width: 92, height: 16), color: modelCost.hasPricedUsage ? accentTeal : NSColor.white.withAlphaComponent(0.38))

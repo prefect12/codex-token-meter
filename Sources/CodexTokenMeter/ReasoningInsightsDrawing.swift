@@ -232,8 +232,8 @@ extension UsageDetailsView {
         let knownRuns = max(1, report.knownRunCount)
         let taskTotal = max(1, report.taskCount)
         let rows: [(String, String)] = [
-            (reasoningLocalized("任务", english: "Tasks"), "\(format(Int64(cell.tasks))) \(reasoningLocalized("个", english: ""))"),
-            (reasoningLocalized("执行轮次", english: "Runs"), format(Int64(cell.runs))),
+            (reasoningLocalized("会话", english: "Sessions"), "\(format(Int64(cell.tasks))) \(reasoningLocalized("个", english: ""))"),
+            (reasoningLocalized("轮次", english: "Turns"), format(Int64(cell.runs))),
             (reasoningLocalized("总 Token", english: "Total Token"), reasoningCompactTokens(cell.usage.total)),
             (reasoningLocalized("单轮中位数", english: "Median / Run"), reasoningCompactTokens(cell.medianTokens)),
             ("P90", reasoningCompactTokens(cell.p90Tokens))
@@ -279,8 +279,8 @@ extension UsageDetailsView {
         }
 
         let sharesY = bar.maxY + 44
-        drawReasoningShareRow(title: reasoningLocalized("任务占比", english: "Task Share"), value: Double(cell.tasks) / Double(taskTotal), rect: NSRect(x: rect.minX + 16, y: sharesY, width: rect.width - 32, height: 28), color: accentBlue)
-        drawReasoningShareRow(title: reasoningLocalized("执行轮次占比", english: "Run Share"), value: Double(cell.runs) / Double(knownRuns), rect: NSRect(x: rect.minX + 16, y: sharesY + 38, width: rect.width - 32, height: 28), color: reasoningEffortColor(selected.effort))
+        drawReasoningShareRow(title: reasoningLocalized("会话占比", english: "Session Share"), value: Double(cell.tasks) / Double(taskTotal), rect: NSRect(x: rect.minX + 16, y: sharesY, width: rect.width - 32, height: 28), color: accentBlue)
+        drawReasoningShareRow(title: reasoningLocalized("轮次占比", english: "Turn Share"), value: Double(cell.runs) / Double(knownRuns), rect: NSRect(x: rect.minX + 16, y: sharesY + 38, width: rect.width - 32, height: 28), color: reasoningEffortColor(selected.effort))
     }
 
     func drawReasoningShareRow(title: String, value: Double, rect: NSRect, color: NSColor) {
@@ -296,7 +296,7 @@ extension UsageDetailsView {
     func drawReasoningTrend(report: ReasoningInsightsReport, rect: NSRect) {
         drawReasoningPanel(rect)
         drawText(reasoningLocalized("思考深度趋势", english: "Reasoning Effort Trend"), rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: 180, height: 22), font: .systemFont(ofSize: 15, weight: .bold), color: NSColor.white.withAlphaComponent(0.94))
-        drawText(reasoningLocalized("每日执行轮次占比（堆叠面积）与单轮 Token 中位数", english: "Daily run share and median Token per run"), rect: NSRect(x: rect.minX + 16, y: rect.minY + 39, width: 360, height: 17), font: .systemFont(ofSize: 10.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+        drawText(reasoningLocalized("每日轮次占比（堆叠面积）与单轮 Token 中位数", english: "Daily turn share and median Token per turn"), rect: NSRect(x: rect.minX + 16, y: rect.minY + 39, width: 360, height: 17), font: .systemFont(ofSize: 10.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
 
         let points = reasoningTrendPoints(report)
         guard points.count >= 2 else { return }
@@ -315,7 +315,7 @@ extension UsageDetailsView {
             line.stroke()
             drawRight("\(step * 25)%", rect: NSRect(x: rect.minX + 8, y: y - 8, width: 42, height: 16), color: NSColor.white.withAlphaComponent(0.52), font: .monospacedDigitSystemFont(ofSize: 9.5, weight: .medium))
         }
-        drawText(reasoningLocalized("轮次占比", english: "Run Share"), rect: NSRect(x: rect.minX + 16, y: rect.minY + 67, width: 80, height: 16), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
+        drawText(reasoningLocalized("轮次占比", english: "Turn Share"), rect: NSRect(x: rect.minX + 16, y: rect.minY + 67, width: 80, height: 16), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
 
         let xForIndex: (Int) -> CGFloat = { index in
             plot.minX + CGFloat(index) / CGFloat(max(1, points.count - 1)) * plot.width

@@ -17,11 +17,81 @@ extension UsageDetailsView {
             drawText(row.1, rect: NSRect(x: rect.minX + 116, y: y, width: rect.width - 132, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.56))
         }
 
-        let sourceRect = NSRect(x: content.minX, y: rect.maxY + 16, width: content.width, height: 196)
+        let terminologyRect = NSRect(x: content.minX, y: rect.maxY + 16, width: content.width, height: 292)
+        drawPanel(terminologyRect)
+        drawText(
+            terminologyTitle,
+            rect: NSRect(x: terminologyRect.minX + 16, y: terminologyRect.minY + 16, width: terminologyRect.width - 32, height: 22),
+            font: .systemFont(ofSize: 16, weight: .bold),
+            color: .white
+        )
+        for (index, row) in terminologyRows.enumerated() {
+            let y = terminologyRect.minY + 52 + CGFloat(index) * 48
+            drawText(
+                row.title,
+                rect: NSRect(x: terminologyRect.minX + 16, y: y, width: 104, height: 20),
+                font: .systemFont(ofSize: 13, weight: .semibold),
+                color: row.color
+            )
+            drawMultilineText(
+                row.description,
+                rect: NSRect(x: terminologyRect.minX + 128, y: y - 2, width: terminologyRect.width - 144, height: 38),
+                font: .systemFont(ofSize: 11.5, weight: .medium),
+                color: NSColor.white.withAlphaComponent(0.58)
+            )
+        }
+
+        let sourceRect = NSRect(x: content.minX, y: terminologyRect.maxY + 16, width: content.width, height: 196)
         drawPanel(sourceRect)
         drawText(t(.dataSource), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 16, width: sourceRect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.dataSourceLine1), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 52, width: sourceRect.width - 32, height: 20), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.58))
         drawMultilineText(t(.dataSourceLine2), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 80, width: sourceRect.width - 32, height: 104), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.6))
+    }
+
+    var terminologyTitle: String {
+        switch AppLanguage.current {
+        case .chinese: return "术语与统计口径"
+        case .traditionalChinese: return "術語與統計口徑"
+        case .japanese: return "用語と集計基準"
+        default: return "Terminology and counting"
+        }
+    }
+
+    var terminologyRows: [(title: String, description: String, color: NSColor)] {
+        switch AppLanguage.current {
+        case .chinese:
+            return [
+                ("项目", "按会话工作目录归一化的仓库或项目；同一仓库的多个 Codex worktree 会尽量合并。", accentBlue),
+                ("会话", "一个 Codex rollout 或去重后的 Claude session ID。Token Meter 统一使用“会话”；Task Bar 的“任务”仅表示运行、等待或完成状态对象。", accentTeal),
+                ("轮次", "会话内一次开始执行的交互，对应 Codex task_started；一个会话通常包含多个轮次。", NSColor.systemOrange),
+                ("Token 事件", "一次产生正 Token 增量的 token_count，或去重后的 Claude assistant usage；不是日志中的所有原始事件。", NSColor.systemPurple),
+                ("计数关系", "项目包含会话；会话包含轮次和 Token 事件。跨日会话会在各活跃日分别计入，但时间窗口总数仍按会话去重。", NSColor.white.withAlphaComponent(0.82))
+            ]
+        case .traditionalChinese:
+            return [
+                ("專案", "按會話工作目錄正規化的倉庫或專案；同一倉庫的多個 Codex worktree 會儘量合併。", accentBlue),
+                ("會話", "一個 Codex rollout 或去重後的 Claude session ID。Token Meter 統一使用「會話」；Task Bar 的「任務」只表示執行、等待或完成狀態物件。", accentTeal),
+                ("輪次", "會話內一次開始執行的互動，對應 Codex task_started；一個會話通常包含多個輪次。", NSColor.systemOrange),
+                ("Token 事件", "一次產生正 Token 增量的 token_count，或去重後的 Claude assistant usage；不是日誌中的所有原始事件。", NSColor.systemPurple),
+                ("計數關係", "專案包含會話；會話包含輪次和 Token 事件。跨日會話會在各活躍日分別計入，但時間視窗總數仍按會話去重。", NSColor.white.withAlphaComponent(0.82))
+            ]
+        case .japanese:
+            return [
+                ("プロジェクト", "セッションの作業ディレクトリから正規化したリポジトリまたはプロジェクト。同じリポジトリの Codex worktree は可能な限り統合します。", accentBlue),
+                ("セッション", "1つの Codex rollout、または重複排除した Claude session ID。Token Meter ではこの用語に統一します。", accentTeal),
+                ("ターン", "セッション内で開始された1回の実行。Codex の task_started に対応し、1セッションに複数のターンを含められます。", NSColor.systemOrange),
+                ("Token イベント", "正の Token 増分を持つ token_count、または重複排除した Claude assistant usage。生ログの全イベントではありません。", NSColor.systemPurple),
+                ("集計関係", "プロジェクトはセッションを含み、セッションはターンと Token イベントを含みます。日をまたぐセッションは各活動日に現れます。", NSColor.white.withAlphaComponent(0.82))
+            ]
+        default:
+            return [
+                ("Project", "A repository or project normalized from the session working directory; Codex worktrees for the same repository are merged when possible.", accentBlue),
+                ("Session", "One Codex rollout or deduplicated Claude session ID. Token Meter uses Session consistently; Task Bar uses Task only for run/wait/done state.", accentTeal),
+                ("Turn", "One interaction started inside a session, corresponding to Codex task_started. A session usually contains multiple Turns.", NSColor.systemOrange),
+                ("Token event", "A token_count with a positive Token delta, or a deduplicated Claude assistant usage record; not every raw log event.", NSColor.systemPurple),
+                ("Counting", "Projects contain Sessions; Sessions contain Turns and Token events. A cross-day Session appears on each active day but remains deduplicated in the window total.", NSColor.white.withAlphaComponent(0.82))
+            ]
+        }
     }
 
     /// Pads sparse "past year" day data to a full 53-week range ending at the

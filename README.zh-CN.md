@@ -56,7 +56,7 @@ $CODEX_HOME/archived_sessions/rollout-*.jsonl
   <img src="docs/images/zh-details-insights.webp" alt="AI Token Meter 中文仓库洞察页面" width="760">
 </p>
 
-Repo 对话体检：按项目定位长线程和上下文压缩压力，给出对话长度分布、压缩分布、活跃天数强度和拆线程建议。
+Repo 会话体检：按项目定位长会话和上下文压缩压力，给出会话长度分布、压缩分布、活跃天数强度和拆分建议。
 
 ### 活动日历
 
@@ -150,7 +150,7 @@ Repo 对话体检：按项目定位长线程和上下文压缩压力，给出对
 - 展示 input、output、cached input、fresh input 和 total token。
 - 详情窗口包含概览、日历、洞察、模型、空间、设置、诊断和关于页面。
 - 状态栏首页和详情窗口都会缓存聚合快照，打开或切换时先显示上次结果，再在后台刷新。
-- 洞察页面会按仓库或文件夹聚合本地 Codex 与 Claude Code 对话，标出长线程、上下文压缩压力、活跃 worktree 和拆分新线程的建议。
+- 洞察页面会按仓库或文件夹聚合本地 Codex 与 Claude Code 会话，标出长会话、上下文压缩压力、活跃 worktree 和拆分新会话的建议。
 - 过去 365 天日历热力图，点击日期看单日明细，点击格子上方的圆点看整周汇总。
 - 模型页面按模型聚合长期 token 用量和逐模型 API 等价成本。
 - 空间页面按来源、项目和类型追踪本地日志磁盘占用，展示近 14 天增长和清理风险构成，支持导出报告和在访达中打开。
@@ -173,7 +173,7 @@ AI Token Meter 使用本机数据源：
 - **缓存比例**：来自本地 token 明细，计算方式是 `cached_input_tokens / input_tokens * 100`。
 - **金额估算**：不是官方账单。Codex 和 Claude 各自保存月付金额、付款币种、展示币种和付费开始日期，默认沿用旧的 `$200` 设置；周预算按对应平台的 `月付金额 * 12 / 52` 计算。本周已用金额优先使用该平台实时周 `usedPercent` 换算，历史日期和历史周则按本地 token 用量、历史峰值和已记录的周额度比例估算。`全部` 金额页会把 Codex / Claude 的月费按各自付款币种折算到展示币种后合计。
 - **API 等价成本**：这是另一套独立估算，用来回答“如果这些本地 token 直接按 API token 计费，大约会花多少钱”。应用会按可识别模型分别计价 fresh input、cached input 和 output。当前内置价格使用 GPT-5.6 Sol / Terra / Luna、GPT-5.5、GPT-5.4、GPT-5.4 mini 的官方 API 单价，GPT-5.3-Codex / GPT-5.2 风格 Codex 模型的 token-based Codex rate card 等价口径，以及 Claude Opus / Sonnet / Haiku 的官方 API 单价。当数据源提供 cache-creation token 时，GPT-5.6 缓存写入按官方的 1.25× 输入价计算；当前本地 Codex `token_count` 事件仅提供缓存读取量，不单独提供缓存写入量，因此未拆分的 input 按普通输入价计算。`reasoning_output_tokens` 不会再次叠加，因为本地 Codex `token_count` 事件里的 `total_tokens` 已经等于 input 加 output。没有模型标签但有总 token 的 Profile API 单日数据，会按 GPT-5.6 Sol fresh input fallback 估算，避免有覆盖率时金额仍为 0。无法识别模型标签的记录不会被强行估价，并会降低界面中的 priced-token 覆盖率。
-- **仓库洞察**：完全来自本机 rollout 元数据和事件。洞察扫描器读取 `cwd`、`turn` 活动、`context_compacted` 信号和 `token_count` 增量，并把常规 `Documents/github/<repo>` 工作目录和 Codex 创建的 worktree 归并到同一个仓库显示名。它会展示对话数、turn 数、压缩次数、最长线程压力、活跃天数，以及何时拆到新线程的建议。
+- **仓库洞察**：完全来自本机 rollout 元数据和 Token 事件。洞察扫描器读取 `cwd`、轮次活动、`context_compacted` 信号和 `token_count` 增量，并把常规 `Documents/github/<repo>` 工作目录和 Codex 创建的 worktree 归并到同一个仓库显示名。它会展示会话数、轮次数、压缩次数、最长会话压力、活跃天数，以及何时拆到新会话的建议。
 - **Codex speed tier / fast 模式**：历史本地日志不会被反推 fast/standard。当前 `rollout-*.jsonl` 元数据不暴露过去请求使用的是标准速度还是 fast 速度，所以应用不会根据 reasoning effort 或其他间接字段乱推 fast 模式。如果未来 Codex 的数据源提供每次请求的 speed tier，才能按请求明确计价。
 - **外部 API 成本**：这是可选的本地 JSON 输入，用来补充不经过 Codex 日志的直接 OpenAI API 用量。默认读取 `~/Library/Application Support/Codex Token Meter/api-usage.json`。成本字段支持 `usd_value`、`total_usd`、`usd`、`cost_usd`，token 字段支持 `total_tokens`、`tokens`、`usage_tokens`。应用改名为 AI Token Meter 后仍沿用旧目录，避免升级时丢失设置、缓存和本地成本文件。
 

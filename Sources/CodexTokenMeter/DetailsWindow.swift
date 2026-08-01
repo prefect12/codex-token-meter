@@ -618,7 +618,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 hoveredQuotaCycleIndex = nil
             }
             if selectedSection != .calendar {
-                isHoveringDayValueInfo = false
+                isHoveringDayQuotaShareInfo = false
                 isHoveringProfileAPIInfo = false
             }
             if selectedSection != .calendar {
@@ -760,7 +760,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var costHistoryBarRects: [Int: NSRect] = [:]
     var costHistoryRows: [CostPeriodRow] = []
     var costOverviewInfoRects: [CostOverviewInfo: NSRect] = [:]
-    var dayValueInfoRect: NSRect?
+    var dayQuotaShareInfoRect: NSRect?
     var profileAPIInfoRect: NSRect?
     var showHistoricalEmptyWeeksToggleRect: NSRect?
     var selectedDay: String?
@@ -774,7 +774,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     let modelControls = ModelDetailsControls()
     let modelRoutingControls = ModelRoutingControls()
     var hoveredCostOverviewInfo: CostOverviewInfo?
-    var isHoveringDayValueInfo = false
+    var isHoveringDayQuotaShareInfo = false
     var isHoveringProfileAPIInfo = false
     var selectedCostYear = Calendar.current.component(.year, from: Date())
     var costRingCache: CostRingCache?
@@ -1466,7 +1466,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         case .settings:
             targetHeight = settingsContentTopOffset + settingsPanelHeight + settingsBottomPadding
         case .about:
-            targetHeight = 580
+            targetHeight = 864
         }
         return max(minHeight, targetHeight)
     }
@@ -1666,7 +1666,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 needsDisplay = true
             }
         }
-        updateDayValueInfoHover(at: point)
+        updateDayQuotaShareInfoHover(at: point)
         updateProfileAPIInfoHover(at: point)
         updateContributionDayHover(at: point)
         updateContributionWeekHover(at: point)
@@ -1718,7 +1718,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hoveredModelUsageRowIndex = nil
         hoveredStorageCellKey = nil
         hoveredStorageSourceID = nil
-        isHoveringDayValueInfo = false
+        isHoveringDayQuotaShareInfo = false
         isHoveringProfileAPIInfo = false
         needsDisplay = true
     }
@@ -1770,8 +1770,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             hoveredStorageSourceID = nil
             shouldRedraw = true
         }
-        if isHoveringDayValueInfo {
-            isHoveringDayValueInfo = false
+        if isHoveringDayQuotaShareInfo {
+            isHoveringDayQuotaShareInfo = false
             shouldRedraw = true
         }
         if isHoveringProfileAPIInfo {
@@ -1937,10 +1937,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
-    func updateDayValueInfoHover(at point: CGPoint) {
-        let hovering = selectedSection == .calendar && (dayValueInfoRect?.contains(point) == true)
-        if hovering != isHoveringDayValueInfo {
-            isHoveringDayValueInfo = hovering
+    func updateDayQuotaShareInfoHover(at point: CGPoint) {
+        let hovering = selectedSection == .calendar && (dayQuotaShareInfoRect?.contains(point) == true)
+        if hovering != isHoveringDayQuotaShareInfo {
+            isHoveringDayQuotaShareInfo = hovering
             needsDisplay = true
         }
     }
@@ -2585,7 +2585,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         costHistoryRows.removeAll()
         quotaCycleHitAreas.removeAll()
         costOverviewInfoRects.removeAll()
-        dayValueInfoRect = nil
+        dayQuotaShareInfoRect = nil
         profileAPIInfoRect = nil
         insightRowRects.removeAll()
         insightWindowRects.removeAll()
@@ -2688,7 +2688,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
 
         if selectedSection == .calendar {
-            drawDayValueInfoTooltip()
+            drawDayQuotaShareInfoTooltip()
             drawProfileAPIInfoTooltip()
         } else if selectedSection == .overview {
             drawResetCreditTooltip(container: content)
