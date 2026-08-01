@@ -79,30 +79,30 @@ extension AppLanguage {
         case .chinese:
             return InsightCopy(
                 sidebarTitle: "洞察",
-                sidebarSubtitle: "按项目和文件夹定位长线程",
-                headerTitle: "Repo 对话体检",
+                sidebarSubtitle: "按项目和文件夹定位长会话",
+                headerTitle: "Repo 会话体检",
                 project: "项目",
-                conversations: "对话",
+                conversations: "会话",
                 compressions: "压缩",
                 average: "平均",
                 status: "状态",
-                emptyTitle: "暂无对话体检数据",
+                emptyTitle: "暂无会话体检数据",
                 emptyDescription: "本页只读取本地 Codex rollout 日志中的 cwd、turn、context_compacted 和 token_count 聚合信号。",
                 daySuffix: "天",
                 daySuffixNeedsSpace: true,
                 projectsTitle: "个项目",
                 allVisible: "显示全部",
-                chatsMetric: "对话",
-                turnsMetric: "turns",
+                chatsMetric: "会话",
+                turnsMetric: "轮次",
                 compactionsMetric: "压缩",
-                avgCompactionsMetric: "平均压缩/对话",
-                maxTurnsMetric: "最长 turns",
-                lengthDistributionTitle: "对话长度分布（按 turns）",
+                avgCompactionsMetric: "平均压缩/会话",
+                maxTurnsMetric: "最长轮次",
+                lengthDistributionTitle: "会话长度分布（按轮次）",
                 shortBucket: "短 (<10)",
                 mediumBucket: "中 (10-40)",
                 longBucket: "长 (41-100)",
                 extraLongBucket: "超长 (>100)",
-                compactionDistributionTitle: "压缩分布（每个对话的压缩次数）",
+                compactionDistributionTitle: "压缩分布（每个会话的压缩次数）",
                 zeroCompactions: "0 次",
                 oneCompaction: "1 次",
                 twoCompactions: "2 次",
@@ -110,7 +110,7 @@ extension AppLanguage {
                 compactedSuffix: "有压缩",
                 recommendationsTitle: "建议策略",
                 heatmapTitle: "活跃天数与压缩强度（最近 90 天）",
-                normalLegend: "正常（≤0.3 次/对话）",
+                normalLegend: "正常（≤0.3 次/会话）",
                 highLegend: "较高（0.3-1）",
                 veryHighLegend: "很高（>1）",
                 noActivityLegend: "无活动",
@@ -123,30 +123,30 @@ extension AppLanguage {
         case .traditionalChinese:
             return InsightCopy(
                 sidebarTitle: "洞察",
-                sidebarSubtitle: "按專案和資料夾定位長執行緒",
-                headerTitle: "Repo 對話體檢",
+                sidebarSubtitle: "按專案和資料夾定位長會話",
+                headerTitle: "Repo 會話體檢",
                 project: "專案",
-                conversations: "對話",
+                conversations: "會話",
                 compressions: "壓縮",
                 average: "平均",
                 status: "狀態",
-                emptyTitle: "暫無對話體檢資料",
+                emptyTitle: "暫無會話體檢資料",
                 emptyDescription: "本頁只讀取本機 Codex rollout 日誌中的 cwd、turn、context_compacted 和 token_count 聚合訊號。",
                 daySuffix: "天",
                 daySuffixNeedsSpace: true,
                 projectsTitle: "個專案",
                 allVisible: "顯示全部",
-                chatsMetric: "對話",
-                turnsMetric: "turns",
+                chatsMetric: "會話",
+                turnsMetric: "輪次",
                 compactionsMetric: "壓縮",
-                avgCompactionsMetric: "平均壓縮/對話",
-                maxTurnsMetric: "最長 turns",
-                lengthDistributionTitle: "對話長度分布（按 turns）",
+                avgCompactionsMetric: "平均壓縮/會話",
+                maxTurnsMetric: "最長輪次",
+                lengthDistributionTitle: "會話長度分布（按輪次）",
                 shortBucket: "短 (<10)",
                 mediumBucket: "中 (10-40)",
                 longBucket: "長 (41-100)",
                 extraLongBucket: "超長 (>100)",
-                compactionDistributionTitle: "壓縮分布（每個對話的壓縮次數）",
+                compactionDistributionTitle: "壓縮分布（每個會話的壓縮次數）",
                 zeroCompactions: "0 次",
                 oneCompaction: "1 次",
                 twoCompactions: "2 次",
@@ -154,7 +154,7 @@ extension AppLanguage {
                 compactedSuffix: "有壓縮",
                 recommendationsTitle: "建議策略",
                 heatmapTitle: "活躍天數與壓縮強度（最近 90 天）",
-                normalLegend: "正常（≤0.3 次/對話）",
+                normalLegend: "正常（≤0.3 次/會話）",
                 highLegend: "較高（0.3-1）",
                 veryHighLegend: "很高（>1）",
                 noActivityLegend: "無活動",
@@ -700,30 +700,30 @@ extension AppLanguage {
     private var englishInsightCopy: InsightCopy {
         InsightCopy(
             sidebarTitle: "Insights",
-            sidebarSubtitle: "Find long-running repo threads and context compaction",
-            headerTitle: "Repo Conversation Check",
+            sidebarSubtitle: "Find long-running repo sessions and context compaction",
+            headerTitle: "Repo Session Check",
             project: "Project",
-            conversations: "Chats",
+            conversations: "Sessions",
             compressions: "Comp.",
             average: "Avg",
             status: "Status",
-            emptyTitle: "No conversation check data yet",
+            emptyTitle: "No session check data yet",
             emptyDescription: "This page reads only local Codex rollout cwd, turn, context_compacted, and token_count signals.",
             daySuffix: "d",
             daySuffixNeedsSpace: false,
             projectsTitle: "projects",
             allVisible: "All visible",
-            chatsMetric: "Chats",
-            turnsMetric: "turns",
+            chatsMetric: "Sessions",
+            turnsMetric: "Turns",
             compactionsMetric: "Compactions",
-            avgCompactionsMetric: "Avg comp./chat",
-            maxTurnsMetric: "Max turns",
-            lengthDistributionTitle: "Conversation length distribution by turns",
+            avgCompactionsMetric: "Avg comp./session",
+            maxTurnsMetric: "Max Turns",
+            lengthDistributionTitle: "Session length distribution by Turns",
             shortBucket: "Short (<10)",
             mediumBucket: "Medium (10-40)",
             longBucket: "Long (41-100)",
             extraLongBucket: "XL (>100)",
-            compactionDistributionTitle: "Compaction distribution per conversation",
+            compactionDistributionTitle: "Compaction distribution per session",
             zeroCompactions: "0x",
             oneCompaction: "1x",
             twoCompactions: "2x",
@@ -731,7 +731,7 @@ extension AppLanguage {
             compactedSuffix: "compacted",
             recommendationsTitle: "Recommendations",
             heatmapTitle: "Active days and compaction intensity, last 90 days",
-            normalLegend: "Normal (≤0.3/chat)",
+            normalLegend: "Normal (≤0.3/session)",
             highLegend: "High (0.3-1)",
             veryHighLegend: "Very high (>1)",
             noActivityLegend: "No activity",
@@ -754,7 +754,7 @@ extension AppLanguage {
         case .longRunning:
             return [
                 InsightRecommendationText(title: "Split by phase", body: "Use separate threads for planning, implementation, and verification."),
-                InsightRecommendationText(title: "Review at 40 turns", body: "Summarize current findings before continuing long threads."),
+                InsightRecommendationText(title: "Review at 40 Turns", body: "Summarize current findings before continuing long Sessions."),
                 InsightRecommendationText(title: "Keep repo boundary", body: "Open a new thread when switching worktrees or modules.")
             ]
         case .wellSplit:
@@ -776,19 +776,19 @@ extension AppLanguage {
         switch risk {
         case .frequentCompression:
             return [
-                InsightRecommendationText(title: "新 bug 单独窗口", body: "从排查开始新线程，避免旧上下文干扰。"),
+                InsightRecommendationText(title: "新 bug 单独窗口", body: "从排查开始新会话，避免旧上下文干扰。"),
                 InsightRecommendationText(title: "压缩后交接摘要", body: "每次发生压缩后，产出阶段总结并粘贴到新窗口。"),
                 InsightRecommendationText(title: "部署复测另开窗口", body: "把实现与部署/验证拆分，保持验证上下文干净。")
             ]
         case .longRunning:
             return [
                 InsightRecommendationText(title: "阶段拆分", body: "计划、实现、验证分别开窗口。"),
-                InsightRecommendationText(title: "到 40 turns 复盘", body: "长线程继续前先整理当前结论。"),
+                InsightRecommendationText(title: "到 40 轮次复盘", body: "长会话继续前先整理当前结论。"),
                 InsightRecommendationText(title: "保留 repo 边界", body: "worktree 或模块切换时使用新窗口。")
             ]
         case .wellSplit:
             return [
-                InsightRecommendationText(title: "保持节奏", body: "当前对话切分较好。"),
+                InsightRecommendationText(title: "保持节奏", body: "当前会话切分较好。"),
                 InsightRecommendationText(title: "复杂任务仍先计划", body: "新功能开始时继续单独开窗。"),
                 InsightRecommendationText(title: "压缩即换窗", body: "一旦压缩，后续深入工作放到新窗口。")
             ]
@@ -812,12 +812,12 @@ extension AppLanguage {
         case .longRunning:
             return [
                 InsightRecommendationText(title: "階段拆分", body: "規劃、實作、驗證分別開視窗。"),
-                InsightRecommendationText(title: "40 turns 復盤", body: "長執行緒繼續前先整理目前結論。"),
+                InsightRecommendationText(title: "40 輪次復盤", body: "長會話繼續前先整理目前結論。"),
                 InsightRecommendationText(title: "保留 repo 邊界", body: "切換 worktree 或模組時使用新視窗。")
             ]
         case .wellSplit:
             return [
-                InsightRecommendationText(title: "保持節奏", body: "目前對話切分良好。"),
+                InsightRecommendationText(title: "保持節奏", body: "目前會話切分良好。"),
                 InsightRecommendationText(title: "複雜任務先規劃", body: "新功能開始時仍單獨開窗。"),
                 InsightRecommendationText(title: "壓縮即換窗", body: "一旦壓縮，後續深入工作放到新視窗。")
             ]

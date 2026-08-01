@@ -275,12 +275,16 @@ final class ClaudeTokenScanner {
         var sessionIDs = Set<String>()
         var dayBuckets: [String: Usage] = [:]
         var dayTurns: [String: Int] = [:]
+        var daySessionIDs: [String: Set<String>] = [:]
+        var dayEvents: [String: Int] = [:]
         var dayModelBuckets: [String: [String: Usage]] = [:]
+        var dayModelTurns: [String: [String: Int]] = [:]
         var dayModelEvents: [String: [String: Int]] = [:]
         var dayModelSessions: [String: [String: Int]] = [:]
         var hourBuckets: [Date: Usage] = [:]
         var hourTurns: [Date: Int] = [:]
         var modelBuckets: [String: Usage] = [:]
+        var modelTurns: [String: Int] = [:]
         var modelEvents: [String: Int] = [:]
         var modelSessions: [String: Int] = [:]
         var sessions: [SessionUsage] = []
@@ -292,15 +296,24 @@ final class ClaudeTokenScanner {
             var sessionTurns = 0
             var sessionModels = Set<String>()
             var sessionDayModels: [String: Set<String>] = [:]
+            var sessionDays = Set<String>()
             var lastEvent = now
             var hasActivity = false
+            let attributedTurns = attributedModelTurns(turns: parsed.turns, events: parsed.events)
 
             for turn in parsed.turns where turn.timestamp >= start && turn.timestamp <= now {
                 guard seenTurns.insert(turn.key).inserted else { continue }
                 hasActivity = true
                 sessionTurns += 1
                 let day = dayFormatter.string(from: turn.timestamp)
+                sessionDays.insert(day)
                 dayTurns[day, default: 0] += 1
+                if let modelName = attributedTurns[turn.key] {
+                    modelTurns[modelName, default: 0] += 1
+                    var turnsForDay = dayModelTurns[day] ?? [:]
+                    turnsForDay[modelName, default: 0] += 1
+                    dayModelTurns[day] = turnsForDay
+                }
                 let hour = calendar.dateInterval(of: .hour, for: turn.timestamp)?.start ?? turn.timestamp
                 hourTurns[hour, default: 0] += 1
             }
@@ -318,6 +331,8 @@ final class ClaudeTokenScanner {
                 modelEvents[event.model, default: 0] += 1
 
                 let day = dayFormatter.string(from: event.timestamp)
+                sessionDays.insert(day)
+                dayEvents[day, default: 0] += 1
                 sessionDayModels[day, default: []].insert(event.model)
                 var dayUsage = dayBuckets[day] ?? Usage()
                 dayUsage.add(event.usage)
@@ -341,6 +356,9 @@ final class ClaudeTokenScanner {
 
             guard hasActivity else { continue }
             sessionIDs.insert(parsed.sessionID)
+            for day in sessionDays {
+                daySessionIDs[day, default: []].insert(parsed.sessionID)
+            }
             report.turns += sessionTurns
             report.usage.add(sessionUsage)
             sessions.append(SessionUsage(path: fileURL.path, lastEvent: lastEvent, turns: sessionTurns, usage: sessionUsage))
@@ -372,12 +390,20 @@ final class ClaudeTokenScanner {
                     ModelUsage(
                         name: name,
                         usage: usage,
+                        turns: dayModelTurns[day]?[name] ?? 0,
                         events: dayModelEvents[day]?[name] ?? 0,
                         sessions: dayModelSessions[day]?[name] ?? 0
                     )
                 }
                 .sorted { $0.usage.total > $1.usage.total }
-                return DayUsage(day: day, usage: dayBuckets[day] ?? Usage(), turns: dayTurns[day] ?? 0, modelBreakdown: models)
+                return DayUsage(
+                    day: day,
+                    usage: dayBuckets[day] ?? Usage(),
+                    turns: dayTurns[day] ?? 0,
+                    sessions: daySessionIDs[day]?.count ?? 0,
+                    events: dayEvents[day] ?? 0,
+                    modelBreakdown: models
+                )
             }
             .sorted { $0.day < $1.day }
         let hours = Set(hourBuckets.keys).union(hourTurns.keys)
@@ -385,7 +411,7 @@ final class ClaudeTokenScanner {
             .map { HourUsage(hour: $0, usage: hourBuckets[$0] ?? Usage(), turns: hourTurns[$0] ?? 0) }
             .sorted { $0.hour < $1.hour }
         report.modelBreakdown = modelBuckets.map { name, usage in
-            ModelUsage(name: name, usage: usage, events: modelEvents[name] ?? 0, sessions: modelSessions[name] ?? 0)
+            ModelUsage(name: name, usage: usage, turns: modelTurns[name] ?? 0, events: modelEvents[name] ?? 0, sessions: modelSessions[name] ?? 0)
         }
         .sorted { $0.usage.total > $1.usage.total }
         report.topSessions = sessions.sorted { $0.usage.total > $1.usage.total }.prefix(8).map { $0 }
@@ -505,6 +531,34 @@ final class ClaudeTokenScanner {
             }
         }
         return buckets.values.sorted { $0.timestamp < $1.timestamp }
+    }
+
+    private func attributedModelTurns(turns: [ClaudeTurn], events: [ClaudeEvent]) -> [String: String] {
+        let sortedTurns = turns.sorted { $0.timestamp < $1.timestamp }
+        let sortedEvents = events.sorted { $0.timestamp < $1.timestamp }
+        guard !sortedTurns.isEmpty, !sortedEvents.isEmpty else { return [:] }
+
+        var result: [String: String] = [:]
+        var eventIndex = 0
+        for (turnIndex, turn) in sortedTurns.enumerated() {
+            let nextTurn = turnIndex + 1 < sortedTurns.count ? sortedTurns[turnIndex + 1].timestamp : .distantFuture
+            while eventIndex < sortedEvents.count && sortedEvents[eventIndex].timestamp < turn.timestamp {
+                eventIndex += 1
+            }
+
+            var usageByModel: [String: Int64] = [:]
+            var scanIndex = eventIndex
+            while scanIndex < sortedEvents.count && sortedEvents[scanIndex].timestamp < nextTurn {
+                let event = sortedEvents[scanIndex]
+                usageByModel[event.model, default: 0] += max(event.usage.total, 1)
+                scanIndex += 1
+            }
+            if let modelName = usageByModel.max(by: { $0.value < $1.value })?.key {
+                result[turn.key] = modelName
+            }
+            eventIndex = scanIndex
+        }
+        return result
     }
 
     private func shouldReplace(existing: ClaudeEvent, with candidate: ClaudeEvent) -> Bool {

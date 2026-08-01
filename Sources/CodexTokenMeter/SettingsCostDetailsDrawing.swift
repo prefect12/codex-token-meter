@@ -599,8 +599,8 @@ extension UsageDetailsView {
         drawMultilineText(info.hint, rect: NSRect(x: rect.minX + 12, y: rect.minY + 30, width: rect.width - 24, height: 42), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.62))
     }
 
-    func drawDayValueInfoTooltip() {
-        guard isHoveringDayValueInfo, let anchorRect = dayValueInfoRect else { return }
+    func drawDayQuotaShareInfoTooltip() {
+        guard isHoveringDayQuotaShareInfo, let anchorRect = dayQuotaShareInfoRect else { return }
         let width: CGFloat = 300
         let height: CGFloat = 74
         var origin = CGPoint(x: anchorRect.midX - width / 2, y: anchorRect.maxY + 8)
@@ -623,8 +623,8 @@ extension UsageDetailsView {
         border.lineWidth = 1
         border.stroke()
 
-        drawText(t(.dayValue), rect: NSRect(x: rect.minX + 12, y: rect.minY + 10, width: rect.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: .white)
-        drawMultilineText(t(.dayValueHint), rect: NSRect(x: rect.minX + 12, y: rect.minY + 30, width: rect.width - 24, height: 34), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.58))
+        drawText(t(.weeklyQuotaShare), rect: NSRect(x: rect.minX + 12, y: rect.minY + 10, width: rect.width - 24, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: .white)
+        drawMultilineText(t(.selectedDayQuotaShareHint), rect: NSRect(x: rect.minX + 12, y: rect.minY + 30, width: rect.width - 24, height: 34), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.58))
     }
 
     func drawProfileAPIInfoTooltip() {

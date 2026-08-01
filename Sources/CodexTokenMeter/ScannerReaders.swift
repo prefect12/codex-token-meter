@@ -14,6 +14,7 @@ final class CodexTokenScanner {
     private struct FileModelAggregate: Codable {
         let name: String
         var usage: Usage
+        var turns: Int
         var events: Int
     }
 
@@ -661,12 +662,16 @@ final class CodexTokenScanner {
         var report = TokenReport(scannedAt: now)
         var dayBuckets: [String: Usage] = [:]
         var dayTurns: [String: Int] = [:]
+        var daySessions: [String: Int] = [:]
+        var dayEvents: [String: Int] = [:]
         var dayModelBuckets: [String: [String: Usage]] = [:]
+        var dayModelTurns: [String: [String: Int]] = [:]
         var dayModelEvents: [String: [String: Int]] = [:]
         var dayModelSessions: [String: [String: Int]] = [:]
         var hourBuckets: [Date: Usage] = [:]
         var hourTurns: [Date: Int] = [:]
         var modelBuckets: [String: Usage] = [:]
+        var modelTurns: [String: Int] = [:]
         var modelEvents: [String: Int] = [:]
         var modelSessions: [String: Int] = [:]
         var sessions: [SessionUsage] = []
@@ -684,9 +689,11 @@ final class CodexTokenScanner {
             }
             let rawTurns = file.turns.filter { $0 >= start && $0 <= now }
             let turns = isUnfilteredScan ? rawTurns : events.map { $0.timestamp }
+            let attributedTurns = attributedModelTurns(turns: turns, events: events)
             guard !events.isEmpty || !turns.isEmpty else { continue }
 
             var sessionUsage = Usage()
+            var sessionDays = Set<String>()
             var lastEvent = file.events.last?.timestamp ?? now
             var sessionModels = Set<String>()
             var sessionDayModels: [String: Set<String>] = [:]
@@ -704,6 +711,8 @@ final class CodexTokenScanner {
                 sessionModels.insert(modelName)
 
                 let day = dayFormatter.string(from: event.timestamp)
+                sessionDays.insert(day)
+                dayEvents[day, default: 0] += 1
                 sessionDayModels[day, default: []].insert(modelName)
                 var usage = dayBuckets[day] ?? Usage()
                 usage.add(event.usage)
@@ -724,7 +733,15 @@ final class CodexTokenScanner {
             }
 
             for turn in turns {
-                dayTurns[dayFormatter.string(from: turn), default: 0] += 1
+                let day = dayFormatter.string(from: turn)
+                sessionDays.insert(day)
+                dayTurns[day, default: 0] += 1
+                if let modelName = attributedTurns[turn] {
+                    modelTurns[modelName, default: 0] += 1
+                    var turnsForDay = dayModelTurns[day] ?? [:]
+                    turnsForDay[modelName, default: 0] += 1
+                    dayModelTurns[day] = turnsForDay
+                }
                 let hour = calendar.dateInterval(of: .hour, for: turn)?.start ?? turn
                 hourTurns[hour, default: 0] += 1
             }
@@ -735,6 +752,9 @@ final class CodexTokenScanner {
                 report.turns += turns.count
                 report.usage.add(sessionUsage)
                 sessions.append(SessionUsage(path: fileURL.path, lastEvent: lastEvent, turns: turns.count, usage: sessionUsage))
+                for day in sessionDays {
+                    daySessions[day, default: 0] += 1
+                }
                 for model in sessionModels {
                     modelSessions[model, default: 0] += 1
                 }
@@ -762,12 +782,20 @@ final class CodexTokenScanner {
                     ModelUsage(
                         name: name,
                         usage: usage,
+                        turns: dayModelTurns[day]?[name] ?? 0,
                         events: dayModelEvents[day]?[name] ?? 0,
                         sessions: dayModelSessions[day]?[name] ?? 0
                     )
                 }
                 .sorted { $0.usage.total > $1.usage.total }
-                return DayUsage(day: day, usage: dayBuckets[day] ?? Usage(), turns: dayTurns[day] ?? 0, modelBreakdown: models)
+                return DayUsage(
+                    day: day,
+                    usage: dayBuckets[day] ?? Usage(),
+                    turns: dayTurns[day] ?? 0,
+                    sessions: daySessions[day] ?? 0,
+                    events: dayEvents[day] ?? 0,
+                    modelBreakdown: models
+                )
             }
             .sorted { $0.day < $1.day }
         let hours = Set(hourBuckets.keys).union(hourTurns.keys)
@@ -776,7 +804,7 @@ final class CodexTokenScanner {
             .sorted { $0.hour < $1.hour }
         report.topSessions = sessions.sorted { $0.usage.total > $1.usage.total }.prefix(8).map { $0 }
         report.modelBreakdown = modelBuckets.map { name, usage in
-            ModelUsage(name: name, usage: usage, events: modelEvents[name] ?? 0, sessions: modelSessions[name] ?? 0)
+            ModelUsage(name: name, usage: usage, turns: modelTurns[name] ?? 0, events: modelEvents[name] ?? 0, sessions: modelSessions[name] ?? 0)
         }
         .sorted { $0.usage.total > $1.usage.total }
         return report
@@ -789,10 +817,14 @@ final class CodexTokenScanner {
         let isUnfilteredScan = includedModelName == nil && excludedModelName == nil
         var dayBuckets: [String: Usage] = [:]
         var dayTurns: [String: Int] = [:]
+        var daySessions: [String: Int] = [:]
+        var dayEvents: [String: Int] = [:]
         var dayModelBuckets: [String: [String: Usage]] = [:]
+        var dayModelTurns: [String: [String: Int]] = [:]
         var dayModelEvents: [String: [String: Int]] = [:]
         var dayModelSessions: [String: [String: Int]] = [:]
         var modelBuckets: [String: Usage] = [:]
+        var modelTurns: [String: Int] = [:]
         var modelEvents: [String: Int] = [:]
         var modelSessions: [String: Int] = [:]
         var sessions: [SessionUsage] = []
@@ -821,7 +853,7 @@ final class CodexTokenScanner {
                         next.add(model.usage)
                         return next
                     }
-                    selectedTurns = matchingModels.reduce(0) { $0 + $1.events }
+                    selectedTurns = matchingModels.reduce(0) { $0 + $1.turns }
                 }
                 guard dayUsage.total > 0 || dayUsage.input > 0 || dayUsage.output > 0 || selectedTurns > 0 else {
                     continue
@@ -830,6 +862,8 @@ final class CodexTokenScanner {
                 sessionUsage.add(dayUsage)
                 sessionTurns += selectedTurns
                 dayTurns[day.day, default: 0] += selectedTurns
+                daySessions[day.day, default: 0] += 1
+                dayEvents[day.day, default: 0] += matchingModels.reduce(0) { $0 + $1.events }
                 var usage = dayBuckets[day.day] ?? Usage()
                 usage.add(dayUsage)
                 dayBuckets[day.day] = usage
@@ -845,6 +879,7 @@ final class CodexTokenScanner {
                     var totalModelUsage = modelBuckets[modelName] ?? Usage()
                     totalModelUsage.add(model.usage)
                     modelBuckets[modelName] = totalModelUsage
+                    modelTurns[modelName, default: 0] += model.turns
                     modelEvents[modelName, default: 0] += model.events
 
                     var dayModels = dayModelBuckets[day.day] ?? [:]
@@ -852,6 +887,10 @@ final class CodexTokenScanner {
                     dayModelUsage.add(model.usage)
                     dayModels[modelName] = dayModelUsage
                     dayModelBuckets[day.day] = dayModels
+
+                    var dayTurns = dayModelTurns[day.day] ?? [:]
+                    dayTurns[modelName, default: 0] += model.turns
+                    dayModelTurns[day.day] = dayTurns
 
                     var dayEvents = dayModelEvents[day.day] ?? [:]
                     dayEvents[modelName, default: 0] += model.events
@@ -895,17 +934,25 @@ final class CodexTokenScanner {
                     ModelUsage(
                         name: name,
                         usage: usage,
+                        turns: dayModelTurns[day]?[name] ?? 0,
                         events: dayModelEvents[day]?[name] ?? 0,
                         sessions: dayModelSessions[day]?[name] ?? 0
                     )
                 }
                 .sorted { $0.usage.total > $1.usage.total }
-                return DayUsage(day: day, usage: dayBuckets[day] ?? Usage(), turns: dayTurns[day] ?? 0, modelBreakdown: models)
+                return DayUsage(
+                    day: day,
+                    usage: dayBuckets[day] ?? Usage(),
+                    turns: dayTurns[day] ?? 0,
+                    sessions: daySessions[day] ?? 0,
+                    events: dayEvents[day] ?? 0,
+                    modelBreakdown: models
+                )
             }
             .sorted { $0.day < $1.day }
         report.topSessions = sessions.sorted { $0.usage.total > $1.usage.total }.prefix(8).map { $0 }
         report.modelBreakdown = modelBuckets.map { name, usage in
-            ModelUsage(name: name, usage: usage, events: modelEvents[name] ?? 0, sessions: modelSessions[name] ?? 0)
+            ModelUsage(name: name, usage: usage, turns: modelTurns[name] ?? 0, events: modelEvents[name] ?? 0, sessions: modelSessions[name] ?? 0)
         }
         .sorted { $0.usage.total > $1.usage.total }
         return report
@@ -1048,7 +1095,7 @@ final class CodexTokenScanner {
 
         let timeZoneIdentifier = appTimeZone().identifier
         if let disk = try? jsonDecoder.decode(DiskFileCache.self, from: data),
-              disk.version == 10,
+              disk.version == 11,
               disk.path == fileURL.path,
               disk.size == size,
               disk.timeZoneIdentifier == timeZoneIdentifier,
@@ -1166,7 +1213,7 @@ final class CodexTokenScanner {
 
     private func writeDiskCache(_ file: FileCache, fileURL: URL) {
         let disk = DiskFileCache(
-            version: 10,
+            version: 11,
             path: fileURL.path,
             size: file.size,
             modifiedAt: file.modifiedAt.timeIntervalSinceReferenceDate,
@@ -1379,10 +1426,18 @@ final class CodexTokenScanner {
         var dayBuckets: [String: Usage] = [:]
         var dayTurns: [String: Int] = [:]
         var dayModelBuckets: [String: [String: Usage]] = [:]
+        var dayModelTurns: [String: [String: Int]] = [:]
         var dayModelEvents: [String: [String: Int]] = [:]
+        let attributedTurns = attributedModelTurns(turns: turns, events: events)
 
         for turn in turns {
-            dayTurns[dayFormatter.string(from: turn), default: 0] += 1
+            let day = dayFormatter.string(from: turn)
+            dayTurns[day, default: 0] += 1
+            if let modelName = attributedTurns[turn] {
+                var modelTurns = dayModelTurns[day] ?? [:]
+                modelTurns[modelName, default: 0] += 1
+                dayModelTurns[day] = modelTurns
+            }
         }
 
         for event in events {
@@ -1407,12 +1462,45 @@ final class CodexTokenScanner {
             .map { day in
                 let models = (dayModelBuckets[day] ?? [:])
                     .map { name, usage in
-                        FileModelAggregate(name: name, usage: usage, events: dayModelEvents[day]?[name] ?? 0)
+                        FileModelAggregate(
+                            name: name,
+                            usage: usage,
+                            turns: dayModelTurns[day]?[name] ?? 0,
+                            events: dayModelEvents[day]?[name] ?? 0
+                        )
                     }
                     .sorted { $0.usage.total > $1.usage.total }
                 return FileDayAggregate(day: day, usage: dayBuckets[day] ?? Usage(), turns: dayTurns[day] ?? 0, models: models)
             }
             .sorted { $0.day < $1.day }
+    }
+
+    private func attributedModelTurns(turns: [Date], events: [TokenEvent]) -> [Date: String] {
+        let sortedTurns = turns.sorted()
+        let sortedEvents = events.sorted { $0.timestamp < $1.timestamp }
+        guard !sortedTurns.isEmpty, !sortedEvents.isEmpty else { return [:] }
+
+        var result: [Date: String] = [:]
+        var eventIndex = 0
+        for (turnIndex, turn) in sortedTurns.enumerated() {
+            let nextTurn = turnIndex + 1 < sortedTurns.count ? sortedTurns[turnIndex + 1] : .distantFuture
+            while eventIndex < sortedEvents.count && sortedEvents[eventIndex].timestamp < turn {
+                eventIndex += 1
+            }
+
+            var usageByModel: [String: Int64] = [:]
+            var scanIndex = eventIndex
+            while scanIndex < sortedEvents.count && sortedEvents[scanIndex].timestamp < nextTurn {
+                let event = sortedEvents[scanIndex]
+                usageByModel[modelDisplayName(for: event), default: 0] += max(event.usage.total, 1)
+                scanIndex += 1
+            }
+            if let modelName = usageByModel.max(by: { $0.value < $1.value })?.key {
+                result[turn] = modelName
+            }
+            eventIndex = scanIndex
+        }
+        return result
     }
 
     private func diskCacheURL(for fileURL: URL) -> URL {

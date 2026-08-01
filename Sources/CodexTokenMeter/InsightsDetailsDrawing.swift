@@ -591,7 +591,7 @@ extension UsageDetailsView {
         axis.line(to: NSPoint(x: chart.minX - 5, y: chart.maxY))
         axis.lineWidth = 1
         axis.stroke()
-        drawRight("turns", rect: NSRect(x: chartPanel.minX + 12, y: chart.minY - 18, width: axisWidth - 12, height: 12), color: NSColor.white.withAlphaComponent(0.36), font: .systemFont(ofSize: 8, weight: .bold))
+        drawRight(t(.turns), rect: NSRect(x: chartPanel.minX + 12, y: chart.minY - 18, width: axisWidth - 12, height: 12), color: NSColor.white.withAlphaComponent(0.36), font: .systemFont(ofSize: 8, weight: .bold))
         let gap: CGFloat = 4
         let barWidth = max(CGFloat(6), (chart.width - CGFloat(23) * gap) / 24)
         for hour in 0..<24 {
@@ -718,9 +718,9 @@ extension UsageDetailsView {
             color = insightHourColor(hoveredInsightHour)
             anchorRect = rect
             lines = [
-                (localizedInsightTooltipTurns, "\(turns) turns"),
+                (localizedInsightTooltipTurns, "\(turns) \(t(.turns).lowercased())"),
                 (localizedInsightTooltipShare, "\(Int(round(Double(turns) / Double(totalTurns) * 100)))%"),
-                (localizedInsightTooltipDailyAverage, String(format: "%.1f turns", Double(turns) / Double(max(1, selectedInsightWindowDays)))),
+                (localizedInsightTooltipDailyAverage, String(format: "%.1f %@", Double(turns) / Double(max(1, selectedInsightWindowDays)), t(.turns).lowercased())),
                 (localizedInsightTooltipPeriod, localizedInsightDayPart(for: hoveredInsightHour))
             ]
         } else if let hoveredInsightPeriod,
@@ -733,10 +733,10 @@ extension UsageDetailsView {
             color = period.2
             anchorRect = rect
             lines = [
-                (localizedInsightTooltipTurns, "\(turns) turns"),
+                (localizedInsightTooltipTurns, "\(turns) \(t(.turns).lowercased())"),
                 (localizedInsightTooltipShare, "\(Int(round(Double(turns) / Double(totalTurns) * 100)))%"),
-                (localizedInsightTooltipDailyAverage, String(format: "%.1f turns", Double(turns) / Double(max(1, selectedInsightWindowDays)))),
-                (localizedInsightTooltipHourlyAverage, String(format: "%.1f turns", Double(turns) / 6.0)),
+                (localizedInsightTooltipDailyAverage, String(format: "%.1f %@", Double(turns) / Double(max(1, selectedInsightWindowDays)), t(.turns).lowercased())),
+                (localizedInsightTooltipHourlyAverage, String(format: "%.1f %@", Double(turns) / 6.0, t(.turns).lowercased())),
                 (localizedInsightTooltipPeakHour, peak.map { String(format: "%02d:00 · %d", $0.hour, $0.turns) } ?? "--")
             ]
         } else {
@@ -826,11 +826,11 @@ extension UsageDetailsView {
 
     var localizedReasoningDepthPageSubtitle: String {
         switch AppLanguage.current {
-        case .chinese, .traditionalChinese: return "查看思考等级、任务数量与 Token 消耗之间的关系"
+        case .chinese, .traditionalChinese: return "查看思考等级、会话数量与 Token 消耗之间的关系"
         case .japanese: return "思考レベル、タスク数、Token 消費の関係を確認"
         case .polish: return "Relacja poziomu rozumowania, zadan i zuzycia tokenow"
-        case .english: return "Compare reasoning effort, task volume, and token consumption"
-        default: return "Compare reasoning effort, task volume, and token consumption"
+        case .english: return "Compare reasoning effort, session volume, and token consumption"
+        default: return "Compare reasoning effort, session volume, and token consumption"
         }
     }
 
@@ -994,17 +994,18 @@ extension UsageDetailsView {
     }
 
     func localizedInsightPeakSummary(range: String, hour: Int, turns: Int) -> String {
+        let turnValue = "\(turns) \(t(.turns).lowercased())"
         switch AppLanguage.current {
         case .chinese, .traditionalChinese:
-            return "高峰在\(range)，\(String(format: "%02d:00", hour)) 附近最多（\(turns) turns）。"
+            return "高峰在\(range)，\(String(format: "%02d:00", hour)) 附近最多（\(turnValue)）。"
         case .japanese:
-            return "ピークは\(range)、\(String(format: "%02d:00", hour)) 頃が最多（\(turns) turns）。"
+            return "ピークは\(range)、\(String(format: "%02d:00", hour)) 頃が最多（\(turnValue)）。"
         case .polish:
-            return "Szczyt: \(range), okolo \(String(format: "%02d:00", hour)) (\(turns) turns)."
+            return "Szczyt: \(range), okolo \(String(format: "%02d:00", hour)) (\(turnValue))."
         case .english:
-            return "Peak usage is in the \(range.lowercased()), highest around \(String(format: "%02d:00", hour)) (\(turns) turns)."
+            return "Peak usage is in the \(range.lowercased()), highest around \(String(format: "%02d:00", hour)) (\(turnValue))."
         default:
-            return "Peak usage is in the \(range.lowercased()), highest around \(String(format: "%02d:00", hour)) (\(turns) turns)."
+            return "Peak usage is in the \(range.lowercased()), highest around \(String(format: "%02d:00", hour)) (\(turnValue))."
         }
     }
 
@@ -1147,24 +1148,24 @@ extension UsageDetailsView {
         case .chinese:
             switch row.risk {
             case .frequentCompression:
-                return "\(days) 天内 \(row.conversations) 个对话共压缩 \(row.compressions) 次，平均 \(avg) 次/对话，明显偏高；\(percent)% 的对话发生过压缩，最长 \(row.longestTurns) turns。"
+                return "\(days) 天内 \(row.conversations) 个会话共压缩 \(row.compressions) 次，平均 \(avg) 次/会话，明显偏高；\(percent)% 的会话发生过压缩，最长 \(row.longestTurns) 轮次。"
             case .longRunning:
-                return "对话偏长：最长 \(row.longestTurns) turns，平均压缩 \(avg) 次/对话；建议阶段完成后开新窗口，避免触发压缩。"
+                return "会话偏长：最长 \(row.longestTurns) 轮次，平均压缩 \(avg) 次/会话；建议阶段完成后开新窗口，避免触发压缩。"
             case .wellSplit:
-                return "切分习惯良好：对话普遍较短，平均压缩 \(avg) 次/对话，上下文保持干净。"
+                return "切分习惯良好：会话普遍较短，平均压缩 \(avg) 次/会话，上下文保持干净。"
             case .healthy:
-                return "\(days) 天内 \(row.conversations) 个对话，平均压缩 \(avg) 次/对话，处于健康区间，保持当前节奏即可。"
+                return "\(days) 天内 \(row.conversations) 个会话，平均压缩 \(avg) 次/会话，处于健康区间，保持当前节奏即可。"
             }
         case .traditionalChinese:
             switch row.risk {
             case .frequentCompression:
-                return "\(days) 天內 \(row.conversations) 個對話共壓縮 \(row.compressions) 次，平均 \(avg) 次/對話，明顯偏高；\(percent)% 的對話發生過壓縮，最長 \(row.longestTurns) turns。"
+                return "\(days) 天內 \(row.conversations) 個會話共壓縮 \(row.compressions) 次，平均 \(avg) 次/會話，明顯偏高；\(percent)% 的會話發生過壓縮，最長 \(row.longestTurns) 輪次。"
             case .longRunning:
-                return "對話偏長：最長 \(row.longestTurns) turns，平均壓縮 \(avg) 次/對話；建議階段完成後開新視窗，避免觸發壓縮。"
+                return "會話偏長：最長 \(row.longestTurns) 輪次，平均壓縮 \(avg) 次/會話；建議階段完成後開新視窗，避免觸發壓縮。"
             case .wellSplit:
-                return "切分習慣良好：對話普遍較短，平均壓縮 \(avg) 次/對話，上下文保持乾淨。"
+                return "切分習慣良好：會話普遍較短，平均壓縮 \(avg) 次/會話，上下文保持乾淨。"
             case .healthy:
-                return "\(days) 天內 \(row.conversations) 個對話，平均壓縮 \(avg) 次/對話，處於健康區間，保持目前節奏即可。"
+                return "\(days) 天內 \(row.conversations) 個會話，平均壓縮 \(avg) 次/會話，處於健康區間，保持目前節奏即可。"
             }
         case .japanese:
             switch row.risk {
@@ -1180,13 +1181,13 @@ extension UsageDetailsView {
         default:
             switch row.risk {
             case .frequentCompression:
-                return "\(row.conversations) chats compacted \(row.compressions) times in \(days) days — \(avg) per chat, well above healthy; \(percent)% of chats hit compaction, longest \(row.longestTurns) turns."
+                return "\(row.conversations) sessions compacted \(row.compressions) times in \(days) days — \(avg) per session, well above healthy; \(percent)% of sessions hit compaction, longest \(row.longestTurns) Turns."
             case .longRunning:
-                return "Chats run long: up to \(row.longestTurns) turns, \(avg) compactions per chat. Start a fresh window after each milestone."
+                return "Sessions run long: up to \(row.longestTurns) Turns, \(avg) compactions per session. Start a fresh window after each milestone."
             case .wellSplit:
-                return "Well split: chats stay short with \(avg) compactions per chat, keeping context clean."
+                return "Well split: sessions stay short with \(avg) compactions per session, keeping context clean."
             case .healthy:
-                return "\(row.conversations) chats in \(days) days with \(avg) compactions per chat — comfortably in the healthy range."
+                return "\(row.conversations) sessions in \(days) days with \(avg) compactions per session — comfortably in the healthy range."
             }
         }
     }

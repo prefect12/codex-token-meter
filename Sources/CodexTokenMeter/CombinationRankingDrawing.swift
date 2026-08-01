@@ -218,16 +218,16 @@ extension UsageDetailsView {
         let totalUsage = rows.reduce(into: Usage()) { $0.add($1.usage) }
         let totalCost = rows.reduce(0.0) { $0 + $1.apiEstimate.usdValue }
         drawText(reasoningLocalized("总计", english: "Total"), rect: NSRect(x: rect.minX + 16, y: footerY + 13, width: 52, height: 18), font: .systemFont(ofSize: 10.5, weight: .bold), color: NSColor.white.withAlphaComponent(0.8))
-        drawText("\(format(Int64(totalTasks))) \(reasoningLocalized("任务", english: "tasks"))  ·  \(reasoningCompactTokens(totalUsage.total))  ·  \(combinationRankingMoney(totalCost))", rect: NSRect(x: rect.minX + 72, y: footerY + 13, width: rect.width - 88, height: 18), font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold), color: accentBlue.withAlphaComponent(0.82))
+        drawText("\(format(Int64(totalTasks))) \(reasoningLocalized("会话", english: "sessions"))  ·  \(reasoningCompactTokens(totalUsage.total))  ·  \(combinationRankingMoney(totalCost))", rect: NSRect(x: rect.minX + 72, y: footerY + 13, width: rect.width - 88, height: 18), font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold), color: accentBlue.withAlphaComponent(0.82))
     }
 
     private func reasoningTableColumns(compact: Bool) -> [ReasoningTableColumn] {
         let model = ReasoningTableColumn(sort: .model, title: reasoningLocalized("模型", english: "Model"), width: compact ? 142 : 138, alignment: .left, value: { $0.model })
         let effort = ReasoningTableColumn(sort: .effort, title: reasoningLocalized("思考强度", english: "Effort"), width: 76, alignment: .left, value: { $0.effort })
         let projects = ReasoningTableColumn(sort: .projects, title: reasoningLocalized("项目数", english: "Projects"), width: 62, alignment: .right, value: { $0.projects.map(String.init) ?? "—" })
-        let tasks = ReasoningTableColumn(sort: .tasks, title: reasoningLocalized("任务数", english: "Tasks"), width: 64, alignment: .right, value: { row in format(Int64(row.tasks)) })
+        let tasks = ReasoningTableColumn(sort: .tasks, title: reasoningLocalized("会话数", english: "Sessions"), width: 64, alignment: .right, value: { row in format(Int64(row.tasks)) })
         let total = ReasoningTableColumn(sort: .totalTokens, title: reasoningLocalized("总 Token", english: "Total Token"), width: 78, alignment: .right, value: { self.reasoningCompactTokens($0.usage.total) })
-        let average = ReasoningTableColumn(sort: .averageTokens, title: reasoningLocalized("平均 Token/任务", english: "Avg Token/Task"), width: 104, alignment: .right, value: { self.reasoningCompactTokens($0.averageTokensPerTask) })
+        let average = ReasoningTableColumn(sort: .averageTokens, title: reasoningLocalized("平均 Token/会话", english: "Avg Token/Session"), width: 104, alignment: .right, value: { self.reasoningCompactTokens($0.averageTokensPerTask) })
         if compact { return [model, effort, tasks, total, average] }
         return [
             model, effort, projects, tasks, total, average,
@@ -236,7 +236,7 @@ extension UsageDetailsView {
             .init(sort: .output, title: reasoningLocalized("输出", english: "Output"), width: 70, alignment: .right, value: { self.reasoningCompactTokens($0.visibleOutput) }),
             .init(sort: .reasoningOutput, title: reasoningLocalized("推理输出", english: "Reasoning"), width: 76, alignment: .right, value: { self.reasoningCompactTokens($0.usage.reasoningOutput) }),
             .init(sort: .totalCost, title: reasoningLocalized("API 等价成本", english: "API Cost"), width: 96, alignment: .right, value: { self.combinationRankingMoney($0.apiEstimate.usdValue) }),
-            .init(sort: .costPerTask, title: reasoningLocalized("成本/任务", english: "Cost/Task"), width: 90, alignment: .right, value: { self.combinationRankingMoney($0.costPerTask) })
+            .init(sort: .costPerTask, title: reasoningLocalized("成本/会话", english: "Cost/Session"), width: 90, alignment: .right, value: { self.combinationRankingMoney($0.costPerTask) })
         ]
     }
 
@@ -259,15 +259,15 @@ extension UsageDetailsView {
         drawText(dateText, rect: NSRect(x: rect.minX + 14, y: titleY + 27, width: rect.width - 28, height: 16), font: .monospacedDigitSystemFont(ofSize: 9.2, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
 
         let overviewY = titleY + 58
-        drawDetailSectionTitle(reasoningLocalized("任务概览", english: "Overview"), rect: rect, y: overviewY)
+        drawDetailSectionTitle(reasoningLocalized("会话概览", english: "Session Overview"), rect: rect, y: overviewY)
         let overview: [(String, String)] = [
             (reasoningLocalized("项目数", english: "Projects"), row.projects.map { format(Int64($0)) } ?? "—"),
-            (reasoningLocalized("任务数", english: "Tasks"), format(Int64(row.tasks))),
-            (reasoningLocalized("执行轮次", english: "Runs"), format(Int64(row.runs))),
+            (reasoningLocalized("会话数", english: "Sessions"), format(Int64(row.tasks))),
+            (reasoningLocalized("轮次", english: "Turns"), format(Int64(row.runs))),
             (reasoningLocalized("总 Token", english: "Total Token"), format(row.usage.total)),
-            (reasoningLocalized("平均 Token/任务", english: "Avg Token/Task"), format(row.averageTokensPerTask)),
+            (reasoningLocalized("平均 Token/会话", english: "Avg Token/Session"), format(row.averageTokensPerTask)),
             (reasoningLocalized("API 等价成本", english: "API Cost"), combinationRankingMoney(row.apiEstimate.usdValue)),
-            (reasoningLocalized("成本/任务", english: "Cost/Task"), combinationRankingMoney(row.costPerTask))
+            (reasoningLocalized("成本/会话", english: "Cost/Session"), combinationRankingMoney(row.costPerTask))
         ]
         var y = overviewY + 24
         for item in overview { drawDetailValue(label: item.0, value: item.1, rect: rect, y: y); y += 20 }
@@ -484,7 +484,7 @@ extension UsageDetailsView {
         let start = calendar.date(byAdding: .day, value: -(max(1, days) - 1), to: calendar.startOfDay(for: report.scannedAt)) ?? report.scannedAt
         let cutoff = formatter.string(from: start)
         var buckets: [String: ModelUsage] = [:]
-        for day in report.byDay where day.day >= cutoff { for model in day.modelBreakdown { var value = buckets[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0); value.usage.add(model.usage); value.events += model.events; value.sessions += model.sessions; buckets[model.name] = value } }
+        for day in report.byDay where day.day >= cutoff { for model in day.modelBreakdown { var value = buckets[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0); value.usage.add(model.usage); value.turns += model.turns; value.events += model.events; value.sessions += model.sessions; buckets[model.name] = value } }
         if days >= 90, buckets.isEmpty { buckets = Dictionary(uniqueKeysWithValues: report.modelBreakdown.map { ($0.name, $0) }) }
         return buckets.values.filter { $0.usage.total > 0 }.map { model in
             let tasks = max(1, model.sessions), average = model.usage.total / Int64(tasks)

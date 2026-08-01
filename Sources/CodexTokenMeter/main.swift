@@ -243,6 +243,7 @@ if CommandLine.arguments.contains("--print") {
             let modelAPIEstimate = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
             return [
                 "name": model.name,
+                "turns": model.turns,
                 "sessions": model.sessions,
                 "events": model.events,
                 "total": model.usage.total,
@@ -259,6 +260,8 @@ if CommandLine.arguments.contains("--print") {
             let dayAPIEstimate = APICostEstimator.estimate(day: day)
             return [
                 "day": day.day,
+                "sessions": day.sessions,
+                "events": day.events,
                 "turns": day.turns,
                 "input": day.usage.input,
                 "cached_input": day.usage.cachedInput,
@@ -274,6 +277,7 @@ if CommandLine.arguments.contains("--print") {
                     let modelAPIEstimate = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
                     return [
                         "name": model.name,
+                        "turns": model.turns,
                         "sessions": model.sessions,
                         "events": model.events,
                         "total": model.usage.total,

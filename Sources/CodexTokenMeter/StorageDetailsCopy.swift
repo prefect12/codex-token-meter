@@ -66,7 +66,7 @@ func chineseStorageCategoryCopy(_ id: StorageCategoryID) -> StorageCategoryCopy 
     case .codexSessions:
         return StorageCategoryCopy(
             name: "会话日志",
-            purpose: "包含 Codex 正在使用的对话日志源数据（sessions 与 archived_sessions），用于计算 token、会话、模型和项目级别的统计。",
+            purpose: "包含 Codex 正在使用的会话日志源数据（sessions 与 archived_sessions），用于计算 Token、会话、模型和项目级别的统计。",
             impact: "删除后将丢失对应时间段的历史记录，影响日历、趋势、模型分布、会话排行和项目洞察等所有历史统计，无法从服务端恢复。",
             advice: "仅建议清理非常旧的 archived 会话日志，并先确认不再需要历史统计。可按日期或会话文件逐步清理。"
         )
@@ -134,7 +134,7 @@ func traditionalChineseStorageCategoryCopy(_ id: StorageCategoryID) -> StorageCa
     case .codexSessions:
         return StorageCategoryCopy(
             name: "會話日誌",
-            purpose: "包含 Codex 正在使用的對話日誌源資料（sessions 與 archived_sessions），用於計算 token、會話、模型和專案層級的統計。",
+            purpose: "包含 Codex 正在使用的會話日誌源資料（sessions 與 archived_sessions），用於計算 Token、會話、模型和專案層級的統計。",
             impact: "刪除後將遺失對應時間段的歷史記錄，影響日曆、趨勢、模型分佈、會話排行和專案洞察等所有歷史統計，無法從伺服器端還原。",
             advice: "僅建議清理非常舊的 archived 會話日誌，並先確認不再需要歷史統計。可按日期或會話檔案逐步清理。"
         )
@@ -355,7 +355,7 @@ extension AppLanguage {
                 colApp: "应用",
                 colSize: "占用",
                 colTokens: "Token",
-                colTurns: "回合",
+                colTurns: "轮次",
                 colAdvice: "建议",
                 adviceKeep: "保留",
                 adviceReview: "谨慎清理",
@@ -402,7 +402,7 @@ extension AppLanguage {
                 colApp: "應用",
                 colSize: "佔用",
                 colTokens: "Token",
-                colTurns: "回合",
+                colTurns: "輪次",
                 colAdvice: "建議",
                 adviceKeep: "保留",
                 adviceReview: "謹慎清理",
