@@ -1764,7 +1764,15 @@ extension UsageDetailsView {
             width: rect.width - 36,
             height: max(minimumModelHeight, rect.maxY - modelY - 18)
         )
-        drawSelectedDayModels(models, rect: modelRect)
+        let cost = planCostEstimate(
+            report: report,
+            selectedDay: nil,
+            limit: sourceCostLimit(for: snapshot),
+            quotaReferenceReport: sourceCostReferenceReport(for: snapshot),
+            monthlyCost: AppSettings.monthlyPlanCost(for: selectedDetailsSource),
+            paymentStartDay: AppSettings.paymentStartDay(for: selectedDetailsSource)
+        )
+        drawSelectedDayModels(models, weeklyQuotaTotal: cost?.weeklyQuotaTotal, rect: modelRect)
     }
 
     func weekModelBreakdown(_ summary: ContributionWeekSummary) -> [ModelUsage] {
