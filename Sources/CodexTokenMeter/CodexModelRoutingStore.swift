@@ -36,6 +36,7 @@ struct CodexProjectRoutingSnapshot: Equatable {
     let project: CodexSavedProject
     let model: CodexProjectConfigValue
     let reasoningEffort: CodexProjectConfigValue
+    var blocksGlobalInheritance = false
 
     var hasMixedValues: Bool {
         model == .mixed || reasoningEffort == .mixed

@@ -402,6 +402,17 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         view.configureModelList(query: modelSearch, sort: modelSort)
     }
     if section == .modelRouting {
+        let routingPlatform = arguments
+            .compactMap { argument -> ModelRoutingPlatform? in
+                guard argument.hasPrefix("--model-routing-platform=") else { return nil }
+                return ModelRoutingPlatform(
+                    rawValue: String(argument.dropFirst("--model-routing-platform=".count))
+                )
+            }
+            .first
+        if let routingPlatform {
+            view.modelRoutingControls.selectPlatform(routingPlatform)
+        }
         let routingSearch = arguments
             .compactMap { argument -> String? in
                 guard argument.hasPrefix("--model-routing-search=") else { return nil }

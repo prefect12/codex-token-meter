@@ -233,11 +233,11 @@ enum DetailsSection: CaseIterable {
         case .models: return t(.modelsSubtitle)
         case .modelRouting:
             if AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese {
-                return "设置全局与每个 Codex 项目的默认模型和思考强度"
+                return "设置全局与每个项目的默认模型和思考强度"
             }
             return AppLanguage.current == .japanese
-                ? "グローバルと各 Codex プロジェクトの既定モデルと思考強度"
-                : "Set the default model and reasoning effort globally and per Codex project"
+                ? "グローバルと各プロジェクトの既定モデルと思考強度"
+                : "Set the default model and reasoning effort globally and per project"
         case .calendar: return t(.calendarSubtitle)
         case .costs: return t(.quotaCyclesSubtitle)
         case .storage: return AppLanguage.current.storageCopy.headerSubtitle
