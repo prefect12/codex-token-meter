@@ -179,12 +179,12 @@ enum DetailsSection: CaseIterable {
     case overview
     case calendar
     case models
-    case modelRouting
     case reasoning
     case combinationRanking
     case insights
     case costs
     case storage
+    case modelRouting
     case settings
     case diagnostics
     case about
