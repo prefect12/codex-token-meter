@@ -487,12 +487,28 @@ extension UsageDetailsView {
             drawText(t(.noModelLabelsFound), rect: NSRect(x: rect.minX + 16, y: rect.minY + 48, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
             return
         }
+        let metadataFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        let totalWidth: CGFloat = 90
+        let sessionsWidth = max(
+            90,
+            models.map { measuredTextWidth("\($0.sessions) \(t(.sessions))", font: metadataFont) + 4 }.max() ?? 90
+        )
+        let eventsWidth = max(
+            92,
+            models.map { measuredTextWidth("\($0.events) \(t(.events))", font: metadataFont) + 4 }.max() ?? 92
+        )
+        let rightPadding: CGFloat = 16
+        let columnGap: CGFloat = 8
+        let eventsX = rect.maxX - rightPadding - eventsWidth
+        let sessionsX = eventsX - columnGap - sessionsWidth
+        let totalX = sessionsX - columnGap - totalWidth
+        let nameWidth = max(80, totalX - columnGap - (rect.minX + 16))
         for (index, model) in models.enumerated() {
             let y = rect.minY + 40 + CGFloat(index) * 20
-            drawText(model.name, rect: NSRect(x: rect.minX + 16, y: y, width: rect.width - 320, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: .white)
-            drawRight(compact(model.usage.total), rect: NSRect(x: rect.maxX - 300, y: y, width: 90, height: 18), color: .white)
-            drawRight("\(model.sessions) \(t(.sessions))", rect: NSRect(x: rect.maxX - 204, y: y, width: 90, height: 18), color: NSColor.white.withAlphaComponent(0.52))
-            drawRight("\(model.events) \(t(.events))", rect: NSRect(x: rect.maxX - 108, y: y, width: 92, height: 18), color: NSColor.white.withAlphaComponent(0.52))
+            drawText(model.name, rect: NSRect(x: rect.minX + 16, y: y, width: nameWidth, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: .white)
+            drawRight(compact(model.usage.total), rect: NSRect(x: totalX, y: y, width: totalWidth, height: 18), color: .white, font: metadataFont)
+            drawRight("\(model.sessions) \(t(.sessions))", rect: NSRect(x: sessionsX, y: y, width: sessionsWidth, height: 18), color: NSColor.white.withAlphaComponent(0.52), font: metadataFont)
+            drawRight("\(model.events) \(t(.events))", rect: NSRect(x: eventsX, y: y, width: eventsWidth, height: 18), color: NSColor.white.withAlphaComponent(0.52), font: metadataFont)
         }
     }
 
