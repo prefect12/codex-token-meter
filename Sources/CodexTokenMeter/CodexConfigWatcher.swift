@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// Watches the directories that contain Codex routing inputs and reports only
+/// Watches the directories that contain model-routing inputs and reports only
 /// when one of the target files actually changes.
 final class CodexConfigWatcher {
     typealias ChangeHandler = () -> Void

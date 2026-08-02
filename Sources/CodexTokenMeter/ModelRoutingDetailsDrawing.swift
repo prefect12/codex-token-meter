@@ -1,6 +1,12 @@
 import Cocoa
 
 private let modelRoutingMixedValue = "__mixed__"
+private let modelRoutingNotApplicableValue = "__not_applicable__"
+
+enum ModelRoutingPlatform: String, CaseIterable {
+    case codex
+    case claude
+}
 
 private struct ModelRoutingColumns {
     let project: NSRect
@@ -51,6 +57,15 @@ private func modelRoutingSearchRect(in toolbar: NSRect) -> NSRect {
     )
 }
 
+private func modelRoutingPlatformRect(in content: NSRect) -> NSRect {
+    NSRect(
+        x: content.maxX - min(236, max(196, content.width * 0.22)),
+        y: content.minY + 16,
+        width: min(236, max(196, content.width * 0.22)),
+        height: 34
+    )
+}
+
 struct ModelRoutingPageLayout {
     let globalRect: NSRect
     let toolbarRect: NSRect
@@ -88,8 +103,10 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     private(set) var statusIsError = false
     private(set) var query = ""
     private(set) var projectFilter: ProjectFilter = .all
+    private(set) var selectedPlatform: ModelRoutingPlatform
 
-    private let store: CodexModelRoutingStore
+    private let codexStore: CodexModelRoutingStore
+    private let claudeStore: ClaudeModelRoutingStore
     private var configWatcher: CodexConfigWatcher?
     private weak var host: UsageDetailsView?
     private var bindings: [ObjectIdentifier: Binding] = [:]
@@ -104,11 +121,26 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         target: nil,
         action: nil
     )
+    private let platformControl = NSSegmentedControl(
+        labels: ["Codex", "Claude"],
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
     private let refreshButton = NSButton(title: "", target: nil, action: nil)
 
-    init(store: CodexModelRoutingStore = CodexModelRoutingStore()) {
-        self.store = store
-        snapshot = store.loadSnapshot()
+    init(
+        codexStore: CodexModelRoutingStore = CodexModelRoutingStore(),
+        claudeStore: ClaudeModelRoutingStore = ClaudeModelRoutingStore()
+    ) {
+        self.codexStore = codexStore
+        self.claudeStore = claudeStore
+        selectedPlatform = ModelRoutingPlatform(
+            rawValue: UserDefaults.standard.string(forKey: "selectedModelRoutingPlatform") ?? ""
+        ) ?? .codex
+        snapshot = selectedPlatform == .codex
+            ? codexStore.loadSnapshot()
+            : claudeStore.loadSnapshot()
         super.init()
         configWatcher = CodexConfigWatcher { [weak self] in
             self?.reloadFromExternalChange()
@@ -171,6 +203,23 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         filterControl.isHidden = true
         host.addSubview(filterControl)
 
+        platformControl.controlSize = .regular
+        platformControl.segmentStyle = .rounded
+        platformControl.appearance = NSAppearance(named: .darkAqua)
+        platformControl.selectedSegmentBezelColor = host.accentBlue
+        platformControl.selectedSegment = selectedPlatform == .codex ? 0 : 1
+        platformControl.target = self
+        platformControl.action = #selector(platformChanged(_:))
+        platformControl.setAccessibilityLabel(
+            localized(
+                chinese: "选择要配置的平台",
+                english: "Choose the platform to configure",
+                japanese: "設定するプラットフォームを選択"
+            )
+        )
+        platformControl.isHidden = true
+        host.addSubview(platformControl)
+
         refreshButton.isBordered = true
         refreshButton.bezelStyle = .rounded
         refreshButton.controlSize = .regular
@@ -186,10 +235,20 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     func reload() {
-        snapshot = store.loadSnapshot()
+        snapshot = loadActiveSnapshot()
         updateConfigWatcher()
         rebuildPopups()
         invalidateLayout()
+    }
+
+    func selectPlatform(_ platform: ModelRoutingPlatform) {
+        guard selectedPlatform != platform else { return }
+        selectedPlatform = platform
+        platformControl.selectedSegment = platform == .codex ? 0 : 1
+        UserDefaults.standard.set(platform.rawValue, forKey: "selectedModelRoutingPlatform")
+        statusMessage = nil
+        statusIsError = false
+        reload()
     }
 
     func configure(query: String?, filter rawFilter: String?) {
@@ -215,6 +274,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         let layout = host?.modelRoutingPageLayout(in: content)
         searchField.isHidden = !visible
         filterControl.isHidden = !visible
+        platformControl.isHidden = !visible
         refreshButton.isHidden = !visible
 
         for popup in modelPopups.values {
@@ -227,6 +287,8 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             checkbox.isHidden = true
         }
         guard visible, let layout else { return }
+
+        platformControl.frame = modelRoutingPlatformRect(in: content)
 
         searchField.placeholderString = localized(
             chinese: "搜索项目",
@@ -288,6 +350,52 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         return snapshot.models.first { $0.slug == slug }
     }
 
+    var platformDisplayName: String {
+        selectedPlatform == .codex ? "Codex" : "Claude"
+    }
+
+    private func loadActiveSnapshot() -> CodexModelRoutingSnapshot {
+        switch selectedPlatform {
+        case .codex:
+            return codexStore.loadSnapshot()
+        case .claude:
+            return claudeStore.loadSnapshot()
+        }
+    }
+
+    private func writeGlobal(model: String, reasoningEffort: String?) throws {
+        switch selectedPlatform {
+        case .codex:
+            guard let reasoningEffort, !reasoningEffort.isEmpty else {
+                throw CodexModelRoutingStoreError.missingGlobalDefault("model_reasoning_effort")
+            }
+            try codexStore.writeGlobal(model: model, reasoningEffort: reasoningEffort)
+        case .claude:
+            try claudeStore.writeGlobal(model: model, reasoningEffort: reasoningEffort)
+        }
+    }
+
+    private func writeProject(
+        id: String,
+        model: String?,
+        reasoningEffort: String?
+    ) throws {
+        switch selectedPlatform {
+        case .codex:
+            try codexStore.writeProject(
+                id: id,
+                model: model,
+                reasoningEffort: reasoningEffort
+            )
+        case .claude:
+            try claudeStore.writeProject(
+                id: id,
+                model: model,
+                reasoningEffort: reasoningEffort
+            )
+        }
+    }
+
     func controlTextDidChange(_ obj: Notification) {
         guard let field = obj.object as? NSSearchField, field === searchField else { return }
         query = field.stringValue
@@ -299,6 +407,10 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         invalidateLayout()
     }
 
+    @objc private func platformChanged(_ sender: NSSegmentedControl) {
+        selectPlatform(sender.selectedSegment == 1 ? .claude : .codex)
+    }
+
     @objc private func refreshRequested() {
         statusMessage = nil
         statusIsError = false
@@ -307,16 +419,23 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
 
     private func reloadFromExternalChange() {
         statusMessage = localized(
-            chinese: "已从 Codex 同步",
-            english: "Synced from Codex",
-            japanese: "Codex から同期済み"
+            chinese: "已从 \(platformDisplayName) 同步",
+            english: "Synced from \(platformDisplayName)",
+            japanese: "\(platformDisplayName) から同期済み"
         )
         statusIsError = false
         reload()
     }
 
     private func updateConfigWatcher() {
-        configWatcher?.watch(targetURLs: store.routingInputURLs(for: snapshot))
+        let urls: [URL]
+        switch selectedPlatform {
+        case .codex:
+            urls = codexStore.routingInputURLs(for: snapshot)
+        case .claude:
+            urls = claudeStore.routingInputURLs(for: snapshot)
+        }
+        configWatcher?.watch(targetURLs: urls)
     }
 
     @objc private func popupChanged(_ sender: NSPopUpButton) {
@@ -345,9 +464,9 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         guard let id = inheritanceBindings[ObjectIdentifier(sender)] else { return }
         do {
             if sender.state == .on {
-                try store.writeProject(id: id, model: nil, reasoningEffort: nil)
+                try writeProject(id: id, model: nil, reasoningEffort: nil)
             } else {
-                try store.writeProject(
+                try writeProject(
                     id: id,
                     model: effectiveGlobalModel(),
                     reasoningEffort: effectiveGlobalEffort()
@@ -374,27 +493,31 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
 
     private func writeGlobalChange(field: Field, sender: NSPopUpButton) throws {
         var model = snapshot.global.model ?? effectiveGlobalModel()
-        var effort = snapshot.global.reasoningEffort
+        var effort: String? = snapshot.global.reasoningEffort
             ?? modelOption(slug: model)?.defaultReasoningEffort
-            ?? "medium"
+        if effort?.isEmpty == true {
+            effort = nil
+        }
         let value = selectedValue(in: sender)
         switch field {
         case .model:
             model = value
             let supported = modelOption(slug: model)?.supportedReasoningEfforts ?? []
-            if !supported.contains(effort) {
+            if supported.isEmpty {
+                effort = nil
+            } else if effort.map({ !supported.contains($0) }) ?? true {
                 effort = preferredEffort(for: model)
             }
         case .effort:
-            effort = value
+            effort = value == modelRoutingNotApplicableValue ? nil : value
         }
         guard !model.isEmpty else {
             throw CodexModelRoutingStoreError.missingGlobalDefault("model")
         }
-        guard !effort.isEmpty else {
+        if selectedPlatform == .codex, effort?.isEmpty != false {
             throw CodexModelRoutingStoreError.missingGlobalDefault("model_reasoning_effort")
         }
-        try store.writeGlobal(model: model, reasoningEffort: effort)
+        try writeGlobal(model: model, reasoningEffort: effort)
     }
 
     private func writeProjectChange(id: String, field: Field, sender: NSPopUpButton) throws {
@@ -402,19 +525,25 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             throw CodexModelRoutingStoreError.missingProject(id)
         }
         var model = project.model.explicitValue ?? effectiveGlobalModel()
-        var effort = project.reasoningEffort.explicitValue ?? effectiveGlobalEffort()
+        var effort: String? = project.reasoningEffort.explicitValue ?? effectiveGlobalEffort()
+        if effort?.isEmpty == true {
+            effort = nil
+        }
         let value = selectedValue(in: sender)
 
         switch field {
         case .model:
             model = value
-            if !(modelOption(slug: model)?.supportedReasoningEfforts ?? []).contains(effort) {
+            let supported = modelOption(slug: model)?.supportedReasoningEfforts ?? []
+            if supported.isEmpty {
+                effort = nil
+            } else if effort.map({ !supported.contains($0) }) ?? true {
                 effort = preferredEffort(for: model)
             }
         case .effort:
-            effort = value
+            effort = value == modelRoutingNotApplicableValue ? nil : value
         }
-        try store.writeProject(id: id, model: model, reasoningEffort: effort)
+        try writeProject(id: id, model: model, reasoningEffort: effort)
     }
 
     private func rebuildPopups() {
@@ -476,9 +605,16 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
 
             let controlsEnabled = !project.inheritsEverything && !project.hasMixedValues
             modelPopup.isEnabled = controlsEnabled
-            effortPopup.isEnabled = controlsEnabled
+            effortPopup.isEnabled = controlsEnabled && modelSupportsEffort(
+                project.model.explicitValue ?? effectiveGlobalModel()
+            )
             modelPopup.alphaValue = controlsEnabled ? 1 : 0.52
-            effortPopup.alphaValue = controlsEnabled ? 1 : 0.52
+            effortPopup.alphaValue = effortPopup.isEnabled ? 1 : 0.52
+        } else {
+            effortPopup.isEnabled = modelSupportsEffort(
+                snapshot.global.model ?? effectiveGlobalModel()
+            )
+            effortPopup.alphaValue = effortPopup.isEnabled ? 1 : 0.52
         }
     }
 
@@ -504,7 +640,15 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         checkbox.controlSize = .small
         checkbox.appearance = NSAppearance(named: .darkAqua)
         checkbox.allowsMixedState = true
-        if project.hasMixedValues {
+        if project.blocksGlobalInheritance {
+            checkbox.state = .off
+            checkbox.isEnabled = false
+            checkbox.toolTip = localized(
+                chinese: "此项目的共享 .claude/settings.json 已设置模型或思考强度，因此不能直接跟随全局。本页仍可用私有设置覆盖它。",
+                english: "This project's shared .claude/settings.json sets a model or effort, so it cannot directly follow global. You can still override it privately here.",
+                japanese: "共有 .claude/settings.json にモデルまたは思考強度があるため、直接グローバルには従えません。この画面で非公開に上書きできます。"
+            )
+        } else if project.hasMixedValues {
             checkbox.state = .mixed
             checkbox.contentTintColor = host?.accentAmber
             checkbox.toolTip = localized(
@@ -590,12 +734,50 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         }
         let model = selectedModel.explicitValue ?? effectiveGlobalModel()
         var efforts = modelOption(slug: model)?.supportedReasoningEfforts
-            ?? ["low", "medium", "high", "xhigh", "max", "ultra"]
-        if let explicit = selectedEffort.explicitValue, !efforts.contains(explicit) {
-            efforts.append(explicit)
+            ?? fallbackEfforts
+        if efforts.isEmpty {
+            addItem(
+                to: popup,
+                title: localized(chinese: "不适用", english: "Not applicable", japanese: "対象外"),
+                value: modelRoutingNotApplicableValue,
+                enabled: false
+            )
+            select(value: modelRoutingNotApplicableValue, in: popup)
+            popup.setAccessibilityLabel(
+                localized(chinese: "默认思考强度", english: "Default reasoning effort", japanese: "既定の思考強度")
+            )
+            return
+        }
+        let explicitEffort = selectedEffort.explicitValue
+        if let explicitEffort, !efforts.contains(explicitEffort) {
+            efforts.append(explicitEffort)
         }
         for effort in efforts {
-            addItem(to: popup, title: effort, value: effort)
+            let isUnsupportedPersistedClaudeEffort = selectedPlatform == .claude
+                && !fallbackEfforts.contains(effort)
+            addItem(
+                to: popup,
+                title: isUnsupportedPersistedClaudeEffort
+                    ? localized(
+                        chinese: "\(effort)（仅会话）",
+                        english: "\(effort) (session only)",
+                        japanese: "\(effort)（セッションのみ）"
+                    )
+                    : effort,
+                value: effort,
+                enabled: !isUnsupportedPersistedClaudeEffort
+            )
+        }
+        if selectedPlatform == .claude,
+           let explicitEffort,
+           !fallbackEfforts.contains(explicitEffort) {
+            popup.toolTip = localized(
+                chinese: "\(explicitEffort) 不能保存到 Claude 设置；请选择 low、medium、high 或 xhigh。",
+                english: "\(explicitEffort) cannot be persisted in Claude settings; choose low, medium, high, or xhigh.",
+                japanese: "\(explicitEffort) は Claude 設定に保存できません。low、medium、high、xhigh のいずれかを選択してください。"
+            )
+        } else {
+            popup.toolTip = nil
         }
 
         let selectedValue: String
@@ -650,11 +832,26 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     private func preferredEffort(for model: String) -> String {
-        guard let option = modelOption(slug: model) else { return "medium" }
+        guard let option = modelOption(slug: model) else {
+            return selectedPlatform == .claude ? "high" : "medium"
+        }
         if option.supportedReasoningEfforts.contains("medium") {
             return "medium"
         }
         return option.defaultReasoningEffort
+    }
+
+    private var fallbackEfforts: [String] {
+        switch selectedPlatform {
+        case .codex:
+            return ["low", "medium", "high", "xhigh", "max", "ultra"]
+        case .claude:
+            return ["low", "medium", "high", "xhigh"]
+        }
+    }
+
+    private func modelSupportsEffort(_ model: String) -> Bool {
+        !(modelOption(slug: model)?.supportedReasoningEfforts ?? fallbackEfforts).isEmpty
     }
 
     private func selectedValue(in popup: NSPopUpButton) -> String {
@@ -801,13 +998,16 @@ extension UsageDetailsView {
         }
 
         let hasExplicitGlobal = modelRoutingControls.snapshot.global.model != nil
-            && modelRoutingControls.snapshot.global.reasoningEffort != nil
+            && (
+                modelRoutingControls.selectedPlatform == .claude
+                    || modelRoutingControls.snapshot.global.reasoningEffort != nil
+            )
         let defaultStatus = hasExplicitGlobal
             ? modelRoutingLocalized(chinese: "已保存", english: "Saved", japanese: "保存済み")
             : modelRoutingLocalized(
-                chinese: "使用 Codex 默认",
-                english: "Using Codex defaults",
-                japanese: "Codex 既定値を使用"
+                chinese: "使用 \(modelRoutingControls.platformDisplayName) 默认",
+                english: "Using \(modelRoutingControls.platformDisplayName) defaults",
+                japanese: "\(modelRoutingControls.platformDisplayName) 既定値を使用"
             )
         let statusText = modelRoutingControls.statusMessage ?? defaultStatus
         let statusColor = modelRoutingControls.statusIsError
@@ -927,11 +1127,20 @@ extension UsageDetailsView {
     }
 
     private func drawRoutingFooter(_ rect: NSRect) {
-        let countText = modelRoutingLocalized(
-            chinese: "配置作用范围：当前所有 Codex 项目",
-            english: "Configuration scope: all current Codex projects",
-            japanese: "設定範囲：現在のすべての Codex プロジェクト"
-        )
+        let countText: String
+        if modelRoutingControls.selectedPlatform == .claude {
+            countText = modelRoutingLocalized(
+                chinese: "Claude 项目设置保存为本机私有配置，不修改团队共享文件",
+                english: "Claude project settings stay private on this Mac; shared team files are not changed",
+                japanese: "Claude プロジェクト設定はこの Mac の非公開設定に保存され、共有ファイルは変更されません"
+            )
+        } else {
+            countText = modelRoutingLocalized(
+                chinese: "配置作用范围：当前列表中的 Codex 项目",
+                english: "Configuration scope: listed Codex projects",
+                japanese: "設定範囲：一覧の Codex プロジェクト"
+            )
+        }
         drawRight(
             countText,
             rect: NSRect(x: rect.minX + 154, y: rect.minY + 16, width: rect.width - 154, height: 20),

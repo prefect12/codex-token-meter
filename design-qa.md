@@ -1,3 +1,44 @@
+# Design QA: Codex / Claude model routing
+
+## Source and implementation
+
+- Source reference: `/var/folders/hm/pmxxw3v90wl7nql88zsgljym0000gn/T/codex-clipboard-8f0f700a-8ce3-485d-9577-6689b7d354db.png`
+- Claude implementation: `/tmp/ai-token-meter-model-routing-claude-final.png`
+- Codex regression view: `/tmp/ai-token-meter-model-routing-codex-final.png`
+- Combined comparison: `/tmp/model-routing-reference-vs-implementation-final.png`
+- Viewport: 1552 x 984 points, rendered at 2x density
+- State: Default Model page, Claude selected, global settings visible, all projects shown
+
+## Comparison
+
+- The existing navigation, title, global card, search field, filter control, table, spacing, colors, typography, and row controls are preserved.
+- A compact Codex / Claude segmented control was added in the page header, using the page's existing segmented-control treatment.
+- Claude rows use the same columns and inheritance affordance as Codex rows.
+- Shared Claude project settings remain visible but cannot falsely claim to follow the global setting.
+- A persisted `max` value is labelled `max（仅会话）` and disabled because Claude Code does not accept it in persistent settings.
+- The footer explains that project changes are written to the machine-private Claude settings file.
+
+## Interaction checks
+
+- Switching platforms reloads the corresponding global and project settings.
+- Global model and effort controls write only their platform's settings keys.
+- Claude project overrides write only `.claude/settings.local.json`.
+- Shared `.claude/settings.json` content remains unchanged.
+- Search, filters, inheritance controls, refresh, and Codex configuration continue to work through the existing control paths.
+
+## Iteration history
+
+1. Added the top platform selector and reused the existing routing table.
+2. Added shared/local Claude precedence and disabled false global inheritance for shared overrides.
+3. Updated the Claude model aliases and marked session-only effort values after checking current Claude Code documentation.
+4. Rendered both platforms at the source viewport and compared the reference and implementation together.
+
+## Final result
+
+Passed. No P0, P1, or P2 visual or interaction issues remain in the verified state.
+
+---
+
 # Follow Global Control Design QA
 
 ## Evidence
