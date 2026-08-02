@@ -68,13 +68,31 @@ private func testPlanParser() {
         fputs("plan parser self-test failed\n", stderr)
         exit(1)
     }
+    let customPayload: [String: Any] = [
+        "type": "custom_tool_call",
+        "name": "exec",
+        "input": #"const result = await tools.update_plan({explanation:"fixture",plan:[{step:"读取数据",status:"completed"},{step:"实现界面",status:"in_progress"},{step:"验证结果",status:"pending"}]});"#
+    ]
+    let customObject: [String: Any] = [
+        "type": "response_item",
+        "payload": customPayload
+    ]
+    guard let customData = try? JSONSerialization.data(withJSONObject: customObject),
+          let customLine = String(data: customData, encoding: .utf8),
+          let customPlan = parseTaskPlan(inRolloutLine: customLine),
+          customPlan.steps.count == 3,
+          customPlan.displayedStepNumber == 2,
+          customPlan.currentStepText == "实现界面" else {
+        fputs("custom tool plan parser self-test failed\n", stderr)
+        exit(1)
+    }
     let temporaryURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("task-bar-plan-\(UUID().uuidString).jsonl")
     defer { try? FileManager.default.removeItem(at: temporaryURL) }
     let filler = String(repeating: "x", count: 600 * 1024)
     let fixture = [
         #"{"type":"event_msg","payload":{"type":"agent_message","message":"\#(filler)"}}"#,
-        line,
+        customLine,
         #"{"type":"event_msg","payload":{"type":"agent_message","message":"\#(filler)"}}"#
     ].joined(separator: "\n") + "\n"
     do {
@@ -89,7 +107,7 @@ private func testPlanParser() {
         fputs("plan history self-test failed\n", stderr)
         exit(1)
     }
-    print("plan parser self-test passed: \(plan.displayedStepNumber)/\(plan.steps.count), restart recovery passed")
+    print("plan parser self-test passed: \(plan.displayedStepNumber)/\(plan.steps.count), custom tool and restart recovery passed")
 }
 
 private func mockTaskBarThreads() -> [CodexThreadItem] {

@@ -71,6 +71,149 @@ func parseTaskPlanFunctionCall(_ line: String) -> TaskPlan? {
     )
 }
 
+func parseTaskPlan(inRolloutLine line: String) -> TaskPlan? {
+    parseTaskPlanFunctionCall(line) ?? parseCustomToolTaskPlan(line)
+}
+
+/// Codex Desktop records tool calls made through the desktop `exec` bridge as a
+/// `custom_tool_call`. Its input is JavaScript source, rather than the JSON
+/// function-call payload used by the older CLI transcript format. Read only the
+/// explicit `tools.update_plan(...)` invocation; unrelated `exec` input must not
+/// be interpreted as a plan.
+private func parseCustomToolTaskPlan(_ line: String) -> TaskPlan? {
+    guard let data = line.data(using: .utf8),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          object["type"] as? String == "response_item",
+          let payload = object["payload"] as? [String: Any],
+          payload["type"] as? String == "custom_tool_call",
+          payload["name"] as? String == "exec",
+          let input = payload["input"] as? String,
+          let invocation = balancedInvocation(named: "tools.update_plan", in: input),
+          let planArray = balancedValue(afterProperty: "plan", in: invocation, opening: "[", closing: "]") else {
+        return nil
+    }
+
+    let steps = balancedObjects(in: planArray).compactMap { object -> TaskPlanStep? in
+        guard let text = javaScriptStringProperty("step", in: object)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty,
+              let rawStatus = javaScriptStringProperty("status", in: object),
+              let status = TaskPlanStepStatus(rawValue: rawStatus) else {
+            return nil
+        }
+        return TaskPlanStep(text: text, status: status)
+    }
+    guard !steps.isEmpty else { return nil }
+    let explanation = javaScriptStringProperty("explanation", in: invocation)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return TaskPlan(explanation: explanation?.isEmpty == false ? explanation : nil, steps: steps)
+}
+
+private func balancedInvocation(named name: String, in source: String) -> String? {
+    guard let nameRange = source.range(of: name),
+          let open = source[nameRange.upperBound...].firstIndex(of: "(") else {
+        return nil
+    }
+    return balancedDelimitedContent(in: source, openingAt: open, opening: "(", closing: ")")
+}
+
+private func balancedValue(afterProperty name: String, in source: String, opening: Character, closing: Character) -> String? {
+    guard let start = propertyValueStart(afterProperty: name, in: source), source[start] == opening else {
+        return nil
+    }
+    return balancedDelimitedContent(in: source, openingAt: start, opening: opening, closing: closing)
+}
+
+private func propertyValueStart(afterProperty name: String, in source: String) -> String.Index? {
+    var searchStart = source.startIndex
+    while let propertyRange = source.range(of: name, range: searchStart..<source.endIndex) {
+        let before = propertyRange.lowerBound > source.startIndex ? source[source.index(before: propertyRange.lowerBound)] : "{"
+        guard before.isWhitespace || before == "{" || before == "," || before == "\"" else {
+            searchStart = propertyRange.upperBound
+            continue
+        }
+        var cursor = propertyRange.upperBound
+        while cursor < source.endIndex, source[cursor].isWhitespace { cursor = source.index(after: cursor) }
+        if cursor < source.endIndex, source[cursor] == "\"" { cursor = source.index(after: cursor) }
+        while cursor < source.endIndex, source[cursor].isWhitespace { cursor = source.index(after: cursor) }
+        guard cursor < source.endIndex, source[cursor] == ":" else {
+            searchStart = propertyRange.upperBound
+            continue
+        }
+        cursor = source.index(after: cursor)
+        while cursor < source.endIndex, source[cursor].isWhitespace { cursor = source.index(after: cursor) }
+        return cursor < source.endIndex ? cursor : nil
+    }
+    return nil
+}
+
+private func balancedObjects(in source: String) -> [String] {
+    var objects: [String] = []
+    var cursor = source.startIndex
+    while cursor < source.endIndex {
+        guard let open = source[cursor...].firstIndex(of: "{") else { break }
+        guard let object = balancedDelimitedContent(in: source, openingAt: open, opening: "{", closing: "}") else { break }
+        objects.append(object)
+        cursor = source.index(open, offsetBy: object.count, limitedBy: source.endIndex) ?? source.endIndex
+    }
+    return objects
+}
+
+private func balancedDelimitedContent(in source: String, openingAt open: String.Index, opening: Character, closing: Character) -> String? {
+    var depth = 0
+    var activeQuote: Character?
+    var escaped = false
+    var cursor = open
+    while cursor < source.endIndex {
+        let character = source[cursor]
+        if let quote = activeQuote {
+            if escaped {
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else if character == quote {
+                activeQuote = nil
+            }
+        } else if character == "\"" || character == "'" || character == "`" {
+            activeQuote = character
+        } else if character == opening {
+            depth += 1
+        } else if character == closing {
+            depth -= 1
+            if depth == 0 {
+                return String(source[open...cursor])
+            }
+        }
+        cursor = source.index(after: cursor)
+    }
+    return nil
+}
+
+private func javaScriptStringProperty(_ name: String, in source: String) -> String? {
+    guard let start = propertyValueStart(afterProperty: name, in: source),
+          source[start] == "\"" || source[start] == "'" else {
+        return nil
+    }
+    let quote = source[start]
+    var cursor = source.index(after: start)
+    var escaped = false
+    while cursor < source.endIndex {
+        let character = source[cursor]
+        if escaped {
+            escaped = false
+        } else if character == "\\" {
+            escaped = true
+        } else if character == quote {
+            let content = String(source[source.index(after: start)..<cursor])
+            guard quote == "\"" else { return content }
+            let json = "\"\(content)\""
+            return (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? String ?? content
+        }
+        cursor = source.index(after: cursor)
+    }
+    return nil
+}
+
 /// Finds the newest plan snapshot without parsing the whole rollout. This is
 /// used when Task Bar starts after the latest `update_plan` line has already
 /// fallen outside the normal tail scan window.
@@ -84,7 +227,8 @@ func latestTaskPlan(
 
     let markers = [
         Data(#""name":"update_plan""#.utf8),
-        Data(#""name":"functions.update_plan""#.utf8)
+        Data(#""name":"functions.update_plan""#.utf8),
+        Data("tools.update_plan".utf8)
     ]
     let markerOverlap = UInt64(max(0, (markers.map(\.count).max() ?? 1) - 1))
     var cursor = min(requestedEndOffset ?? fileSize, fileSize)
@@ -109,7 +253,7 @@ func latestTaskPlan(
                 fileSize: fileSize,
                 handle: handle
             ),
-               let plan = parseTaskPlanFunctionCall(line) {
+               let plan = parseTaskPlan(inRolloutLine: line) {
                 return plan
             }
             cursor = markerOffset
@@ -1890,10 +2034,9 @@ final class CodexActivityReader {
             state.summary.preview = preview
         }
         if header.contains(#""type":"response_item""#),
-           header.contains(#""payload":{"type":"function_call""#),
-           (header.contains(#""name":"update_plan""#) || header.contains(#""name":"functions.update_plan""#)),
+           header.contains("update_plan"),
            lineFitsRolloutPayloadParseLimit(line),
-           let plan = taskPlan(from: line) {
+           let plan = parseTaskPlan(inRolloutLine: line) {
             state.summary.plan = plan
         }
         if let call = functionCallInfo(fromHeader: header),
@@ -2068,10 +2211,6 @@ final class CodexActivityReader {
             return nil
         }
         return payload
-    }
-
-    private func taskPlan(from line: String) -> TaskPlan? {
-        parseTaskPlanFunctionCall(line)
     }
 
     private func tokenCounters(from line: String) -> TokenBreakdown? {
