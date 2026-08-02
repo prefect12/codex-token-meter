@@ -1,3 +1,30 @@
+# Model Routing Platform Button Style QA
+
+## Evidence
+
+- Problem reference: `/var/folders/hm/pmxxw3v90wl7nql88zsgljym0000gn/T/codex-clipboard-d0e1d426-8dad-44a5-b314-1af07f62a25b.png`
+- Existing product pattern: `/var/folders/hm/pmxxw3v90wl7nql88zsgljym0000gn/T/codex-clipboard-01f8dcd3-54e6-44c3-b2c4-546ab4833112.png`
+- Claude implementation: `/tmp/model-routing-button-style-claude.png`
+- Codex implementation: `/tmp/model-routing-button-style-codex.png`
+- Focused comparison: `/tmp/model-routing-button-style-comparison.png`
+- Viewport: 1552 x 984 points at 2x density
+
+## Findings
+
+No actionable P0, P1, or P2 differences remain.
+
+- Replaced the joined native segmented control with two independent rounded buttons.
+- Selected and unselected fills, borders, corner radius, 8-point gap, typography, and 30-point height now reuse the same visual tokens as the existing source selector.
+- The control remains right-aligned in the page header and keeps the existing Codex / Claude switching behavior.
+- Both buttons expose radio-button accessibility roles, labels, and selected values.
+- The Codex and Claude page renders show no overlap, clipping, or layout regression.
+
+## Final result
+
+Passed.
+
+---
+
 # Design QA: Codex / Claude model routing
 
 ## Source and implementation

@@ -57,13 +57,15 @@ private func modelRoutingSearchRect(in toolbar: NSRect) -> NSRect {
     )
 }
 
-private func modelRoutingPlatformRect(in content: NSRect) -> NSRect {
-    NSRect(
-        x: content.maxX - min(236, max(196, content.width * 0.22)),
-        y: content.minY + 16,
-        width: min(236, max(196, content.width * 0.22)),
-        height: 34
-    )
+private func modelRoutingPlatformRects(in content: NSRect) -> [ModelRoutingPlatform: NSRect] {
+    let width: CGFloat = 170
+    let gap: CGFloat = 8
+    let buttonWidth = (width - gap) / 2
+    let startX = content.maxX - width
+    return [
+        .codex: NSRect(x: startX, y: content.minY + 6, width: buttonWidth, height: 30),
+        .claude: NSRect(x: startX + buttonWidth + gap, y: content.minY + 6, width: buttonWidth, height: 30),
+    ]
 }
 
 struct ModelRoutingPageLayout {
@@ -121,12 +123,8 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         target: nil,
         action: nil
     )
-    private let platformControl = NSSegmentedControl(
-        labels: ["Codex", "Claude"],
-        trackingMode: .selectOne,
-        target: nil,
-        action: nil
-    )
+    private let codexPlatformButton = NSButton(title: "Codex", target: nil, action: nil)
+    private let claudePlatformButton = NSButton(title: "Claude", target: nil, action: nil)
     private let refreshButton = NSButton(title: "", target: nil, action: nil)
 
     init(
@@ -203,22 +201,9 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         filterControl.isHidden = true
         host.addSubview(filterControl)
 
-        platformControl.controlSize = .regular
-        platformControl.segmentStyle = .rounded
-        platformControl.appearance = NSAppearance(named: .darkAqua)
-        platformControl.selectedSegmentBezelColor = host.accentBlue
-        platformControl.selectedSegment = selectedPlatform == .codex ? 0 : 1
-        platformControl.target = self
-        platformControl.action = #selector(platformChanged(_:))
-        platformControl.setAccessibilityLabel(
-            localized(
-                chinese: "选择要配置的平台",
-                english: "Choose the platform to configure",
-                japanese: "設定するプラットフォームを選択"
-            )
-        )
-        platformControl.isHidden = true
-        host.addSubview(platformControl)
+        configurePlatformButton(codexPlatformButton, platform: .codex, in: host)
+        configurePlatformButton(claudePlatformButton, platform: .claude, in: host)
+        updatePlatformButtonStyles()
 
         refreshButton.isBordered = true
         refreshButton.bezelStyle = .rounded
@@ -234,6 +219,55 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         rebuildPopups()
     }
 
+    private func configurePlatformButton(
+        _ button: NSButton,
+        platform: ModelRoutingPlatform,
+        in host: UsageDetailsView
+    ) {
+        button.isBordered = false
+        button.wantsLayer = true
+        button.layer?.cornerRadius = 8
+        button.layer?.masksToBounds = true
+        button.layer?.borderWidth = 1
+        button.font = .systemFont(ofSize: 12, weight: .semibold)
+        button.contentTintColor = .white
+        button.appearance = NSAppearance(named: .darkAqua)
+        button.target = self
+        button.action = #selector(platformButtonChanged(_:))
+        button.setAccessibilityRole(.radioButton)
+        button.setAccessibilityLabel(
+            localized(
+                chinese: "配置 \(platform == .codex ? "Codex" : "Claude")",
+                english: "Configure \(platform == .codex ? "Codex" : "Claude")",
+                japanese: "\(platform == .codex ? "Codex" : "Claude") を設定"
+            )
+        )
+        button.isHidden = true
+        host.addSubview(button)
+    }
+
+    private func updatePlatformButtonStyles() {
+        guard let host else { return }
+        for (platform, button) in [
+            (ModelRoutingPlatform.codex, codexPlatformButton),
+            (ModelRoutingPlatform.claude, claudePlatformButton),
+        ] {
+            let selected = selectedPlatform == platform
+            button.state = selected ? .on : .off
+            button.layer?.backgroundColor = (
+                selected
+                    ? host.accentBlue.withAlphaComponent(0.72)
+                    : host.inputSurfaceColor.withAlphaComponent(0.82)
+            ).cgColor
+            button.layer?.borderColor = (
+                selected
+                    ? host.accentTeal.withAlphaComponent(0.38)
+                    : host.borderColor
+            ).cgColor
+            button.setAccessibilityValue(selected)
+        }
+    }
+
     func reload() {
         snapshot = loadActiveSnapshot()
         updateConfigWatcher()
@@ -244,10 +278,10 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     func selectPlatform(_ platform: ModelRoutingPlatform) {
         guard selectedPlatform != platform else { return }
         selectedPlatform = platform
-        platformControl.selectedSegment = platform == .codex ? 0 : 1
         UserDefaults.standard.set(platform.rawValue, forKey: "selectedModelRoutingPlatform")
         statusMessage = nil
         statusIsError = false
+        updatePlatformButtonStyles()
         reload()
     }
 
@@ -274,7 +308,8 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         let layout = host?.modelRoutingPageLayout(in: content)
         searchField.isHidden = !visible
         filterControl.isHidden = !visible
-        platformControl.isHidden = !visible
+        codexPlatformButton.isHidden = !visible
+        claudePlatformButton.isHidden = !visible
         refreshButton.isHidden = !visible
 
         for popup in modelPopups.values {
@@ -288,7 +323,9 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         }
         guard visible, let layout else { return }
 
-        platformControl.frame = modelRoutingPlatformRect(in: content)
+        let platformRects = modelRoutingPlatformRects(in: content)
+        codexPlatformButton.frame = platformRects[.codex] ?? .zero
+        claudePlatformButton.frame = platformRects[.claude] ?? .zero
 
         searchField.placeholderString = localized(
             chinese: "搜索项目",
@@ -407,8 +444,8 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         invalidateLayout()
     }
 
-    @objc private func platformChanged(_ sender: NSSegmentedControl) {
-        selectPlatform(sender.selectedSegment == 1 ? .claude : .codex)
+    @objc private func platformButtonChanged(_ sender: NSButton) {
+        selectPlatform(sender === claudePlatformButton ? .claude : .codex)
     }
 
     @objc private func refreshRequested() {
