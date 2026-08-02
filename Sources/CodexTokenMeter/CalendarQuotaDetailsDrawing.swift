@@ -1863,24 +1863,40 @@ extension UsageDetailsView {
         }
 
         let maxTotal = max(models.map { $0.usage.total }.max() ?? 1, 1)
-        let costX = rect.maxX - 92
-        let quotaX = costX - 82
-        let totalX = quotaX - 88
-        let outputX = totalX - 88
-        let inputX = outputX - 90
-        let eventsX = inputX - 78
-        let sessionsX = eventsX - 64
-        let turnsX = sessionsX - 64
-        let nameW = min(220, rect.width * 0.30)
+        let showsTokenBreakdown = rect.width >= 760
+        let showsFullActivity = rect.width >= 900
+        let showsQuotaShare = rect.width >= 1_040
+        var columnX = rect.maxX
+        func allocateColumn(slotWidth: CGFloat) -> CGFloat {
+            columnX -= slotWidth
+            return columnX
+        }
+
+        let costX = allocateColumn(slotWidth: 92)
+        let quotaX = showsQuotaShare ? allocateColumn(slotWidth: 82) : nil
+        let totalX = allocateColumn(slotWidth: 88)
+        let outputX = showsTokenBreakdown ? allocateColumn(slotWidth: 88) : nil
+        let inputX = showsTokenBreakdown ? allocateColumn(slotWidth: 90) : nil
+        let eventsX = allocateColumn(slotWidth: 78)
+        let sessionsX = allocateColumn(slotWidth: 64)
+        let turnsX = showsFullActivity ? allocateColumn(slotWidth: 64) : nil
+        let availableNameWidth = max(96, columnX - rect.minX - 12)
+        let nameW = min(min(220, rect.width * 0.30), availableNameWidth)
         let barX = rect.minX + nameW + 18
-        let barW = max(0, turnsX - barX - 24)
-        drawRight(t(.turns), rect: NSRect(x: turnsX, y: rect.minY, width: 56, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
+        let barW = max(0, columnX - barX - 12)
+        if let turnsX {
+            drawRight(t(.turns), rect: NSRect(x: turnsX, y: rect.minY, width: 56, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
+        }
         drawRight(t(.sessions), rect: NSRect(x: sessionsX, y: rect.minY, width: 56, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         drawRight(t(.totalEvents), rect: NSRect(x: eventsX, y: rect.minY, width: 70, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
-        drawRight(t(.input), rect: NSRect(x: inputX, y: rect.minY, width: 80, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
-        drawRight(t(.output), rect: NSRect(x: outputX, y: rect.minY, width: 80, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
+        if let inputX, let outputX {
+            drawRight(t(.input), rect: NSRect(x: inputX, y: rect.minY, width: 80, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
+            drawRight(t(.output), rect: NSRect(x: outputX, y: rect.minY, width: 80, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
+        }
         drawRight(t(.total), rect: NSRect(x: totalX, y: rect.minY, width: 82, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
-        drawRight(t(.weeklyQuotaShare), rect: NSRect(x: quotaX, y: rect.minY, width: 74, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
+        if let quotaX {
+            drawRight(t(.weeklyQuotaShare), rect: NSRect(x: quotaX, y: rect.minY, width: 74, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
+        }
         drawRight(t(.apiEquivalent), rect: NSRect(x: costX, y: rect.minY, width: 92, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         for (index, model) in models.enumerated() {
             let y = rect.minY + 22 + CGFloat(index) * 22
@@ -1901,11 +1917,15 @@ extension UsageDetailsView {
                 NSBezierPath(roundedRect: NSRect(x: bar.minX + inputWidth, y: bar.minY, width: max(0, filledWidth - inputWidth), height: bar.height), xRadius: 4, yRadius: 4).fill()
             }
 
-            drawRight(format(Int64(model.turns)), rect: NSRect(x: turnsX, y: y + 1, width: 56, height: 16), color: NSColor.white.withAlphaComponent(0.70))
+            if let turnsX {
+                drawRight(format(Int64(model.turns)), rect: NSRect(x: turnsX, y: y + 1, width: 56, height: 16), color: NSColor.white.withAlphaComponent(0.70))
+            }
             drawRight(format(Int64(model.sessions)), rect: NSRect(x: sessionsX, y: y + 1, width: 56, height: 16), color: NSColor.white.withAlphaComponent(0.70))
             drawRight(format(Int64(model.events)), rect: NSRect(x: eventsX, y: y + 1, width: 70, height: 16), color: NSColor.systemOrange)
-            drawRight(compact(model.usage.input), rect: NSRect(x: inputX, y: y + 1, width: 80, height: 16), color: .systemGreen)
-            drawRight(compact(model.usage.output), rect: NSRect(x: outputX, y: y + 1, width: 80, height: 16), color: .systemCyan)
+            if let inputX, let outputX {
+                drawRight(compact(model.usage.input), rect: NSRect(x: inputX, y: y + 1, width: 80, height: 16), color: .systemGreen)
+                drawRight(compact(model.usage.output), rect: NSRect(x: outputX, y: y + 1, width: 80, height: 16), color: .systemCyan)
+            }
             drawRight(compact(model.usage.total), rect: NSRect(x: totalX, y: y + 1, width: 82, height: 16), color: .white)
             let quotaText: String
             if let weeklyQuotaTotal, weeklyQuotaTotal > 0 {
@@ -1914,7 +1934,9 @@ extension UsageDetailsView {
                 quotaText = "—"
             }
             let quotaColor = (weeklyQuotaTotal ?? 0) > 0 ? NSColor.systemGreen : NSColor.white.withAlphaComponent(0.38)
-            drawRight(quotaText, rect: NSRect(x: quotaX, y: y + 1, width: 74, height: 16), color: quotaColor)
+            if let quotaX {
+                drawRight(quotaText, rect: NSRect(x: quotaX, y: y + 1, width: 74, height: 16), color: quotaColor)
+            }
             let modelCost = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
             let costText = modelCost.hasPricedUsage ? compactDisplayAPIMoney(modelCost.usdValue) : "—"
             drawRight(costText, rect: NSRect(x: costX, y: y + 1, width: 92, height: 16), color: modelCost.hasPricedUsage ? accentTeal : NSColor.white.withAlphaComponent(0.38))
