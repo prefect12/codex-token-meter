@@ -280,9 +280,10 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         let details = claudeScanner.scanWithRepoInsights(days: 365, insightWindows: [7, 30, 90])
         claude = details.report
         combinedClaudeRepoInsightReports = details.repoInsights
-    } else if section == .reasoning || section == .combinationRanking {
+    } else if section == .reasoning || section == .combinationRanking || section == .models {
         // The ranking page can switch between 7/30/90 days and combines Codex
         // reasoning rows with Claude model totals from the same local window.
+        // The model page defaults to the visible 90-day range selector.
         codex = scanner.scan(days: 90)
         let details = claudeScanner.scanWithRepoInsights(days: 90, insightWindows: [7, 30, 90])
         claude = details.report

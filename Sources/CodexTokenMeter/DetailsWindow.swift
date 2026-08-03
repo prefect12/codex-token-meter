@@ -9,6 +9,11 @@ struct DetailsSnapshot: Codable {
     var all: TokenReport
     var codex: TokenReport
     var claude: TokenReport
+    var modelAll: TokenReport? = nil
+    var modelCodex: TokenReport? = nil
+    var modelClaude: TokenReport? = nil
+    var modelRangeStart: Date? = nil
+    var modelRangeEnd: Date? = nil
     var repoInsights: RepoInsightsReport
     var repoInsightReports: [Int: RepoInsightsReport] = [:]
     var codexRepoInsights: RepoInsightsReport = RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
@@ -772,6 +777,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var hoveredModelUsageRowIndex: Int?
     var modelSortColumnRects: [ModelListSortOption: NSRect] = [:]
     let modelControls = ModelDetailsControls()
+    let modelDateRangeControls = ModelDateRangeControls()
+    var isModelDateRangeLoading = false {
+        didSet {
+            modelDateRangeControls.setLoading(isModelDateRangeLoading)
+            needsDisplay = true
+        }
+    }
+    var onModelDateRangeChanged: ((Date, Date) -> Void)?
     let modelRoutingControls = ModelRoutingControls()
     var hoveredCostOverviewInfo: CostOverviewInfo?
     var isHoveringDayQuotaShareInfo = false
@@ -1240,6 +1253,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             self.needsDisplay = true
             self.needsLayout = true
         }
+        modelDateRangeControls.install(in: self, inputSurfaceColor: inputSurfaceColor)
+        modelDateRangeControls.onChange = { [weak self] start, end in
+            guard let self else { return }
+            self.isModelDateRangeLoading = true
+            self.onModelDateRangeChanged?(start, end)
+        }
         modelRoutingControls.install(in: self)
 
         contributionWeekHoverOverlay.frame = bounds
@@ -1429,7 +1448,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             targetHeight = contentWidth < 900 ? 1_390 : 968
         case .models:
             let tableHeight = snapshot.map { modelListPresentation(for: $0).tableHeight } ?? 132
-            targetHeight = 410 + tableHeight
+            targetHeight = 452 + tableHeight
         case .modelRouting:
             targetHeight = 398 + CGFloat(max(1, modelRoutingControls.visibleProjects.count)) * 72
         case .calendar:
@@ -1575,9 +1594,20 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
 
+    func modelSourceReport(for snapshot: DetailsSnapshot, source: QuotaViewOption? = nil) -> TokenReport {
+        switch source ?? selectedDetailsSource {
+        case .all:
+            return snapshot.modelAll ?? snapshot.all
+        case .codex:
+            return snapshot.modelCodex ?? snapshot.codex
+        case .claude:
+            return snapshot.modelClaude ?? snapshot.claude
+        }
+    }
+
     func modelListPresentation(for snapshot: DetailsSnapshot) -> ModelListPresentation {
         ModelListPresentation.make(
-            report: sourceReport(for: snapshot),
+            report: modelSourceReport(for: snapshot),
             query: modelControls.query,
             sort: modelControls.sort,
             direction: modelControls.direction
