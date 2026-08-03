@@ -398,9 +398,9 @@ final class ThreadRowView: NSView {
             ? NSColor(calibratedRed: 0.98, green: 0.68, blue: 0.20, alpha: 1)
             : NSColor(calibratedWhite: 0.5, alpha: 1)
         pinIconView.toolTip = isPinned ? "取消置顶" : "置顶"
-        pinIconView.isHidden = item.plan == nil
-            ? !(isPinned || isHovering)
-            : !isPinned
+        // The progress ring has its own slot immediately to the left of the pin.
+        // Keep the pin discoverable on hover even when a task has a live plan.
+        pinIconView.isHidden = !(isPinned || isHovering)
     }
 
     override func scrollWheel(with event: NSEvent) {
