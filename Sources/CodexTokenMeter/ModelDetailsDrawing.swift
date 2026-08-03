@@ -15,15 +15,27 @@ struct ModelUsageHoverRow {
 extension UsageDetailsView {
     func drawModelsPage(snapshot: DetailsSnapshot, content: NSRect) {
         modelUsageHoverRows.removeAll(keepingCapacity: true)
-        drawQuotaRows(snapshot: snapshot, content: content, y: content.minY + 78, height: 128)
+        let rangeLabel: String
+        switch AppLanguage.current {
+        case .chinese: rangeLabel = "时间范围"
+        case .traditionalChinese: rangeLabel = "時間範圍"
+        default: rangeLabel = "Date range"
+        }
+        drawText(
+            rangeLabel,
+            rect: NSRect(x: content.minX, y: content.minY + 76, width: 150, height: 18),
+            font: .systemFont(ofSize: 11, weight: .semibold),
+            color: NSColor.white.withAlphaComponent(0.52)
+        )
+        drawQuotaRows(snapshot: snapshot, content: content, y: content.minY + 120, height: 128)
         let presentation = modelListPresentation(for: snapshot)
         let tableHeight = presentation.tableHeight
-        let tableY = content.minY + 222
+        let tableY = content.minY + 264
         drawModelsTable(presentation: presentation, content: content, y: tableY, height: tableHeight)
         let noteY = tableY + tableHeight + 16
         let noteRect = NSRect(x: content.minX, y: noteY, width: content.width, height: min(116, content.maxY - noteY))
         drawPanel(noteRect)
-        let report = sourceReport(for: snapshot)
+        let report = modelSourceReport(for: snapshot)
         let scannedAt = DateFormatter.localizedString(from: report.scannedAt, dateStyle: .short, timeStyle: .short)
         let sourceText = String(format: t(.modelTrustSourceFormat), selectedDetailsSource.fallbackTitle, scannedAt)
         let identificationText = String(
@@ -110,14 +122,14 @@ extension UsageDetailsView {
         switch selectedDetailsSource {
         case .all:
             rows = [
-                (t(.all), t(.allDescription), snapshot.all),
-                (t(.codex), t(.codexDescription), snapshot.codex),
-                (t(.claude), t(.claudeDescription), snapshot.claude)
+                (t(.all), t(.allDescription), modelSourceReport(for: snapshot, source: .all)),
+                (t(.codex), t(.codexDescription), modelSourceReport(for: snapshot, source: .codex)),
+                (t(.claude), t(.claudeDescription), modelSourceReport(for: snapshot, source: .claude))
             ]
         case .codex:
-            rows = [(t(.codex), t(.codexDescription), snapshot.codex)]
+            rows = [(t(.codex), t(.codexDescription), modelSourceReport(for: snapshot, source: .codex))]
         case .claude:
-            rows = [(t(.claude), t(.claudeDescription), snapshot.claude)]
+            rows = [(t(.claude), t(.claudeDescription), modelSourceReport(for: snapshot, source: .claude))]
         }
         let outputW: CGFloat = 92
         let inputW: CGFloat = 104

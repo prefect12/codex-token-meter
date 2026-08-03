@@ -31,6 +31,18 @@ final class ClaudeTokenScanner {
         let turns: [ClaudeTurn]
     }
 
+    private final class ParsedFileCacheEntry {
+        let fileSize: Int
+        let modifiedAt: Date
+        let parsed: ParsedClaudeFile
+
+        init(fileSize: Int, modifiedAt: Date, parsed: ParsedClaudeFile) {
+            self.fileSize = fileSize
+            self.modifiedAt = modifiedAt
+            self.parsed = parsed
+        }
+    }
+
     private struct RepoConversation {
         var cwd: String?
         var conversations = 1
@@ -128,6 +140,8 @@ final class ClaudeTokenScanner {
     private let isoFormatter: ISO8601DateFormatter
     private let dayFormatter: DateFormatter
     private let calendar: Calendar
+    private let parsedFileCache: NSCache<NSString, ParsedFileCacheEntry>
+
     init(rootURLs: [URL] = AppSettings.claudeLogFolderURLs) {
         self.rootURLs = Self.uniqueRootURLs(rootURLs)
         self.isoFormatter = ISO8601DateFormatter()
@@ -139,6 +153,10 @@ final class ClaudeTokenScanner {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = appTimeZone()
         self.calendar = calendar
+        let parsedFileCache = NSCache<NSString, ParsedFileCacheEntry>()
+        parsedFileCache.countLimit = 2_000
+        parsedFileCache.totalCostLimit = 192 * 1_024 * 1_024
+        self.parsedFileCache = parsedFileCache
     }
 
     var rootPaths: [String] {
@@ -169,6 +187,10 @@ final class ClaudeTokenScanner {
         let dayCount = max(days, 1)
         let start = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -(dayCount - 1), to: now) ?? now)
         return scan(start: start, now: now, fillDayCount: dayCount)
+    }
+
+    func scan(from start: Date, to end: Date = Date()) -> TokenReport {
+        scan(start: start, now: end, fillDayCount: nil)
     }
 
     func scanWithRepoInsights(days: Int, insightWindows: [Int]) -> (report: TokenReport, repoInsights: [Int: RepoInsightsReport]) {
@@ -290,7 +312,7 @@ final class ClaudeTokenScanner {
         var sessions: [SessionUsage] = []
 
         for fileURL in logFiles(modifiedSince: fileStart ?? start) {
-            let parsed = parse(fileURL: fileURL)
+            let parsed = cachedParse(fileURL: fileURL)
             parsedFileHandler?(parsed)
             var sessionUsage = Usage()
             var sessionTurns = 0
@@ -416,6 +438,26 @@ final class ClaudeTokenScanner {
         .sorted { $0.usage.total > $1.usage.total }
         report.topSessions = sessions.sorted { $0.usage.total > $1.usage.total }.prefix(8).map { $0 }
         return report
+    }
+
+    private func cachedParse(fileURL: URL) -> ParsedClaudeFile {
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
+        let values = try? fileURL.resourceValues(forKeys: keys)
+        let fileSize = values?.fileSize ?? 0
+        let modifiedAt = values?.contentModificationDate ?? .distantPast
+        let cacheKey = (fileURL.path as NSString).standardizingPath as NSString
+        if let cached = parsedFileCache.object(forKey: cacheKey),
+           cached.fileSize == fileSize,
+           cached.modifiedAt == modifiedAt {
+            return cached.parsed
+        }
+        let parsed = parse(fileURL: fileURL)
+        parsedFileCache.setObject(
+            ParsedFileCacheEntry(fileSize: fileSize, modifiedAt: modifiedAt, parsed: parsed),
+            forKey: cacheKey,
+            cost: max(fileSize, 1)
+        )
+        return parsed
     }
 
     private func repoConversation(from parsed: ParsedClaudeFile, start: Date, now: Date) -> RepoConversation {

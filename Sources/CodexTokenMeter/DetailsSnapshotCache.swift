@@ -3,9 +3,8 @@ import Foundation
 // MARK: - Details Snapshot Cache
 
 enum DetailsSnapshotCacheStore {
-    // Version 6 invalidates snapshots written before per-day events and
-    // per-model turn counts were persisted.
-    private static let version = 6
+    // Version 7 adds the independently selectable model-page date range.
+    private static let version = 7
 
     private struct Payload: Codable {
         let version: Int
@@ -62,6 +61,11 @@ enum DetailsSnapshotCacheStore {
             all: sanitized(snapshot.all),
             codex: sanitized(snapshot.codex),
             claude: sanitized(snapshot.claude),
+            modelAll: snapshot.modelAll.map(sanitized),
+            modelCodex: snapshot.modelCodex.map(sanitized),
+            modelClaude: snapshot.modelClaude.map(sanitized),
+            modelRangeStart: snapshot.modelRangeStart,
+            modelRangeEnd: snapshot.modelRangeEnd,
             repoInsights: sanitized(snapshot.repoInsights),
             repoInsightReports: sanitize(snapshot.repoInsightReports),
             codexRepoInsights: sanitized(snapshot.codexRepoInsights),

@@ -11,6 +11,18 @@ private struct LiveCostReferenceCache {
     let report: TokenReport
 }
 
+private struct ModelRangeCacheKey: Hashable {
+    let startDay: Date
+    let endDay: Date
+}
+
+private struct ModelRangeReports {
+    let codex: TokenReport
+    let claude: TokenReport
+    let all: TokenReport
+    let cachedAt: Date
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
@@ -45,11 +57,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusSpinnerFrame = 0
     private var statusIsLoading = false
     private var detailsLoadGeneration = 0
+    private var modelRangeLoadGeneration = 0
+    private var modelRangeRefreshWorkItem: DispatchWorkItem?
+    private var modelRangeReportCache: [ModelRangeCacheKey: ModelRangeReports] = [:]
     private let refreshInterval: TimeInterval = 300
     private let popoverRefreshMaxAge: TimeInterval = 60
     private let liveRefreshInterval: TimeInterval = 60
     private let detailsSnapshotPrewarmInterval: TimeInterval = 30 * 60
     private let liveCostReferenceCacheTTL: TimeInterval = 5 * 60
+    private let modelRangeReportCacheTTL: TimeInterval = 5 * 60
     private let liveRefreshFailureIntervals: [TimeInterval] = [60, 300, 900]
     private var liveRefreshFailureCount = 0
     private let liveCostReferenceCacheLock = NSLock()
@@ -128,6 +144,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onProfileAPITotalsChanged = { [weak self] isOn in self?.changeProfileAPITotals(isOn) }
         detailsController.detailsView.onExportMachineUsageReport = { [weak self] in self?.exportMachineUsageReport() }
         detailsController.detailsView.onStorageScanRequested = { [weak self] in self?.refreshStorageSnapshot() }
+        detailsController.detailsView.onModelDateRangeChanged = { [weak self] start, end in
+            self?.refreshModelDateRange(from: start, to: end)
+        }
         applyLanguage()
         QuotaWarningManager.shared.requestAuthorization()
 
@@ -143,7 +162,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         refreshTimer = timer
         RunLoop.main.add(timer, forMode: .common)
-        if CommandLine.arguments.contains("--open-details=reasoning") {
+        if CommandLine.arguments.contains("--open-details=models") {
+            detailsController.detailsView.showSection(.models)
+            DispatchQueue.main.async { [weak self] in
+                self?.openDetailsWindow()
+            }
+        } else if CommandLine.arguments.contains("--open-details=reasoning") {
             detailsController.detailsView.showSection(.reasoning, insightWindowDays: 90, source: .codex)
             DispatchQueue.main.async { [weak self] in
                 self?.openDetailsWindow()
@@ -187,6 +211,129 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.detailsController.detailsView.storageSnapshot = snapshot
             }
         }
+    }
+
+    private func refreshModelDateRange(from start: Date, to end: Date) {
+        modelRangeRefreshWorkItem?.cancel()
+        modelRangeLoadGeneration += 1
+        let generation = modelRangeLoadGeneration
+        rememberVisibleModelRange()
+        if let cached = cachedModelRangeReports(from: start, to: end) {
+            applyModelRangeReports(cached, from: start, to: end, generation: generation)
+            if Date().timeIntervalSince(cached.cachedAt) <= modelRangeReportCacheTTL {
+                return
+            }
+        }
+        let presetDayCount = modelPresetDayCount(from: start, to: end)
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.scanQueue.async {
+                let codex: TokenReport
+                let claude: TokenReport
+                if let presetDayCount {
+                    codex = self.scanner.scan(days: presetDayCount)
+                    claude = self.claudeScanner.scan(days: presetDayCount)
+                } else {
+                    codex = self.scanner.scan(from: start, to: end)
+                    claude = self.claudeScanner.scan(from: start, to: end)
+                }
+                let all = mergedTokenReport([codex, claude])
+                DispatchQueue.main.async {
+                    let reports = ModelRangeReports(
+                        codex: codex,
+                        claude: claude,
+                        all: all,
+                        cachedAt: Date()
+                    )
+                    self.modelRangeReportCache[self.modelRangeCacheKey(from: start, to: end)] = reports
+                    self.applyModelRangeReports(reports, from: start, to: end, generation: generation)
+                }
+            }
+        }
+        modelRangeRefreshWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+    }
+
+    private func modelRangeCacheKey(from start: Date, to end: Date) -> ModelRangeCacheKey {
+        let calendar = appCalendar()
+        return ModelRangeCacheKey(
+            startDay: calendar.startOfDay(for: min(start, end)),
+            endDay: calendar.startOfDay(for: max(start, end))
+        )
+    }
+
+    private func modelPresetDayCount(from start: Date, to end: Date) -> Int? {
+        let calendar = appCalendar()
+        let key = modelRangeCacheKey(from: start, to: end)
+        let today = calendar.startOfDay(for: Date())
+        guard key.endDay == today else { return nil }
+        let dayCount = (calendar.dateComponents([.day], from: key.startDay, to: key.endDay).day ?? -1) + 1
+        return [7, 30, 90].contains(dayCount) ? dayCount : nil
+    }
+
+    private func cachedModelRangeReports(from start: Date, to end: Date) -> ModelRangeReports? {
+        let key = modelRangeCacheKey(from: start, to: end)
+        if let cached = modelRangeReportCache[key] {
+            return cached
+        }
+
+        guard let dayCount = modelPresetDayCount(from: start, to: end) else { return nil }
+        let window: WindowOption
+        switch dayCount {
+        case 7: window = .week
+        case 30: window = .month
+        default: return nil
+        }
+        guard let codex = reportCache[ReportCacheKey(window: window, quota: .codex)],
+              let claude = reportCache[ReportCacheKey(window: window, quota: .claude)],
+              let all = reportCache[ReportCacheKey(window: window, quota: .all)] else {
+            return nil
+        }
+        let cachedAt = min(codex.scannedAt, min(claude.scannedAt, all.scannedAt))
+        let reports = ModelRangeReports(codex: codex, claude: claude, all: all, cachedAt: cachedAt)
+        modelRangeReportCache[key] = reports
+        return reports
+    }
+
+    private func rememberVisibleModelRange() {
+        guard let snapshot = detailsController.detailsView.snapshot,
+              let start = snapshot.modelRangeStart,
+              let end = snapshot.modelRangeEnd,
+              let codex = snapshot.modelCodex,
+              let claude = snapshot.modelClaude,
+              let all = snapshot.modelAll else {
+            return
+        }
+        let key = modelRangeCacheKey(from: start, to: end)
+        guard modelRangeReportCache[key] == nil else { return }
+        modelRangeReportCache[key] = ModelRangeReports(
+            codex: codex,
+            claude: claude,
+            all: all,
+            cachedAt: Date()
+        )
+    }
+
+    private func applyModelRangeReports(
+        _ reports: ModelRangeReports,
+        from start: Date,
+        to end: Date,
+        generation: Int
+    ) {
+        guard generation == modelRangeLoadGeneration,
+              var snapshot = detailsController.detailsView.snapshot else {
+            if generation == modelRangeLoadGeneration {
+                detailsController.detailsView.isModelDateRangeLoading = false
+            }
+            return
+        }
+        snapshot.modelCodex = reports.codex
+        snapshot.modelClaude = reports.claude
+        snapshot.modelAll = reports.all
+        snapshot.modelRangeStart = start
+        snapshot.modelRangeEnd = end
+        detailsController.detailsView.isModelDateRangeLoading = false
+        detailsController.update(snapshot: snapshot)
     }
 
     private func resizeDashboardPopover(to size: NSSize) {
@@ -1083,7 +1230,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.latestState.resetCredits = resetCredits
                     self.dashboardController.dashboardView.update(self.latestState)
                 }
-                self.detailsController.update(snapshot: snapshot)
+                var displaySnapshot = snapshot
+                if let visibleSnapshot = self.detailsController.detailsView.snapshot,
+                   visibleSnapshot.modelRangeStart != nil {
+                    displaySnapshot.modelAll = visibleSnapshot.modelAll
+                    displaySnapshot.modelCodex = visibleSnapshot.modelCodex
+                    displaySnapshot.modelClaude = visibleSnapshot.modelClaude
+                    displaySnapshot.modelRangeStart = visibleSnapshot.modelRangeStart
+                    displaySnapshot.modelRangeEnd = visibleSnapshot.modelRangeEnd
+                }
+                self.detailsController.update(snapshot: displaySnapshot)
             }
         }
     }
@@ -1159,6 +1315,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let claude = claudeDetails.report
         updateProgress?(0.44, .loadingAllUsage)
         let all = mergedTokenReport([codex, claude])
+        let modelCodex = scanner.scan(days: 90)
+        let modelClaude = claudeScanner.scan(days: 90)
+        let modelAll = mergedTokenReport([modelCodex, modelClaude])
         updateProgress?(0.62, .loadingRepoInsights)
         let codexRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90])
         let claudeRepoInsightReports = claudeDetails.repoInsights
@@ -1189,6 +1348,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             all: all,
             codex: codex,
             claude: claude,
+            modelAll: modelAll,
+            modelCodex: modelCodex,
+            modelClaude: modelClaude,
+            modelRangeStart: appCalendar().startOfDay(
+                for: appCalendar().date(byAdding: .day, value: -89, to: Date()) ?? Date()
+            ),
+            modelRangeEnd: Date(),
             repoInsights: repoInsights,
             repoInsightReports: repoInsightReports,
             codexRepoInsights: codexRepoInsights,
