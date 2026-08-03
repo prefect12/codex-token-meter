@@ -191,6 +191,7 @@ If you run work through Codex CLI or the Codex app with API-based authentication
 
 ## Recent Updates
 
+- `0.2.19` adds 7/30/90-day presets and custom start/end dates to the Models page, expands session, turn, usage-record, and weekly-quota metrics, and brings model defaults to Claude with automatic external-change syncing. Task Bar `0.1.20` fixes plan parsing for current Codex Desktop transcripts and restores the plan pin on hover.
 - `0.2.18` adds global and per-project Codex defaults for model and reasoning effort, with an explicit Follow Global control; it also restores model filters, expands quota hover details, and fixes stale dashboard refreshes and Claude Keychain authorization persistence. Task Bar `0.1.19` preserves plan details across app restarts.
 - `0.2.17` adds remaining-quota pace markers for Codex and Claude, improves details scrolling and background scanning, and fixes automatic Claude Keychain prompts, subagent model attribution, and `claude-opus-5` API-equivalent pricing. Task Bar `0.1.18` adds plan-progress hover details and fixes SQLite process accumulation, resurfacing historical subtasks, and hover-panel positioning.
 - `0.2.6` adds Codex reset-credit countdowns in the details overview, including per-credit granted/expiry hover details; Task Bar also includes the latest title/status/count visibility fixes from the 0.1.6 bundle.
