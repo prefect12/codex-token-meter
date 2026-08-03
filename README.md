@@ -112,8 +112,8 @@ Repo 会话体检：按项目和文件夹定位长会话，统计会话长度分
 
 | App | Version | Build | Bundle |
 | --- | --- | --- | --- |
-| AI Token Meter | `0.2.18` | `32` | `/Applications/AI Token Meter.app` |
-| Task Bar | `0.1.19` | `20` | `/Applications/Task Bar.app` |
+| AI Token Meter | `0.2.19` | `33` | `/Applications/AI Token Meter.app` |
+| Task Bar | `0.1.20` | `21` | `/Applications/Task Bar.app` |
 
 ## 数据来源
 
@@ -217,7 +217,7 @@ Task Bar 读取：
 输出：
 
 ```text
-dist/AI-Token-Meter-0.2.18.dmg
+dist/AI-Token-Meter-0.2.19.dmg
 ```
 
 打包 Task Bar：
@@ -229,7 +229,7 @@ dist/AI-Token-Meter-0.2.18.dmg
 输出：
 
 ```text
-dist/Task-Bar-0.1.19.dmg
+dist/Task-Bar-0.1.20.dmg
 ```
 
 ## 命令行检查
