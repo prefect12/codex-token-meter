@@ -167,6 +167,7 @@ enum StatusBarMetric: String, CaseIterable {
     case codexWeekly
     case claudeFiveHour
     case claudeWeekly
+    case fableWeekly
 
     var title: String {
         switch self {
@@ -174,6 +175,7 @@ enum StatusBarMetric: String, CaseIterable {
         case .codexWeekly: return t(.statusCodexWeekly)
         case .claudeFiveHour: return t(.statusClaudeFiveHour)
         case .claudeWeekly: return t(.statusClaudeWeekly)
+        case .fableWeekly: return t(.statusFableWeekly)
         }
     }
 
@@ -181,7 +183,7 @@ enum StatusBarMetric: String, CaseIterable {
         switch self {
         case .codexFiveHour, .codexWeekly:
             return .codex
-        case .claudeFiveHour, .claudeWeekly:
+        case .claudeFiveHour, .claudeWeekly, .fableWeekly:
             return .claude
         }
     }
@@ -190,13 +192,13 @@ enum StatusBarMetric: String, CaseIterable {
         switch self {
         case .codexFiveHour, .claudeFiveHour:
             return .fiveHour
-        case .codexWeekly, .claudeWeekly:
+        case .codexWeekly, .claudeWeekly, .fableWeekly:
             return .weekly
         }
     }
 
     var liveLimitID: String {
-        source.liveLimitID
+        self == .fableWeekly ? claudeFableLiveLimitID : source.liveLimitID
     }
 
     static func metric(source: QuotaViewOption, quotaMetric: HomeQuotaRingMetric) -> StatusBarMetric {
@@ -259,6 +261,18 @@ enum HomeQuotaRingMetric: String, CaseIterable {
         switch self {
         case .fiveHour: return t(.fiveHourLeft)
         case .weekly: return t(.weeklyLeft)
+        }
+    }
+}
+
+enum ClaudeThirdRingMetric: String, CaseIterable {
+    case cacheHit
+    case fable = "fable5"
+
+    var title: String {
+        switch self {
+        case .cacheHit: return t(.cacheHit)
+        case .fable: return "Fable"
         }
     }
 }
@@ -437,6 +451,10 @@ enum L10nKey {
     case overview
     case overviewSubtitle
     case claudeHomeRing
+    case claudeThirdRing
+    case claudeThirdRingHint
+    case showCombinedFable
+    case showCombinedFableHint
     case past24Hours
     case past30Days
     case past7Days
@@ -497,6 +515,7 @@ enum L10nKey {
     case statusMetricOff
     case statusClaudeFiveHour
     case statusClaudeWeekly
+    case statusFableWeekly
     case statusQuotaPercents
     case statusWeeklyPercent
     case statusWeeklyTokens
@@ -755,6 +774,10 @@ enum L10nKey {
         case .overview: return "Overview"
         case .overviewSubtitle: return "365-day token usage by source and model"
         case .claudeHomeRing: return "Claude home ring"
+        case .claudeThirdRing: return "Claude third ring"
+        case .claudeThirdRingHint: return "Choose whether the third equal-size ring shows cache hit rate or the separate Fable weekly quota."
+        case .showCombinedFable: return "Show Fable on combined page"
+        case .showCombinedFableHint: return "Adds the compact Fable weekly quota ring beside Claude on the combined dashboard."
         case .past24Hours: return "Past 24 Hours"
         case .past30Days: return "Past 30 Days"
         case .past7Days: return "Past 7 Days"
@@ -815,6 +838,7 @@ enum L10nKey {
         case .statusMetricOff: return "Off"
         case .statusClaudeFiveHour: return "Claude 5h"
         case .statusClaudeWeekly: return "Claude 1w"
+        case .statusFableWeekly: return "Fable 1w"
         case .statusQuotaPercents: return "5h | Weekly %"
         case .statusWeeklyPercent: return "Weekly %"
         case .statusWeeklyTokens: return "7d tokens"
@@ -1032,6 +1056,10 @@ enum L10nKey {
         case .overview: return "概览"
         case .overviewSubtitle: return "过去 365 天按来源和模型统计"
         case .claudeHomeRing: return "Claude 首页圆环"
+        case .claudeThirdRing: return "Claude 第三个圆环"
+        case .claudeThirdRingHint: return "选择第三个同尺寸圆环显示缓存命中率，还是独立的 Fable 周额度。"
+        case .showCombinedFable: return "合并页显示 Fable"
+        case .showCombinedFableHint: return "在 Codex + Claude 合并页的 Claude 右侧显示 Fable 周额度小圆环。"
         case .past24Hours: return "过去 24 小时"
         case .past30Days: return "过去 30 天"
         case .past7Days: return "过去 7 天"
@@ -1092,6 +1120,7 @@ enum L10nKey {
         case .statusMetricOff: return "关闭"
         case .statusClaudeFiveHour: return "Claude 5h"
         case .statusClaudeWeekly: return "Claude 1周"
+        case .statusFableWeekly: return "Fable 1周"
         case .statusQuotaPercents: return "5h | 周百分比"
         case .statusWeeklyPercent: return "周百分比"
         case .statusWeeklyTokens: return "7d 用量"
@@ -1309,6 +1338,10 @@ enum L10nKey {
         case .overview: return "概要"
         case .overviewSubtitle: return "過去 365 日のソースとモデル別使用量"
         case .claudeHomeRing: return "Claude ホームリング"
+        case .claudeThirdRing: return "Claude の 3 番目のリング"
+        case .claudeThirdRingHint: return "3 つ目の同サイズリングにキャッシュ率または Fable の週制限を表示します。"
+        case .showCombinedFable: return "統合ページに Fable を表示"
+        case .showCombinedFableHint: return "Codex + Claude 統合ページで Claude の横に Fable の週制限リングを表示します。"
         case .past24Hours: return "過去 24 時間"
         case .past30Days: return "過去 30 日"
         case .past7Days: return "過去 7 日"
@@ -1369,6 +1402,7 @@ enum L10nKey {
         case .statusMetricOff: return "オフ"
         case .statusClaudeFiveHour: return "Claude 5h"
         case .statusClaudeWeekly: return "Claude 1週"
+        case .statusFableWeekly: return "Fable 1週"
         case .statusQuotaPercents: return "5h | 週 %"
         case .statusWeeklyPercent: return "週 %"
         case .statusWeeklyTokens: return "7日使用量"
@@ -1511,6 +1545,8 @@ enum AppSettings {
     static let showCodexStatusEnabledKey = "showCodexStatusEnabled"
     static let codexHomeRingMetricKey = "codexHomeRingMetric"
     static let claudeHomeRingMetricKey = "claudeHomeRingMetric"
+    static let claudeThirdRingMetricKey = "claudeThirdRingMetric"
+    static let showCombinedFableEnabledKey = "showCombinedFableEnabled"
     static let statusBarQuotaSourceKey = "statusBarQuotaSource"
     static let statusBarPrimaryMetricKey = "statusBarPrimaryMetric"
     static let statusBarSecondaryMetricKey = "statusBarSecondaryMetric"
@@ -2040,6 +2076,31 @@ enum AppSettings {
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: claudeHomeRingMetricKey)
+        }
+    }
+
+    static var claudeThirdRingMetric: ClaudeThirdRingMetric {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: claudeThirdRingMetricKey),
+                  let metric = ClaudeThirdRingMetric(rawValue: raw) else {
+                return .fable
+            }
+            return metric
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: claudeThirdRingMetricKey)
+        }
+    }
+
+    static var showCombinedFableEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: showCombinedFableEnabledKey) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: showCombinedFableEnabledKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: showCombinedFableEnabledKey)
         }
     }
 

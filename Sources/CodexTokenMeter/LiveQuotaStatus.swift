@@ -129,6 +129,8 @@ struct LiveRateLimit: Codable {
     let capturedAt: Date?
 }
 
+let claudeFableLiveLimitID = "claude_fable_5"
+
 struct RateLimitResetCredit: Codable {
     let status: String
     let grantedAt: Date?
@@ -172,6 +174,7 @@ struct ClaudeStatuslineSnapshot {
     let isStale: Bool
     let fiveHour: ClaudeStatuslineWindow?
     let sevenDay: ClaudeStatuslineWindow?
+    let fableSevenDay: ClaudeStatuslineWindow?
 
     var liveRateLimit: LiveRateLimit? {
         guard let fiveHour,
@@ -188,6 +191,21 @@ struct ClaudeStatuslineSnapshot {
         )
     }
 
+    var fableLiveRateLimit: LiveRateLimit? {
+        guard let fableSevenDay else { return nil }
+        return LiveRateLimit(
+            id: claudeFableLiveLimitID,
+            name: "Fable",
+            primary: nil,
+            secondary: RateWindow(
+                usedPercent: fableSevenDay.usedPercent,
+                windowMinutes: 7 * 24 * 60,
+                resetsAt: fableSevenDay.resetsAt
+            ),
+            planType: isStale ? "official-statusline-stale" : "official-statusline",
+            capturedAt: capturedAt
+        )
+    }
 }
 
 func liveRateLimitIsStale(_ limit: LiveRateLimit?) -> Bool {
@@ -195,8 +213,8 @@ func liveRateLimitIsStale(_ limit: LiveRateLimit?) -> Bool {
 }
 
 enum LiveRateLimitCacheStore {
-    // Drop caches written while model-scoped Claude limits were still exposed.
-    private static let version = 2
+    // Fable model-scoped limits are tracked again; reject older cache shapes.
+    private static let version = 3
 
     private struct Payload: Codable {
         let version: Int
@@ -251,6 +269,8 @@ enum LiveRateLimitCacheStore {
 
 final class ClaudeStatuslineStore {
     private static let ttlSeconds: TimeInterval = 10 * 60
+    /// Capture-file key for the model-scoped Fable weekly window.
+    static let fableWindowKey = "seven_day_fable"
     private let url: URL
 
     init(url: URL = AppSettings.claudeStatuslineCaptureURL) {
@@ -269,13 +289,31 @@ final class ClaudeStatuslineStore {
 
     func capture(stdinData: Data, now: Date = Date()) throws -> ClaudeStatuslineSnapshot? {
         let object = try JSONSerialization.jsonObject(with: stdinData) as? [String: Any] ?? [:]
-        let rateLimits = object["rate_limits"] as? [String: Any]
+        var rateLimits = object["rate_limits"] as? [String: Any]
+        // Claude Code's statusline payload does not include model-scoped
+        // limits. Preserve a recent OAuth-captured Fable window.
+        if rateLimits != nil, rateLimits?[Self.fableWindowKey] == nil,
+           let fable = storedFableWindowDict(now: now) {
+            rateLimits?[Self.fableWindowKey] = fable
+        }
         return try writeCapture(rateLimits: rateLimits, now: now)
+    }
+
+    private func storedFableWindowDict(now: Date) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rateLimits = object["rate_limits"] as? [String: Any],
+              let dict = rateLimits[Self.fableWindowKey] as? [String: Any],
+              parseFableWindow(dict, now: now) != nil else {
+            return nil
+        }
+        return dict
     }
 
     func captureUsageWindows(
         fiveHour: ClaudeStatuslineWindow,
         sevenDay: ClaudeStatuslineWindow,
+        fableSevenDay: ClaudeStatuslineWindow? = nil,
         now: Date = Date()
     ) throws -> ClaudeStatuslineSnapshot? {
         func windowDict(_ window: ClaudeStatuslineWindow) -> [String: Any] {
@@ -285,10 +323,15 @@ final class ClaudeStatuslineStore {
             }
             return dict
         }
-        let rateLimits: [String: Any] = [
+        var rateLimits: [String: Any] = [
             "five_hour": windowDict(fiveHour),
             "seven_day": windowDict(sevenDay)
         ]
+        if let fableSevenDay {
+            var dict = windowDict(fableSevenDay)
+            dict["captured_at_epoch"] = Int(now.timeIntervalSince1970)
+            rateLimits[Self.fableWindowKey] = dict
+        }
         return try writeCapture(rateLimits: rateLimits, now: now)
     }
 
@@ -319,6 +362,9 @@ final class ClaudeStatuslineStore {
         if let percent = snapshot?.sevenDay?.usedPercent {
             parts.append("7d \(Int(round(percent)))%")
         }
+        if let percent = snapshot?.fableSevenDay?.usedPercent {
+            parts.append("Fable \(Int(round(percent)))%")
+        }
         return parts.isEmpty ? "AI Token Meter" : parts.joined(separator: " · ")
     }
 
@@ -339,14 +385,25 @@ final class ClaudeStatuslineStore {
         let isStale = capturedAt.map { now.timeIntervalSince($0) > Self.ttlSeconds } ?? false
         let fiveHour = parseWindow(rateLimits["five_hour"], now: now, windowMinutes: 5 * 60)
         let sevenDay = parseWindow(rateLimits["seven_day"], now: now, windowMinutes: 7 * 24 * 60)
-        guard fiveHour != nil || sevenDay != nil else { return nil }
+        let fableSevenDay = parseFableWindow(rateLimits[Self.fableWindowKey], now: now)
+        guard fiveHour != nil || sevenDay != nil || fableSevenDay != nil else { return nil }
         return ClaudeStatuslineSnapshot(
             capturedAt: capturedAt,
             readAt: now,
             isStale: isStale,
             fiveHour: fiveHour,
-            sevenDay: sevenDay
+            sevenDay: sevenDay,
+            fableSevenDay: fableSevenDay
         )
+    }
+
+    private func parseFableWindow(_ raw: Any?, now: Date) -> ClaudeStatuslineWindow? {
+        guard let dict = raw as? [String: Any] else { return nil }
+        if let captured = finiteDouble(dict["captured_at_epoch"]),
+           now.timeIntervalSince(Date(timeIntervalSince1970: captured)) > Self.ttlSeconds {
+            return nil
+        }
+        return parseWindow(dict, now: now, windowMinutes: 7 * 24 * 60)
     }
 
     private func parseWindow(_ raw: Any?, now: Date, windowMinutes: Int) -> ClaudeStatuslineWindow? {
@@ -408,6 +465,7 @@ final class ClaudeOAuthUsageRefresher {
     private struct UsageWindows {
         let fiveHour: ClaudeStatuslineWindow
         let sevenDay: ClaudeStatuslineWindow
+        let fableSevenDay: ClaudeStatuslineWindow?
     }
 
     private init() {
@@ -420,7 +478,11 @@ final class ClaudeOAuthUsageRefresher {
 
     @discardableResult
     func refreshIfNeeded(store: ClaudeStatuslineStore, now: Date = Date()) -> Bool {
-        if let snapshot = store.read(now: now), !snapshot.isStale {
+        // Statusline captures can keep the top-level windows fresh without
+        // carrying Fable. Fetch until Fable is present or its absence was
+        // recently confirmed.
+        if let snapshot = store.read(now: now), !snapshot.isStale,
+           snapshot.fableSevenDay != nil || fableConfirmedAbsent(now: now) {
             setOutcome("fresh-cache")
             return false
         }
@@ -442,8 +504,12 @@ final class ClaudeOAuthUsageRefresher {
             _ = try store.captureUsageWindows(
                 fiveHour: windows.fiveHour,
                 sevenDay: windows.sevenDay,
+                fableSevenDay: windows.fableSevenDay,
                 now: now
             )
+            if windows.fableSevenDay == nil {
+                markFableAbsent(now: now)
+            }
             setOutcome("refreshed")
             return true
         } catch {
@@ -476,6 +542,21 @@ final class ClaudeOAuthUsageRefresher {
         guard now >= nextAttemptAt else { return false }
         nextAttemptAt = now.addingTimeInterval(attemptInterval)
         return true
+    }
+
+    /// Accounts without a Fable quota would otherwise re-fetch every minute.
+    private var fableAbsentUntil = Date.distantPast
+
+    private func fableConfirmedAbsent(now: Date) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return now < fableAbsentUntil
+    }
+
+    private func markFableAbsent(now: Date) {
+        lock.lock()
+        fableAbsentUntil = now.addingTimeInterval(10 * 60)
+        lock.unlock()
     }
 
     private func postpone(now: Date, interval: TimeInterval) {
@@ -943,7 +1024,18 @@ final class ClaudeOAuthUsageRefresher {
         }
         return UsageWindows(
             fiveHour: fiveHour,
-            sevenDay: sevenDay
+            sevenDay: sevenDay,
+            fableSevenDay: Self.parseFableScopedLimit(object["limits"])
+        )
+    }
+
+    /// Parses the "Weekly · Fable" entry from Claude's model-scoped limits.
+    /// Other scoped model limits are intentionally ignored.
+    static func parseFableScopedLimit(_ raw: Any?) -> ClaudeStatuslineWindow? {
+        guard let parsed = ClaudeScopedQuotaParser.fableWeeklyLimit(from: raw) else { return nil }
+        return ClaudeStatuslineWindow(
+            usedPercent: parsed.usedPercent,
+            resetsAt: parsed.resetsAt
         )
     }
 
@@ -998,12 +1090,17 @@ func combinedLiveLimits(codexReader: LiveRateLimitReader = LiveRateLimitReader()
        !limits.contains(where: { $0.id == claude.id }) {
         limits.append(claude)
     }
+    if let fable = claudeSnapshot?.fableLiveRateLimit,
+       !limits.contains(where: { $0.id == fable.id }) {
+        limits.append(fable)
+    }
     return limits.sorted { $0.id < $1.id }
 }
 
 func codexTrackedLiveLimits(_ limits: [LiveRateLimit]) -> [LiveRateLimit] {
     limits.filter {
         $0.id != QuotaViewOption.claude.liveLimitID
+            && $0.id != claudeFableLiveLimitID
     }
 }
 
