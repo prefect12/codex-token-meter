@@ -1141,6 +1141,7 @@ struct CodexServiceStatusSnapshot: Codable {
 
 final class CodexServiceStatusReader {
     private static let codexComponentOrder = [
+        "Codex in ChatGPT Desktop",
         "Codex Web",
         "App",
         "Codex API",
