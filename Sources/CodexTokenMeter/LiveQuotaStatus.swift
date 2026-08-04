@@ -200,7 +200,9 @@ struct ClaudeStatuslineSnapshot {
             secondary: RateWindow(
                 usedPercent: fableSevenDay.usedPercent,
                 windowMinutes: 7 * 24 * 60,
-                resetsAt: fableSevenDay.resetsAt
+                // Claude's model-scoped Fable limit can omit resets_at even
+                // though it follows the same weekly cycle as the account limit.
+                resetsAt: fableSevenDay.resetsAt ?? sevenDay?.resetsAt
             ),
             planType: isStale ? "official-statusline-stale" : "official-statusline",
             capturedAt: capturedAt
