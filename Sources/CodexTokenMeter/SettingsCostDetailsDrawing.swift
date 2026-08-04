@@ -166,8 +166,7 @@ extension UsageDetailsView {
         }
 
         drawSwitchSetting(title: t(.showCombinedFable), hint: t(.showCombinedFableHint), switchFrame: showCombinedFableSwitch.frame, page: page, y: page.minY + 356)
-        drawSwitchSetting(title: t(.showCodexStatus), hint: codexStatusSettingHint, switchFrame: showCodexStatusSwitch.frame, page: page, y: page.minY + 418)
-        drawSwitchSetting(title: t(.quotaWarnings), hint: t(.quotaWarningsHint), switchFrame: quotaWarningsSwitch.frame, page: page, y: page.minY + 480)
+        drawSwitchSetting(title: t(.quotaWarnings), hint: t(.quotaWarningsHint), switchFrame: quotaWarningsSwitch.frame, page: page, y: page.minY + 418)
     }
 
     func drawSystemSettings(in page: NSRect) {
@@ -196,14 +195,6 @@ extension UsageDetailsView {
         let startX = rect.maxX - totalWidth
         return (0..<count).map { index in
             NSRect(x: startX + CGFloat(index) * (optionWidth + gap), y: rect.minY, width: optionWidth, height: rect.height)
-        }
-    }
-
-    var codexStatusSettingHint: String {
-        switch AppLanguage.current {
-        case .chinese, .traditionalChinese: return "可用时在弹窗里显示 OpenAI Codex 服务状态。"
-        case .japanese: return "利用可能な場合、ポップオーバーに Codex サービス状態を表示します。"
-        default: return "Shows the OpenAI Codex service chip in the popover when available."
         }
     }
 

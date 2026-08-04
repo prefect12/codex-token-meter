@@ -493,7 +493,6 @@ enum L10nKey {
     case resetCreditGrantedAt
     case resetCreditNoCredits
     case showPastEmptyWeeks
-    case showCodexStatus
     case reset
     case sessions
     case settings
@@ -816,7 +815,6 @@ enum L10nKey {
         case .resetCreditGrantedAt: return "Granted"
         case .resetCreditNoCredits: return "No credits"
         case .showPastEmptyWeeks: return "Show past empty weeks"
-        case .showCodexStatus: return "Show Codex status"
         case .reset: return "Reset"
         case .sessions: return "Sessions"
         case .settings: return "Settings"
@@ -1098,7 +1096,6 @@ enum L10nKey {
         case .resetCreditGrantedAt: return "获得"
         case .resetCreditNoCredits: return "暂无可用机会"
         case .showPastEmptyWeeks: return "显示以前的无数据周"
-        case .showCodexStatus: return "显示 Codex 状态"
         case .reset: return "重置"
         case .sessions: return "会话"
         case .settings: return "设置"
@@ -1380,7 +1377,6 @@ enum L10nKey {
         case .resetCreditGrantedAt: return "付与"
         case .resetCreditNoCredits: return "利用可能な枠なし"
         case .showPastEmptyWeeks: return "過去の空週を表示"
-        case .showCodexStatus: return "Codex 状態を表示"
         case .reset: return "リセット"
         case .sessions: return "セッション"
         case .settings: return "設定"
@@ -1542,7 +1538,6 @@ enum AppSettings {
     static let quotaWarningsEnabledKey = "quotaWarningsEnabled"
     static let externalAPICostPathKey = "externalAPICostPath"
     static let profileAPITotalsEnabledKey = "profileAPITotalsEnabled"
-    static let showCodexStatusEnabledKey = "showCodexStatusEnabled"
     static let codexHomeRingMetricKey = "codexHomeRingMetric"
     static let claudeHomeRingMetricKey = "claudeHomeRingMetric"
     static let claudeThirdRingMetricKey = "claudeThirdRingMetric"
@@ -2028,18 +2023,6 @@ enum AppSettings {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: profileAPITotalsEnabledKey)
-        }
-    }
-
-    static var showCodexStatusEnabled: Bool {
-        get {
-            if UserDefaults.standard.object(forKey: showCodexStatusEnabledKey) == nil {
-                return true
-            }
-            return UserDefaults.standard.bool(forKey: showCodexStatusEnabledKey)
-        }
-        set {
-            UserDefaults.standard.set(newValue, forKey: showCodexStatusEnabledKey)
         }
     }
 

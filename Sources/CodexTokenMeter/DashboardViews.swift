@@ -1693,7 +1693,7 @@ final class DashboardView: NSView {
         dayChart.apiEstimate = apiEstimate
         dayChart.isHidden = false
         serviceStatusView.snapshot = state.serviceStatus
-        serviceStatusView.isHidden = showsComparisonTable || !AppSettings.showCodexStatusEnabled || state.selectedQuota == .claude
+        serviceStatusView.isHidden = showsComparisonTable || state.selectedQuota == .claude
         sessionsLabel.stringValue = "\(t(.sessions)) \(report.sessions)   \(t(.turns)) \(report.turns)   \(t(.events)) \(report.events)"
         var costParts: [String] = []
         if apiEstimate.hasPricedUsage {
@@ -1862,7 +1862,7 @@ final class DashboardView: NSView {
 
         let statsY = ringY + 154
         buttonsStack.frame = NSRect(x: content.minX, y: content.maxY - 36, width: content.width, height: 28)
-        let showsStatus = AppSettings.showCodexStatusEnabled && state.selectedQuota != .claude
+        let showsStatus = state.selectedQuota != .claude
         let chipGap: CGFloat = 10
         let maxChipWidth = min(136, max(108, content.width * 0.36))
         let chipWidth = showsStatus ? serviceStatusView.preferredWidth(maxWidth: maxChipWidth) : 0

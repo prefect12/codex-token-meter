@@ -145,7 +145,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onResetCodexAPISources = { [weak self] in self?.resetCodexAPISources() }
         detailsController.detailsView.onOpenCodexAPISource = { [weak self] in self?.openCodexAPISource() }
         detailsController.detailsView.onLaunchAtLoginChanged = { [weak self] isOn in self?.changeLaunchAtLogin(isOn) }
-        detailsController.detailsView.onShowCodexStatusChanged = { [weak self] isOn in self?.changeShowCodexStatus(isOn) }
         detailsController.detailsView.onQuotaWarningsChanged = { [weak self] isOn in self?.changeQuotaWarnings(isOn) }
         detailsController.detailsView.onProfileAPITotalsChanged = { [weak self] isOn in self?.changeProfileAPITotals(isOn) }
         detailsController.detailsView.onExportMachineUsageReport = { [weak self] in self?.exportMachineUsageReport() }
@@ -1110,14 +1109,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = LoginItemManager.setEnabled(value)
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
-    }
-
-    private func changeShowCodexStatus(_ value: Bool) {
-        AppSettings.showCodexStatusEnabled = value
-        detailsController.detailsView.needsDisplay = true
-        detailsController.detailsView.needsLayout = true
-        dashboardController.dashboardView.needsLayout = true
-        dashboardController.dashboardView.update(latestState)
     }
 
     private func changeShowCombinedFable(_ value: Bool) {
