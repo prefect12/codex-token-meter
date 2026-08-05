@@ -166,6 +166,10 @@ struct RateLimitResetCreditsSnapshot: Codable {
 struct ClaudeStatuslineWindow {
     let usedPercent: Double
     let resetsAt: Date?
+    /// True when `usedPercent` cannot be trusted: either the window was
+    /// captured longer ago than the cache TTL, or its reset already passed so
+    /// the percentage belongs to a cycle that has since rolled over.
+    var isStale: Bool = false
 }
 
 struct ClaudeStatuslineSnapshot {
@@ -271,6 +275,8 @@ enum LiveRateLimitCacheStore {
 
 final class ClaudeStatuslineStore {
     private static let ttlSeconds: TimeInterval = 10 * 60
+    static let fiveHourKey = "five_hour"
+    static let sevenDayKey = "seven_day"
     /// Capture-file key for the model-scoped Fable weekly window.
     static let fableWindowKey = "seven_day_fable"
     private let url: URL
@@ -291,25 +297,63 @@ final class ClaudeStatuslineStore {
 
     func capture(stdinData: Data, now: Date = Date()) throws -> ClaudeStatuslineSnapshot? {
         let object = try JSONSerialization.jsonObject(with: stdinData) as? [String: Any] ?? [:]
-        var rateLimits = object["rate_limits"] as? [String: Any]
-        // Claude Code's statusline payload does not include model-scoped
-        // limits. Preserve a recent OAuth-captured Fable window.
-        if rateLimits != nil, rateLimits?[Self.fableWindowKey] == nil,
-           let fable = storedFableWindowDict(now: now) {
-            rateLimits?[Self.fableWindowKey] = fable
+        guard var rateLimits = object["rate_limits"] as? [String: Any] else {
+            return try writeCapture(rateLimits: nil, now: now)
+        }
+        let stored = storedWindowDicts(now: now)
+        // Claude Code can hand the statusline an already-expired window whose
+        // used_percentage froze at the previous cycle. Writing it would publish
+        // a wrong percentage *and* keep the capture file permanently fresh,
+        // starving the OAuth refresher that holds the real numbers.
+        for key in [Self.fiveHourKey, Self.sevenDayKey] where !isCurrentWindowDict(rateLimits[key], now: now) {
+            rateLimits[key] = stored[key]
+        }
+        // The statusline payload never carries model-scoped limits. Preserve a
+        // recent OAuth-captured Fable window.
+        if rateLimits[Self.fableWindowKey] == nil {
+            rateLimits[Self.fableWindowKey] = stored[Self.fableWindowKey]
         }
         return try writeCapture(rateLimits: rateLimits, now: now)
     }
 
-    private func storedFableWindowDict(now: Date) -> [String: Any]? {
+    /// Incoming statusline windows are only worth writing when they carry a
+    /// usable percentage for a cycle that has not already reset.
+    private func isCurrentWindowDict(_ raw: Any?, now: Date) -> Bool {
+        guard let dict = raw as? [String: Any], cleanPercent(dict["used_percentage"]) != nil else {
+            return false
+        }
+        return !windowResetPassed(dict, now: now)
+    }
+
+    /// Previously captured windows that are still current, each stamped with
+    /// its own capture time so preserving them cannot fake freshness forever.
+    private func storedWindowDicts(now: Date) -> [String: Any] {
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let rateLimits = object["rate_limits"] as? [String: Any],
-              let dict = rateLimits[Self.fableWindowKey] as? [String: Any],
-              parseFableWindow(dict, now: now) != nil else {
-            return nil
+              let rateLimits = object["rate_limits"] as? [String: Any] else {
+            return [:]
         }
-        return dict
+        let fallbackCapturedAt = finiteDouble(object["captured_at_epoch"])
+        var preserved: [String: Any] = [:]
+        for (key, raw) in rateLimits {
+            guard var dict = raw as? [String: Any], cleanPercent(dict["used_percentage"]) != nil else { continue }
+            if dict["captured_at_epoch"] == nil, let fallbackCapturedAt {
+                dict["captured_at_epoch"] = Int(fallbackCapturedAt)
+            }
+            guard !windowResetPassed(dict, now: now), !windowCaptureExpired(dict, now: now) else { continue }
+            preserved[key] = dict
+        }
+        return preserved
+    }
+
+    private func windowResetPassed(_ dict: [String: Any], now: Date) -> Bool {
+        guard let resetsAt = finiteDouble(dict["resets_at"]) else { return false }
+        return now.timeIntervalSince1970 >= resetsAt
+    }
+
+    private func windowCaptureExpired(_ dict: [String: Any], now: Date) -> Bool {
+        guard let captured = finiteDouble(dict["captured_at_epoch"]) else { return false }
+        return now.timeIntervalSince(Date(timeIntervalSince1970: captured)) > Self.ttlSeconds
     }
 
     func captureUsageWindows(
@@ -319,20 +363,23 @@ final class ClaudeStatuslineStore {
         now: Date = Date()
     ) throws -> ClaudeStatuslineSnapshot? {
         func windowDict(_ window: ClaudeStatuslineWindow) -> [String: Any] {
-            var dict: [String: Any] = ["used_percentage": window.usedPercent]
+            // Every window carries its own capture time so a later statusline
+            // write that only preserves it cannot make it look fresh again.
+            var dict: [String: Any] = [
+                "used_percentage": window.usedPercent,
+                "captured_at_epoch": Int(now.timeIntervalSince1970)
+            ]
             if let resetsAt = window.resetsAt {
                 dict["resets_at"] = Int(resetsAt.timeIntervalSince1970)
             }
             return dict
         }
         var rateLimits: [String: Any] = [
-            "five_hour": windowDict(fiveHour),
-            "seven_day": windowDict(sevenDay)
+            Self.fiveHourKey: windowDict(fiveHour),
+            Self.sevenDayKey: windowDict(sevenDay)
         ]
         if let fableSevenDay {
-            var dict = windowDict(fableSevenDay)
-            dict["captured_at_epoch"] = Int(now.timeIntervalSince1970)
-            rateLimits[Self.fableWindowKey] = dict
+            rateLimits[Self.fableWindowKey] = windowDict(fableSevenDay)
         }
         return try writeCapture(rateLimits: rateLimits, now: now)
     }
@@ -384,11 +431,15 @@ final class ClaudeStatuslineStore {
     private func parseCapture(_ object: [String: Any], now: Date) -> ClaudeStatuslineSnapshot? {
         guard let rateLimits = object["rate_limits"] as? [String: Any] else { return nil }
         let capturedAt = finiteDouble(object["captured_at_epoch"]).map { Date(timeIntervalSince1970: $0) }
-        let isStale = capturedAt.map { now.timeIntervalSince($0) > Self.ttlSeconds } ?? false
-        let fiveHour = parseWindow(rateLimits["five_hour"], now: now, windowMinutes: 5 * 60)
-        let sevenDay = parseWindow(rateLimits["seven_day"], now: now, windowMinutes: 7 * 24 * 60)
-        let fableSevenDay = parseFableWindow(rateLimits[Self.fableWindowKey], now: now)
+        let captureExpired = capturedAt.map { now.timeIntervalSince($0) > Self.ttlSeconds } ?? false
+        let fiveHour = parseWindow(rateLimits[Self.fiveHourKey], now: now, windowMinutes: 5 * 60)
+        let sevenDay = parseWindow(rateLimits[Self.sevenDayKey], now: now, windowMinutes: 7 * 24 * 60)
+        let fableSevenDay = parseWindow(rateLimits[Self.fableWindowKey], now: now, windowMinutes: 7 * 24 * 60)
         guard fiveHour != nil || sevenDay != nil || fableSevenDay != nil else { return nil }
+        // A single outdated window taints the snapshot: the capture file is the
+        // OAuth refresher's only "do I need to fetch?" signal.
+        let isStale = captureExpired
+            || [fiveHour, sevenDay, fableSevenDay].contains { $0?.isStale == true }
         return ClaudeStatuslineSnapshot(
             capturedAt: capturedAt,
             readAt: now,
@@ -399,28 +450,25 @@ final class ClaudeStatuslineStore {
         )
     }
 
-    private func parseFableWindow(_ raw: Any?, now: Date) -> ClaudeStatuslineWindow? {
-        guard let dict = raw as? [String: Any] else { return nil }
-        if let captured = finiteDouble(dict["captured_at_epoch"]),
-           now.timeIntervalSince(Date(timeIntervalSince1970: captured)) > Self.ttlSeconds {
-            return nil
-        }
-        return parseWindow(dict, now: now, windowMinutes: 7 * 24 * 60)
-    }
-
     private func parseWindow(_ raw: Any?, now: Date, windowMinutes: Int) -> ClaudeStatuslineWindow? {
         guard let dict = raw as? [String: Any],
-              let percent = cleanPercent(dict["used_percentage"]) else {
+              let usedPercent = cleanPercent(dict["used_percentage"]) else {
             return nil
         }
-        let usedPercent = percent
+        // The percentage still gets shown so the UI keeps a fallback when the
+        // OAuth channel is unavailable, but it is flagged rather than trusted.
+        let resetPassed = windowResetPassed(dict, now: now)
         var resetsAt = finiteDouble(dict["resets_at"]).map { Date(timeIntervalSince1970: $0) }
-        if let resetDate = resetsAt, now >= resetDate, windowMinutes > 0 {
+        if let resetDate = resetsAt, resetPassed, windowMinutes > 0 {
             let windowSeconds = TimeInterval(windowMinutes) * 60
             let elapsedWindows = floor(now.timeIntervalSince(resetDate) / windowSeconds) + 1
             resetsAt = resetDate.addingTimeInterval(elapsedWindows * windowSeconds)
         }
-        return ClaudeStatuslineWindow(usedPercent: usedPercent, resetsAt: resetsAt)
+        return ClaudeStatuslineWindow(
+            usedPercent: usedPercent,
+            resetsAt: resetsAt,
+            isStale: resetPassed || windowCaptureExpired(dict, now: now)
+        )
     }
 
     private func cleanPercent(_ raw: Any?) -> Double? {
@@ -484,6 +532,7 @@ final class ClaudeOAuthUsageRefresher {
         // carrying Fable. Fetch until Fable is present or its absence was
         // recently confirmed.
         if let snapshot = store.read(now: now), !snapshot.isStale,
+           snapshot.fiveHour != nil, snapshot.sevenDay != nil,
            snapshot.fableSevenDay != nil || fableConfirmedAbsent(now: now) {
             setOutcome("fresh-cache")
             return false
