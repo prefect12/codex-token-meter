@@ -397,6 +397,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// load; (4) sessions the desktop app has never seen resume normally.
     /// Fall back to just foregrounding the app (or the working folder) when we
     /// don't have a usable session id.
+    ///
+    /// One CLI session can own both an imported and a natively created desktop
+    /// entry, so the route is chosen from the entry the user most recently
+    /// focused or worked in. Always preferring the imported one lands on a stale
+    /// copy whenever the live conversation is the native entry.
+    ///
+    /// The activate-only shortcut in (1) additionally requires a *fresh* focus
+    /// stamp. `lastFocusedAt` is written when the desktop app opens a session,
+    /// not when the user switches between already-open ones, so an hours-old
+    /// maximum says nothing about what is on screen — activating on it foregrounds
+    /// the desktop app still showing some other conversation.
     private func openClaudeThread(id: String, fallbackFolder: String?) {
         if id.hasPrefix("claude-home:") {
             let conversationID = String(id.dropFirst("claude-home:".count))
@@ -413,19 +424,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openClaudeApp(fallbackFolder: fallbackFolder)
             return
         }
-        let match = claudeDesktopSessionMatch(forCLISession: sessionID)
-        if match.targetLastFocused > 0, match.targetLastFocused >= match.globalLastFocused,
+        let index = ClaudeDesktopSessionIndex.shared
+        let desktopSessions = index.sessions(forCLISession: sessionID)
+        let targetLastFocused = desktopSessions.map(\.lastFocusedAt).max() ?? 0
+        let focusAge = Date().timeIntervalSince1970 - targetLastFocused / 1000
+        if targetLastFocused > 0, targetLastFocused >= index.globalLastFocused(),
+           focusAge >= 0, focusAge <= claudeDesktopFocusTrustWindow,
            let running = NSRunningApplication.runningApplications(withBundleIdentifier: claudeDesktopBundleID).first {
             running.activate()
             return
         }
-        if match.importedExists, !match.importedArchived,
+        // `sessions(forCLISession:)` is ordered newest first, so the head is the
+        // entry the desktop app last focused or ran a turn in.
+        let current = desktopSessions.first
+        if let current, current.isImported, !current.isArchived,
            let url = URL(string: "claude://resume?session=\(sessionID)") {
             NSWorkspace.shared.open(url)
             return
         }
-        if let desktopID = match.nativeID ?? (match.importedExists ? "local_\(sessionID)" : nil),
-           let url = URL(string: "claude://claude.ai/claude-code-desktop/\(desktopID)") {
+        if let current, let url = URL(string: "claude://claude.ai/claude-code-desktop/\(current.desktopID)") {
             NSWorkspace.shared.open(url)
             return
         }
@@ -437,64 +454,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private let claudeDesktopBundleID = "com.anthropic.claudefordesktop"
-
-    private struct ClaudeDesktopSessionMatch {
-        var importedExists = false
-        var importedArchived = false
-        var nativeID: String?
-        var targetLastFocused: Double = 0
-        var globalLastFocused: Double = 0
-    }
-
-    /// Claude Desktop keeps one metadata JSON per session under
-    /// `~/Library/Application Support/Claude/claude-code-sessions/<account>/<org>/`,
-    /// named `local_<desktop-session-id>.json` with a `cliSessionId` field linking
-    /// it to the CLI transcript. The CLI session can be wrapped by an imported
-    /// entry (file named `local_<cliID>.json`, reachable smoothly via the
-    /// idempotent resume deep link) and/or a natively created entry (random
-    /// desktop id, reachable only via the hard-reloading claude-code-desktop
-    /// route); `lastFocusedAt` maxima let the caller detect that the desktop app
-    /// is already showing this session so a plain activate suffices.
-    private func claudeDesktopSessionMatch(forCLISession cliID: String) -> ClaudeDesktopSessionMatch {
-        var match = ClaudeDesktopSessionMatch()
-        let fm = FileManager.default
-        let root = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Library/Application Support/Claude/claude-code-sessions", isDirectory: true)
-        guard let accountDirs = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
-            return match
-        }
-        let importedFile = "local_\(cliID).json"
-        var nativeActivity = 0.0
-        for accountDir in accountDirs {
-            guard let orgDirs = try? fm.contentsOfDirectory(at: accountDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { continue }
-            for orgDir in orgDirs {
-                guard let files = try? fm.contentsOfDirectory(at: orgDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { continue }
-                for file in files {
-                    let name = file.lastPathComponent
-                    guard name.hasPrefix("local_"), name.hasSuffix(".json"),
-                          let data = try? Data(contentsOf: file),
-                          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                        continue
-                    }
-                    let lastFocused = object["lastFocusedAt"] as? Double ?? 0
-                    match.globalLastFocused = max(match.globalLastFocused, lastFocused)
-                    if name == importedFile {
-                        match.importedExists = true
-                        match.importedArchived = object["isArchived"] as? Bool ?? false
-                        match.targetLastFocused = max(match.targetLastFocused, lastFocused)
-                    } else if object["cliSessionId"] as? String == cliID {
-                        let activity = object["lastActivityAt"] as? Double ?? 0
-                        if match.nativeID == nil || activity > nativeActivity {
-                            match.nativeID = object["sessionId"] as? String ?? String(name.dropLast(".json".count))
-                            nativeActivity = activity
-                        }
-                        match.targetLastFocused = max(match.targetLastFocused, lastFocused)
-                    }
-                }
-            }
-        }
-        return match
-    }
+    /// How recent a `lastFocusedAt` stamp has to be before it is taken as proof
+    /// that the desktop app is still showing that session.
+    private let claudeDesktopFocusTrustWindow: TimeInterval = 60
 
     private func openClaudeApp(fallbackFolder: String?) {
         let claudeURL = URL(fileURLWithPath: "/Applications/Claude.app")
