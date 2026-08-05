@@ -37,7 +37,10 @@ private func printThreads() {
             ? [item.agentNickname, item.agentPath].compactMap { $0 }.joined(separator: " · ")
             : item.title
         let plan = item.plan.map { "\tplan=\($0.displayedStepNumber)/\($0.steps.count)" } ?? ""
-        print("\(prefix)\(label)\t\(timing)\t\(folder)\t\(identity)\t\(item.id)\t\(item.source)\(preview)\(plan)")
+        let usage = "\tturns=\(item.turns)\tmodel=\(item.model ?? "-")"
+            + "\ttokens=\(item.tokenBreakdown.displayTotal.map(String.init) ?? "-")"
+            + "\tin=\(item.tokenBreakdown.input)\tcached=\(item.tokenBreakdown.cachedInput)\tout=\(item.tokenBreakdown.output)"
+        print("\(prefix)\(label)\t\(timing)\t\(folder)\t\(identity)\t\(item.id)\t\(item.source)\(usage)\(preview)\(plan)")
     }
     for item in items.primaryThreads {
         printItem(item)

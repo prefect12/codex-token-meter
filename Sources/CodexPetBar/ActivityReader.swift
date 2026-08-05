@@ -506,7 +506,16 @@ private struct ClaudeScanState {
     var turns = 0
     var model: String?
     var tokens = TokenBreakdown()
+    /// Claude writes one transcript line per content block of a single assistant
+    /// message, and every one of those lines repeats the same `usage` payload.
+    /// Usage is only counted when the message id changes.
+    var lastCountedAssistantMessageID: String?
 }
+
+/// Claude marks locally generated assistant entries — API error notices, "no
+/// response requested" placeholders — with this model name. They carry no real
+/// model, no usage, and their text is not an assistant reply.
+private let claudeSyntheticModelName = "<synthetic>"
 
 final class CodexActivityReader {
     private let fileManager = FileManager.default
@@ -1657,16 +1666,22 @@ final class CodexActivityReader {
             state.latestUserIsToolResult = false
             state.latestUserIsInteractiveToolResult = false
             state.latestUserIsInterrupt = false
-            if let value = string(message["model"]), !value.isEmpty {
-                state.model = value
+            let model = string(message["model"])
+            let isSynthetic = model == claudeSyntheticModelName
+            if let model, !model.isEmpty, !isSynthetic {
+                state.model = model
             }
-            if let usage = message["usage"] as? [String: Any] {
+            let messageID = string(message["id"])
+            let isRepeatedContentBlock = messageID != nil
+                && messageID == state.lastCountedAssistantMessageID
+            if let usage = message["usage"] as? [String: Any], !isRepeatedContentBlock {
                 let input = intValue(usage["input_tokens"]) ?? 0
                 let cacheRead = intValue(usage["cache_read_input_tokens"]) ?? 0
                 let cacheCreate = intValue(usage["cache_creation_input_tokens"]) ?? 0
                 let output = intValue(usage["output_tokens"]) ?? 0
                 let totalInput = input + cacheRead + cacheCreate
                 if totalInput + output > 0 {
+                    state.lastCountedAssistantMessageID = messageID
                     state.tokens.add(TokenBreakdown(
                         input: totalInput,
                         cachedInput: cacheRead,
@@ -1687,7 +1702,9 @@ final class CodexActivityReader {
                 && (stopReason == "tool_use"
                     || messageContentContainsType(message["content"], "tool_use"))
             state.latestAssistantNeedsInput = stopReason == "pause_turn" || assistantRequestedUserInput
-            if let contentText {
+            // Synthetic notices ("API Error: ...", "No response requested.") are not
+            // replies; surfacing them as the row preview buries the real last message.
+            if let contentText, !isSynthetic {
                 state.latestAssistantText = cappedScanText(contentText)
             }
         }
@@ -1738,9 +1755,14 @@ final class CodexActivityReader {
         } else {
             startedAt = nil
         }
+        // Claude Desktop records the model, title, and working folder when the
+        // session is created, so a session still inside its first turn — no
+        // assistant reply written yet — can still show them.
+        let desktopSession = ClaudeDesktopSessionIndex.shared.currentSession(forCLISession: state.sessionID)
         let title = state.aiTitle
             ?? cleanTitle(state.lastPrompt)
             ?? cleanTitle(state.firstUserText)
+            ?? cleanTitle(desktopSession?.title)
             ?? state.cwd.map(shortFolderName)
             ?? String(state.sessionID.prefix(8))
         let preview = cleanPreview(state.latestAssistantText ?? state.latestUserText)
@@ -1748,7 +1770,7 @@ final class CodexActivityReader {
             id: "claude:\(state.sessionID)",
             title: title,
             preview: preview,
-            cwd: state.cwd,
+            cwd: state.cwd ?? desktopSession?.cwd,
             lastActivity: activityDate,
             startedAt: startedAt,
             externalReadAt: nil,
@@ -1760,7 +1782,7 @@ final class CodexActivityReader {
             codexUpdatedAt: nil,
             tokensUsed: state.tokens.displayTotal,
             tokenBreakdown: state.tokens,
-            model: state.model,
+            model: state.model ?? desktopSession?.model,
             threadKind: .root,
             parentThreadID: nil,
             agentNickname: nil,
