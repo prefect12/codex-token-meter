@@ -28,6 +28,7 @@ The split is intentionally conservative: code moved by section, with behavior pr
 - `Sources/CodexTokenMeter/ModelDetailsSupport.swift`: model-page filtering, sorting, unknown-label suppression, table-height calculation, and model/pricing coverage metrics. Keep these data transformations separate from AppKit drawing.
 - `Sources/CodexTokenMeter/ModelDetailsDrawing.swift`: model-page source rows, full model table, share bar, data-trust panel, and hover tooltip drawing. It extends `UsageDetailsView` and uses only the module-internal drawing primitives and state explicitly exposed by `DetailsWindow.swift`.
 - `Sources/CodexTokenMeter/CodexModelRoutingStore.swift`: read/write support for Codex global and trusted-project model defaults. It discovers Codex Desktop projects, reads the local model catalog, and updates only top-level `model` and `model_reasoning_effort` keys while preserving unrelated TOML content.
+- `Sources/CodexTokenMeter/CodexModelRoutingProtection.swift`: optional Token Meter authority state for Codex defaults. When enabled, it persists the model-routing keys selected in Token Meter and runs an app-lifetime config watcher that restores only those keys after an external rewrite, even before the details window is opened; unrelated Codex configuration remains untouched.
 - `Sources/CodexTokenMeter/ClaudeModelRoutingStore.swift`: read/write support for Claude Code user defaults and private project overrides. It preserves unrelated JSON settings, updates only `model` and `effortLevel`, and writes project overrides to `.claude/settings.local.json` so shared repository configuration is not changed.
 - `Sources/CodexTokenMeter/ModelRoutingDetailsDrawing.swift`: the native global/project default-model page, including search, inherited/overridden filtering, inline model and reasoning controls, and effective inheritance state.
 - `Sources/CodexTokenMeter/DiagnosticsDetailsDrawing.swift`: diagnostics-page source health, API file, tool detection, and local log probe rendering. Keeping these read-only probes out of the window orchestrator makes their filesystem work and UI presentation easier to review together.
@@ -100,6 +101,12 @@ Codex Desktop's local project registry, and Claude Code's `~/.claude/settings.js
 Codex project overrides are written to each project root's `.codex/config.toml`.
 Claude project overrides are written to `.claude/settings.local.json`; unrelated
 TOML and JSON settings are retained.
+
+The optional **Protect Codex defaults** setting stores a separate Token Meter
+baseline in application preferences. Token Meter edits replace that baseline.
+External rewrites restore only `model` and `model_reasoning_effort`; newly
+discovered projects inherit the protected global defaults until the user creates
+an explicit project override from Token Meter.
 
 `storage-snapshot-cache.json` stores the last local disk-usage snapshot, including category roots and per-project paths. Those local paths are the essential content of a disk-usage report, so this cache intentionally keeps them; it must never contain log file contents.
 

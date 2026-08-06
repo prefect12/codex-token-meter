@@ -1453,7 +1453,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             let tableHeight = snapshot.map { modelListPresentation(for: $0).tableHeight } ?? 132
             targetHeight = 452 + tableHeight
         case .modelRouting:
-            targetHeight = 398 + CGFloat(max(1, modelRoutingControls.visibleProjects.count)) * 72
+            targetHeight = 494 + CGFloat(max(1, modelRoutingControls.visibleProjects.count)) * 72
         case .calendar:
             let gridHeight: CGFloat = normalizedWidth >= 1200 ? 246 : 232
             let detailHeight = selectedCalendarRangeSummary() != nil

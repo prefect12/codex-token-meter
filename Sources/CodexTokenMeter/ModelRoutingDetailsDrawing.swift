@@ -69,6 +69,7 @@ private func modelRoutingPlatformRects(in content: NSRect) -> [ModelRoutingPlatf
 }
 
 struct ModelRoutingPageLayout {
+    let protectionRect: NSRect
     let globalRect: NSRect
     let toolbarRect: NSRect
     let tableRect: NSRect
@@ -109,6 +110,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
 
     private let codexStore: CodexModelRoutingStore
     private let claudeStore: ClaudeModelRoutingStore
+    private let protectionPreferences: CodexModelRoutingProtectionPreferences
     private var configWatcher: CodexConfigWatcher?
     private weak var host: UsageDetailsView?
     private var bindings: [ObjectIdentifier: Binding] = [:]
@@ -125,14 +127,25 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     )
     private let codexPlatformButton = NSButton(title: "Codex", target: nil, action: nil)
     private let claudePlatformButton = NSButton(title: "Claude", target: nil, action: nil)
+    private let protectionSwitch = NSSwitch(frame: .zero)
     private let refreshButton = NSButton(title: "", target: nil, action: nil)
 
     init(
         codexStore: CodexModelRoutingStore = CodexModelRoutingStore(),
-        claudeStore: ClaudeModelRoutingStore = ClaudeModelRoutingStore()
+        claudeStore: ClaudeModelRoutingStore = ClaudeModelRoutingStore(),
+        protectionPreferences: CodexModelRoutingProtectionPreferences =
+            CodexModelRoutingProtectionPreferences()
     ) {
         self.codexStore = codexStore
         self.claudeStore = claudeStore
+        self.protectionPreferences = protectionPreferences
+        if protectionPreferences.isEnabled {
+            if let protected = protectionPreferences.protectedState() {
+                _ = try? codexStore.restoreProtectedRoutingState(protected)
+            } else {
+                protectionPreferences.enable(capturing: codexStore.captureProtectedRoutingState())
+            }
+        }
         selectedPlatform = ModelRoutingPlatform(
             rawValue: UserDefaults.standard.string(forKey: "selectedModelRoutingPlatform") ?? ""
         ) ?? .codex
@@ -141,9 +154,35 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             : claudeStore.loadSnapshot()
         super.init()
         configWatcher = CodexConfigWatcher { [weak self] in
-            self?.reloadFromExternalChange()
+            self?.handleExternalConfigChange()
         }
         updateConfigWatcher()
+    }
+
+    var isCodexDefaultsProtectionEnabled: Bool {
+        protectionPreferences.isEnabled
+    }
+
+    func setCodexDefaultsProtectionEnabled(_ enabled: Bool) {
+        if enabled {
+            protectionPreferences.enable(capturing: codexStore.captureProtectedRoutingState())
+            statusMessage = localized(
+                chinese: "已锁定 Token Meter 默认配置",
+                english: "Token Meter defaults are now protected",
+                japanese: "Token Meter の既定設定を保護しました"
+            )
+        } else {
+            protectionPreferences.disable()
+            statusMessage = localized(
+                chinese: "已允许 Codex 更新默认配置",
+                english: "Codex may now update defaults",
+                japanese: "Codex による既定設定の更新を許可しました"
+            )
+        }
+        statusIsError = false
+        protectionSwitch.state = enabled ? .on : .off
+        updateConfigWatcher()
+        invalidateLayout()
     }
 
     var visibleProjects: [CodexProjectRoutingSnapshot] {
@@ -204,6 +243,21 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         configurePlatformButton(codexPlatformButton, platform: .codex, in: host)
         configurePlatformButton(claudePlatformButton, platform: .claude, in: host)
         updatePlatformButtonStyles()
+
+        protectionSwitch.controlSize = .small
+        protectionSwitch.appearance = NSAppearance(named: .darkAqua)
+        protectionSwitch.state = isCodexDefaultsProtectionEnabled ? .on : .off
+        protectionSwitch.target = self
+        protectionSwitch.action = #selector(protectionChanged(_:))
+        protectionSwitch.isHidden = true
+        protectionSwitch.setAccessibilityLabel(
+            localized(
+                chinese: "锁定 Codex 默认模型",
+                english: "Protect Codex defaults",
+                japanese: "Codex の既定モデルを保護"
+            )
+        )
+        host.addSubview(protectionSwitch)
 
         refreshButton.isBordered = true
         refreshButton.bezelStyle = .rounded
@@ -310,6 +364,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         filterControl.isHidden = !visible
         codexPlatformButton.isHidden = !visible
         claudePlatformButton.isHidden = !visible
+        protectionSwitch.isHidden = !visible || selectedPlatform != .codex
         refreshButton.isHidden = !visible
 
         for popup in modelPopups.values {
@@ -326,6 +381,13 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         let platformRects = modelRoutingPlatformRects(in: content)
         codexPlatformButton.frame = platformRects[.codex] ?? .zero
         claudePlatformButton.frame = platformRects[.claude] ?? .zero
+        protectionSwitch.state = isCodexDefaultsProtectionEnabled ? .on : .off
+        protectionSwitch.frame = NSRect(
+            x: layout.protectionRect.maxX - 68,
+            y: layout.protectionRect.midY - 12,
+            width: 48,
+            height: 24
+        )
 
         searchField.placeholderString = localized(
             chinese: "搜索项目",
@@ -448,29 +510,54 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         selectPlatform(sender === claudePlatformButton ? .claude : .codex)
     }
 
+    @objc private func protectionChanged(_ sender: NSSwitch) {
+        setCodexDefaultsProtectionEnabled(sender.state == .on)
+    }
+
     @objc private func refreshRequested() {
         statusMessage = nil
         statusIsError = false
         reload()
     }
 
-    private func reloadFromExternalChange() {
+    private func handleExternalConfigChange() {
+        if protectionPreferences.isEnabled,
+           let protected = protectionPreferences.protectedState() {
+            do {
+                let restored = try codexStore.restoreProtectedRoutingState(protected)
+                if restored {
+                    statusMessage = localized(
+                        chinese: "已恢复 Token Meter 的 Codex 默认配置",
+                        english: "Restored Token Meter's Codex defaults",
+                        japanese: "Token Meter の Codex 既定設定を復元しました"
+                    )
+                    statusIsError = false
+                    reload()
+                    return
+                }
+            } catch {
+                statusMessage = error.localizedDescription
+                statusIsError = true
+                reload()
+                return
+            }
+        }
         statusMessage = localized(
-            chinese: "已从 \(platformDisplayName) 同步",
-            english: "Synced from \(platformDisplayName)",
-            japanese: "\(platformDisplayName) から同期済み"
+            chinese: "已同步外部配置",
+            english: "Synced external configuration",
+            japanese: "外部設定と同期しました"
         )
         statusIsError = false
         reload()
     }
 
     private func updateConfigWatcher() {
-        let urls: [URL]
-        switch selectedPlatform {
-        case .codex:
-            urls = codexStore.routingInputURLs(for: snapshot)
-        case .claude:
-            urls = claudeStore.routingInputURLs(for: snapshot)
+        let codexSnapshot = selectedPlatform == .codex
+            ? snapshot
+            : codexStore.loadSnapshot()
+        var urls = codexStore.routingInputURLs(for: codexSnapshot)
+        if selectedPlatform == .claude {
+            urls.append(contentsOf: claudeStore.routingInputURLs(for: snapshot))
         }
         configWatcher?.watch(targetURLs: urls)
     }
@@ -484,6 +571,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             case let .project(id):
                 try writeProjectChange(id: id, field: binding.field, sender: sender)
             }
+            recordProtectedCodexDefaultsIfNeeded()
             statusMessage = localized(
                 chinese: "已保存",
                 english: "Saved",
@@ -509,6 +597,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
                     reasoningEffort: effectiveGlobalEffort()
                 )
             }
+            recordProtectedCodexDefaultsIfNeeded()
             statusMessage = localized(
                 chinese: "已保存",
                 english: "Saved",
@@ -520,6 +609,11 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             statusIsError = true
         }
         reload()
+    }
+
+    private func recordProtectedCodexDefaultsIfNeeded() {
+        guard selectedPlatform == .codex, protectionPreferences.isEnabled else { return }
+        protectionPreferences.updateProtectedState(codexStore.captureProtectedRoutingState())
     }
 
     private func invalidateLayout() {
@@ -923,7 +1017,18 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
 
 extension UsageDetailsView {
     func modelRoutingPageLayout(in content: NSRect) -> ModelRoutingPageLayout {
-        let globalRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 88)
+        let protectionRect = NSRect(
+            x: content.minX,
+            y: content.minY + 58,
+            width: content.width,
+            height: 96
+        )
+        let globalRect = NSRect(
+            x: content.minX,
+            y: protectionRect.maxY + 14,
+            width: content.width,
+            height: 88
+        )
         let toolbarRect = NSRect(x: content.minX, y: globalRect.maxY + 28, width: content.width, height: 34)
         let projects = modelRoutingControls.visibleProjects
         let headerHeight: CGFloat = 48
@@ -968,6 +1073,7 @@ extension UsageDetailsView {
             height: 56
         )
         return ModelRoutingPageLayout(
+            protectionRect: protectionRect,
             globalRect: globalRect,
             toolbarRect: toolbarRect,
             tableRect: tableRect,
@@ -980,11 +1086,74 @@ extension UsageDetailsView {
 
     func drawModelRoutingPage(content: NSRect) {
         let layout = modelRoutingPageLayout(in: content)
+        drawCodexDefaultsProtection(layout.protectionRect)
         drawPanel(layout.globalRect)
         drawGlobalRoutingStrip(layout.globalRect)
         drawRoutingSearchSurface(modelRoutingSearchRect(in: layout.toolbarRect))
         drawProjectRoutingTable(layout)
         drawRoutingFooter(layout.footerRect)
+    }
+
+    private func drawCodexDefaultsProtection(_ rect: NSRect) {
+        let isCodex = modelRoutingControls.selectedPlatform == .codex
+        let enabled = modelRoutingControls.isCodexDefaultsProtectionEnabled
+        let fillColor = isCodex && enabled
+            ? accentBlue.withAlphaComponent(0.13)
+            : panelSurfaceColor.withAlphaComponent(0.82)
+        fillColor.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 9, yRadius: 9).fill()
+
+        (isCodex && enabled ? accentTeal.withAlphaComponent(0.34) : borderColor).setStroke()
+        let border = NSBezierPath(
+            roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
+            xRadius: 9,
+            yRadius: 9
+        )
+        border.lineWidth = 1
+        border.stroke()
+
+        drawSymbolIcon(
+            isCodex ? (enabled ? "checkmark.shield.fill" : "shield") : "info.circle",
+            in: NSRect(x: rect.minX + 20, y: rect.minY + 22, width: 22, height: 22),
+            color: isCodex && enabled ? accentTeal : NSColor.white.withAlphaComponent(0.46),
+            pointSize: 16
+        )
+
+        let textX = rect.minX + 56
+        let trailingSpace: CGFloat = isCodex ? 96 : 24
+        let textWidth = max(160, rect.width - 56 - trailingSpace)
+        drawText(
+            isCodex
+                ? modelRoutingLocalized(
+                    chinese: "锁定 Codex 默认配置",
+                    english: "Protect Codex defaults",
+                    japanese: "Codex の既定設定を保護"
+                )
+                : modelRoutingLocalized(
+                    chinese: "Claude 默认配置不受锁定保护",
+                    english: "Claude defaults are not protected",
+                    japanese: "Claude の既定設定は保護対象外です"
+                ),
+            rect: NSRect(x: textX, y: rect.minY + 16, width: textWidth, height: 22),
+            font: .systemFont(ofSize: 13.5, weight: .bold),
+            color: .white
+        )
+        drawMultilineText(
+            isCodex
+                ? modelRoutingLocalized(
+                    chinese: "仅对 Codex 生效。对话内临时切换模型和思考强度仍然有效；如果 Codex 把这次选择写回配置文件，Token Meter 会自动恢复本页保存的默认值，之后的新对话继续使用这里的设置。只恢复 model 和 model_reasoning_effort，不改动其他配置。",
+                    english: "Codex only. Temporary model and effort changes still work within a conversation. If Codex writes that choice back to its config, Token Meter restores the defaults saved here for future conversations. Only model and model_reasoning_effort are restored.",
+                    japanese: "Codex のみに適用されます。会話内でのモデルや思考強度の一時変更はそのまま利用できます。Codex がその選択を設定ファイルへ書き戻した場合、Token Meter は今後の会話向けにこのページの既定値を復元します。復元対象は model と model_reasoning_effort のみです。"
+                )
+                : modelRoutingLocalized(
+                    chinese: "此功能目前不对 Claude 生效。下方的 Claude 全局和项目默认值仍会正常保存，但 Token Meter 不会监控或自动恢复 Claude 在会话中改写的模型配置。",
+                    english: "This protection does not currently apply to Claude. Claude global and project defaults below are still saved normally, but Token Meter does not monitor or automatically restore model settings changed from a Claude conversation.",
+                    japanese: "この保護機能は現在 Claude には適用されません。下の Claude グローバル設定とプロジェクト設定は通常どおり保存されますが、会話から変更されたモデル設定を Token Meter が監視・自動復元することはありません。"
+                ),
+            rect: NSRect(x: textX, y: rect.minY + 42, width: textWidth, height: 42),
+            font: .systemFont(ofSize: 10.5, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.56)
+        )
     }
 
     private func drawRoutingSearchSurface(_ rect: NSRect) {

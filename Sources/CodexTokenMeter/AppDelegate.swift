@@ -28,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private let dashboardController = DashboardViewController()
     private let detailsController = UsageDetailsWindowController()
+    private let codexModelRoutingProtectionController =
+        CodexModelRoutingProtectionController()
     private var scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
     private var claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     private let rateLimitReader = LiveRateLimitReader()
