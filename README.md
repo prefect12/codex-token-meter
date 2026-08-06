@@ -50,7 +50,9 @@ Task Bar 把 Codex、Claude Code 和 Claude Desktop Home 最近对话合在一�
   <img src="docs/images/ai-token-meter-release.webp" alt="AI Token Meter menu dashboard" width="420">
 </p>
 
-AI Token Meter 的状态栏面板支持 `全部 / Codex / Claude` 和 `24h / 7d / 30d` 切换。顶部显示当前窗口总 token，环形图显示剩余额度，表格对比 Codex 与 Claude 的 5h 剩余额度、输入输出和服务状态，底部汇总会话/轮次/事件数与 API 等价成本。
+AI Token Meter 的状态栏面板支持 `全部 / Codex / Claude / API` 和 `24h / 7d / 30d` 切换。顶部显示当前窗口总 token，环形图显示订阅剩余额度，表格对比 Codex、Claude 与 API 的输入输出和状态，底部汇总会话/轮次/事件数与 API 成本。
+
+`API` 来源表示所有非订阅、按量计费的使用。Token Meter 优先读取 rollout 的 `model_provider`，并识别 OpenRouter 风格的 `厂商/模型` ID，因此 DeepSeek、OpenRouter 和其他自定义 provider 都会从 Codex 订阅统计中移出，避免重复。模型价格每天从 OpenRouter 公共 Models API 更新并只缓存模型 ID 与价格。可选的 `~/Library/Application Support/Codex Token Meter/api-usage.json`（可在 `externalAPICostPath` 偏好中改路径）用于补充 Codex 之外的直接 API 调用；要获得准确的时间窗口和模型成本，建议在 `by_day` 中同时提供每日 `usage` 与 `models`。Token Meter 不读取或保存 API Key，也不会上传请求内容。
 
 ### AI Token Meter Hover
 
@@ -66,7 +68,7 @@ AI Token Meter 的状态栏面板支持 `全部 / Codex / Claude` 和 `24h / 7d 
   <img src="docs/images/zh-details-overview.webp" alt="AI Token Meter 详情概览页" width="760">
 </p>
 
-过去 365 天按来源（全部 / Codex / Claude）和模型统计的总量、输入/输出拆分、缓存命中率、API 等价成本，以及全年活动热力图。
+过去 365 天按来源（全部 / Codex / Claude / API）和模型统计的总量、输入/输出拆分、缓存命中率、API 成本，以及全年活动热力图。
 
 ### 详情窗口 · 仓库洞察
 
@@ -149,12 +151,12 @@ Task Bar 读取：
 
 ### AI Token Meter
 
-- **额度视图**：支持 `All / Codex / Claude` 平台筛选，以及 `24h / 7d / 30d` 时间窗口。
+- **额度视图**：支持 `All / Codex / Claude / API` 来源筛选，以及 `24h / 7d / 30d` 时间窗口。
 - **剩余额度**：读取 Codex live rate limits 和 Claude statusline，可显示 5 小时、周/月剩余额度与重置时间。
 - **token 明细**：汇总 input、output、cached input、fresh input、total、cache hit rate、会话数和轮次。
-- **详情窗口**：包含概览、日历、仓库洞察、模型、空间、设置、诊断和关于页面。
+- **详情窗口**：概览、日历、仓库洞察、思考分析、模型、成本、空间和诊断均支持 API 来源。
 - **仓库洞察**：按项目定位长会话和上下文压缩压力，附会话长度/压缩分布和拆分建议。
-- **API 等价成本**：估算同样的本地用量若直接按 API 计价的花费，覆盖首页、日历、模型和概览。
+- **API 成本**：使用 OpenRouter 公共模型目录和内置官方价格回退估算按量费用；未知模型保持未定价并降低价格覆盖率，不会默认套用其他模型价格。
 - **空间管理**：追踪 Codex / Claude 本地日志磁盘占用、近 14 天增长和清理风险构成，可导出报告。
 - **截图渲染**：`--render-dashboard` / `--render-details` 命令行渲染任意页面，`--redact` 把仓库名和目录替换为演示数据。
 - **启动体验**：状态栏和详情窗口会先显示上次完整聚合结果，再后台刷新本机日志。

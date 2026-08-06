@@ -8,8 +8,7 @@ extension UsageDetailsView {
         let topY = content.minY + 112
 
         if selectedInsightDetailMode == .reasoningDepth {
-            let codexReport = snapshot.codexRepoInsightReports[selectedInsightWindowDays] ?? snapshot.codexRepoInsights
-            drawReasoningDepthPage(report: codexReport.reasoning, content: content, topY: topY)
+            drawReasoningDepthPage(report: report.reasoning, content: content, topY: topY)
             return
         }
 
@@ -114,11 +113,25 @@ extension UsageDetailsView {
     func insightReport(for snapshot: DetailsSnapshot) -> RepoInsightsReport {
         switch selectedDetailsSource {
         case .all:
-            return snapshot.repoInsightReports[selectedInsightWindowDays] ?? snapshot.repoInsights
+            let reports = QuotaViewOption.visiblePlatformCases.map { source -> RepoInsightsReport in
+                switch source {
+                case .codex:
+                    return snapshot.codexRepoInsightReports[selectedInsightWindowDays] ?? snapshot.codexRepoInsights
+                case .claude:
+                    return snapshot.claudeRepoInsightReports[selectedInsightWindowDays] ?? snapshot.claudeRepoInsights
+                case .api:
+                    return snapshot.apiRepoInsightReports[selectedInsightWindowDays] ?? snapshot.apiRepoInsights
+                case .all:
+                    return RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: selectedInsightWindowDays)
+                }
+            }
+            return mergedRepoInsightsReport(reports, windowDays: selectedInsightWindowDays)
         case .codex:
             return snapshot.codexRepoInsightReports[selectedInsightWindowDays] ?? snapshot.codexRepoInsights
         case .claude:
             return snapshot.claudeRepoInsightReports[selectedInsightWindowDays] ?? snapshot.claudeRepoInsights
+        case .api:
+            return snapshot.apiRepoInsightReports[selectedInsightWindowDays] ?? snapshot.apiRepoInsights
         }
     }
 
@@ -219,9 +232,10 @@ extension UsageDetailsView {
         let compactY = y + (rowH - compactH) / 2
         let compactGap: CGFloat = 5
         let sourceW: CGFloat = 54
-        for option in [QuotaViewOption.all, .codex, .claude] {
+        let sourceOptions = QuotaViewOption.visibleSelectorOptions
+        for option in sourceOptions {
             let rect = NSRect(x: x, y: compactY, width: sourceW, height: compactH)
-            let enabled = selectedInsightDetailMode != .reasoningDepth || option == .codex
+            let enabled = selectedInsightDetailMode != .reasoningDepth || option == preferredReasoningSource
             if enabled {
                 sourceOptionRects[option] = rect
             }

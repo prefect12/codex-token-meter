@@ -198,6 +198,29 @@ if CommandLine.arguments.contains("--print-service-status") {
     exit(0)
 }
 
+if CommandLine.arguments.contains("--refresh-openrouter-pricing") {
+    let semaphore = DispatchSemaphore(value: 0)
+    var refreshed = false
+    OpenRouterPricingCatalog.shared.refreshIfNeeded(force: true) { succeeded in
+        refreshed = succeeded
+        semaphore.signal()
+    }
+    let completed = semaphore.wait(timeout: .now() + 35) == .success
+    let status = OpenRouterPricingCatalog.shared.status()
+    let payload: [String: Any] = [
+        "completed": completed,
+        "refreshed": refreshed,
+        "model_count": status.modelCount,
+        "fetched_at": status.fetchedAt?.description ?? "",
+        "cache_path": AppSettings.openRouterPricingCatalogCacheURL.path
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+       let text = String(data: data, encoding: .utf8) {
+        print(text)
+    }
+    exit(completed && status.modelCount > 0 ? 0 : 1)
+}
+
 if CommandLine.arguments.contains("--print") {
     let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
     let claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
@@ -206,8 +229,8 @@ if CommandLine.arguments.contains("--print") {
     let quota = requestedQuota(from: CommandLine.arguments) ?? .all
     let report = requestedWindow.map { scanReport(window: $0, source: quota, codexScanner: scanner, claudeScanner: claudeScanner) }
         ?? scanReport(hours: hours, source: quota, codexScanner: scanner, claudeScanner: claudeScanner)
-    let apiEstimate = APICostEstimator.estimate(report: report)
     let externalAPI = ExternalAPICostStore.read()
+    let apiEstimate = APICostEstimator.estimate(report: report)
     let externalAPIPayload: [String: Any] = [
         "configured_path": AppSettings.externalAPICostURL.path,
         "present": externalAPI != nil,

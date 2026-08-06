@@ -19,6 +19,7 @@ private struct ModelRangeCacheKey: Hashable {
 private struct ModelRangeReports {
     let codex: TokenReport
     let claude: TokenReport
+    let api: TokenReport
     let all: TokenReport
     let cachedAt: Date
 }
@@ -82,9 +83,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         localFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
 
         selectedWindow = .day
+        OpenRouterPricingCatalog.shared.refreshIfNeeded()
         if let rawQuota = UserDefaults.standard.string(forKey: "selectedQuotaView"),
-           let quota = QuotaViewOption.option(from: rawQuota) {
+           let quota = QuotaViewOption.option(from: rawQuota),
+           QuotaViewOption.visibleSelectorOptions.contains(quota) {
             selectedQuota = quota
+        } else {
+            selectedQuota = QuotaViewOption.visibleDefault
         }
         liveLimits = LiveRateLimitCacheStore.read()
 
@@ -149,10 +154,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.onLaunchAtLoginChanged = { [weak self] isOn in self?.changeLaunchAtLogin(isOn) }
         detailsController.detailsView.onQuotaWarningsChanged = { [weak self] isOn in self?.changeQuotaWarnings(isOn) }
         detailsController.detailsView.onProfileAPITotalsChanged = { [weak self] isOn in self?.changeProfileAPITotals(isOn) }
+        detailsController.detailsView.onVisibleUsageSourcesChanged = { [weak self] sources in
+            self?.changeVisibleUsageSources(sources)
+        }
         detailsController.detailsView.onExportMachineUsageReport = { [weak self] in self?.exportMachineUsageReport() }
         detailsController.detailsView.onStorageScanRequested = { [weak self] in self?.refreshStorageSnapshot() }
         detailsController.detailsView.onModelDateRangeChanged = { [weak self] start, end in
             self?.refreshModelDateRange(from: start, to: end)
+        }
+        detailsController.detailsView.onReasoningDateRangeChanged = { [weak self] start, end in
+            self?.refreshReasoningDateRange(from: start, to: end)
         }
         applyLanguage()
         QuotaWarningManager.shared.requestAuthorization()
@@ -238,17 +249,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let codex: TokenReport
                 let claude: TokenReport
                 if let presetDayCount {
-                    codex = self.scanner.scan(days: presetDayCount)
+                    codex = self.scanner.scan(days: presetDayCount, partition: .codex)
                     claude = self.claudeScanner.scan(days: presetDayCount)
                 } else {
-                    codex = self.scanner.scan(from: start, to: end)
+                    codex = self.scanner.scan(from: start, to: end, partition: .codex)
                     claude = self.claudeScanner.scan(from: start, to: end)
                 }
-                let all = mergedTokenReport([codex, claude])
+                let api = mergedTokenReport([
+                    presetDayCount.map { self.scanner.scan(days: $0, partition: .api) }
+                        ?? self.scanner.scan(from: start, to: end, partition: .api),
+                    presetDayCount.map { ExternalAPIUsageStore.readReport(days: $0) }
+                        ?? ExternalAPIUsageStore.readReport(from: start, to: end)
+                ])
+                let all = mergedTokenReport([codex, claude, api])
                 DispatchQueue.main.async {
                     let reports = ModelRangeReports(
                         codex: codex,
                         claude: claude,
+                        api: api,
                         all: all,
                         cachedAt: Date()
                     )
@@ -259,6 +277,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         modelRangeRefreshWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+    }
+
+    private func refreshReasoningDateRange(from start: Date, to end: Date) {
+        let calendar = appCalendar()
+        let rangeStart = calendar.startOfDay(for: min(start, end))
+        let selectedEnd = calendar.startOfDay(for: max(start, end))
+        let rangeEnd = min(
+            Date(),
+            calendar.date(byAdding: .day, value: 1, to: selectedEnd)?.addingTimeInterval(-0.001) ?? selectedEnd
+        )
+        scanQueue.async { [weak self] in
+            guard let self else { return }
+            let codexInsights = self.scanner.scanRepoInsights(from: rangeStart, to: rangeEnd, partition: .codex)
+            let apiInsights = self.scanner.scanRepoInsights(from: rangeStart, to: rangeEnd, partition: .api)
+            let claude = self.claudeScanner.scan(from: rangeStart, to: rangeEnd)
+            DispatchQueue.main.async {
+                guard var snapshot = self.detailsController.detailsView.snapshot,
+                      self.detailsController.detailsView.selectedInsightWindowDays == 0 else {
+                    self.detailsController.detailsView.isReasoningDateRangeLoading = false
+                    return
+                }
+                snapshot.codexRepoInsightReports[0] = codexInsights
+                snapshot.apiRepoInsightReports[0] = apiInsights
+                snapshot.reasoningClaude = claude
+                snapshot.reasoningRangeStart = rangeStart
+                snapshot.reasoningRangeEnd = rangeEnd
+                self.detailsController.detailsView.isReasoningDateRangeLoading = false
+                self.detailsController.update(snapshot: snapshot)
+            }
+        }
     }
 
     private func modelRangeCacheKey(from start: Date, to end: Date) -> ModelRangeCacheKey {
@@ -297,7 +345,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return nil
         }
         let cachedAt = min(codex.scannedAt, min(claude.scannedAt, all.scannedAt))
-        let reports = ModelRangeReports(codex: codex, claude: claude, all: all, cachedAt: cachedAt)
+        let api = reportCache[ReportCacheKey(window: window, quota: .api)]
+            ?? mergedTokenReport([
+                scanner.scan(window: window, partition: .api),
+                ExternalAPIUsageStore.readReport(window: window)
+            ])
+        let reports = ModelRangeReports(codex: codex, claude: claude, api: api, all: all, cachedAt: cachedAt)
         modelRangeReportCache[key] = reports
         return reports
     }
@@ -316,6 +369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         modelRangeReportCache[key] = ModelRangeReports(
             codex: codex,
             claude: claude,
+            api: snapshot.modelAPI ?? snapshot.api,
             all: all,
             cachedAt: Date()
         )
@@ -336,6 +390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         snapshot.modelCodex = reports.codex
         snapshot.modelClaude = reports.claude
+        snapshot.modelAPI = reports.api
         snapshot.modelAll = reports.all
         snapshot.modelRangeStart = start
         snapshot.modelRangeEnd = end
@@ -451,6 +506,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func selectQuota(_ option: QuotaViewOption) {
+        guard QuotaViewOption.visibleSelectorOptions.contains(option) else { return }
         selectedQuota = option
         UserDefaults.standard.set(option.rawValue, forKey: "selectedQuotaView")
         showCachedOrLoadingState()
@@ -468,6 +524,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 report: cached,
                 codexReport: platformReports.codex,
                 claudeReport: platformReports.claude,
+                apiReport: platformReports.api,
                 profileReport: profileReport(window: selectedWindow, quota: selectedQuota, accountUsage: accountUsage, localReport: cached),
                 accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: cached),
@@ -488,6 +545,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 report: TokenReport(scannedAt: Date()),
                 codexReport: platformReports.codex,
                 claudeReport: platformReports.claude,
+                apiReport: platformReports.api,
                 profileReport: profileReport(window: selectedWindow, quota: selectedQuota, accountUsage: accountUsage, localReport: nil),
                 accountUsage: accountUsage,
                 costReferenceReport: costReferenceReport(quota: selectedQuota, fallback: nil),
@@ -506,11 +564,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func cachedPlatformReports(window: WindowOption, quota: QuotaViewOption) -> (codex: TokenReport?, claude: TokenReport?) {
-        guard quota == .all else { return (nil, nil) }
+    private func cachedPlatformReports(window: WindowOption, quota: QuotaViewOption) -> (codex: TokenReport?, claude: TokenReport?, api: TokenReport?) {
+        guard quota == .all else { return (nil, nil, nil) }
+        let enabled = Set(QuotaViewOption.visiblePlatformCases)
         return (
-            reportCache[ReportCacheKey(window: window, quota: .codex)],
-            reportCache[ReportCacheKey(window: window, quota: .claude)]
+            enabled.contains(.codex) ? reportCache[ReportCacheKey(window: window, quota: .codex)] : nil,
+            enabled.contains(.claude) ? reportCache[ReportCacheKey(window: window, quota: .claude)] : nil,
+            enabled.contains(.api) ? reportCache[ReportCacheKey(window: window, quota: .api)] : nil
         )
     }
 
@@ -526,6 +586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             report: reportCache[key] ?? TokenReport(scannedAt: Date()),
             codexReport: platformReports.codex,
             claudeReport: platformReports.claude,
+            apiReport: platformReports.api,
             profileReport: profileReport(window: window, quota: quota, accountUsage: accountUsage, localReport: reportCache[key]),
             accountUsage: accountUsage,
             costReferenceReport: costReferenceReport(quota: quota, fallback: reportCache[key]),
@@ -548,17 +609,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scanQueue.async {
             let codexReport: TokenReport?
             let claudeReport: TokenReport?
+            let apiReport: TokenReport?
             let report: TokenReport
             if quota == .all {
-                let codex = self.scanner.scan(window: window)
-                let claude = self.claudeScanner.scan(window: window)
+                let enabled = Set(QuotaViewOption.visiblePlatformCases)
+                let codex = enabled.contains(.codex) ? self.scanner.scan(window: window, partition: .codex) : nil
+                let claude = enabled.contains(.claude) ? self.claudeScanner.scan(window: window) : nil
+                let api = enabled.contains(.api) ? mergedTokenReport([
+                    self.scanner.scan(window: window, partition: .api),
+                    ExternalAPIUsageStore.readReport(window: window)
+                ]) : nil
                 codexReport = codex
                 claudeReport = claude
-                report = mergedTokenReport([codex, claude])
+                apiReport = api
+                report = mergedTokenReport([codex, claude, api].compactMap { $0 })
             } else {
                 codexReport = nil
                 claudeReport = nil
-                report = self.scanReport(window: window, source: quota)
+                apiReport = quota == .api ? self.scanReport(window: window, source: .api) : nil
+                report = apiReport ?? self.scanReport(window: window, source: quota)
             }
             let accountUsage = quota.usesCodexProfileAPI && allowProfileAPI
                 ? self.readAccountUsageIfNeeded(fallback: currentAccountUsage)
@@ -588,6 +657,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let claudeReport {
                     self.reportCache[ReportCacheKey(window: window, quota: .claude)] = claudeReport
                 }
+                if let apiReport {
+                    self.reportCache[ReportCacheKey(window: window, quota: .api)] = apiReport
+                }
                 DashboardReportCacheStore.write(self.reportCache)
                 if let accountUsage {
                     self.accountUsage = accountUsage
@@ -612,6 +684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         report: report,
                         codexReport: codexReport ?? cachedPlatforms.codex,
                         claudeReport: claudeReport ?? cachedPlatforms.claude,
+                        apiReport: apiReport ?? cachedPlatforms.api,
                         profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage, localReport: report),
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
@@ -768,6 +841,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         report: report,
                         codexReport: platformReports.codex,
                         claudeReport: platformReports.claude,
+                        apiReport: platformReports.api,
                         profileReport: self.profileReport(window: window, quota: quota, accountUsage: self.accountUsage, localReport: report),
                         accountUsage: self.accountUsage,
                         costReferenceReport: self.costReferenceReport(quota: quota, fallback: report),
@@ -791,6 +865,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.latestState.codexReport = report
                     } else if quota == .claude {
                         self.latestState.claudeReport = report
+                    } else if quota == .api {
+                        self.latestState.apiReport = report
                     }
                     self.latestState.profileReport = self.profileReport(window: window, quota: .all, accountUsage: self.accountUsage, localReport: self.latestState.report)
                     self.dashboardController.dashboardView.update(self.latestState)
@@ -802,28 +878,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func scanReport(window: WindowOption, source: QuotaViewOption) -> TokenReport {
         switch source {
         case .all:
-            return mergedTokenReport([
-                scanner.scan(window: window),
-                claudeScanner.scan(window: window)
-            ])
+            let enabled = Set(QuotaViewOption.visiblePlatformCases)
+            var reports: [TokenReport] = []
+            if enabled.contains(.codex) { reports.append(scanner.scan(window: window, partition: .codex)) }
+            if enabled.contains(.claude) { reports.append(claudeScanner.scan(window: window)) }
+            if enabled.contains(.api) {
+                reports.append(mergedTokenReport([
+                    scanner.scan(window: window, partition: .api),
+                    ExternalAPIUsageStore.readReport(window: window)
+                ]))
+            }
+            return mergedTokenReport(reports)
         case .codex:
-            return scanner.scan(window: window)
+            return scanner.scan(window: window, partition: .codex)
         case .claude:
             return claudeScanner.scan(window: window)
+        case .api:
+            return mergedTokenReport([
+                scanner.scan(window: window, partition: .api),
+                ExternalAPIUsageStore.readReport(window: window)
+            ])
         }
     }
 
     private func scanReport(days: Int, source: QuotaViewOption) -> TokenReport {
         switch source {
         case .all:
-            return mergedTokenReport([
-                scanner.scan(days: days),
-                claudeScanner.scan(days: days)
-            ])
+            let enabled = Set(QuotaViewOption.visiblePlatformCases)
+            var reports: [TokenReport] = []
+            if enabled.contains(.codex) { reports.append(scanner.scan(days: days, partition: .codex)) }
+            if enabled.contains(.claude) { reports.append(claudeScanner.scan(days: days)) }
+            if enabled.contains(.api) {
+                reports.append(mergedTokenReport([
+                    scanner.scan(days: days, partition: .api),
+                    ExternalAPIUsageStore.readReport(days: days)
+                ]))
+            }
+            return mergedTokenReport(reports)
         case .codex:
-            return scanner.scan(days: days)
+            return scanner.scan(days: days, partition: .codex)
         case .claude:
             return claudeScanner.scan(days: days)
+        case .api:
+            return mergedTokenReport([
+                scanner.scan(days: days, partition: .api),
+                ExternalAPIUsageStore.readReport(days: days)
+            ])
         }
     }
 
@@ -870,7 +970,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         liveCostReferenceCacheLock.unlock()
 
-        let report = scanner.scan(from: start, to: now)
+        let report = scanner.scan(from: start, to: now, partition: .codex)
         liveCostReferenceCacheLock.lock()
         liveCostReferenceCache = LiveCostReferenceCache(cycleStart: start, cachedAt: now, report: report)
         liveCostReferenceCacheLock.unlock()
@@ -938,6 +1038,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             rawURL = "https://status.openai.com"
         case .claude:
             rawURL = "https://status.claude.com"
+        case .api:
+            rawURL = "https://openrouter.ai/models"
         }
         guard let url = URL(string: rawURL) else { return }
         NSWorkspace.shared.open(url)
@@ -1118,6 +1220,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
         dashboardController.dashboardView.update(latestState)
+    }
+
+    private func changeVisibleUsageSources(_ sources: Set<QuotaViewOption>) {
+        AppSettings.setVisibleUsageSources(sources)
+        let visibleOptions = QuotaViewOption.visibleSelectorOptions
+        if !visibleOptions.contains(selectedQuota) {
+            selectedQuota = QuotaViewOption.visibleDefault
+            UserDefaults.standard.set(selectedQuota.rawValue, forKey: "selectedQuotaView")
+        }
+        reportCache = reportCache.filter { $0.key.quota != .all }
+        modelRangeReportCache.removeAll()
+        detailsController.detailsView.normalizeVisibleSourceSelection()
+        detailsController.detailsView.needsDisplay = true
+        detailsController.detailsView.needsLayout = true
+        showCachedOrLoadingState()
+        refresh(forceLive: false)
     }
 
     private func changeQuotaWarnings(_ value: Bool) {
@@ -1322,23 +1440,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateProgress: ((Double, L10nKey) -> Void)?
     ) -> DetailsSnapshot {
         updateProgress?(0.12, .loadingCodexUsage)
-        let codex = scanner.scan(days: 365)
+        let codex = scanner.scan(days: 365, partition: .codex)
         updateProgress?(0.28, .loadingClaudeUsage)
         let claudeDetails = claudeScanner.scanWithRepoInsights(days: 365, insightWindows: [7, 30, 90])
         let claude = claudeDetails.report
         updateProgress?(0.44, .loadingAllUsage)
-        let all = mergedTokenReport([codex, claude])
-        let modelCodex = scanner.scan(days: 90)
+        let api = mergedTokenReport([
+            scanner.scan(days: 365, partition: .api),
+            ExternalAPIUsageStore.readReport(days: 365)
+        ])
+        let all = mergedTokenReport([codex, claude, api])
+        let modelCodex = scanner.scan(days: 90, partition: .codex)
         let modelClaude = claudeScanner.scan(days: 90)
-        let modelAll = mergedTokenReport([modelCodex, modelClaude])
+        let modelAPI = mergedTokenReport([
+            scanner.scan(days: 90, partition: .api),
+            ExternalAPIUsageStore.readReport(days: 90)
+        ])
+        let modelAll = mergedTokenReport([modelCodex, modelClaude, modelAPI])
         updateProgress?(0.62, .loadingRepoInsights)
-        let codexRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90])
+        let codexRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90], partition: .codex)
+        let apiRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90], partition: .api)
         let claudeRepoInsightReports = claudeDetails.repoInsights
         let repoInsightReports = Dictionary(uniqueKeysWithValues: [7, 30, 90].map { days in
             let report = mergedRepoInsightsReport(
                 [
                     codexRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days),
-                    claudeRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days)
+                    claudeRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days),
+                    apiRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days)
                 ],
                 windowDays: days
             )
@@ -1347,6 +1475,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let repoInsights = repoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
         let codexRepoInsights = codexRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
         let claudeRepoInsights = claudeRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+        let apiRepoInsights = apiRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
         updateProgress?(0.82, .loadingProfileTotals)
         let costReferenceReport = liveCostReferenceReport(limits: limits)
         let accountUsage = readAccountUsageIfNeeded(fallback: currentAccountUsage)
@@ -1361,9 +1490,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             all: all,
             codex: codex,
             claude: claude,
+            api: api,
             modelAll: modelAll,
             modelCodex: modelCodex,
             modelClaude: modelClaude,
+            modelAPI: modelAPI,
             modelRangeStart: appCalendar().startOfDay(
                 for: appCalendar().date(byAdding: .day, value: -89, to: Date()) ?? Date()
             ),
@@ -1374,6 +1505,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             codexRepoInsightReports: codexRepoInsightReports,
             claudeRepoInsights: claudeRepoInsights,
             claudeRepoInsightReports: claudeRepoInsightReports,
+            apiRepoInsights: apiRepoInsights,
+            apiRepoInsightReports: apiRepoInsightReports,
             liveLimits: limits,
             serviceStatus: serviceStatus,
             costReferenceReport: costReferenceReport,

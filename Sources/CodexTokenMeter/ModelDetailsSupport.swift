@@ -692,6 +692,11 @@ private final class ModelDateRangePopoverController: NSViewController {
     }
 }
 
+enum DateRangeControlContext {
+    case models
+    case reasoning
+}
+
 final class ModelDateRangeControls: NSObject {
     private var quickButtons: [ModelDateRangePreset: NSButton] = [:]
     private let rangeButton = NSButton()
@@ -702,9 +707,11 @@ final class ModelDateRangeControls: NSObject {
     private var endDate: Date
     private var isLoading = false
     private var inputSurfaceColor = NSColor.clear
+    private let context: DateRangeControlContext
     var onChange: ((Date, Date) -> Void)?
 
-    override init() {
+    init(context: DateRangeControlContext = .models) {
+        self.context = context
         let calendar = appCalendar()
         let today = calendar.startOfDay(for: Date())
         startDate = calendar.date(byAdding: .day, value: -89, to: today) ?? today
@@ -761,6 +768,15 @@ final class ModelDateRangeControls: NSObject {
     }
 
     func layout(content: NSRect, visible: Bool) {
+        let x = content.minX + 92
+        let y = content.minY + 66
+        layout(
+            in: NSRect(x: x, y: y, width: min(332, content.maxX - x), height: 34),
+            visible: visible
+        )
+    }
+
+    func layout(in rect: NSRect, visible: Bool) {
         for button in quickButtons.values {
             button.isHidden = !visible
         }
@@ -771,15 +787,19 @@ final class ModelDateRangeControls: NSObject {
         }
         updateButtonTitle()
         updateAccessibilityLabel()
-        let x = content.minX + 92
-        let y = content.minY + 66
-        let buttonWidth: CGFloat = 64
         let gap: CGFloat = 8
+        let customWidth = min(CGFloat(116), max(CGFloat(88), rect.width * 0.36))
+        let buttonWidth = max(CGFloat(42), (rect.width - customWidth - gap * 3) / 3)
         for (index, preset) in [ModelDateRangePreset.last7Days, .last30Days, .last90Days].enumerated() {
-            quickButtons[preset]?.frame = NSRect(x: x + CGFloat(index) * (buttonWidth + gap), y: y, width: buttonWidth, height: 34)
+            quickButtons[preset]?.frame = NSRect(
+                x: rect.minX + CGFloat(index) * (buttonWidth + gap),
+                y: rect.minY,
+                width: buttonWidth,
+                height: rect.height
+            )
         }
-        let customX = x + 3 * (buttonWidth + gap)
-        rangeButton.frame = NSRect(x: customX, y: y, width: min(116, content.maxX - customX), height: 34)
+        let customX = rect.minX + 3 * (buttonWidth + gap)
+        rangeButton.frame = NSRect(x: customX, y: rect.minY, width: rect.maxX - customX, height: rect.height)
     }
 
     func setLoading(_ isLoading: Bool) {
@@ -811,11 +831,14 @@ final class ModelDateRangeControls: NSObject {
             : selectedPreset.title
         switch AppLanguage.current {
         case .chinese:
-            rangeButton.setAccessibilityLabel("自定义模型统计时间范围，当前选择 \(currentSelection)")
+            let subject = context == .models ? "模型统计" : "思考分析"
+            rangeButton.setAccessibilityLabel("自定义\(subject)时间范围，当前选择 \(currentSelection)")
         case .traditionalChinese:
-            rangeButton.setAccessibilityLabel("自訂模型統計時間範圍，目前選擇 \(currentSelection)")
+            let subject = context == .models ? "模型統計" : "思考分析"
+            rangeButton.setAccessibilityLabel("自訂\(subject)時間範圍，目前選擇 \(currentSelection)")
         default:
-            rangeButton.setAccessibilityLabel("Choose a custom model statistics date range. Current selection: \(currentSelection)")
+            let subject = context == .models ? "model statistics" : "reasoning analysis"
+            rangeButton.setAccessibilityLabel("Choose a custom \(subject) date range. Current selection: \(currentSelection)")
         }
     }
 

@@ -715,6 +715,10 @@ extension UsageDetailsView {
     }
 
     func drawQuotaCyclesPage(snapshot: DetailsSnapshot, content: NSRect) {
+        if selectedDetailsSource == .api {
+            drawAPICostHistoryPage(report: snapshot.api, content: content)
+            return
+        }
         let model = quotaCyclePageModel(for: snapshot)
         let panelGap: CGFloat = 16
 
@@ -744,6 +748,62 @@ extension UsageDetailsView {
         drawCycleValueBars(model: model, rect: barsRect)
         y += 330 + panelGap
         drawFiveHourCycleStrip(model: model, rect: NSRect(x: content.minX, y: y, width: content.width, height: 176))
+    }
+
+    func drawAPICostHistoryPage(report: TokenReport, content: NSRect) {
+        let isChinese = AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese
+        let estimate = APICostEstimator.estimate(report: report)
+        let models = report.modelBreakdown
+        let gap: CGFloat = 12
+        let y = content.minY + 78
+        let cardWidth = (content.width - gap * 3) / 4
+        let cards: [(String, String, NSColor)] = [
+            (isChinese ? "API 估算成本" : "Estimated API cost", estimate.hasPricedUsage ? displayAPIMoney(estimate.usdValue, source: .api) : "--", accentTeal),
+            (isChinese ? "总 Token" : "Total tokens", compactDashboardTotal(report.usage.total), .white),
+            (isChinese ? "价格覆盖率" : "Price coverage", String(format: "%.1f%%", estimate.coveragePercent), estimate.coveragePercent >= 99.9 ? accentTeal : accentAmber),
+            (isChinese ? "模型" : "Models", "\(models.count)", .systemCyan)
+        ]
+        for (index, card) in cards.enumerated() {
+            let rect = NSRect(x: content.minX + CGFloat(index) * (cardWidth + gap), y: y, width: cardWidth, height: 92)
+            drawPanel(rect)
+            drawTruncatedText(card.0, rect: NSRect(x: rect.minX + 14, y: rect.minY + 13, width: rect.width - 28, height: 16), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.5))
+            drawTruncatedText(card.1, rect: NSRect(x: rect.minX + 14, y: rect.minY + 39, width: rect.width - 28, height: 28), font: .monospacedDigitSystemFont(ofSize: 18, weight: .bold), color: card.2)
+        }
+
+        let modelRect = NSRect(x: content.minX, y: y + 108, width: content.width, height: 238)
+        drawPanel(modelRect)
+        drawText(isChinese ? "模型成本" : "Model costs", rect: NSRect(x: modelRect.minX + 16, y: modelRect.minY + 14, width: 220, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+        drawRight(isChinese ? "输入 / 输出 / 成本" : "Input / Output / Cost", rect: NSRect(x: modelRect.maxX - 300, y: modelRect.minY + 16, width: 284, height: 16), color: NSColor.white.withAlphaComponent(0.44), font: .systemFont(ofSize: 10.5, weight: .semibold))
+        if models.isEmpty {
+            drawText(isChinese ? "当前范围没有 API 模型用量" : "No API model usage in this range", rect: NSRect(x: modelRect.minX + 16, y: modelRect.minY + 56, width: modelRect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+        } else {
+            for (index, model) in models.prefix(8).enumerated() {
+                let rowY = modelRect.minY + 48 + CGFloat(index) * 22
+                let modelEstimate = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
+                drawTruncatedText(model.name, rect: NSRect(x: modelRect.minX + 16, y: rowY, width: modelRect.width * 0.46, height: 17), font: .systemFont(ofSize: 11.5, weight: .semibold), color: .white)
+                let detail = "\(compact(model.usage.input)) / \(compact(model.usage.output)) / \(modelEstimate.hasPricedUsage ? displayAPIMoney(modelEstimate.usdValue, source: .api) : "--")"
+                drawRight(detail, rect: NSRect(x: modelRect.midX, y: rowY, width: modelRect.width / 2 - 16, height: 17), color: modelEstimate.hasPricedUsage ? accentTeal : accentAmber, font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold))
+            }
+        }
+
+        let dayRect = NSRect(x: content.minX, y: modelRect.maxY + 16, width: content.width, height: 260)
+        drawPanel(dayRect)
+        drawText(isChinese ? "每日 API 成本" : "Daily API cost", rect: NSRect(x: dayRect.minX + 16, y: dayRect.minY + 14, width: 220, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+        let days = Array(report.byDay.filter { $0.usage.total > 0 }.suffix(9))
+        if days.isEmpty {
+            drawText(isChinese ? "当前范围没有每日用量" : "No daily API usage in this range", rect: NSRect(x: dayRect.minX + 16, y: dayRect.minY + 56, width: dayRect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+        } else {
+            let maxCost = max(days.map { APICostEstimator.estimate(day: $0).usdValue }.max() ?? 0, 0.000001)
+            for (index, day) in days.enumerated() {
+                let rowY = dayRect.minY + 48 + CGFloat(index) * 22
+                let dayEstimate = APICostEstimator.estimate(day: day)
+                drawText(String(day.day.suffix(5)), rect: NSRect(x: dayRect.minX + 16, y: rowY, width: 56, height: 16), font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62))
+                let bar = NSRect(x: dayRect.minX + 82, y: rowY + 4, width: max(2, (dayRect.width - 260) * CGFloat(dayEstimate.usdValue / maxCost)), height: 8)
+                accentTeal.withAlphaComponent(0.72).setFill()
+                NSBezierPath(roundedRect: bar, xRadius: 4, yRadius: 4).fill()
+                drawRight("\(compact(day.usage.total)) · \(dayEstimate.hasPricedUsage ? displayAPIMoney(dayEstimate.usdValue, source: .api) : "--")", rect: NSRect(x: dayRect.maxX - 170, y: rowY, width: 154, height: 16), color: .white, font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold))
+            }
+        }
     }
 
     func drawMoneySummaryCards(model: QuotaCyclePageModel, rect: NSRect) {
@@ -1794,7 +1854,8 @@ extension UsageDetailsView {
     }
 
     func weekSourceSplit(snapshot: DetailsSnapshot, summary: ContributionWeekSummary) -> (codex: Int64, claude: Int64)? {
-        guard selectedDetailsSource == .all else { return nil }
+        let visible = Set(QuotaViewOption.visiblePlatformCases)
+        guard selectedDetailsSource == .all, visible.contains(.codex), visible.contains(.claude) else { return nil }
         let selectedDays = Set(summary.days.map(\.day))
         let codex = snapshot.codex.byDay
             .filter { selectedDays.contains($0.day) }
@@ -1809,7 +1870,8 @@ extension UsageDetailsView {
     var daySourceSplitPanelExtent: CGFloat { 216 }
 
     func daySourceSplit(snapshot: DetailsSnapshot, day: DayUsage) -> (codex: Int64, claude: Int64)? {
-        guard selectedDetailsSource == .all else { return nil }
+        let visible = Set(QuotaViewOption.visiblePlatformCases)
+        guard selectedDetailsSource == .all, visible.contains(.codex), visible.contains(.claude) else { return nil }
         let codex = snapshot.codex.byDay.first { $0.day == day.day }?.usage.total ?? 0
         let claude = snapshot.claude.byDay.first { $0.day == day.day }?.usage.total ?? 0
         guard codex + claude > 0 else { return nil }

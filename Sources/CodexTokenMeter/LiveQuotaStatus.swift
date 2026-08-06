@@ -10,6 +10,9 @@ enum QuotaViewOption: String, CaseIterable {
     case all
     case codex
     case claude
+    /// Non-subscription usage detected from rollout provider metadata or
+    /// provider-qualified model IDs, plus an optional local import file.
+    case api
 
     static func option(from rawValue: String) -> QuotaViewOption? {
         switch rawValue {
@@ -19,9 +22,42 @@ enum QuotaViewOption: String, CaseIterable {
             return .codex
         case "claude", "spark":
             return .claude
+        case "api", "deepseek", "deepseek-api":
+            return .api
         default:
             return nil
         }
+    }
+
+    static let platformCases: [QuotaViewOption] = [.codex, .claude, .api]
+
+    static func selectorOptions(for enabledSources: [QuotaViewOption]) -> [QuotaViewOption] {
+        let platforms = platformCases.filter(enabledSources.contains)
+        guard platforms.count > 1 else { return platforms.isEmpty ? [.codex] : platforms }
+        return [.all] + platforms
+    }
+
+    static var visiblePlatformCases: [QuotaViewOption] {
+        AppSettings.visibleUsageSources
+    }
+
+    static var visibleSelectorOptions: [QuotaViewOption] {
+        selectorOptions(for: visiblePlatformCases)
+    }
+
+    static var visibleDefault: QuotaViewOption {
+        visibleSelectorOptions.first ?? .codex
+    }
+
+    static var visibleSourcesTitle: String {
+        visiblePlatformCases.map { source in
+            switch source {
+            case .codex: return t(.codex)
+            case .claude: return t(.claude)
+            case .api: return "API"
+            case .all: return t(.all)
+            }
+        }.joined(separator: " + ")
     }
 
     var scanLimitID: String? {
@@ -44,6 +80,7 @@ enum QuotaViewOption: String, CaseIterable {
         switch self {
         case .all, .codex: return "codex"
         case .claude: return "claude"
+        case .api: return "api"
         }
     }
 
@@ -52,19 +89,21 @@ enum QuotaViewOption: String, CaseIterable {
         case .all: return t(.all)
         case .codex: return t(.codex)
         case .claude: return t(.claude)
+        case .api: return "API"
         }
     }
 
     var fallbackTitle: String {
         switch self {
-        case .all: return t(.combinedUsage)
+        case .all: return Self.visibleSourcesTitle
         case .codex: return t(.codex)
         case .claude: return t(.claude)
+        case .api: return "API"
         }
     }
 
     var usesCodexProfileAPI: Bool {
-        self == .all || self == .codex
+        self == .codex || (self == .all && Self.visiblePlatformCases.contains(.codex))
     }
 }
 

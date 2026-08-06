@@ -119,18 +119,6 @@ extension UsageDetailsView {
         var x = content.minX
         let timeW = min(CGFloat(280), content.width * 0.31)
         drawFilterLabel(reasoningLocalized("时间", english: "Time"), x: x, y: y - 20, width: timeW)
-        drawCombinationRankingFieldBackground(NSRect(x: x, y: y, width: timeW, height: h))
-        let options = [(7, "7 天"), (30, "30 天"), (90, "90 天")]
-        let segmentW = timeW / CGFloat(options.count)
-        for (index, option) in options.enumerated() {
-            let rect = NSRect(x: x + CGFloat(index) * segmentW, y: y, width: segmentW, height: h)
-            insightWindowRects[option.0] = rect
-            if selectedInsightWindowDays == option.0 {
-                accentBlue.withAlphaComponent(0.92).setFill()
-                NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6).fill()
-            }
-            drawCentered(option.1, rect: rect, font: .systemFont(ofSize: 11.5, weight: .semibold), color: NSColor.white.withAlphaComponent(selectedInsightWindowDays == option.0 ? 0.98 : 0.7))
-        }
         x += timeW + 16
 
         let projectW: CGFloat = content.width < 820 ? 0 : 132
@@ -255,7 +243,20 @@ extension UsageDetailsView {
         drawTruncatedText(row.model, rect: NSRect(x: rect.minX + 14, y: titleY, width: rect.width - 92, height: 24), font: .systemFont(ofSize: 16, weight: .bold), color: accentBlue)
         drawRight("× \(combinationRankingEffortTitle(row.effort))", rect: NSRect(x: rect.maxX - 92, y: titleY + 2, width: 78, height: 20), color: combinationRankingEffortColor(row.effort), font: .systemFont(ofSize: 12, weight: .bold))
         let daily = combinationDailyRows(for: row, snapshot: snapshot)
-        let dateText = daily.isEmpty ? reasoningLocalized("最近 \(selectedInsightWindowDays) 天", english: "Last \(selectedInsightWindowDays) days") : "\(daily.first!.day) — \(daily.last!.day)"
+        let dateText: String
+        if !daily.isEmpty {
+            dateText = "\(daily.first!.day) — \(daily.last!.day)"
+        } else if selectedInsightWindowDays == 0,
+                  let start = snapshot.reasoningRangeStart,
+                  let end = snapshot.reasoningRangeEnd {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = appTimeZone()
+            formatter.dateFormat = "yyyy-MM-dd"
+            dateText = "\(formatter.string(from: start)) — \(formatter.string(from: end))"
+        } else {
+            dateText = reasoningLocalized("最近 \(selectedInsightWindowDays) 天", english: "Last \(selectedInsightWindowDays) days")
+        }
         drawText(dateText, rect: NSRect(x: rect.minX + 14, y: titleY + 27, width: rect.width - 28, height: 16), font: .monospacedDigitSystemFont(ofSize: 9.2, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
 
         let overviewY = titleY + 58
@@ -470,12 +471,34 @@ extension UsageDetailsView {
     }
 
     private func combinationRankingRows(snapshot: DetailsSnapshot) -> [CombinationRankingRow] {
-        let report = snapshot.codexRepoInsightReports[selectedInsightWindowDays]?.reasoning ?? snapshot.codexRepoInsights.reasoning
-        var rows = report?.modelEfforts.filter { $0.runs > 0 && $0.effort != "unknown" && $0.model != "Unknown model" }.map {
-            CombinationRankingRow(model: $0.model, platform: "Codex", effort: $0.effort, projects: $0.projectCount, tasks: $0.tasks, runs: $0.runs, usage: $0.usage, medianTokens: $0.medianTokens, p90Tokens: $0.p90Tokens)
-        } ?? []
-        rows.append(contentsOf: combinationRankingClaudeRows(report: snapshot.claude, days: selectedInsightWindowDays))
-        return rows
+        func localRows(_ report: ReasoningInsightsReport?, platform: String) -> [CombinationRankingRow] {
+            report?.modelEfforts.filter {
+                $0.runs > 0 && $0.effort != "unknown" && $0.model != "Unknown model"
+            }.map { entry in
+                CombinationRankingRow(model: entry.model, platform: platform, effort: entry.effort, projects: entry.projectCount, tasks: entry.tasks, runs: entry.runs, usage: entry.usage, medianTokens: entry.medianTokens, p90Tokens: entry.p90Tokens)
+            } ?? []
+        }
+        let codexReasoning = snapshot.codexRepoInsightReports[selectedInsightWindowDays]?.reasoning ?? snapshot.codexRepoInsights.reasoning
+        let apiReasoning = snapshot.apiRepoInsightReports[selectedInsightWindowDays]?.reasoning ?? snapshot.apiRepoInsights.reasoning
+        var rows = localRows(codexReasoning, platform: "Codex")
+        rows.append(contentsOf: localRows(apiReasoning, platform: "API"))
+        let claudeReport = selectedInsightWindowDays == 0 ? (snapshot.reasoningClaude ?? snapshot.claude) : snapshot.claude
+        rows.append(contentsOf: combinationRankingClaudeRows(report: claudeReport, days: selectedInsightWindowDays))
+        switch selectedDetailsSource {
+        case .all:
+            let enabledPlatforms = Set(QuotaViewOption.visiblePlatformCases.map { source in
+                switch source {
+                case .codex: return "Codex"
+                case .claude: return "Claude"
+                case .api: return "API"
+                case .all: return ""
+                }
+            })
+            return rows.filter { enabledPlatforms.contains($0.platform) }
+        case .codex: return rows.filter { $0.platform == "Codex" }
+        case .claude: return rows.filter { $0.platform == "Claude" }
+        case .api: return rows.filter { $0.platform == "API" }
+        }
     }
 
     private func combinationRankingClaudeRows(report: TokenReport, days: Int) -> [CombinationRankingRow] {
@@ -484,7 +507,11 @@ extension UsageDetailsView {
         let start = calendar.date(byAdding: .day, value: -(max(1, days) - 1), to: calendar.startOfDay(for: report.scannedAt)) ?? report.scannedAt
         let cutoff = formatter.string(from: start)
         var buckets: [String: ModelUsage] = [:]
-        for day in report.byDay where day.day >= cutoff { for model in day.modelBreakdown { var value = buckets[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0); value.usage.add(model.usage); value.turns += model.turns; value.events += model.events; value.sessions += model.sessions; buckets[model.name] = value } }
+        if days == 0 {
+            buckets = Dictionary(uniqueKeysWithValues: report.modelBreakdown.map { ($0.name, $0) })
+        } else {
+            for day in report.byDay where day.day >= cutoff { for model in day.modelBreakdown { var value = buckets[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0); value.usage.add(model.usage); value.turns += model.turns; value.events += model.events; value.sessions += model.sessions; buckets[model.name] = value } }
+        }
         if days >= 90, buckets.isEmpty { buckets = Dictionary(uniqueKeysWithValues: report.modelBreakdown.map { ($0.name, $0) }) }
         return buckets.values.filter { $0.usage.total > 0 }.map { model in
             let tasks = max(1, model.sessions), average = model.usage.total / Int64(tasks)

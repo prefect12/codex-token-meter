@@ -121,15 +121,21 @@ extension UsageDetailsView {
         let rows: [(String, String, TokenReport)]
         switch selectedDetailsSource {
         case .all:
-            rows = [
-                (t(.all), t(.allDescription), modelSourceReport(for: snapshot, source: .all)),
-                (t(.codex), t(.codexDescription), modelSourceReport(for: snapshot, source: .codex)),
-                (t(.claude), t(.claudeDescription), modelSourceReport(for: snapshot, source: .claude))
-            ]
+            rows = [(t(.all), t(.allDescription), modelSourceReport(for: snapshot, source: .all))]
+                + QuotaViewOption.visiblePlatformCases.map { source in
+                    switch source {
+                    case .codex: return (t(.codex), t(.codexDescription), modelSourceReport(for: snapshot, source: .codex))
+                    case .claude: return (t(.claude), t(.claudeDescription), modelSourceReport(for: snapshot, source: .claude))
+                    case .api: return ("API", "All non-subscription provider usage + local imports", modelSourceReport(for: snapshot, source: .api))
+                    case .all: return (t(.all), t(.allDescription), modelSourceReport(for: snapshot, source: .all))
+                    }
+                }
         case .codex:
             rows = [(t(.codex), t(.codexDescription), modelSourceReport(for: snapshot, source: .codex))]
         case .claude:
             rows = [(t(.claude), t(.claudeDescription), modelSourceReport(for: snapshot, source: .claude))]
+        case .api:
+            rows = [("API", "All non-subscription provider usage + local imports", modelSourceReport(for: snapshot, source: .api))]
         }
         let outputW: CGFloat = 92
         let inputW: CGFloat = 104
