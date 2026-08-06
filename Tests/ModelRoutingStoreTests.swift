@@ -6,6 +6,7 @@ struct ModelRoutingStoreTests {
         try testTopLevelTOMLUpdatePreservesOtherContent()
         try testProjectGroupWritesEveryRoot()
         try testClaudeJSONUpdatePreservesOtherSettings()
+        try testClaudeModelCatalogMatchesCurrentSelector()
         try testClaudeProjectWritesStayLocal()
         try testClaudeSharedProjectSettingsRemainUntouched()
         print("ModelRoutingStoreTests passed")
@@ -141,6 +142,38 @@ struct ModelRoutingStoreTests {
         try require(inheritedObject?["model"] == nil, "Claude model override should be removable")
         try require(inheritedObject?["effortLevel"] == nil, "Claude effort override should be removable")
         try require(inheritedObject?["permissions"] != nil, "clearing routing must preserve other settings")
+    }
+
+    private static func testClaudeModelCatalogMatchesCurrentSelector() throws {
+        let models = ClaudeModelRoutingStore(projectsProvider: { [] }).loadModels()
+        try require(
+            models.map(\.slug) == [
+                "default",
+                "fable",
+                "opus",
+                "sonnet",
+                "haiku",
+                "claude-opus-4-8",
+                "claude-opus-4-7",
+                "claude-opus-4-6",
+                "claude-sonnet-4-6",
+            ],
+            "Claude model choices should follow the current Claude Code selector"
+        )
+        try require(
+            models.map(\.displayName) == [
+                "Sonnet 5 · Default",
+                "Fable 5",
+                "Opus 5",
+                "Sonnet 5",
+                "Haiku 4.5",
+                "Opus 4.8",
+                "Opus 4.7",
+                "Opus 4.6",
+                "Sonnet 4.6",
+            ],
+            "Claude model choices should show the versions users see in Claude Code"
+        )
     }
 
     private static func testClaudeProjectWritesStayLocal() throws {

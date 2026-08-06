@@ -156,64 +156,64 @@ final class ClaudeModelRoutingStore {
         [
             CodexModelOption(
                 slug: "default",
-                displayName: "Default",
-                description: "Claude Code's recommended model for the current account.",
+                displayName: "Sonnet 5 · Default",
+                description: "Use Claude Code's default model, currently Sonnet 5.",
                 defaultReasoningEffort: "high",
                 supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
             ),
             CodexModelOption(
-                slug: "best",
-                displayName: "Best",
-                description: "The most capable Claude model available.",
-                defaultReasoningEffort: "xhigh",
-                supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
-            ),
-            CodexModelOption(
                 slug: "fable",
-                displayName: "Fable",
+                displayName: "Fable 5",
                 description: "Claude's model for the hardest and longest-running tasks.",
                 defaultReasoningEffort: "high",
                 supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
             ),
             CodexModelOption(
                 slug: "opus",
-                displayName: "Opus",
-                description: "Claude's most capable model family.",
+                displayName: "Opus 5",
+                description: "Claude's model for everyday complex tasks.",
                 defaultReasoningEffort: "xhigh",
                 supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
             ),
             CodexModelOption(
                 slug: "sonnet",
-                displayName: "Sonnet",
-                description: "Claude's balanced coding model family.",
-                defaultReasoningEffort: "high",
-                supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
-            ),
-            CodexModelOption(
-                slug: "sonnet[1m]",
-                displayName: "Sonnet (1M)",
-                description: "Sonnet with the one-million-token context window.",
-                defaultReasoningEffort: "high",
-                supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
-            ),
-            CodexModelOption(
-                slug: "opus[1m]",
-                displayName: "Opus (1M)",
-                description: "Opus with the one-million-token context window.",
+                displayName: "Sonnet 5",
+                description: "Claude's efficient model for routine coding tasks.",
                 defaultReasoningEffort: "high",
                 supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
             ),
             CodexModelOption(
                 slug: "haiku",
-                displayName: "Haiku",
-                description: "Claude's fast model family.",
+                displayName: "Haiku 4.5",
+                description: "Claude's fastest model for quick answers.",
                 defaultReasoningEffort: "",
                 supportedReasoningEfforts: []
             ),
             CodexModelOption(
-                slug: "opusplan",
-                displayName: "Opus Plan",
-                description: "Opus for planning and Sonnet for execution.",
+                slug: "claude-opus-4-8",
+                displayName: "Opus 4.8",
+                description: "Previous Claude Opus version.",
+                defaultReasoningEffort: "high",
+                supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
+            ),
+            CodexModelOption(
+                slug: "claude-opus-4-7",
+                displayName: "Opus 4.7",
+                description: "Previous Claude Opus version.",
+                defaultReasoningEffort: "high",
+                supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
+            ),
+            CodexModelOption(
+                slug: "claude-opus-4-6",
+                displayName: "Opus 4.6",
+                description: "Previous Claude Opus version.",
+                defaultReasoningEffort: "high",
+                supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
+            ),
+            CodexModelOption(
+                slug: "claude-sonnet-4-6",
+                displayName: "Sonnet 4.6",
+                description: "Previous Claude Sonnet version.",
                 defaultReasoningEffort: "high",
                 supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
             ),
