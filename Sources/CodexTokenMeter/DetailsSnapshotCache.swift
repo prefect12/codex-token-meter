@@ -3,8 +3,8 @@ import Foundation
 // MARK: - Details Snapshot Cache
 
 enum DetailsSnapshotCacheStore {
-    // Version 7 adds the independently selectable model-page date range.
-    private static let version = 7
+    // Version 10 partitions provider-attributed API usage out of Codex.
+    private static let version = 10
 
     private struct Payload: Codable {
         let version: Int
@@ -61,9 +61,11 @@ enum DetailsSnapshotCacheStore {
             all: sanitized(snapshot.all),
             codex: sanitized(snapshot.codex),
             claude: sanitized(snapshot.claude),
+            api: sanitized(snapshot.api),
             modelAll: snapshot.modelAll.map(sanitized),
             modelCodex: snapshot.modelCodex.map(sanitized),
             modelClaude: snapshot.modelClaude.map(sanitized),
+            modelAPI: snapshot.modelAPI.map(sanitized),
             modelRangeStart: snapshot.modelRangeStart,
             modelRangeEnd: snapshot.modelRangeEnd,
             repoInsights: sanitized(snapshot.repoInsights),
@@ -72,6 +74,8 @@ enum DetailsSnapshotCacheStore {
             codexRepoInsightReports: sanitize(snapshot.codexRepoInsightReports),
             claudeRepoInsights: sanitized(snapshot.claudeRepoInsights),
             claudeRepoInsightReports: sanitize(snapshot.claudeRepoInsightReports),
+            apiRepoInsights: sanitized(snapshot.apiRepoInsights),
+            apiRepoInsightReports: sanitize(snapshot.apiRepoInsightReports),
             liveLimits: snapshot.liveLimits,
             serviceStatus: snapshot.serviceStatus,
             costReferenceReport: snapshot.costReferenceReport.map(sanitized),

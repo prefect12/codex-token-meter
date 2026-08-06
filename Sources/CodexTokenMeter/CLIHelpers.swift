@@ -27,28 +27,52 @@ func requestedQuota(from arguments: [String]) -> QuotaViewOption? {
 func scanReport(window: WindowOption, source: QuotaViewOption, codexScanner: CodexTokenScanner, claudeScanner: ClaudeTokenScanner) -> TokenReport {
     switch source {
     case .all:
-        return mergedTokenReport([
-            codexScanner.scan(window: window),
-            claudeScanner.scan(window: window)
-        ])
+        let enabled = Set(QuotaViewOption.visiblePlatformCases)
+        var reports: [TokenReport] = []
+        if enabled.contains(.codex) { reports.append(codexScanner.scan(window: window, partition: .codex)) }
+        if enabled.contains(.claude) { reports.append(claudeScanner.scan(window: window)) }
+        if enabled.contains(.api) {
+            reports.append(mergedTokenReport([
+                codexScanner.scan(window: window, partition: .api),
+                ExternalAPIUsageStore.readReport(window: window)
+            ]))
+        }
+        return mergedTokenReport(reports)
     case .codex:
-        return codexScanner.scan(window: window)
+        return codexScanner.scan(window: window, partition: .codex)
     case .claude:
         return claudeScanner.scan(window: window)
+    case .api:
+        return mergedTokenReport([
+            codexScanner.scan(window: window, partition: .api),
+            ExternalAPIUsageStore.readReport(window: window)
+        ])
     }
 }
 
 func scanReport(hours: Int, source: QuotaViewOption, codexScanner: CodexTokenScanner, claudeScanner: ClaudeTokenScanner) -> TokenReport {
     switch source {
     case .all:
-        return mergedTokenReport([
-            codexScanner.scan(hours: hours),
-            claudeScanner.scan(hours: hours)
-        ])
+        let enabled = Set(QuotaViewOption.visiblePlatformCases)
+        var reports: [TokenReport] = []
+        if enabled.contains(.codex) { reports.append(codexScanner.scan(hours: hours, partition: .codex)) }
+        if enabled.contains(.claude) { reports.append(claudeScanner.scan(hours: hours)) }
+        if enabled.contains(.api) {
+            reports.append(mergedTokenReport([
+                codexScanner.scan(hours: hours, partition: .api),
+                ExternalAPIUsageStore.readReport(hours: hours)
+            ]))
+        }
+        return mergedTokenReport(reports)
     case .codex:
-        return codexScanner.scan(hours: hours)
+        return codexScanner.scan(hours: hours, partition: .codex)
     case .claude:
         return claudeScanner.scan(hours: hours)
+    case .api:
+        return mergedTokenReport([
+            codexScanner.scan(hours: hours, partition: .api),
+            ExternalAPIUsageStore.readReport(hours: hours)
+        ])
     }
 }
 
@@ -198,15 +222,20 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
     let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
     let claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     let window = requestedWindow(from: arguments) ?? .week
-    let quota = requestedQuota(from: arguments) ?? .all
-    let codexReport = quota == .all ? scanner.scan(window: window) : nil
-    let claudeReport = quota == .all ? claudeScanner.scan(window: window) : nil
-    let report: TokenReport
-    if let codexReport, let claudeReport {
-        report = mergedTokenReport([codexReport, claudeReport])
-    } else {
-        report = scanReport(window: window, source: quota, codexScanner: scanner, claudeScanner: claudeScanner)
-    }
+    let requestedQuota = requestedQuota(from: arguments) ?? QuotaViewOption.visibleDefault
+    let quota = QuotaViewOption.visibleSelectorOptions.contains(requestedQuota) ? requestedQuota : QuotaViewOption.visibleDefault
+    let enabled = Set(QuotaViewOption.visiblePlatformCases)
+    let codexReport = quota == .all && enabled.contains(.codex) ? scanner.scan(window: window, partition: .codex) : nil
+    let claudeReport = quota == .all && enabled.contains(.claude) ? claudeScanner.scan(window: window) : nil
+    let apiReport = quota == .all && enabled.contains(.api)
+        ? mergedTokenReport([
+            scanner.scan(window: window, partition: .api),
+            ExternalAPIUsageStore.readReport(window: window)
+        ])
+        : nil
+    let report = quota == .all
+        ? mergedTokenReport([codexReport, claudeReport, apiReport].compactMap { $0 })
+        : scanReport(window: window, source: quota, codexScanner: scanner, claudeScanner: claudeScanner)
     let liveLimits = combinedLiveLimits()
     let resetCredits = RateLimitResetCreditsReader().read(timeout: 8)
     let serviceStatus = CodexServiceStatusReader().read()
@@ -234,6 +263,7 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
         report: report,
         codexReport: codexReport,
         claudeReport: claudeReport,
+        apiReport: apiReport,
         profileReport: profileReport,
         accountUsage: accountUsage,
         costReferenceReport: nil,
@@ -276,7 +306,7 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     } else if section == .costs {
         // The quota-cycle page attributes local usage to each cycle, which
         // needs more than the one-week window the other sections use.
-        codex = scanner.scan(days: 365)
+        codex = scanner.scan(days: 365, partition: .codex)
         let details = claudeScanner.scanWithRepoInsights(days: 365, insightWindows: [7, 30, 90])
         claude = details.report
         combinedClaudeRepoInsightReports = details.repoInsights
@@ -284,20 +314,28 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         // The ranking page can switch between 7/30/90 days and combines Codex
         // reasoning rows with Claude model totals from the same local window.
         // The model page defaults to the visible 90-day range selector.
-        codex = scanner.scan(days: 90)
+        codex = scanner.scan(days: 90, partition: .codex)
         let details = claudeScanner.scanWithRepoInsights(days: 90, insightWindows: [7, 30, 90])
         claude = details.report
         combinedClaudeRepoInsightReports = details.repoInsights
     } else {
-        codex = scanner.scan(window: .week)
+        codex = scanner.scan(window: .week, partition: .codex)
         let details = claudeScanner.scanWithRepoInsights(days: 7, insightWindows: [7, 30, 90])
         claude = details.report
         combinedClaudeRepoInsightReports = details.repoInsights
     }
-    let all = mergedTokenReport([codex, claude])
+    let apiDays = section == .costs ? 365 : ((section == .reasoning || section == .combinationRanking || section == .models) ? 90 : 7)
+    let api = mergedTokenReport([
+        scanner.scan(days: apiDays, partition: .api),
+        ExternalAPIUsageStore.readReport(days: apiDays)
+    ])
+    let all = mergedTokenReport([codex, claude, api])
     let codexRepoInsightReports = isModelRoutingSection
         ? [:]
-        : scanner.scanRepoInsights(windows: [7, 30, 90])
+        : scanner.scanRepoInsights(windows: [7, 30, 90], partition: .codex)
+    let apiRepoInsightReports = isModelRoutingSection
+        ? [:]
+        : scanner.scanRepoInsights(windows: [7, 30, 90], partition: .api)
     let claudeRepoInsightReports = isModelRoutingSection
         ? [:]
         : (combinedClaudeRepoInsightReports ?? claudeScanner.scanRepoInsights(windows: [7, 30, 90]))
@@ -305,7 +343,8 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         let report = mergedRepoInsightsReport(
             [
                 codexRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days),
-                claudeRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days)
+                claudeRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days),
+                apiRepoInsightReports[days] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: days)
             ],
             windowDays: days
         )
@@ -314,17 +353,25 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let repoInsights = repoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
     let codexRepoInsights = codexRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
     let claudeRepoInsights = claudeRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+    let apiRepoInsights = apiRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
     var redactor = SnapshotRedactor.requested(from: arguments) ? SnapshotRedactor() : nil
     var snapshot = DetailsSnapshot(
         all: all,
         codex: codex,
         claude: claude,
+        api: api,
+        modelAll: all,
+        modelCodex: codex,
+        modelClaude: claude,
+        modelAPI: api,
         repoInsights: repoInsights,
         repoInsightReports: repoInsightReports,
         codexRepoInsights: codexRepoInsights,
         codexRepoInsightReports: codexRepoInsightReports,
         claudeRepoInsights: claudeRepoInsights,
         claudeRepoInsightReports: claudeRepoInsightReports,
+        apiRepoInsights: apiRepoInsights,
+        apiRepoInsightReports: apiRepoInsightReports,
         liveLimits: canRenderWithoutUsage ? [] : combinedLiveLimits(),
         serviceStatus: canRenderWithoutUsage ? nil : CodexServiceStatusReader().read(),
         costReferenceReport: source == .codex ? codex : all,
@@ -523,6 +570,11 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let height = max(requestedRenderHeight ?? 760, view.preferredDocumentHeight(for: renderWidth))
     view.frame = NSRect(x: 0, y: 0, width: renderWidth, height: height)
     view.layoutSubtreeIfNeeded()
+    if section == .overview,
+       view.hoveredWeeklyQuotaSource != nil,
+       view.weeklyQuotaHoverPoint != nil {
+        view.updateWeeklyQuotaHoverOverlay()
+    }
     try writePNG(of: view, to: outputURL)
     return outputURL
 }

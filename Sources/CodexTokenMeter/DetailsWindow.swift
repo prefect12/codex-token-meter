@@ -9,17 +9,24 @@ struct DetailsSnapshot: Codable {
     var all: TokenReport
     var codex: TokenReport
     var claude: TokenReport
+    var api: TokenReport = TokenReport()
     var modelAll: TokenReport? = nil
     var modelCodex: TokenReport? = nil
     var modelClaude: TokenReport? = nil
+    var modelAPI: TokenReport? = nil
     var modelRangeStart: Date? = nil
     var modelRangeEnd: Date? = nil
+    var reasoningClaude: TokenReport? = nil
+    var reasoningRangeStart: Date? = nil
+    var reasoningRangeEnd: Date? = nil
     var repoInsights: RepoInsightsReport
     var repoInsightReports: [Int: RepoInsightsReport] = [:]
     var codexRepoInsights: RepoInsightsReport = RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
     var codexRepoInsightReports: [Int: RepoInsightsReport] = [:]
     var claudeRepoInsights: RepoInsightsReport = RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
     var claudeRepoInsightReports: [Int: RepoInsightsReport] = [:]
+    var apiRepoInsights: RepoInsightsReport = RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
+    var apiRepoInsightReports: [Int: RepoInsightsReport] = [:]
     var liveLimits: [LiveRateLimit]
     var serviceStatus: CodexServiceStatusSnapshot?
     var costReferenceReport: TokenReport?
@@ -199,8 +206,7 @@ enum DetailsSection: CaseIterable {
     }
 
     var isVisibleInDetailsNavigation: Bool {
-        // Quota cycles page is hidden until its design is finalized.
-        self != .costs && self != .combinationRanking
+        self != .combinationRanking
     }
 
     var visibleFallback: DetailsSection {
@@ -221,7 +227,7 @@ enum DetailsSection: CaseIterable {
             if AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese { return "默认模型" }
             return AppLanguage.current == .japanese ? "モデル既定値" : "Model Defaults"
         case .calendar: return t(.calendar)
-        case .costs: return t(.quotaCycles)
+        case .costs: return t(.costs)
         case .storage: return AppLanguage.current.storageCopy.sidebarTitle
         case .settings: return t(.settings)
         case .diagnostics: return t(.diagnostics)
@@ -244,7 +250,7 @@ enum DetailsSection: CaseIterable {
                 ? "グローバルと各プロジェクトの既定モデルと思考強度"
                 : "Set the default model and reasoning effort globally and per project"
         case .calendar: return t(.calendarSubtitle)
-        case .costs: return t(.quotaCyclesSubtitle)
+        case .costs: return t(.costsSubtitle)
         case .storage: return AppLanguage.current.storageCopy.headerSubtitle
         case .settings: return t(.settingsSubtitle)
         case .diagnostics: return t(.diagnosticsSubtitle)
@@ -574,6 +580,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     var snapshot: DetailsSnapshot? {
         didSet {
+            normalizeVisibleSourceSelection()
             if let snapshot {
                 let report = calendarReport(for: snapshot)
                 normalizeCalendarSelection(in: report, fallback: selectedDay)
@@ -611,10 +618,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var onShowCombinedFableChanged: ((Bool) -> Void)?
     var onQuotaWarningsChanged: ((Bool) -> Void)?
     var onProfileAPITotalsChanged: ((Bool) -> Void)?
+    var onVisibleUsageSourcesChanged: ((Set<QuotaViewOption>) -> Void)?
     var onExportMachineUsageReport: (() -> Void)?
     var onPreferredHeightChanged: (() -> Void)?
     var selectedSection: DetailsSection = .overview {
         didSet {
+            normalizeVisibleSourceSelection()
             if selectedSection.canRenderWithoutSnapshot {
                 isLoading = false
             }
@@ -635,6 +644,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 hoveredContributionDay = nil
                 hoveredWeeklyQuotaSource = nil
                 weeklyQuotaHoverPoint = nil
+                weeklyQuotaHoverOverlay.hide()
             }
             if selectedSection != .models {
                 hoveredModelUsageRowIndex = nil
@@ -664,6 +674,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var hoveredWeeklyQuotaSource: QuotaViewOption?
     var weeklyQuotaHoverPoint: CGPoint?
     var weeklyQuotaHitAreas: [(rect: NSRect, source: QuotaViewOption)] = []
+    let weeklyQuotaHoverOverlay = WeeklyQuotaHoverOverlayView(frame: .zero)
     var sidebarItemRects: [DetailsSection: NSRect] = [:]
     var insightRowRects: [String: NSRect] = [:]
     var insightWindowRects: [Int: NSRect] = [:]
@@ -780,6 +791,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var modelSortColumnRects: [ModelListSortOption: NSRect] = [:]
     let modelControls = ModelDetailsControls()
     let modelDateRangeControls = ModelDateRangeControls()
+    let reasoningDateRangeControls = ModelDateRangeControls(context: .reasoning)
     var isModelDateRangeLoading = false {
         didSet {
             modelDateRangeControls.setLoading(isModelDateRangeLoading)
@@ -787,6 +799,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
     var onModelDateRangeChanged: ((Date, Date) -> Void)?
+    var isReasoningDateRangeLoading = false {
+        didSet {
+            reasoningDateRangeControls.setLoading(isReasoningDateRangeLoading)
+            needsDisplay = true
+        }
+    }
+    var onReasoningDateRangeChanged: ((Date, Date) -> Void)?
     let modelRoutingControls = ModelRoutingControls()
     var hoveredCostOverviewInfo: CostOverviewInfo?
     var isHoveringDayQuotaShareInfo = false
@@ -822,6 +841,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     let showCombinedFableSwitch = NSSwitch(frame: .zero)
     let quotaWarningsSwitch = NSSwitch(frame: .zero)
     let profileAPITotalsSwitch = NSSwitch(frame: .zero)
+    let visibleCodexSourceSwitch = NSSwitch(frame: .zero)
+    let visibleClaudeSourceSwitch = NSSwitch(frame: .zero)
+    let visibleAPISourceSwitch = NSSwitch(frame: .zero)
     var isUpdatingCostControls = false
     var isUpdatingStatusMetricPopups = false
     var detailsTrackingArea: NSTrackingArea?
@@ -888,7 +910,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         guard window != nil,
               !isLoading,
               selectedSection == .overview,
-              selectedDetailsSource != .claude,
+              selectedDetailsSource == .all || selectedDetailsSource == .codex,
               let resetCredits = snapshot?.resetCredits,
               resetCredits.availableCount > 0,
               resetCredits.nextExpiringAvailableCredit?.expiresAt != nil else {
@@ -954,7 +976,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 selectedInsightDetailMode = .usageHabits
             case "reasoning", "reasoning-depth", "reasoning_depth", "effort":
                 selectedInsightDetailMode = .reasoningDepth
-                selectedDetailsSource = .codex
+                selectedDetailsSource = preferredReasoningSource
             default:
                 break
             }
@@ -964,14 +986,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     func showSection(_ section: DetailsSection, insightWindowDays: Int = 90, source: QuotaViewOption? = nil, insightMode: String? = nil) {
         if let source {
-            selectedDetailsSource = source
+            selectedDetailsSource = QuotaViewOption.visibleSelectorOptions.contains(source) ? source : QuotaViewOption.visibleDefault
         }
         let visibleSection = section.visibleFallback
         if visibleSection == .insights {
             showInsightsPage(windowDays: insightWindowDays, insightMode: insightMode)
         } else if visibleSection == .reasoning {
             selectedInsightWindowDays = insightWindowOptions.contains(insightWindowDays) ? insightWindowDays : 90
-            selectedDetailsSource = .codex
+            if source == nil {
+                selectedDetailsSource = preferredReasoningSource
+            }
             selectedSection = .reasoning
         } else if visibleSection == .combinationRanking {
             selectedInsightWindowDays = insightWindowOptions.contains(insightWindowDays) ? insightWindowDays : 90
@@ -992,11 +1016,29 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     let settingsSubnavWidth: CGFloat = 172
 
     var showsDetailsSourceSelector: Bool {
+        let options = selectedSection == .costs
+            ? QuotaViewOption.visiblePlatformCases
+            : QuotaViewOption.visibleSelectorOptions
+        guard options.count > 1 else { return false }
         switch selectedSection {
-        case .overview, .models, .calendar, .costs, .diagnostics, .storage:
+        case .overview, .models, .calendar, .costs, .reasoning, .combinationRanking, .diagnostics, .storage:
             return true
-        case .insights, .reasoning, .combinationRanking, .modelRouting, .settings, .about:
+        case .insights, .modelRouting, .settings, .about:
             return false
+        }
+    }
+
+    var preferredReasoningSource: QuotaViewOption {
+        QuotaViewOption.visiblePlatformCases.contains(.codex) ? .codex : QuotaViewOption.visibleDefault
+    }
+
+    func normalizeVisibleSourceSelection() {
+        let options = selectedSection == .costs
+            ? QuotaViewOption.visiblePlatformCases
+            : QuotaViewOption.visibleSelectorOptions
+        let fallback = options.first ?? QuotaViewOption.visibleDefault
+        if !options.contains(selectedDetailsSource) {
+            selectedDetailsSource = fallback
         }
     }
 
@@ -1096,6 +1138,21 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         layoutSettingsControls()
         layoutStorageControls()
         layoutModelControls()
+        let reasoningContent = sectionContent(
+            for: .reasoning,
+            in: bounds,
+            sidebarWidth: detailsSidebarWidth
+        )
+        let reasoningTimeWidth = min(CGFloat(280), reasoningContent.width * 0.31)
+        reasoningDateRangeControls.layout(
+            in: NSRect(
+                x: reasoningContent.minX,
+                y: reasoningContent.minY + 72,
+                width: reasoningTimeWidth,
+                height: 36
+            ),
+            visible: (selectedSection == .reasoning || selectedSection == .combinationRanking) && snapshot != nil
+        )
         modelRoutingControls.layout(
             in: sectionContent(for: .modelRouting, in: bounds, sidebarWidth: detailsSidebarWidth),
             visible: selectedSection == .modelRouting
@@ -1179,6 +1236,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         profileAPITotalsSwitch.action = #selector(profileAPITotalsChanged)
         addSubview(profileAPITotalsSwitch)
 
+        for sourceSwitch in [visibleCodexSourceSwitch, visibleClaudeSourceSwitch, visibleAPISourceSwitch] {
+            sourceSwitch.controlSize = .small
+            sourceSwitch.isHidden = true
+            sourceSwitch.target = self
+            sourceSwitch.action = #selector(visibleUsageSourcesChanged)
+            addSubview(sourceSwitch)
+        }
+
         for popup in [paymentCurrencyPopup, displayCurrencyPopup, costYearPopup, languagePopup, statusPrimaryMetricPopup, statusSecondaryMetricPopup] {
             popup.controlSize = .regular
             popup.font = .systemFont(ofSize: 12, weight: .semibold)
@@ -1211,6 +1276,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         showCombinedFableSwitch.setAccessibilityLabel(t(.showCombinedFable))
         quotaWarningsSwitch.setAccessibilityLabel(t(.quotaWarnings))
         profileAPITotalsSwitch.setAccessibilityLabel(t(.profileAPITotals))
+        visibleCodexSourceSwitch.setAccessibilityLabel("\(t(.visibleUsageSources)): Codex")
+        visibleClaudeSourceSwitch.setAccessibilityLabel("\(t(.visibleUsageSources)): Claude")
+        visibleAPISourceSwitch.setAccessibilityLabel("\(t(.visibleUsageSources)): API")
         paymentCurrencyPopup.target = self
         paymentCurrencyPopup.action = #selector(paymentCurrencyPopupChanged)
         displayCurrencyPopup.target = self
@@ -1262,6 +1330,24 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             self.isModelDateRangeLoading = true
             self.onModelDateRangeChanged?(start, end)
         }
+        reasoningDateRangeControls.install(in: self, inputSurfaceColor: inputSurfaceColor)
+        reasoningDateRangeControls.onChange = { [weak self] start, end in
+            guard let self else { return }
+            let calendar = appCalendar()
+            let startDay = calendar.startOfDay(for: start)
+            let endDay = calendar.startOfDay(for: end)
+            let today = calendar.startOfDay(for: Date())
+            let dayCount = (calendar.dateComponents([.day], from: startDay, to: endDay).day ?? -1) + 1
+            if endDay == today, [7, 30, 90].contains(dayCount) {
+                self.selectedInsightWindowDays = dayCount
+                self.normalizeCombinationRankingSelection(snapshot: self.snapshot)
+                self.needsDisplay = true
+                return
+            }
+            self.selectedInsightWindowDays = 0
+            self.isReasoningDateRangeLoading = true
+            self.onReasoningDateRangeChanged?(start, end)
+        }
         modelRoutingControls.install(in: self)
 
         contributionWeekHoverOverlay.frame = bounds
@@ -1270,6 +1356,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionWeekHoverOverlay.layer?.backgroundColor = NSColor.clear.cgColor
         contributionWeekHoverOverlay.isHidden = true
         addSubview(contributionWeekHoverOverlay, positioned: .above, relativeTo: nil)
+
+        weeklyQuotaHoverOverlay.wantsLayer = true
+        weeklyQuotaHoverOverlay.layer?.backgroundColor = NSColor.clear.cgColor
+        weeklyQuotaHoverOverlay.isHidden = true
+        addSubview(weeklyQuotaHoverOverlay, positioned: .above, relativeTo: contributionWeekHoverOverlay)
     }
 
     func layoutCostControls() {
@@ -1294,6 +1385,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         showCombinedFableSwitch.isHidden = !(visible && selectedSettingsSubsection == .quota)
         quotaWarningsSwitch.isHidden = !(visible && selectedSettingsSubsection == .quota)
         profileAPITotalsSwitch.isHidden = !(visible && selectedSettingsSubsection == .data)
+        for sourceSwitch in [visibleCodexSourceSwitch, visibleClaudeSourceSwitch, visibleAPISourceSwitch] {
+            sourceSwitch.isHidden = !(visible && selectedSettingsSubsection == .appearance)
+        }
         guard visible else { return }
 
         let content = sectionContent(for: .settings, in: bounds, sidebarWidth: detailsSidebarWidth)
@@ -1304,8 +1398,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let switchX = pageRect.maxX - 50
         languagePopup.frame = NSRect(x: controlX, y: pageRect.minY + 70, width: controlWidth, height: 36)
         displayCurrencyPopup.frame = NSRect(x: controlX, y: pageRect.minY + 146, width: controlWidth, height: 36)
-        statusPrimaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 300, width: controlWidth, height: 36)
-        statusSecondaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 370, width: controlWidth, height: 36)
+        statusPrimaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 378, width: controlWidth, height: 36)
+        statusSecondaryMetricPopup.frame = NSRect(x: controlX, y: pageRect.minY + 448, width: controlWidth, height: 36)
+        let sourceItemWidth = controlWidth / 3
+        visibleCodexSourceSwitch.frame = NSRect(x: controlX + sourceItemWidth - 48, y: pageRect.minY + 300, width: 48, height: 24)
+        visibleClaudeSourceSwitch.frame = NSRect(x: controlX + sourceItemWidth * 2 - 48, y: pageRect.minY + 300, width: 48, height: 24)
+        visibleAPISourceSwitch.frame = NSRect(x: controlX + sourceItemWidth * 3 - 48, y: pageRect.minY + 300, width: 48, height: 24)
         profileAPITotalsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 320, width: 48, height: 24)
         showCombinedFableSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 356, width: 48, height: 24)
         quotaWarningsSwitch.frame = NSRect(x: switchX, y: pageRect.minY + 418, width: 48, height: 24)
@@ -1343,6 +1441,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         showCombinedFableSwitch.state = AppSettings.showCombinedFableEnabled ? .on : .off
         quotaWarningsSwitch.state = AppSettings.quotaWarningsEnabled ? .on : .off
         profileAPITotalsSwitch.state = AppSettings.profileAPITotalsEnabled ? .on : .off
+        let visibleSources = Set(AppSettings.visibleUsageSources)
+        visibleCodexSourceSwitch.state = visibleSources.contains(.codex) ? .on : .off
+        visibleClaudeSourceSwitch.state = visibleSources.contains(.claude) ? .on : .off
+        visibleAPISourceSwitch.state = visibleSources.contains(.api) ? .on : .off
     }
 
     func updateStatusMetricPopupsFromSettings() {
@@ -1461,6 +1563,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 : selectedDayPanelPreferredHeight(contentWidth: contentWidth)
             targetHeight = 174 + gridHeight + detailHeight
         case .costs:
+            if selectedDetailsSource == .api {
+                targetHeight = 780
+                break
+            }
             let topOffset: CGFloat = 78
             let sectionGap: CGFloat = 16
             let fiveHourPanelHeight: CGFloat = 176
@@ -1589,22 +1695,40 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     func sourceReport(for snapshot: DetailsSnapshot, source: QuotaViewOption? = nil) -> TokenReport {
         switch source ?? selectedDetailsSource {
         case .all:
-            return snapshot.all
+            return mergedTokenReport(QuotaViewOption.visiblePlatformCases.map { option in
+                switch option {
+                case .codex: return snapshot.codex
+                case .claude: return snapshot.claude
+                case .api: return snapshot.api
+                case .all: return TokenReport(scannedAt: snapshot.all.scannedAt)
+                }
+            })
         case .codex:
             return snapshot.codex
         case .claude:
             return snapshot.claude
+        case .api:
+            return snapshot.api
         }
     }
 
     func modelSourceReport(for snapshot: DetailsSnapshot, source: QuotaViewOption? = nil) -> TokenReport {
         switch source ?? selectedDetailsSource {
         case .all:
-            return snapshot.modelAll ?? snapshot.all
+            return mergedTokenReport(QuotaViewOption.visiblePlatformCases.map { option in
+                switch option {
+                case .codex: return snapshot.modelCodex ?? snapshot.codex
+                case .claude: return snapshot.modelClaude ?? snapshot.claude
+                case .api: return snapshot.modelAPI ?? snapshot.api
+                case .all: return TokenReport(scannedAt: snapshot.all.scannedAt)
+                }
+            })
         case .codex:
             return snapshot.modelCodex ?? snapshot.codex
         case .claude:
             return snapshot.modelClaude ?? snapshot.claude
+        case .api:
+            return snapshot.modelAPI ?? snapshot.api
         }
     }
 
@@ -1618,12 +1742,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     func sourceCostLimit(for snapshot: DetailsSnapshot) -> LiveRateLimit? {
-        guard selectedDetailsSource != .claude else { return nil }
+        guard selectedDetailsSource == .codex || selectedDetailsSource == .all else { return nil }
         return costEstimateLimit(from: snapshot.liveLimits)
     }
 
     func sourceCostReferenceReport(for snapshot: DetailsSnapshot) -> TokenReport? {
-        guard selectedDetailsSource != .claude else { return nil }
+        guard selectedDetailsSource == .codex || selectedDetailsSource == .all else { return nil }
         return snapshot.costReferenceReport
     }
 
@@ -1748,6 +1872,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hoveredResetCreditIndex = nil
         hoveredWeeklyQuotaSource = nil
         weeklyQuotaHoverPoint = nil
+        weeklyQuotaHoverOverlay.hide()
         hoveredModelUsageRowIndex = nil
         hoveredStorageCellKey = nil
         hoveredStorageSourceID = nil
@@ -1789,7 +1914,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         if hoveredWeeklyQuotaSource != nil {
             hoveredWeeklyQuotaSource = nil
             weeklyQuotaHoverPoint = nil
-            shouldRedraw = true
+            weeklyQuotaHoverOverlay.hide()
         }
         if hoveredModelUsageRowIndex != nil {
             hoveredModelUsageRowIndex = nil
@@ -2031,7 +2156,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             for (mode, rect) in insightDetailModeRects where rect.contains(point) {
                 selectedInsightDetailMode = mode
                 if mode == .reasoningDepth {
-                    selectedDetailsSource = .codex
+                    selectedDetailsSource = preferredReasoningSource
                 }
                 needsDisplay = true
                 return
@@ -2526,6 +2651,23 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         needsLayout = true
     }
 
+    @objc private func visibleUsageSourcesChanged() {
+        var sources = Set<QuotaViewOption>()
+        if visibleCodexSourceSwitch.state == .on { sources.insert(.codex) }
+        if visibleClaudeSourceSwitch.state == .on { sources.insert(.claude) }
+        if visibleAPISourceSwitch.state == .on { sources.insert(.api) }
+        guard !sources.isEmpty else {
+            NSSound.beep()
+            updateSettingsControlsFromSystem()
+            return
+        }
+        onVisibleUsageSourcesChanged?(sources)
+        normalizeVisibleSourceSelection()
+        updateSettingsControlsFromSystem()
+        needsDisplay = true
+        needsLayout = true
+    }
+
     func controlTextDidEndEditing(_ obj: Notification) {
         guard let field = obj.object as? NSTextField else { return }
         if field === costAmountField {
@@ -2730,7 +2872,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawProfileAPIInfoTooltip()
         } else if selectedSection == .overview {
             drawResetCreditTooltip(container: content)
-            drawWeeklyQuotaTooltip(snapshot: snapshot, container: content)
         } else if selectedSection == .insights {
             drawInsightUsageTimeTooltip()
         } else if selectedSection == .reasoning {
@@ -2743,13 +2884,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     func drawDetailsSourceSelector(content: NSRect, width: CGFloat) {
-        let usesPlatformOnlySources = selectedSection == .diagnostics || selectedSection == .costs
-        let options: [QuotaViewOption] = usesPlatformOnlySources ? [.codex, .claude] : [.all, .codex, .claude]
+        let usesPlatformOnlySources = selectedSection == .costs
+        let options = usesPlatformOnlySources ? QuotaViewOption.visiblePlatformCases : QuotaViewOption.visibleSelectorOptions
+        guard options.count > 1 else { return }
         let height: CGFloat = 30
         let gap: CGFloat = 8
         let rect = NSRect(x: content.maxX - width, y: content.minY + 6, width: width, height: height)
         let optionWidth = (rect.width - gap * CGFloat(options.count - 1)) / CGFloat(options.count)
-        let selectedOption = usesPlatformOnlySources && selectedDetailsSource == .all ? QuotaViewOption.codex : selectedDetailsSource
         for (index, option) in options.enumerated() {
             let optionRect = NSRect(
                 x: rect.minX + CGFloat(index) * (optionWidth + gap),
@@ -2758,11 +2899,14 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 height: height
             )
             sourceOptionRects[option] = optionRect
-            drawSelectablePill(detailsSourceTitle(option), rect: optionRect, selected: option == selectedOption)
+            drawSelectablePill(detailsSourceTitle(option), rect: optionRect, selected: option == selectedDetailsSource)
         }
     }
 
     var currentDetailsHeaderTitle: String {
+        if selectedSection == .costs, selectedDetailsSource == .api {
+            return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "API 成本" : "API Costs"
+        }
         if selectedSection == .insights, selectedInsightDetailMode == .usageTime {
             return localizedInsightUsageTimePageTitle
         }
@@ -2773,6 +2917,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     var currentDetailsHeaderSubtitle: String {
+        if selectedSection == .costs, selectedDetailsSource == .api {
+            return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese
+                ? "按模型和日期查看所有非订阅 API 用量与估算成本"
+                : "Non-subscription API usage and estimated cost by model and day"
+        }
         if selectedSection == .insights, selectedInsightDetailMode == .usageTime {
             return localizedInsightUsageTimePageSubtitle
         }
@@ -2799,6 +2948,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             return "Codex"
         case .claude:
             return "Claude"
+        case .api:
+            return "API"
         }
     }
 
@@ -2828,7 +2979,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     func drawSidebar(width: CGFloat) {
         sidebarItemRects.removeAll()
         drawText("AI Token Meter", rect: NSRect(x: 28, y: 28, width: width - 56, height: 28), font: .systemFont(ofSize: 20, weight: .bold), color: .white)
-        drawText(t(.combinedUsage), rect: NSRect(x: 28, y: 58, width: width - 56, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
+        drawText(QuotaViewOption.visibleSourcesTitle, rect: NSRect(x: 28, y: 58, width: width - 56, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
         for (index, section) in DetailsSection.visibleSections.enumerated() {
             let y = CGFloat(118 + index * 58)
             let rect = NSRect(x: 18, y: y, width: width - 36, height: 42)

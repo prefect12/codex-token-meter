@@ -1,10 +1,72 @@
 import Cocoa
 
+final class WeeklyQuotaHoverOverlayView: NSView {
+    struct Row {
+        let label: String
+        let value: String
+        let color: NSColor
+    }
+
+    private var title = ""
+    private var rows: [Row] = []
+    private var contentID = ""
+
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func show(title: String, rows: [Row], contentID: String, origin: CGPoint) {
+        let contentChanged = self.contentID != contentID
+        self.title = title
+        self.rows = rows
+        self.contentID = contentID
+
+        let size = NSSize(width: 286, height: CGFloat(34 + rows.count * 17 + 8))
+        if frame.size != size { setFrameSize(size) }
+        if frame.origin != origin { setFrameOrigin(origin) }
+        isHidden = false
+        if contentChanged { needsDisplay = true }
+    }
+
+    func hide() {
+        guard !isHidden else { return }
+        isHidden = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
+        NSColor.white.withAlphaComponent(0.14).setStroke()
+        let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        border.lineWidth = 1
+        border.stroke()
+
+        drawText(title, rect: NSRect(x: 10, y: 8, width: bounds.width - 20, height: 16), font: .systemFont(ofSize: 11, weight: .bold), color: .white)
+        for (index, row) in rows.enumerated() {
+            let y = CGFloat(31 + index * 17)
+            drawText(row.label, rect: NSRect(x: 10, y: y, width: 70, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.5))
+            drawText(row.value, rect: NSRect(x: 84, y: y - 1, width: bounds.width - 94, height: 15), font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold), color: row.color, alignment: .right)
+        }
+    }
+
+    private func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor, alignment: NSTextAlignment = .left) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
+        paragraph.lineBreakMode = .byTruncatingTail
+        (text as NSString).draw(in: rect, withAttributes: [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraph
+        ])
+    }
+}
+
 extension UsageDetailsView {
     func drawOverview(snapshot: DetailsSnapshot, content: NSRect) {
         // Reset credits are a Codex-only concept, so hide the row in the Claude view
         // and pull the panels below it up to fill the gap.
-        let showResetCredits = selectedDetailsSource != .claude
+        let showResetCredits = selectedDetailsSource == .all || selectedDetailsSource == .codex
         let cardsY = content.minY + 78
         let cardsHeight: CGFloat = 176
         let resetY = cardsY + cardsHeight + 16
@@ -28,7 +90,8 @@ extension UsageDetailsView {
     }
 
     func overviewResetCreditRect(snapshot: DetailsSnapshot, content: NSRect) -> NSRect? {
-        guard selectedSection == .overview, selectedDetailsSource != .claude else {
+        guard selectedSection == .overview,
+              selectedDetailsSource == .all || selectedDetailsSource == .codex else {
             return nil
         }
         let cardsY = content.minY + 78
@@ -64,10 +127,18 @@ extension UsageDetailsView {
         let cards: [(title: String, value: String, subtitle: String?, color: NSColor)]
         switch selectedDetailsSource {
         case .all:
+            let platformCards: [(String, String, String?, NSColor)] = QuotaViewOption.visiblePlatformCases.map { source in
+                let sourceReport = sourceReport(for: snapshot, source: source)
+                switch source {
+                case .codex: return (t(.codex), compactDashboardTotal(sourceReport.usage.total), nil, .systemCyan)
+                case .claude: return (t(.claude), compactDashboardTotal(sourceReport.usage.total), nil, .systemOrange)
+                case .api: return ("API", compactDashboardTotal(sourceReport.usage.total), nil, accentTeal)
+                case .all: return (detailsSourceTitle(.all), compactDashboardTotal(report.usage.total), nil, .systemGreen)
+                }
+            }
             cards = [
-                (detailsSourceTitle(.all), compactDashboardTotal(snapshot.all.usage.total), nil, .systemGreen),
-                (t(.codex), compactDashboardTotal(snapshot.codex.usage.total), nil, .systemCyan),
-                (t(.claude), compactDashboardTotal(snapshot.claude.usage.total), nil, .systemOrange),
+                (detailsSourceTitle(.all), compactDashboardTotal(report.usage.total), nil, .systemGreen)
+            ] + platformCards + [
                 (t(.cache), String(format: "%.0f%%", report.usage.cachePercent), nil, .systemTeal),
                 (t(.apiEquivalent), apiMoney, nil, accentTeal)
             ]
@@ -87,6 +158,14 @@ extension UsageDetailsView {
                 (t(.cache), String(format: "%.0f%%", report.usage.cachePercent), nil, .systemTeal),
                 (t(.apiEquivalent), apiMoney, nil, accentTeal)
             ]
+        case .api:
+            cards = [
+                ("API", compactDashboardTotal(report.usage.total), nil, .systemCyan),
+                (t(.input), compactDashboardMetric(report.usage.input), nil, .systemGreen),
+                (t(.output), compactDashboardMetric(report.usage.output), nil, .systemOrange),
+                (t(.cache), String(format: "%.0f%%", report.usage.cachePercent), nil, .systemTeal),
+                (t(.externalAPICost), apiMoney, nil, accentAmber)
+            ]
         }
         let metricsX = quotaRect.maxX + gap
         let metricsWidth = content.maxX - metricsX
@@ -94,7 +173,7 @@ extension UsageDetailsView {
         for (index, card) in cards.enumerated() {
             let row = index < 3 ? 0 : 1
             let indexInRow = row == 0 ? index : index - 3
-            let columnCount = row == 0 ? 3 : 2
+            let columnCount = row == 0 ? 3 : max(1, cards.count - 3)
             let cardW = (metricsWidth - gap * CGFloat(columnCount - 1)) / CGFloat(columnCount)
             let rect = NSRect(
                 x: metricsX + CGFloat(indexInRow) * (cardW + gap),
@@ -118,31 +197,36 @@ extension UsageDetailsView {
 
     func drawWeeklyQuotaSummary(snapshot: DetailsSnapshot, rect: NSRect) {
         drawPanel(rect)
-        let dividerY = rect.midY
-        NSColor.white.withAlphaComponent(0.08).setFill()
-        NSRect(x: rect.minX + 14, y: dividerY, width: rect.width - 28, height: 1).fill()
-
-        let codexWindow = snapshot.liveLimits
-            .first(where: { $0.id == QuotaViewOption.codex.liveLimitID })?
-            .secondary
-        let claudeWindow = snapshot.liveLimits
-            .first(where: { $0.id == QuotaViewOption.claude.liveLimitID })?
-            .secondary
-
-        drawWeeklyQuotaRow(
-            source: .codex,
-            title: weeklyQuotaTitle(source: .codex),
-            window: codexWindow,
-            color: accentBlue,
-            rect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height / 2)
-        )
-        drawWeeklyQuotaRow(
-            source: .claude,
-            title: weeklyQuotaTitle(source: .claude),
-            window: claudeWindow,
-            color: accentAmber,
-            rect: NSRect(x: rect.minX, y: dividerY, width: rect.width, height: rect.height / 2)
-        )
+        if selectedDetailsSource == .api {
+            let report = sourceReport(for: snapshot, source: .api)
+            let estimate = APICostEstimator.estimate(report: report)
+            drawText("API", rect: NSRect(x: rect.minX + 14, y: rect.minY + 18, width: rect.width - 28, height: 20), font: .systemFont(ofSize: 14, weight: .bold), color: accentTeal)
+            drawText("\(t(.total))  \(compactDashboardTotal(report.usage.total))", rect: NSRect(x: rect.minX + 14, y: rect.minY + 58, width: rect.width - 28, height: 28), font: .monospacedDigitSystemFont(ofSize: 24, weight: .bold), color: .white)
+            let cost = estimate.hasPricedUsage ? displayAPIMoney(estimate.usdValue, source: .api) : "--"
+            drawText("\(t(.externalAPICost))  \(cost)", rect: NSRect(x: rect.minX + 14, y: rect.minY + 108, width: rect.width - 28, height: 18), font: .systemFont(ofSize: 12, weight: .semibold), color: NSColor.white.withAlphaComponent(0.58))
+            return
+        }
+        let quotaSources: [QuotaViewOption]
+        if selectedDetailsSource == .all {
+            quotaSources = QuotaViewOption.visiblePlatformCases.filter { $0 == .codex || $0 == .claude }
+        } else {
+            quotaSources = [selectedDetailsSource].filter { $0 == .codex || $0 == .claude }
+        }
+        let rowHeight = rect.height / CGFloat(max(1, quotaSources.count))
+        for (index, source) in quotaSources.enumerated() {
+            if index > 0 {
+                NSColor.white.withAlphaComponent(0.08).setFill()
+                NSRect(x: rect.minX + 14, y: rect.minY + CGFloat(index) * rowHeight, width: rect.width - 28, height: 1).fill()
+            }
+            let window = snapshot.liveLimits.first(where: { $0.id == source.liveLimitID })?.secondary
+            drawWeeklyQuotaRow(
+                source: source,
+                title: weeklyQuotaTitle(source: source),
+                window: window,
+                color: source == .codex ? accentBlue : accentAmber,
+                rect: NSRect(x: rect.minX, y: rect.minY + CGFloat(index) * rowHeight, width: rect.width, height: rowHeight)
+            )
+        }
     }
 
     func drawWeeklyQuotaRow(
@@ -231,22 +315,26 @@ extension UsageDetailsView {
             if hoveredWeeklyQuotaSource != nil || weeklyQuotaHoverPoint != nil {
                 hoveredWeeklyQuotaSource = nil
                 weeklyQuotaHoverPoint = nil
-                needsDisplay = true
             }
+            weeklyQuotaHoverOverlay.hide()
             return
         }
         let source = weeklyQuotaHitAreas.first { $0.rect.contains(point) }?.source
         let hoverPoint = source == nil ? nil : point
-        if hoveredWeeklyQuotaSource != source || weeklyQuotaHoverPoint != hoverPoint {
-            hoveredWeeklyQuotaSource = source
-            weeklyQuotaHoverPoint = hoverPoint
-            needsDisplay = true
+        hoveredWeeklyQuotaSource = source
+        weeklyQuotaHoverPoint = hoverPoint
+        guard source != nil else {
+            weeklyQuotaHoverOverlay.hide()
+            return
         }
+        updateWeeklyQuotaHoverOverlay()
     }
 
-    func drawWeeklyQuotaTooltip(snapshot: DetailsSnapshot, container: NSRect) {
+    func updateWeeklyQuotaHoverOverlay() {
         guard let source = hoveredWeeklyQuotaSource,
-              let hit = weeklyQuotaHitAreas.first(where: { $0.source == source }) else {
+              let anchor = weeklyQuotaHoverPoint,
+              let snapshot else {
+            weeklyQuotaHoverOverlay.hide()
             return
         }
         let limit = snapshot.liveLimits.first { $0.id == source.liveLimitID }
@@ -254,26 +342,14 @@ extension UsageDetailsView {
         let actualRemaining = window.map { min(100, max(0, $0.remainingPercent)) }
         let comparison = window.flatMap { paceComparison(for: $0) }
 
-        var rows: [(String, String, NSColor)] = []
-        rows.append((
-            "实际剩余",
-            actualRemaining.map { "\(Int(round($0)))%" } ?? "--",
-            source == .codex ? accentBlue : accentAmber
-        ))
+        var rows: [WeeklyQuotaHoverOverlayView.Row] = []
+        rows.append(.init(label: "实际剩余", value: actualRemaining.map { "\(Int(round($0)))%" } ?? "--", color: source == .codex ? accentBlue : accentAmber))
         if let comparison {
             let expectedRemaining = min(100, max(0, 100 - comparison.progressPercent))
-            rows.append(("预计剩余", "\(Int(round(expectedRemaining)))%", NSColor.white.withAlphaComponent(0.88)))
-            rows.append((
-                "使用节奏",
-                comparison.status == .ahead ? "用得偏快" : "用得较少",
-                comparison.status == .ahead ? NSColor.systemYellow : NSColor.systemGreen
-            ))
+            rows.append(.init(label: "预计剩余", value: "\(Int(round(expectedRemaining)))%", color: NSColor.white.withAlphaComponent(0.88)))
+            rows.append(.init(label: "使用节奏", value: comparison.status == .ahead ? "用得偏快" : "用得较少", color: comparison.status == .ahead ? NSColor.systemYellow : NSColor.systemGreen))
         }
-        rows.append((
-            "重置",
-            window?.resetsAt.map { relative($0) } ?? "--",
-            NSColor.white.withAlphaComponent(0.88)
-        ))
+        rows.append(.init(label: "重置", value: window?.resetsAt.map { relative($0) } ?? "--", color: NSColor.white.withAlphaComponent(0.88)))
         let updatedText: String
         if let capturedAt = limit?.capturedAt {
             let seconds = -capturedAt.timeIntervalSinceNow
@@ -283,11 +359,11 @@ extension UsageDetailsView {
         } else {
             updatedText = "--"
         }
-        rows.append(("数据更新", updatedText, NSColor.white.withAlphaComponent(0.72)))
+        rows.append(.init(label: "数据更新", value: updatedText, color: NSColor.white.withAlphaComponent(0.72)))
 
         let width: CGFloat = 286
         let height = CGFloat(34 + rows.count * 17 + 8)
-        let anchor = weeklyQuotaHoverPoint ?? CGPoint(x: hit.rect.midX, y: hit.rect.midY)
+        let container = sectionContent(for: .overview, in: bounds, sidebarWidth: detailsSidebarWidth)
         let cursorGap: CGFloat = 14
         var origin = CGPoint(x: anchor.x + cursorGap, y: anchor.y - height - cursorGap)
         if origin.x + width > container.maxX - 10 {
@@ -298,26 +374,10 @@ extension UsageDetailsView {
         }
         origin.x = max(container.minX + 10, min(origin.x, container.maxX - width - 10))
         origin.y = max(container.minY + 10, min(origin.y, container.maxY - height - 10))
-        let tooltipRect = NSRect(origin: origin, size: NSSize(width: width, height: height))
 
-        NSColor(calibratedWhite: 0.055, alpha: 0.97).setFill()
-        NSBezierPath(roundedRect: tooltipRect, xRadius: 8, yRadius: 8).fill()
-        NSColor.white.withAlphaComponent(0.14).setStroke()
-        let border = NSBezierPath(roundedRect: tooltipRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
-        border.lineWidth = 1
-        border.stroke()
-
-        drawText(
-            weeklyQuotaTitle(source: source),
-            rect: NSRect(x: tooltipRect.minX + 10, y: tooltipRect.minY + 8, width: tooltipRect.width - 20, height: 16),
-            font: .systemFont(ofSize: 11, weight: .bold),
-            color: .white
-        )
-        for (index, row) in rows.enumerated() {
-            let y = tooltipRect.minY + 31 + CGFloat(index) * 17
-            drawText(row.0, rect: NSRect(x: tooltipRect.minX + 10, y: y, width: 70, height: 14), font: .systemFont(ofSize: 10, weight: .medium), color: NSColor.white.withAlphaComponent(0.5))
-            drawRight(row.1, rect: NSRect(x: tooltipRect.minX + 84, y: y - 1, width: tooltipRect.width - 94, height: 15), color: row.2, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold))
-        }
+        let title = weeklyQuotaTitle(source: source)
+        let contentID = ([title] + rows.flatMap { [$0.label, $0.value] }).joined(separator: "\u{1f}")
+        weeklyQuotaHoverOverlay.show(title: title, rows: rows, contentID: contentID, origin: origin)
     }
 
     func metricCardValueFont(text: String, maxWidth: CGFloat, preferredSize: CGFloat) -> NSFont {

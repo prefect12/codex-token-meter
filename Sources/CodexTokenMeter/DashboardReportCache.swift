@@ -3,9 +3,10 @@ import Foundation
 // MARK: - Dashboard Report Cache
 
 enum DashboardReportCacheStore {
-    // Version 3 invalidates reports written before per-day events and
+    // Version 6 partitions provider-attributed API usage out of Codex.
+    // Version 3 invalidated reports written before per-day events and
     // per-model turn counts were persisted.
-    private static let version = 3
+    private static let version = 6
 
     private struct Entry: Codable {
         let windowHours: Int

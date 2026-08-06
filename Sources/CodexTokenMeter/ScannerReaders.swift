@@ -10,9 +10,45 @@ struct ReportCacheKey: Hashable {
     let quota: QuotaViewOption
 }
 
+enum CodexUsagePartition: Equatable {
+    case all
+    case codex
+    case api
+
+    func includes(modelName: String, provider: String? = nil, sourceIsAPI: Bool = false) -> Bool {
+        let isAPI = Self.isAPIUsage(modelName: modelName, provider: provider, sourceIsAPI: sourceIsAPI)
+        switch self {
+        case .all: return true
+        case .codex: return !isAPI
+        case .api: return isAPI
+        }
+    }
+
+    static func isAPIUsage(modelName: String, provider: String? = nil, sourceIsAPI: Bool = false) -> Bool {
+        if sourceIsAPI { return true }
+        let providerName = provider?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        if !providerName.isEmpty,
+           !["openai", "chatgpt", "codex"].contains(providerName) {
+            return true
+        }
+        let name = modelName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return name.contains("/")
+            || name.hasPrefix("~")
+            || name.hasPrefix("deepseek-")
+            || name == "deepseek-chat"
+            || name == "deepseek-reasoner"
+    }
+}
+
 final class CodexTokenScanner {
+    private struct ModelSourceKey: Hashable {
+        let name: String
+        let provider: String?
+    }
+
     private struct FileModelAggregate: Codable {
         let name: String
+        let provider: String?
         var usage: Usage
         var turns: Int
         var events: Int
@@ -45,6 +81,7 @@ final class CodexTokenScanner {
         var timestamp: Date
         var day: String
         var model: String
+        var provider: String?
         var effort: String
         var usage: Usage
     }
@@ -439,6 +476,7 @@ final class CodexTokenScanner {
     }
 
     private let rootURLs: [URL]
+    private let apiRootURLs: [URL]
     private let cacheDirectory: URL
     private let jsonEncoder = JSONEncoder()
     private let jsonDecoder = JSONDecoder()
@@ -448,6 +486,7 @@ final class CodexTokenScanner {
     private let eventMsgPattern = Array(#""type":"event_msg""#.utf8)
     private let subagentSourcePattern = Array(#""source":{"subagent":{"thread_spawn""#.utf8)
     private let interAgentMetadataPattern = Array(#""type":"inter_agent_communication_metadata""#.utf8)
+    private let sessionMetaPattern = Array(#""type":"session_meta""#.utf8)
     private let turnContextPattern = Array(#""type":"turn_context""#.utf8)
     private let taskStartedPattern = Array(#""type":"task_started""#.utf8)
     private let contextCompactedPattern = Array(#""type":"context_compacted""#.utf8)
@@ -465,6 +504,7 @@ final class CodexTokenScanner {
     private let limitIDKey = Array(#""limit_id":""#.utf8)
     private let limitNameKey = Array(#""limit_name":""#.utf8)
     private let modelKey = Array(#""model":""#.utf8)
+    private let modelProviderKey = Array(#""model_provider":""#.utf8)
     private let effortKey = Array(#""effort":""#.utf8)
     private let turnIDKey = Array(#""turn_id":""#.utf8)
     private var cache: [String: FileCache] = [:]
@@ -481,6 +521,14 @@ final class CodexTokenScanner {
     private static func canonicalModelName(_ value: String?) -> String {
         let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !normalized.isEmpty else { return "Unknown model" }
+        switch normalized.lowercased() {
+        case "deepseek-chat", "deepseek-reasoner", "deepseek/deepseek-v4-flash", "deepseek-v4-flash":
+            return "deepseek-v4-flash"
+        case "deepseek/deepseek-v4-pro", "deepseek-v4-pro":
+            return "deepseek-v4-pro"
+        default:
+            break
+        }
         // Automatic review turns use an internal model label. Present them in
         // the selected Sol bucket so every report uses one consistent model row.
         if normalized.caseInsensitiveCompare("codex-auto-review") == .orderedSame {
@@ -503,11 +551,12 @@ final class CodexTokenScanner {
     }
 
     convenience init(rootURL: URL) {
-        self.init(rootURLs: [rootURL])
+        self.init(rootURLs: [rootURL], apiRootURLs: [])
     }
 
-    init(rootURLs: [URL]) {
+    init(rootURLs: [URL], apiRootURLs: [URL] = AppSettings.apiUsageLogFolderURLs) {
         self.rootURLs = Self.uniqueRootURLs(rootURLs)
+        self.apiRootURLs = Self.uniqueRootURLs(apiRootURLs)
         let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         self.cacheDirectory = applicationSupport
@@ -542,43 +591,43 @@ final class CodexTokenScanner {
         return unique
     }
 
-    func scan(window: WindowOption, limitID: String? = nil, excludedLimitID: String? = nil, includedModelName: String? = nil, excludedModelName: String? = nil) -> TokenReport {
+    func scan(window: WindowOption, limitID: String? = nil, excludedLimitID: String? = nil, includedModelName: String? = nil, excludedModelName: String? = nil, partition: CodexUsagePartition = .all) -> TokenReport {
         let now = Date()
         switch window {
         case .day:
-            return scan(start: now.addingTimeInterval(-24 * 3600), now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, fillDayCount: nil)
+            return scan(start: now.addingTimeInterval(-24 * 3600), now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, partition: partition, fillDayCount: nil)
         case .week:
             let start = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -6, to: now) ?? now)
-            return scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, fillDayCount: 7)
+            return scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, partition: partition, fillDayCount: 7)
         case .month:
             let start = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -29, to: now) ?? now)
-            return scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, fillDayCount: 30)
+            return scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, partition: partition, fillDayCount: 30)
         }
     }
 
-    func scan(hours: Int, limitID: String? = nil, excludedLimitID: String? = nil, includedModelName: String? = nil, excludedModelName: String? = nil) -> TokenReport {
+    func scan(hours: Int, limitID: String? = nil, excludedLimitID: String? = nil, includedModelName: String? = nil, excludedModelName: String? = nil, partition: CodexUsagePartition = .all) -> TokenReport {
         let now = Date()
         let start = now.addingTimeInterval(TimeInterval(-hours * 3600))
-        return scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, fillDayCount: nil)
+        return scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, partition: partition, fillDayCount: nil)
     }
 
-    func scan(days: Int, limitID: String? = nil, excludedLimitID: String? = nil, includedModelName: String? = nil, excludedModelName: String? = nil) -> TokenReport {
+    func scan(days: Int, limitID: String? = nil, excludedLimitID: String? = nil, includedModelName: String? = nil, excludedModelName: String? = nil, partition: CodexUsagePartition = .all) -> TokenReport {
         let now = Date()
         let dayCount = max(days, 1)
         let start = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -(dayCount - 1), to: now) ?? now)
-        return scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, fillDayCount: dayCount)
+        return scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, partition: partition, fillDayCount: dayCount)
     }
 
-    func scan(from start: Date, to now: Date = Date(), limitID: String? = nil, excludedLimitID: String? = nil, includedModelName: String? = nil, excludedModelName: String? = nil) -> TokenReport {
-        scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, fillDayCount: nil)
+    func scan(from start: Date, to now: Date = Date(), limitID: String? = nil, excludedLimitID: String? = nil, includedModelName: String? = nil, excludedModelName: String? = nil, partition: CodexUsagePartition = .all) -> TokenReport {
+        scan(start: start, now: now, limitID: limitID, excludedLimitID: excludedLimitID, includedModelName: includedModelName, excludedModelName: excludedModelName, partition: partition, fillDayCount: nil)
     }
 
-    func scanRepoInsights(days: Int = 90) -> RepoInsightsReport {
+    func scanRepoInsights(days: Int = 90, partition: CodexUsagePartition = .all) -> RepoInsightsReport {
         let windowDays = max(days, 1)
-        return scanRepoInsights(windows: [windowDays])[windowDays] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: windowDays)
+        return scanRepoInsights(windows: [windowDays], partition: partition)[windowDays] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: windowDays)
     }
 
-    func scanRepoInsights(windows: [Int]) -> [Int: RepoInsightsReport] {
+    func scanRepoInsights(windows: [Int], partition: CodexUsagePartition = .all) -> [Int: RepoInsightsReport] {
         let now = Date()
         let windowDays = Array(Set(windows.map { max($0, 1) })).sorted()
         guard !windowDays.isEmpty else { return [:] }
@@ -592,7 +641,13 @@ final class CodexTokenScanner {
         for fileURL in rolloutFiles(modifiedSince: earliestStart) {
             let file = cachedFile(fileURL)
             for (days, start) in starts {
-                let conversation = repoInsightConversation(from: file.repoInsight, start: start, now: now)
+                let conversation = repoInsightConversation(
+                    from: file.repoInsight,
+                    start: start,
+                    now: now,
+                    partition: partition,
+                    sourceIsAPI: isExplicitAPIRoot(fileURL)
+                )
                 guard conversation.turns > 0
                         || conversation.compressions > 0
                         || conversation.tokens > 0 else {
@@ -619,6 +674,52 @@ final class CodexTokenScanner {
         })
     }
 
+    func scanRepoInsights(from start: Date, to end: Date, partition: CodexUsagePartition = .all) -> RepoInsightsReport {
+        let rangeStart = min(start, end)
+        let rangeEnd = max(start, end)
+        let dayCount = max(
+            1,
+            (calendar.dateComponents(
+                [.day],
+                from: calendar.startOfDay(for: rangeStart),
+                to: calendar.startOfDay(for: rangeEnd)
+            ).day ?? 0) + 1
+        )
+        var aggregates: [String: RepoInsightAccumulator] = [:]
+        var reasoning = ReasoningInsightsAccumulator()
+        for fileURL in rolloutFiles(modifiedSince: rangeStart) {
+            let file = cachedFile(fileURL)
+            let conversation = repoInsightConversation(
+                from: file.repoInsight,
+                start: rangeStart,
+                now: rangeEnd,
+                partition: partition,
+                sourceIsAPI: isExplicitAPIRoot(fileURL)
+            )
+            guard conversation.turns > 0
+                    || conversation.compressions > 0
+                    || conversation.tokens > 0 else {
+                continue
+            }
+            let cwd = conversation.cwd ?? "(unknown)"
+            let key = repoInsightKey(for: cwd)
+            var accumulator = aggregates[key] ?? RepoInsightAccumulator(
+                key: key,
+                displayName: repoInsightDisplayName(for: key),
+                primaryFolder: cwd
+            )
+            accumulator.add(conversation)
+            aggregates[key] = accumulator
+            reasoning.add(conversation, projectKey: key)
+        }
+        return RepoInsightsReport(
+            rows: repoInsightRows(from: aggregates),
+            scannedAt: Date(),
+            windowDays: dayCount,
+            reasoning: reasoning.report()
+        )
+    }
+
     private func repoInsightRows(from aggregates: [String: RepoInsightAccumulator]) -> [RepoInsight] {
         aggregates.values
             .map { $0.repoInsight() }
@@ -633,9 +734,47 @@ final class CodexTokenScanner {
             }
     }
 
-    private func repoInsightConversation(from aggregate: FileRepoInsightAggregate, start: Date, now: Date) -> RepoInsightConversation {
+    private func repoInsightConversation(
+        from aggregate: FileRepoInsightAggregate,
+        start: Date,
+        now: Date,
+        partition: CodexUsagePartition,
+        sourceIsAPI: Bool
+    ) -> RepoInsightConversation {
         let startDay = dayFormatter.string(from: start)
         let endDay = dayFormatter.string(from: now)
+        let filteredRuns = aggregate.reasoningRuns.filter {
+            $0.timestamp >= start
+                && $0.timestamp <= now
+                && partition.includes(modelName: $0.model, provider: $0.provider, sourceIsAPI: sourceIsAPI)
+        }
+        if partition != .all {
+            var conversation = RepoInsightConversation()
+            conversation.cwd = aggregate.cwd
+            conversation.reasoningRuns = filteredRuns
+            var days: [String: FileRepoInsightDayAggregate] = [:]
+            var hours: [String: FileRepoInsightHourAggregate] = [:]
+            for run in filteredRuns {
+                var day = days[run.day] ?? FileRepoInsightDayAggregate(day: run.day, turns: 0, compressions: 0, tokens: 0, abortedTurns: 0, completedTurns: 0)
+                day.turns += 1
+                day.tokens += run.usage.total
+                day.completedTurns += 1
+                days[run.day] = day
+                let hourValue = calendar.component(.hour, from: run.timestamp)
+                let hourKey = "\(run.day)|\(hourValue)"
+                var hour = hours[hourKey] ?? FileRepoInsightHourAggregate(day: run.day, hour: hourValue, turns: 0, tokens: 0)
+                hour.turns += 1
+                hour.tokens += run.usage.total
+                hours[hourKey] = hour
+            }
+            conversation.days = days.values.sorted { $0.day < $1.day }
+            conversation.hours = hours.values.sorted { lhs, rhs in lhs.day == rhs.day ? lhs.hour < rhs.hour : lhs.day < rhs.day }
+            conversation.activeDays = Set(days.keys)
+            conversation.turns = filteredRuns.count
+            conversation.completedTurns = filteredRuns.count
+            conversation.tokens = filteredRuns.reduce(Int64(0)) { $0 + $1.usage.total }
+            return conversation
+        }
         let days = aggregate.days.filter { $0.day >= startDay && $0.day <= endDay }
         let activeDaySet = Set(days.map(\.day))
         var conversation = RepoInsightConversation()
@@ -643,7 +782,7 @@ final class CodexTokenScanner {
         conversation.days = days
         conversation.activeDays = activeDaySet
         conversation.hours = aggregate.hours.filter { activeDaySet.contains($0.day) && ($0.turns > 0 || $0.tokens > 0) }
-        conversation.reasoningRuns = aggregate.reasoningRuns.filter { $0.timestamp >= start && $0.timestamp <= now }
+        conversation.reasoningRuns = filteredRuns
         for day in days {
             conversation.turns += day.turns
             conversation.compressions += day.compressions
@@ -654,9 +793,9 @@ final class CodexTokenScanner {
         return conversation
     }
 
-    private func scan(start: Date, now: Date, limitID: String?, excludedLimitID: String?, includedModelName: String?, excludedModelName: String?, fillDayCount: Int?) -> TokenReport {
+    private func scan(start: Date, now: Date, limitID: String?, excludedLimitID: String?, includedModelName: String?, excludedModelName: String?, partition: CodexUsagePartition, fillDayCount: Int?) -> TokenReport {
         if limitID == nil, excludedLimitID == nil, fillDayCount != nil {
-            return scanDayAggregates(start: start, now: now, includedModelName: includedModelName, excludedModelName: excludedModelName, fillDayCount: fillDayCount)
+            return scanDayAggregates(start: start, now: now, includedModelName: includedModelName, excludedModelName: excludedModelName, partition: partition, fillDayCount: fillDayCount)
         }
 
         var report = TokenReport(scannedAt: now)
@@ -678,7 +817,8 @@ final class CodexTokenScanner {
 
         for fileURL in rolloutFiles(modifiedSince: start) {
             let file = cachedFile(fileURL)
-            let isUnfilteredScan = limitID == nil && excludedLimitID == nil && includedModelName == nil && excludedModelName == nil
+            let sourceIsAPI = isExplicitAPIRoot(fileURL)
+            let isUnfilteredScan = limitID == nil && excludedLimitID == nil && includedModelName == nil && excludedModelName == nil && partition == .all
             let events = file.events.filter {
                 $0.timestamp >= start
                     && $0.timestamp <= now
@@ -686,6 +826,7 @@ final class CodexTokenScanner {
                     && !matchesExcludedLimit($0, excludedLimitID: excludedLimitID)
                     && matchesModel($0, modelName: includedModelName)
                     && !matchesExcludedModel($0, modelName: excludedModelName)
+                    && partition.includes(modelName: modelDisplayName(for: $0), provider: $0.provider, sourceIsAPI: sourceIsAPI)
             }
             let rawTurns = file.turns.filter { $0 >= start && $0 <= now }
             let turns = isUnfilteredScan ? rawTurns : events.map { $0.timestamp }
@@ -736,7 +877,8 @@ final class CodexTokenScanner {
                 let day = dayFormatter.string(from: turn)
                 sessionDays.insert(day)
                 dayTurns[day, default: 0] += 1
-                if let modelName = attributedTurns[turn] {
+                if let modelSource = attributedTurns[turn] {
+                    let modelName = modelSource.name
                     modelTurns[modelName, default: 0] += 1
                     var turnsForDay = dayModelTurns[day] ?? [:]
                     turnsForDay[modelName, default: 0] += 1
@@ -810,11 +952,11 @@ final class CodexTokenScanner {
         return report
     }
 
-    private func scanDayAggregates(start: Date, now: Date, includedModelName: String?, excludedModelName: String?, fillDayCount: Int?) -> TokenReport {
+    private func scanDayAggregates(start: Date, now: Date, includedModelName: String?, excludedModelName: String?, partition: CodexUsagePartition, fillDayCount: Int?) -> TokenReport {
         var report = TokenReport(scannedAt: now)
         let startDay = dayFormatter.string(from: start)
         let endDay = dayFormatter.string(from: now)
-        let isUnfilteredScan = includedModelName == nil && excludedModelName == nil
+        let isUnfilteredScan = includedModelName == nil && excludedModelName == nil && partition == .all
         var dayBuckets: [String: Usage] = [:]
         var dayTurns: [String: Int] = [:]
         var daySessions: [String: Int] = [:]
@@ -831,6 +973,7 @@ final class CodexTokenScanner {
 
         for fileURL in rolloutFiles(modifiedSince: start) {
             let file = cachedFile(fileURL)
+            let sourceIsAPI = isExplicitAPIRoot(fileURL)
             var sessionUsage = Usage()
             var sessionTurns = 0
             var lastEvent = now
@@ -841,6 +984,7 @@ final class CodexTokenScanner {
             for day in file.days where day.day >= startDay && day.day <= endDay {
                 let matchingModels = day.models.filter {
                     matchesAggregateModel($0.name, includedModelName: includedModelName, excludedModelName: excludedModelName)
+                        && partition.includes(modelName: $0.name, provider: $0.provider, sourceIsAPI: sourceIsAPI)
                 }
                 let dayUsage: Usage
                 let selectedTurns: Int
@@ -1038,6 +1182,14 @@ final class CodexTokenScanner {
         return files.sorted { $0.path < $1.path }
     }
 
+    private func isExplicitAPIRoot(_ fileURL: URL) -> Bool {
+        let filePath = (fileURL.path as NSString).standardizingPath
+        return apiRootURLs.contains { root in
+            let rootPath = (root.path as NSString).standardizingPath
+            return filePath == rootPath || filePath.hasPrefix(rootPath + "/")
+        }
+    }
+
     private func rolloutFiles(in rootURL: URL, modifiedSince start: Date) -> [URL] {
         guard let enumerator = FileManager.default.enumerator(
             at: rootURL,
@@ -1095,7 +1247,7 @@ final class CodexTokenScanner {
 
         let timeZoneIdentifier = appTimeZone().identifier
         if let disk = try? jsonDecoder.decode(DiskFileCache.self, from: data),
-              disk.version == 11,
+              disk.version == 12,
               disk.path == fileURL.path,
               disk.size == size,
               disk.timeZoneIdentifier == timeZoneIdentifier,
@@ -1213,7 +1365,7 @@ final class CodexTokenScanner {
 
     private func writeDiskCache(_ file: FileCache, fileURL: URL) {
         let disk = DiskFileCache(
-            version: 11,
+            version: 12,
             path: fileURL.path,
             size: file.size,
             modifiedAt: file.modifiedAt.timeIntervalSinceReferenceDate,
@@ -1242,14 +1394,16 @@ final class CodexTokenScanner {
         var currentRunIndex: Int?
         var pendingTaskStartedIndex: Int?
         var currentModel = "Unknown model"
+        var currentProvider: String?
         var awaitingSubagentBoundary = false
         var pendingSubagentModel: String?
 
-        func appendReasoningRun(timestamp: Date, model: String = "Unknown model", effort: String = "unknown") -> Int {
+        func appendReasoningRun(timestamp: Date, model: String = "Unknown model", provider: String?, effort: String = "unknown") -> Int {
             reasoningRuns.append(FileReasoningRunAggregate(
                 timestamp: timestamp,
                 day: self.dayFormatter.string(from: timestamp),
                 model: Self.normalizedReasoningModel(model),
+                provider: provider,
                 effort: effort,
                 usage: Usage()
             ))
@@ -1278,6 +1432,12 @@ final class CodexTokenScanner {
             func handleLine(_ lineEnd: Int) {
                 guard lineEnd > lineStart else { return }
                 let range = lineStart..<lineEnd
+
+                if self.contains(base, range: range, pattern: self.sessionMetaPattern),
+                   let provider = self.extractString(base, range: range, key: self.modelProviderKey),
+                   !provider.isEmpty {
+                    currentProvider = provider
+                }
 
                 if self.contains(base, range: range, pattern: self.subagentSourcePattern) {
                     // Desktop forks serialize the parent's event history into each
@@ -1330,12 +1490,14 @@ final class CodexTokenScanner {
                         currentRunIndex = existing
                         reasoningRuns[existing].effort = effort
                         reasoningRuns[existing].model = model
+                        reasoningRuns[existing].provider = currentProvider
                     } else if let pending = pendingTaskStartedIndex,
                               reasoningRuns.indices.contains(pending),
                               reasoningRuns[pending].usage.total == 0 {
                         currentRunIndex = pending
                         reasoningRuns[pending].effort = effort
                         reasoningRuns[pending].model = model
+                        reasoningRuns[pending].provider = currentProvider
                         if let turnID, !turnID.isEmpty {
                             runIndexByTurnID[turnID] = pending
                         }
@@ -1343,8 +1505,9 @@ final class CodexTokenScanner {
                               reasoningRuns.indices.contains(currentRunIndex) {
                         reasoningRuns[currentRunIndex].effort = effort
                         reasoningRuns[currentRunIndex].model = model
+                        reasoningRuns[currentRunIndex].provider = currentProvider
                     } else {
-                        let index = appendReasoningRun(timestamp: timestamp, model: model, effort: effort)
+                        let index = appendReasoningRun(timestamp: timestamp, model: model, provider: currentProvider, effort: effort)
                         currentRunIndex = index
                         if let turnID, !turnID.isEmpty {
                             runIndexByTurnID[turnID] = index
@@ -1367,7 +1530,7 @@ final class CodexTokenScanner {
                     updateDay(day) { $0.tokens += delta.total }
                     updateHour(timestamp, day: day) { $0.tokens += delta.total }
                     if currentRunIndex == nil {
-                        currentRunIndex = appendReasoningRun(timestamp: timestamp, model: currentModel)
+                        currentRunIndex = appendReasoningRun(timestamp: timestamp, model: currentModel, provider: currentProvider)
                     }
                     if let currentRunIndex, reasoningRuns.indices.contains(currentRunIndex) {
                         reasoningRuns[currentRunIndex].usage.add(delta)
@@ -1384,7 +1547,7 @@ final class CodexTokenScanner {
                     updateDay(day) { $0.turns += 1 }
                     updateHour(timestamp, day: day) { $0.turns += 1 }
                     currentModel = "Unknown model"
-                    let index = appendReasoningRun(timestamp: timestamp)
+                    let index = appendReasoningRun(timestamp: timestamp, provider: currentProvider)
                     currentRunIndex = index
                     pendingTaskStartedIndex = index
                 } else if self.contains(base, range: range, pattern: self.contextCompactedPattern) {
@@ -1425,17 +1588,17 @@ final class CodexTokenScanner {
     private func dayAggregates(events: [TokenEvent], turns: [Date]) -> [FileDayAggregate] {
         var dayBuckets: [String: Usage] = [:]
         var dayTurns: [String: Int] = [:]
-        var dayModelBuckets: [String: [String: Usage]] = [:]
-        var dayModelTurns: [String: [String: Int]] = [:]
-        var dayModelEvents: [String: [String: Int]] = [:]
+        var dayModelBuckets: [String: [ModelSourceKey: Usage]] = [:]
+        var dayModelTurns: [String: [ModelSourceKey: Int]] = [:]
+        var dayModelEvents: [String: [ModelSourceKey: Int]] = [:]
         let attributedTurns = attributedModelTurns(turns: turns, events: events)
 
         for turn in turns {
             let day = dayFormatter.string(from: turn)
             dayTurns[day, default: 0] += 1
-            if let modelName = attributedTurns[turn] {
+            if let modelSource = attributedTurns[turn] {
                 var modelTurns = dayModelTurns[day] ?? [:]
-                modelTurns[modelName, default: 0] += 1
+                modelTurns[modelSource, default: 0] += 1
                 dayModelTurns[day] = modelTurns
             }
         }
@@ -1447,26 +1610,28 @@ final class CodexTokenScanner {
             dayBuckets[day] = usage
 
             let modelName = modelDisplayName(for: event)
+            let modelSource = ModelSourceKey(name: modelName, provider: event.provider)
             var dayModels = dayModelBuckets[day] ?? [:]
-            var modelUsage = dayModels[modelName] ?? Usage()
+            var modelUsage = dayModels[modelSource] ?? Usage()
             modelUsage.add(event.usage)
-            dayModels[modelName] = modelUsage
+            dayModels[modelSource] = modelUsage
             dayModelBuckets[day] = dayModels
 
             var modelEvents = dayModelEvents[day] ?? [:]
-            modelEvents[modelName, default: 0] += 1
+            modelEvents[modelSource, default: 0] += 1
             dayModelEvents[day] = modelEvents
         }
 
         return Set(dayBuckets.keys).union(dayTurns.keys)
             .map { day in
                 let models = (dayModelBuckets[day] ?? [:])
-                    .map { name, usage in
+                    .map { source, usage in
                         FileModelAggregate(
-                            name: name,
+                            name: source.name,
+                            provider: source.provider,
                             usage: usage,
-                            turns: dayModelTurns[day]?[name] ?? 0,
-                            events: dayModelEvents[day]?[name] ?? 0
+                            turns: dayModelTurns[day]?[source] ?? 0,
+                            events: dayModelEvents[day]?[source] ?? 0
                         )
                     }
                     .sorted { $0.usage.total > $1.usage.total }
@@ -1475,12 +1640,12 @@ final class CodexTokenScanner {
             .sorted { $0.day < $1.day }
     }
 
-    private func attributedModelTurns(turns: [Date], events: [TokenEvent]) -> [Date: String] {
+    private func attributedModelTurns(turns: [Date], events: [TokenEvent]) -> [Date: ModelSourceKey] {
         let sortedTurns = turns.sorted()
         let sortedEvents = events.sorted { $0.timestamp < $1.timestamp }
         guard !sortedTurns.isEmpty, !sortedEvents.isEmpty else { return [:] }
 
-        var result: [Date: String] = [:]
+        var result: [Date: ModelSourceKey] = [:]
         var eventIndex = 0
         for (turnIndex, turn) in sortedTurns.enumerated() {
             let nextTurn = turnIndex + 1 < sortedTurns.count ? sortedTurns[turnIndex + 1] : .distantFuture
@@ -1488,11 +1653,12 @@ final class CodexTokenScanner {
                 eventIndex += 1
             }
 
-            var usageByModel: [String: Int64] = [:]
+            var usageByModel: [ModelSourceKey: Int64] = [:]
             var scanIndex = eventIndex
             while scanIndex < sortedEvents.count && sortedEvents[scanIndex].timestamp < nextTurn {
                 let event = sortedEvents[scanIndex]
-                usageByModel[modelDisplayName(for: event), default: 0] += max(event.usage.total, 1)
+                let source = ModelSourceKey(name: modelDisplayName(for: event), provider: event.provider)
+                usageByModel[source, default: 0] += max(event.usage.total, 1)
                 scanIndex += 1
             }
             if let modelName = usageByModel.max(by: { $0.value < $1.value })?.key {
@@ -1575,6 +1741,7 @@ final class CodexTokenScanner {
         var events: [TokenEvent] = []
         var turns: [Date] = []
         var currentModel: String?
+        var currentProvider: String?
         var awaitingSubagentBoundary = false
         var pendingSubagentModel: String?
 
@@ -1586,6 +1753,12 @@ final class CodexTokenScanner {
             func handleLine(_ lineEnd: Int) {
                 guard lineEnd > lineStart else { return }
                 let range = lineStart..<lineEnd
+
+                if self.contains(base, range: range, pattern: self.sessionMetaPattern),
+                   let provider = self.extractString(base, range: range, key: self.modelProviderKey),
+                   !provider.isEmpty {
+                    currentProvider = provider
+                }
 
                 if self.contains(base, range: range, pattern: self.subagentSourcePattern) {
                     // A forked rollout starts with a replay of its parent's events.
@@ -1660,7 +1833,14 @@ final class CodexTokenScanner {
                     }
                 }
 
-                events.append(TokenEvent(timestamp: timestamp, usage: delta, limitID: limitID, limitName: limitName, model: currentModel))
+                events.append(TokenEvent(
+                    timestamp: timestamp,
+                    usage: delta,
+                    limitID: limitID,
+                    limitName: limitName,
+                    model: currentModel,
+                    provider: currentProvider
+                ))
             }
 
             for index in 0..<count {

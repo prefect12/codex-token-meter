@@ -63,9 +63,10 @@ extension UsageDetailsView {
 
     func storagePlatformCategories() -> [StorageCategoryUsage] {
         guard let snap = storageSnapshot else { return [] }
+        let platforms = storageSelectedPhysicalPlatforms
         return snap.categories
             .filter { category in
-                (selectedDetailsSource == .all || category.id.platform == selectedDetailsSource)
+                platforms.contains(category.id.platform)
                     && (category.bytes > 0 || category.fileCount > 0)
             }
             .sorted { $0.bytes > $1.bytes }
@@ -108,8 +109,9 @@ extension UsageDetailsView {
 
     func storageFilteredProjects() -> [StorageProjectUsage] {
         guard let snap = storageSnapshot else { return [] }
+        let platforms = storageSelectedPhysicalPlatforms
         var rows = snap.projects.filter { project in
-            selectedDetailsSource == .all || project.platform == selectedDetailsSource
+            platforms.contains(project.platform)
         }
         let query = storageSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty {
@@ -128,6 +130,13 @@ extension UsageDetailsView {
         return rows
     }
 
+    var storageSelectedPhysicalPlatforms: Set<QuotaViewOption> {
+        if selectedDetailsSource == .all {
+            return Set(QuotaViewOption.visiblePlatformCases.filter { $0 == .codex || $0 == .claude })
+        }
+        return Set([selectedDetailsSource].filter { $0 == .codex || $0 == .claude })
+    }
+
     func storageInsight(for project: StorageProjectUsage) -> RepoInsight? {
         guard let snapshot else { return nil }
         let report: RepoInsightsReport
@@ -138,6 +147,8 @@ extension UsageDetailsView {
             report = snapshot.codexRepoInsights
         case .all:
             report = snapshot.repoInsights
+        case .api:
+            return nil
         }
         return report.rows.first { $0.folders.contains(project.path) }
             ?? report.rows.first { $0.primaryFolder == project.path }
@@ -392,6 +403,21 @@ extension UsageDetailsView {
 
     func drawStoragePage(content: NSRect) {
         let copy = AppLanguage.current.storageCopy
+        if selectedDetailsSource == .api {
+            let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 136)
+            drawPanel(rect)
+            let isChinese = AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese
+            drawText(isChinese ? "API 日志存储" : "API log storage", rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
+            drawMultilineText(
+                isChinese
+                    ? "通过 Codex 运行的 API 会话保存在 rollout 文件中，物理磁盘占用归入 Codex，避免在“总和”中重复计算。API 页只负责非订阅用量和成本归属。"
+                    : "API sessions run through Codex live inside rollout files. Their physical bytes stay under Codex to avoid double-counting in Total; API is the non-subscription usage and billing attribution.",
+                rect: NSRect(x: rect.minX + 16, y: rect.minY + 50, width: rect.width - 32, height: 58),
+                font: .systemFont(ofSize: 12, weight: .medium),
+                color: NSColor.white.withAlphaComponent(0.58)
+            )
+            return
+        }
         guard let snap = storageSnapshot else {
             drawText(copy.scanningLabel, rect: NSRect(x: content.minX, y: content.minY + 92, width: content.width, height: 24), font: .systemFont(ofSize: 15, weight: .semibold), color: NSColor.white.withAlphaComponent(0.56))
             return
@@ -406,21 +432,32 @@ extension UsageDetailsView {
     }
 
     func drawStorageStatCards(snap: StorageSnapshot, copy: StorageCopy, rect: NSRect) {
-        let totalBytes = snap.totalBytes(platform: .all)
-        let codexBytes = snap.totalBytes(platform: .codex)
-        let claudeBytes = snap.totalBytes(platform: .claude)
-        let fileCount = snap.totalFileCount(platform: selectedDetailsSource)
-        let recentBytes = snap.recentGrowthBytes(platform: selectedDetailsSource)
+        let platforms = storageSelectedPhysicalPlatforms
+        let totalBytes = platforms.reduce(Int64(0)) { $0 + snap.totalBytes(platform: $1) }
+        let fileCount = platforms.reduce(0) { $0 + snap.totalFileCount(platform: $1) }
+        let recentBytes = platforms.reduce(Int64(0)) { $0 + snap.recentGrowthBytes(platform: $1) }
+        let recentFiles = platforms.reduce(0) { $0 + snap.recentGrowthFiles(platform: $1) }
         func share(_ value: Int64) -> String {
             guard totalBytes > 0 else { return "--" }
             return String(format: copy.shareFormat, String(format: "%.1f%%", Double(value) / Double(totalBytes) * 100))
         }
+        let platformCards: [(String, String, String, NSColor)] = selectedDetailsSource == .all
+            ? QuotaViewOption.visiblePlatformCases.compactMap { source in
+                guard source == .codex || source == .claude else { return nil }
+                let bytes = snap.totalBytes(platform: source)
+                return (
+                    detailsSourceTitle(source),
+                    storageByteText(bytes),
+                    share(bytes),
+                    source == .codex ? .systemCyan : .systemOrange
+                )
+            }
+            : []
         let cards: [(String, String, String, NSColor)] = [
-            (copy.totalCard, storageByteText(totalBytes), "\(format(totalBytes)) \(copy.bytesSuffix)", .systemGreen),
-            ("Codex", storageByteText(codexBytes), share(codexBytes), .systemCyan),
-            ("Claude", storageByteText(claudeBytes), share(claudeBytes), .systemOrange),
+            (copy.totalCard, storageByteText(totalBytes), "\(format(totalBytes)) \(copy.bytesSuffix)", .systemGreen)
+        ] + platformCards + [
             (copy.fileCountCard, format(Int64(fileCount)), copy.fileCountHint, NSColor.white.withAlphaComponent(0.92)),
-            (copy.recentCard, storageGrowthText(recentBytes), String(format: copy.filesFormat, format(Int64(snap.recentGrowthFiles(platform: selectedDetailsSource)))), accentTeal)
+            (copy.recentCard, storageGrowthText(recentBytes), String(format: copy.filesFormat, format(Int64(recentFiles))), accentTeal)
         ]
         let gap: CGFloat = 12
         let cardW = (rect.width - gap * CGFloat(cards.count - 1)) / CGFloat(cards.count)

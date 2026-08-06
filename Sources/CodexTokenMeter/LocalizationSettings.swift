@@ -210,6 +210,8 @@ enum StatusBarMetric: String, CaseIterable {
         case (.claude, .weekly): return .claudeWeekly
         case (.all, .fiveHour): return .codexFiveHour
         case (.all, .weekly): return .codexWeekly
+        case (.api, .fiveHour): return .codexFiveHour
+        case (.api, .weekly): return .codexWeekly
         }
     }
 }
@@ -376,6 +378,8 @@ enum L10nKey {
     case disabled
     case displayCurrency
     case displayCurrencyHint
+    case visibleUsageSources
+    case visibleUsageSourcesHint
     case selectedDayQuotaShareHint
     case displayEquivalent
     case enabled
@@ -601,7 +605,7 @@ enum L10nKey {
         case .all: return "All"
         case .allDescription: return "Everything with token detail"
         case .apiEquivalent: return "API equivalent"
-        case .apiEquivalentHint: return "Estimated from official API-style token prices. Unlabeled tokens default to GPT-5.6 Sol."
+        case .apiEquivalentHint: return "Estimated from model-specific API prices. Unlabeled or unknown models remain unpriced."
         case .before: return "Before"
         case .budget: return "Budget"
         case .cache: return "Cache"
@@ -621,7 +625,7 @@ enum L10nKey {
         case .codex: return "Codex"
         case .codexAppTotal: return "Codex app total"
         case .codexDescription: return "Codex local logs"
-        case .combinedUsage: return "Codex + Claude"
+        case .combinedUsage: return "Codex + Claude + API"
         case .copy: return "Copy"
         case .costs: return "Costs"
         case .costsSubtitle: return "Plan settings and estimated money usage"
@@ -698,13 +702,15 @@ enum L10nKey {
         case .disabled: return "Disabled"
         case .displayCurrency: return "Display currency"
         case .displayCurrencyHint: return "Controls money displays in the dashboard and details."
+        case .visibleUsageSources: return "Visible usage sources"
+        case .visibleUsageSourcesHint: return "Choose which sources appear in the dashboard and details. Total includes only enabled sources."
         case .selectedDayQuotaShareHint: return "That day's token usage as a share of the estimated weekly quota. The model table shows the contribution from each model."
         case .displayEquivalent: return "Display equivalent"
         case .enabled: return "Enabled"
         case .english: return "English"
         case .events: return "Usage records"
         case .externalAPICost: return "External API cost"
-        case .externalAPICostHint: return "Optional local JSON at api-usage.json can add direct OpenAI API usage that bypasses Codex logs."
+        case .externalAPICostHint: return "API includes all non-subscription usage identified by provider or provider-qualified model ID. Optional api-usage.json adds calls made outside Codex."
         case .fileMissing: return "File missing"
         case .filePresent: return "File present"
         case .fresh: return "Fresh"
@@ -867,8 +873,8 @@ enum L10nKey {
         case .weeklyLeft: return "Weekly Left"
         case .costHistoryHint: return "Hover a ring to inspect used, remaining, budget, and usage rate."
         case .usageRate: return "Usage rate"
-        case .apiEquivalentCostHint: return "fresh input × input price + cached input × cache price + output × output price. Unlabeled tokens use GPT-5.6 Sol."
-        case .externalAPICostCalculationHint: return "Direct API usage read from local api-usage.json. It is separate from Codex rollout logs."
+        case .apiEquivalentCostHint: return "fresh input × input price + cached input × cache price + output × output price. Unknown models remain unpriced."
+        case .externalAPICostCalculationHint: return "Non-subscription providers are detected in Codex rollouts. OpenRouter supplies the current model price catalog; optional api-usage.json supplements calls made elsewhere."
         case .month: return "Month"
         case .fiveHourLeft: return "5h Left"
         case .chinese: return "Chinese"
@@ -882,7 +888,7 @@ enum L10nKey {
         case .all: return "全部"
         case .allDescription: return "包含 token 明细的全部记录"
         case .apiEquivalent: return "API 等价成本"
-        case .apiEquivalentHint: return "按官方 API/token 单价估算；没有模型标签的 token 默认按 GPT-5.6 Sol。"
+        case .apiEquivalentHint: return "按具体模型的 API 单价估算；没有标签或未知模型保持未定价。"
         case .before: return "刷新前"
         case .budget: return "预算"
         case .cache: return "缓存"
@@ -902,10 +908,10 @@ enum L10nKey {
         case .codex: return "Codex"
         case .codexAppTotal: return "Codex 总用量"
         case .codexDescription: return "Codex 本地日志"
-        case .combinedUsage: return "Codex + Claude"
+        case .combinedUsage: return "Codex + Claude + API"
         case .copy: return "复制"
-        case .costs: return "金额"
-        case .costsSubtitle: return "套餐设置和金额估算"
+        case .costs: return "成本"
+        case .costsSubtitle: return "订阅额度周期与直接 API 成本"
         case .quotaCycles: return "额度周期"
         case .quotaCyclesSubtitle: return "额度重置时间与每个周期的用量"
         case .fiveHourWindow: return "5 小时窗口"
@@ -979,13 +985,15 @@ enum L10nKey {
         case .disabled: return "已关闭"
         case .displayCurrency: return "展示币种"
         case .displayCurrencyHint: return "控制概览和详情里的金额显示币种。"
+        case .visibleUsageSources: return "显示数据源"
+        case .visibleUsageSourcesHint: return "选择概览和详情中显示的数据源；“全部”只汇总已开启的来源。"
         case .selectedDayQuotaShareHint: return "当天 Token 用量占估算周额度的比例；下方模型表会分别列出每个模型贡献的占比。"
         case .displayEquivalent: return "展示折合"
         case .enabled: return "已开启"
         case .english: return "英语"
         case .events: return "用量记录"
         case .externalAPICost: return "外部 API 成本"
-        case .externalAPICostHint: return "可选读取本地 api-usage.json，用来补充绕过 Codex 日志的 OpenAI API 用量。"
+        case .externalAPICostHint: return "API 会按 provider 或“厂商/模型”ID 统计所有非订阅用量；可选 api-usage.json 补充 Codex 之外的调用。"
         case .fileMissing: return "文件不存在"
         case .filePresent: return "文件存在"
         case .fresh: return "新输入"
@@ -1148,8 +1156,8 @@ enum L10nKey {
         case .weeklyLeft: return "周额度剩余"
         case .costHistoryHint: return "悬停圆环可查看已用、剩余、预算和使用率。"
         case .usageRate: return "使用率"
-        case .apiEquivalentCostHint: return "按模型单价估算：fresh input × 输入价 + cached input × 缓存价 + output × 输出价；没有模型标签时按 GPT-5.6 Sol。"
-        case .externalAPICostCalculationHint: return "从本地 api-usage.json 读取的直接 API 用量成本，独立于 Codex rollout 日志。"
+        case .apiEquivalentCostHint: return "按模型单价估算：fresh input × 输入价 + cached input × 缓存价 + output × 输出价；未知模型保持未定价。"
+        case .externalAPICostCalculationHint: return "自动识别 Codex rollout 中所有非订阅 provider，并用 OpenRouter 目录补充当前模型价格；api-usage.json 可导入其他 API 调用。"
         case .month: return "月"
         case .fiveHourLeft: return "5小时剩余"
         case .chinese: return "中文"
@@ -1163,7 +1171,7 @@ enum L10nKey {
         case .all: return "すべて"
         case .allDescription: return "token 詳細を含むすべての記録"
         case .apiEquivalent: return "API 換算"
-        case .apiEquivalentHint: return "公式 API/token 単価から推定します。モデル名のない token は GPT-5.6 Sol として扱います。"
+        case .apiEquivalentHint: return "モデル別 API 単価から推定します。不明なモデルは未価格のまま表示します。"
         case .before: return "更新前"
         case .budget: return "予算"
         case .cache: return "キャッシュ"
@@ -1183,7 +1191,7 @@ enum L10nKey {
         case .codex: return "Codex"
         case .codexAppTotal: return "Codex 全体使用量"
         case .codexDescription: return "Codex ローカルログ"
-        case .combinedUsage: return "Codex + Claude"
+        case .combinedUsage: return "Codex + Claude + API"
         case .copy: return "コピー"
         case .costs: return "金額"
         case .costsSubtitle: return "プラン設定と金額推定"
@@ -1260,13 +1268,15 @@ enum L10nKey {
         case .disabled: return "無効"
         case .displayCurrency: return "表示通貨"
         case .displayCurrencyHint: return "ダッシュボードと詳細の金額表示に使う通貨です。"
+        case .visibleUsageSources: return "表示する使用元"
+        case .visibleUsageSourcesHint: return "ダッシュボードと詳細に表示する使用元を選びます。合計には有効な使用元だけを含めます。"
         case .selectedDayQuotaShareHint: return "当日の Token 使用量が推定週制限に占める割合です。下のモデル表にモデル別の寄与を表示します。"
         case .displayEquivalent: return "表示換算"
         case .enabled: return "有効"
         case .english: return "英語"
         case .events: return "使用量レコード"
         case .externalAPICost: return "外部 API コスト"
-        case .externalAPICostHint: return "任意のローカル api-usage.json で Codex ログ外の OpenAI API 使用量を補足できます。"
+        case .externalAPICostHint: return "provider または provider/model ID で非サブスクリプション使用量を集計し、任意の api-usage.json で外部呼び出しを補足します。"
         case .fileMissing: return "ファイルなし"
         case .filePresent: return "ファイルあり"
         case .fresh: return "新規入力"
@@ -1429,8 +1439,8 @@ enum L10nKey {
         case .weeklyLeft: return "週制限の残り"
         case .costHistoryHint: return "リングに重ねると使用額、残額、予算、使用率を確認できます。"
         case .usageRate: return "使用率"
-        case .apiEquivalentCostHint: return "fresh input × 入力価格 + cached input × キャッシュ価格 + output × 出力価格で推定します。モデル名のない token は GPT-5.6 Sol として扱います。"
-        case .externalAPICostCalculationHint: return "ローカル api-usage.json から読み取る直接 API 使用コストです。Codex rollout ログとは別扱いです。"
+        case .apiEquivalentCostHint: return "fresh input × 入力価格 + cached input × キャッシュ価格 + output × 出力価格で推定します。不明なモデルは未価格です。"
+        case .externalAPICostCalculationHint: return "Codex rollout 内の非サブスクリプション provider を検出し、OpenRouter のモデル価格一覧と api-usage.json を利用します。"
         case .month: return "月"
         case .fiveHourLeft: return "5時間残り"
         case .chinese: return "中国語"
@@ -1538,6 +1548,7 @@ enum AppSettings {
     static let quotaWarningsEnabledKey = "quotaWarningsEnabled"
     static let externalAPICostPathKey = "externalAPICostPath"
     static let profileAPITotalsEnabledKey = "profileAPITotalsEnabled"
+    static let visibleUsageSourcesKey = "visibleUsageSources"
     static let codexHomeRingMetricKey = "codexHomeRingMetric"
     static let claudeHomeRingMetricKey = "claudeHomeRingMetric"
     static let claudeThirdRingMetricKey = "claudeThirdRingMetric"
@@ -1548,12 +1559,29 @@ enum AppSettings {
     static let claudeKeychainAccessRequestedKey = "claudeKeychainAccessRequested"
     static let claudeKeychainAccessEnabledKey = "claudeKeychainAccessEnabled"
     static let machineUsageInstallationIDKey = "machineUsageInstallationID"
+    static let codexDefaultsProtectionEnabledKey =
+        CodexModelRoutingProtectionPreferences.enabledKey
+    static let codexProtectedRoutingStateKey =
+        CodexModelRoutingProtectionPreferences.protectedStateKey
     static let statusBarMetricOffRawValue = "off"
 
     static let fallbackModelLimitID = "codex_bengalfox"
     static let fallbackModelLimitName = "GPT-5.3-Codex-Spark"
     static let defaultCodexMonthlyPlanCost: Double = 200
     static let defaultClaudeMonthlyPlanCost: Double = 125
+
+    static var visibleUsageSources: [QuotaViewOption] {
+        let stored = UserDefaults.standard.stringArray(forKey: visibleUsageSourcesKey) ?? []
+        let parsed = stored.compactMap(QuotaViewOption.option(from:)).filter { $0 != .all }
+        let ordered = QuotaViewOption.platformCases.filter(parsed.contains)
+        return ordered.isEmpty ? QuotaViewOption.platformCases : ordered
+    }
+
+    static func setVisibleUsageSources(_ sources: Set<QuotaViewOption>) {
+        let ordered = QuotaViewOption.platformCases.filter(sources.contains)
+        guard !ordered.isEmpty else { return }
+        UserDefaults.standard.set(ordered.map(\.rawValue), forKey: visibleUsageSourcesKey)
+    }
 
     static var defaultCodexHomeURL: URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex", isDirectory: true)
@@ -1624,16 +1652,22 @@ enum AppSettings {
     static var logFolderURLs: [URL] {
         var roots = [
             defaultLogFolderURL,
-            defaultArchivedLogFolderURL,
-            defaultCodexAPIHomeURL.appendingPathComponent("sessions", isDirectory: true),
-            defaultCodexAPIHomeURL.appendingPathComponent("archived_sessions", isDirectory: true)
+            defaultArchivedLogFolderURL
         ]
+        roots.append(contentsOf: apiUsageLogFolderURLs)
         if let codexHome = environmentCodexHomeURL {
             roots.append(codexHome.appendingPathComponent("sessions", isDirectory: true))
             roots.append(codexHome.appendingPathComponent("archived_sessions", isDirectory: true))
         }
         roots.append(contentsOf: customLogFolderURLs)
         return uniqueDirectoryURLs(roots)
+    }
+
+    static var apiUsageLogFolderURLs: [URL] {
+        uniqueDirectoryURLs([
+            defaultCodexAPIHomeURL.appendingPathComponent("sessions", isDirectory: true),
+            defaultCodexAPIHomeURL.appendingPathComponent("archived_sessions", isDirectory: true)
+        ])
     }
 
     static var logFolderDisplayPath: String {
@@ -1729,6 +1763,10 @@ enum AppSettings {
         appSupportDirectoryURL.appendingPathComponent("api-usage.json")
     }
 
+    static var openRouterPricingCatalogCacheURL: URL {
+        appSupportDirectoryURL.appendingPathComponent("openrouter-model-pricing.json")
+    }
+
     static var logFolderURL: URL {
         get {
             customLogFolderURLs.last ?? defaultLogFolderURL
@@ -1805,6 +1843,8 @@ enum AppSettings {
             return "claude.\(base)"
         case .all:
             return nil
+        case .api:
+            return nil
         }
     }
 
@@ -1816,6 +1856,8 @@ enum AppSettings {
             return monthlyPlanCost
         case .claude:
             return defaultClaudeMonthlyPlanCost
+        case .api:
+            return 0
         }
     }
 
@@ -1830,6 +1872,8 @@ enum AppSettings {
             guard let key = platformCostKey(monthlyPlanCostKey, source: source) else { return defaultMonthlyPlanCost(for: source) }
             let stored = UserDefaults.standard.double(forKey: key)
             return stored > 0 ? stored : defaultMonthlyPlanCost(for: source)
+        case .api:
+            return 0
         }
     }
 
@@ -1840,6 +1884,8 @@ enum AppSettings {
         case .codex, .claude:
             guard let key = platformCostKey(monthlyPlanCostKey, source: source) else { return }
             UserDefaults.standard.set(max(0, value), forKey: key)
+        case .api:
+            return
         }
     }
 
@@ -1867,6 +1913,8 @@ enum AppSettings {
                 return paymentCurrency
             }
             return currency
+        case .api:
+            return displayCurrency
         }
     }
 
@@ -1877,6 +1925,8 @@ enum AppSettings {
         case .codex, .claude:
             guard let key = platformCostKey(paymentCurrencyKey, source: source) else { return }
             UserDefaults.standard.set(currency.rawValue, forKey: key)
+        case .api:
+            return
         }
     }
 
@@ -1904,6 +1954,8 @@ enum AppSettings {
                 return displayCurrency
             }
             return currency
+        case .api:
+            return displayCurrency
         }
     }
 
@@ -1914,6 +1966,8 @@ enum AppSettings {
         case .codex, .claude:
             guard let key = platformCostKey(displayCurrencyKey, source: source) else { return }
             UserDefaults.standard.set(currency.rawValue, forKey: key)
+        case .api:
+            return
         }
     }
 
@@ -1965,6 +2019,8 @@ enum AppSettings {
             guard let key = platformCostKey(paymentStartDayKey, source: source) else { return paymentStartDay }
             let value = UserDefaults.standard.string(forKey: key)
             return (value?.isEmpty == false) ? value : paymentStartDay
+        case .api:
+            return nil
         }
     }
 
@@ -1979,6 +2035,8 @@ enum AppSettings {
             } else {
                 UserDefaults.standard.removeObject(forKey: key)
             }
+        case .api:
+            return
         }
     }
 

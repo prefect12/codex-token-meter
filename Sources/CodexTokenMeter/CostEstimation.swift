@@ -5,6 +5,178 @@ import UserNotifications
 
 // MARK: - Cost History And Estimation
 
+struct OpenRouterPricingCatalogStatus {
+    let modelCount: Int
+    let fetchedAt: Date?
+}
+
+/// Read-only pricing catalog backed by OpenRouter's public Models API.
+/// Only model identifiers and token prices are persisted; no API key, usage,
+/// prompts, or response content is sent to OpenRouter.
+final class OpenRouterPricingCatalog {
+    static let shared = OpenRouterPricingCatalog(
+        cacheURL: AppSettings.openRouterPricingCatalogCacheURL,
+        endpointURL: URL(string: "https://openrouter.ai/api/v1/models?output_modalities=text")!
+    )
+
+    private struct CacheFile: Codable {
+        let version: Int
+        let fetchedAt: Date
+        let modelCount: Int
+        let rates: [String: APIModelRate]
+    }
+
+    private let cacheURL: URL
+    private let endpointURL: URL
+    private let session: URLSession
+    private let lock = NSLock()
+    private var rates: [String: APIModelRate] = [:]
+    private var fetchedAt: Date?
+    private var modelCount = 0
+    private var refreshInFlight = false
+    private let refreshInterval: TimeInterval = 24 * 60 * 60
+
+    init(cacheURL: URL, endpointURL: URL, session: URLSession? = nil) {
+        self.cacheURL = cacheURL
+        self.endpointURL = endpointURL
+        if let session {
+            self.session = session
+        } else {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = 20
+            configuration.timeoutIntervalForResource = 30
+            self.session = URLSession(configuration: configuration)
+        }
+        loadCache()
+    }
+
+    func rate(for modelName: String) -> APIModelRate? {
+        let key = Self.normalizedKey(modelName)
+        lock.lock()
+        defer { lock.unlock() }
+        if let exact = rates[key] {
+            return exact
+        }
+        if key.hasSuffix("-latest") {
+            return rates[String(key.dropLast("-latest".count))]
+        }
+        return rates["\(key)-latest"]
+    }
+
+    func status() -> OpenRouterPricingCatalogStatus {
+        lock.lock()
+        defer { lock.unlock() }
+        return OpenRouterPricingCatalogStatus(modelCount: modelCount, fetchedAt: fetchedAt)
+    }
+
+    func refreshIfNeeded(force: Bool = false, completion: ((Bool) -> Void)? = nil) {
+        lock.lock()
+        let fresh = fetchedAt.map { Date().timeIntervalSince($0) < refreshInterval } ?? false
+        if refreshInFlight || (!force && fresh) {
+            lock.unlock()
+            completion?(false)
+            return
+        }
+        refreshInFlight = true
+        lock.unlock()
+
+        session.dataTask(with: endpointURL) { [weak self] data, response, _ in
+            guard let self else { return }
+            let statusCode = (response as? HTTPURLResponse)?.statusCode
+            let parsed = data.flatMap(Self.parseCatalog)
+            let succeeded = statusCode.map { (200..<300).contains($0) } != false
+                && parsed?.rates.isEmpty == false
+            if let parsed, succeeded {
+                let now = Date()
+                self.lock.lock()
+                self.rates = parsed.rates
+                self.modelCount = parsed.modelCount
+                self.fetchedAt = now
+                self.refreshInFlight = false
+                self.lock.unlock()
+                self.saveCache(CacheFile(version: 1, fetchedAt: now, modelCount: parsed.modelCount, rates: parsed.rates))
+            } else {
+                self.lock.lock()
+                self.refreshInFlight = false
+                self.lock.unlock()
+            }
+            completion?(succeeded)
+        }.resume()
+    }
+
+    static func parseCatalog(_ data: Data) -> (rates: [String: APIModelRate], modelCount: Int)? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = root["data"] as? [[String: Any]] else {
+            return nil
+        }
+        var result: [String: APIModelRate] = [:]
+        for model in models {
+            guard let id = model["id"] as? String,
+                  let pricing = model["pricing"] as? [String: Any],
+                  let prompt = number(pricing["prompt"]),
+                  let completion = number(pricing["completion"]) else {
+                continue
+            }
+            let cacheRead = number(pricing["input_cache_read"]) ?? prompt
+            let cacheWrite = number(pricing["input_cache_write"])
+            let rate = APIModelRate(
+                inputPerMillionUSD: prompt * 1_000_000,
+                cachedInputPerMillionUSD: cacheRead * 1_000_000,
+                outputPerMillionUSD: completion * 1_000_000,
+                cacheCreationInputPerMillionUSD: cacheWrite.map { $0 * 1_000_000 }
+            )
+            var aliases = [id]
+            if let canonical = model["canonical_slug"] as? String {
+                aliases.append(canonical)
+            }
+            for alias in aliases {
+                let key = normalizedKey(alias)
+                result[key] = rate
+                if key.hasSuffix("-latest") {
+                    result[String(key.dropLast("-latest".count))] = rate
+                }
+            }
+        }
+        return (result, models.count)
+    }
+
+    private static func normalizedKey(_ value: String) -> String {
+        var key = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        while key.hasPrefix("~") {
+            key.removeFirst()
+        }
+        return key
+    }
+
+    private static func number(_ value: Any?) -> Double? {
+        if let value = value as? Double { return value }
+        if let value = value as? Int { return Double(value) }
+        if let value = value as? String { return Double(value) }
+        return nil
+    }
+
+    private func loadCache() {
+        guard let data = try? Data(contentsOf: cacheURL),
+              let cache = try? JSONDecoder().decode(CacheFile.self, from: data),
+              cache.version == 1 else {
+            return
+        }
+        rates = cache.rates
+        fetchedAt = cache.fetchedAt
+        modelCount = cache.modelCount
+    }
+
+    private func saveCache(_ cache: CacheFile) {
+        do {
+            try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try JSONEncoder.prettySorted.encode(cache)
+            try data.write(to: cacheURL, options: [.atomic])
+        } catch {
+            NSLog("AI Token Meter failed to save OpenRouter pricing catalog: \(error)")
+        }
+    }
+}
+
 struct CostHistoryWeekSnapshot: Codable {
     var limitID: String
     var limitName: String
@@ -704,6 +876,7 @@ struct DashboardState {
     var report = TokenReport()
     var codexReport: TokenReport?
     var claudeReport: TokenReport?
+    var apiReport: TokenReport?
     var profileReport: TokenReport?
     var accountUsage: AccountUsageSnapshot?
     var costReferenceReport: TokenReport?

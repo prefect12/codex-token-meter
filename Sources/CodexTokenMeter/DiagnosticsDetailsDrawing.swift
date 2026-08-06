@@ -33,7 +33,39 @@ extension UsageDetailsView {
     }
 
     private func sourceDiagnostics(snapshot: DetailsSnapshot) -> [(String, String, NSColor)] {
-        selectedDetailsSource == .claude ? claudeSourceDiagnostics(snapshot: snapshot) : codexSourceDiagnostics(snapshot: snapshot)
+        switch selectedDetailsSource {
+        case .all:
+            let report = sourceReport(for: snapshot, source: .all)
+            let sources = QuotaViewOption.visiblePlatformCases.map(detailsSourceTitle).joined(separator: " + ")
+            return [
+                (t(.sourceHealth), sources, accentTeal),
+                (t(.cacheHit), String(format: "%.0f%%", report.usage.cachePercent), accentTeal),
+                (t(.models), "\(report.modelBreakdown.count)", accentTeal),
+                (t(.sessions), "\(report.sessions)", accentTeal),
+                (t(.turns), "\(report.turns)", accentTeal)
+            ]
+        case .claude:
+            return claudeSourceDiagnostics(snapshot: snapshot)
+        case .api:
+            return apiSourceDiagnostics(snapshot: snapshot)
+        case .codex:
+            return codexSourceDiagnostics(snapshot: snapshot)
+        }
+    }
+
+    private func apiSourceDiagnostics(snapshot: DetailsSnapshot) -> [(String, String, NSColor)] {
+        let url = AppSettings.externalAPICostURL
+        let report = snapshot.api
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        let pricing = OpenRouterPricingCatalog.shared.status()
+        return [
+            ("Classification", "Non-subscription providers", accentTeal),
+            ("API rollouts", report.modelBreakdown.isEmpty ? t(.fileMissing) : "\(report.modelBreakdown.count) models", report.modelBreakdown.isEmpty ? accentAmber : accentTeal),
+            ("OpenRouter prices", pricing.modelCount > 0 ? "\(pricing.modelCount) models" : t(.fileMissing), pricing.modelCount > 0 ? accentTeal : accentAmber),
+            ("api-usage.json", exists ? t(.filePresent) : t(.fileMissing), exists ? accentTeal : accentAmber),
+            (t(.total), compact(report.usage.total), report.usage.total > 0 ? accentTeal : accentAmber),
+            (t(.models), "\(report.modelBreakdown.count)", report.modelBreakdown.isEmpty ? accentAmber : accentTeal)
+        ]
     }
 
     private func codexSourceDiagnostics(snapshot: DetailsSnapshot) -> [(String, String, NSColor)] {
@@ -88,14 +120,15 @@ extension UsageDetailsView {
             claudeStatuslineText = "not captured: \(shortenedPath(claudeStatuslineStore.path))"
             claudeStatuslineColor = accentAmber
         }
+        let report = snapshot.claude
         return [
             (t(.claudeLogs), AppSettings.claudeLogFolderDisplayPath, claudeRootExists ? accentTeal : accentAmber),
             (t(.recentRollouts), "\(claudeLogs) files / 14d", claudeLogs > 0 ? accentTeal : accentAmber),
             ("Claude statusline", claudeStatuslineText, claudeStatuslineColor),
-            (t(.cacheHit), String(format: "%.0f%%", snapshot.all.usage.cachePercent), accentTeal),
-            (t(.models), "\(snapshot.all.modelBreakdown.count)", accentTeal),
-            (t(.sessions), "\(snapshot.all.sessions)", accentTeal),
-            (t(.turns), "\(snapshot.all.turns)", accentTeal)
+            (t(.cacheHit), String(format: "%.0f%%", report.usage.cachePercent), accentTeal),
+            (t(.models), "\(report.modelBreakdown.count)", accentTeal),
+            (t(.sessions), "\(report.sessions)", accentTeal),
+            (t(.turns), "\(report.turns)", accentTeal)
         ]
     }
 

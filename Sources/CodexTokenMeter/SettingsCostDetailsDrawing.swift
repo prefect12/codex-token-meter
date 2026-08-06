@@ -83,9 +83,24 @@ extension UsageDetailsView {
             drawSelectablePill(style.title, rect: optionRect, selected: style == NumberUnitStyle.effective)
         }
 
+        drawSettingText(title: t(.visibleUsageSources), hint: t(.visibleUsageSourcesHint), x: page.minX, y: page.minY + 306, width: labelW)
+        let visibleSourceControls: [(String, NSSwitch)] = [
+            ("Codex", visibleCodexSourceSwitch),
+            ("Claude", visibleClaudeSourceSwitch),
+            ("API", visibleAPISourceSwitch)
+        ]
+        for (title, sourceSwitch) in visibleSourceControls {
+            drawRight(
+                title,
+                rect: NSRect(x: sourceSwitch.frame.minX - 66, y: page.minY + 304, width: 60, height: 20),
+                color: NSColor.white.withAlphaComponent(0.74),
+                font: .systemFont(ofSize: 11, weight: .semibold)
+            )
+        }
+
         let statusTextW = max(labelW, statusPrimaryMetricPopup.frame.minX - page.minX - 12)
-        drawSettingText(title: t(.statusBarMetricOne), hint: t(.statusDisplayHint), x: page.minX, y: page.minY + 306, width: statusTextW)
-        drawSettingText(title: t(.statusBarMetricTwo), hint: "", x: page.minX, y: page.minY + 376, width: statusTextW)
+        drawSettingText(title: t(.statusBarMetricOne), hint: t(.statusDisplayHint), x: page.minX, y: page.minY + 384, width: statusTextW)
+        drawSettingText(title: t(.statusBarMetricTwo), hint: "", x: page.minX, y: page.minY + 454, width: statusTextW)
     }
 
     func drawDataSettings(in page: NSRect) {

@@ -86,6 +86,23 @@ struct TokenEvent: Codable {
     let limitID: String?
     let limitName: String?
     let model: String?
+    let provider: String?
+
+    init(
+        timestamp: Date,
+        usage: Usage,
+        limitID: String?,
+        limitName: String?,
+        model: String?,
+        provider: String? = nil
+    ) {
+        self.timestamp = timestamp
+        self.usage = usage
+        self.limitID = limitID
+        self.limitName = limitName
+        self.model = model
+        self.provider = provider
+    }
 }
 
 struct DayUsage: Codable {
@@ -208,7 +225,249 @@ struct ExternalAPICostSnapshot {
     }
 }
 
-struct APIModelRate {
+/// A direct-provider usage report imported from the optional local API usage
+/// file. The file is deliberately local and read-only; no API credentials or
+/// prompts are ever handled by Token Meter.
+enum ExternalAPIUsageStore {
+    static func readReport(window: WindowOption, url: URL = AppSettings.externalAPICostURL, now: Date = Date()) -> TokenReport {
+        switch window {
+        case .day:
+            return filteredReport(readReport(url: url), from: now.addingTimeInterval(-24 * 3600), to: now, fillDayCount: nil)
+        case .week:
+            let calendar = appCalendar()
+            let start = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -6, to: now) ?? now)
+            return filteredReport(readReport(url: url), from: start, to: now, fillDayCount: 7)
+        case .month:
+            let calendar = appCalendar()
+            let start = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -29, to: now) ?? now)
+            return filteredReport(readReport(url: url), from: start, to: now, fillDayCount: 30)
+        }
+    }
+
+    static func readReport(hours: Int, url: URL = AppSettings.externalAPICostURL, now: Date = Date()) -> TokenReport {
+        filteredReport(readReport(url: url), from: now.addingTimeInterval(-Double(max(hours, 1)) * 3600), to: now, fillDayCount: nil)
+    }
+
+    static func readReport(days: Int, url: URL = AppSettings.externalAPICostURL, now: Date = Date()) -> TokenReport {
+        let dayCount = max(days, 1)
+        let calendar = appCalendar()
+        let start = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -(dayCount - 1), to: now) ?? now)
+        return filteredReport(readReport(url: url), from: start, to: now, fillDayCount: dayCount)
+    }
+
+    static func readReport(from start: Date, to end: Date, url: URL = AppSettings.externalAPICostURL) -> TokenReport {
+        filteredReport(readReport(url: url), from: min(start, end), to: max(start, end), fillDayCount: nil)
+    }
+
+    static func readReport(url: URL = AppSettings.externalAPICostURL) -> TokenReport {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return TokenReport()
+        }
+
+        let updatedAt = date(object["updated_at"] ?? object["updatedAt"])
+        let topUsage = usage(object["usage"] as? [String: Any] ?? object)
+        let daysValue = object["by_day"] ?? object["byDay"] ?? object["days"]
+        let days = (daysValue as? [[String: Any]] ?? []).compactMap(day)
+        let hoursValue = object["by_hour"] ?? object["byHour"] ?? object["hours"]
+        let hours = (hoursValue as? [[String: Any]] ?? []).compactMap(hour)
+        var models = mergedModels(
+            (object["models"] as? [[String: Any]] ?? object["model_breakdown"] as? [[String: Any]] ?? []).compactMap(model)
+        )
+        if models.isEmpty {
+            models = mergedModels(days.flatMap(\.modelBreakdown))
+        }
+
+        var report = TokenReport()
+        report.byDay = days.sorted { $0.day < $1.day }
+        report.byHour = hours.sorted { $0.hour < $1.hour }
+        report.modelBreakdown = models
+        report.usage = topUsage.total > 0 || topUsage.input > 0 || topUsage.output > 0
+            ? topUsage
+            : days.reduce(Usage()) { partial, day in
+                var value = partial
+                value.add(day.usage)
+                return value
+            }
+        if report.usage.total == 0 {
+            report.usage.total = int64(object["total_tokens"] ?? object["tokens"] ?? object["usage_tokens"]) ?? 0
+        }
+        if report.usage.input == 0, report.usage.output == 0, report.usage.total > 0 {
+            report.usage.input = report.usage.total
+        }
+        report.turns = days.reduce(0) { $0 + $1.turns }
+        report.events = days.reduce(0) { $0 + $1.events }
+        report.sessions = days.reduce(0) { $0 + $1.sessions }
+        if report.turns == 0, report.usage.total > 0 { report.turns = 1 }
+        if report.events == 0, report.usage.total > 0 { report.events = 1 }
+        if report.byDay.isEmpty, report.usage.total > 0 {
+            let day = updatedAt.map { appCalendar().startOfDay(for: $0) } ?? appCalendar().startOfDay(for: Date())
+            let formatter = DateFormatter()
+            formatter.calendar = appCalendar()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyy-MM-dd"
+            report.byDay = [DayUsage(day: formatter.string(from: day), usage: report.usage, turns: report.turns, sessions: report.sessions, events: report.events, modelBreakdown: models)]
+        }
+        report.scannedAt = updatedAt ?? Date()
+        return report
+    }
+
+    private static func filteredReport(_ source: TokenReport, from start: Date, to end: Date, fillDayCount: Int?) -> TokenReport {
+        let calendar = appCalendar()
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let startDay = formatter.string(from: start)
+        let endDay = formatter.string(from: end)
+        let selectedDays = source.byDay.filter { $0.day >= startDay && $0.day <= endDay }
+        let selectedHours = source.byHour.filter { $0.hour >= start && $0.hour <= end }
+
+        var report = TokenReport(scannedAt: source.scannedAt)
+        report.byHour = selectedHours
+        if let fillDayCount {
+            let existing = Dictionary(uniqueKeysWithValues: selectedDays.map { ($0.day, $0) })
+            report.byDay = (0..<fillDayCount).compactMap { offset in
+                guard let date = calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: start)) else { return nil }
+                let key = formatter.string(from: date)
+                return existing[key] ?? DayUsage(day: key, usage: Usage(), turns: 0)
+            }
+        } else {
+            report.byDay = selectedDays
+        }
+
+        if !selectedHours.isEmpty {
+            for hour in selectedHours {
+                report.usage.add(hour.usage)
+                report.turns += hour.turns
+            }
+        } else {
+            for day in selectedDays {
+                report.usage.add(day.usage)
+                report.turns += day.turns
+                report.sessions += day.sessions
+                report.events += day.events
+            }
+        }
+        report.modelBreakdown = mergedModels(selectedDays.flatMap(\.modelBreakdown))
+        if report.modelBreakdown.isEmpty,
+           selectedDays.count == source.byDay.count,
+           !source.modelBreakdown.isEmpty {
+            report.modelBreakdown = source.modelBreakdown
+        }
+        report.topSessions = source.topSessions.filter { $0.lastEvent >= start && $0.lastEvent <= end }
+        report.limitNames = source.limitNames
+        return report
+    }
+
+    private static func day(_ object: [String: Any]) -> DayUsage? {
+        let key = (object["day"] ?? object["date"] ?? object["start_date"]) as? String
+        guard let key, !key.isEmpty else { return nil }
+        let usageValue = object["usage"] as? [String: Any] ?? object
+        let models = mergedModels(
+            (object["models"] as? [[String: Any]] ?? object["model_breakdown"] as? [[String: Any]] ?? []).compactMap(model)
+        )
+        return DayUsage(
+            day: key,
+            usage: usage(usageValue),
+            turns: int(object["turns"]) ?? int(object["requests"]) ?? 0,
+            sessions: int(object["sessions"]) ?? 0,
+            events: int(object["events"]) ?? int(object["requests"]) ?? 0,
+            modelBreakdown: models
+        )
+    }
+
+    private static func hour(_ object: [String: Any]) -> HourUsage? {
+        guard let value = object["hour"] ?? object["timestamp"] ?? object["start_time"],
+              let parsed = date(value) else { return nil }
+        return HourUsage(
+            hour: parsed,
+            usage: usage(object["usage"] as? [String: Any] ?? object),
+            turns: int(object["turns"] ?? object["requests"]) ?? 0
+        )
+    }
+
+    private static func model(_ object: [String: Any]) -> ModelUsage? {
+        guard let name = (object["name"] ?? object["model"]) as? String, !name.isEmpty else { return nil }
+        return ModelUsage(
+            name: canonicalModelName(name),
+            usage: usage(object["usage"] as? [String: Any] ?? object),
+            turns: int(object["turns"]) ?? int(object["requests"]) ?? 0,
+            events: int(object["events"]) ?? int(object["requests"]) ?? 0,
+            sessions: int(object["sessions"]) ?? 0
+        )
+    }
+
+    private static func canonicalModelName(_ name: String) -> String {
+        switch name.lowercased() {
+        case "deepseek-chat", "deepseek-reasoner", "deepseek/deepseek-v4-flash":
+            return "deepseek-v4-flash"
+        case "deepseek/deepseek-v4-pro":
+            return "deepseek-v4-pro"
+        default:
+            return name
+        }
+    }
+
+    private static func mergedModels(_ models: [ModelUsage]) -> [ModelUsage] {
+        var buckets: [String: ModelUsage] = [:]
+        for model in models {
+            var merged = buckets[model.name] ?? ModelUsage(
+                name: model.name,
+                usage: Usage(),
+                events: 0,
+                sessions: 0
+            )
+            merged.usage.add(model.usage)
+            merged.turns += model.turns
+            merged.events += model.events
+            merged.sessions += model.sessions
+            buckets[model.name] = merged
+        }
+        return buckets.values.sorted { lhs, rhs in
+            if lhs.usage.total != rhs.usage.total {
+                return lhs.usage.total > rhs.usage.total
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private static func usage(_ object: [String: Any]) -> Usage {
+        let input = int64(object["input"] ?? object["input_tokens"] ?? object["prompt_tokens"]) ?? 0
+        let cached = int64(object["cached_input"] ?? object["cachedInput"] ?? object["cache_read_input_tokens"] ?? object["cached_tokens"]) ?? 0
+        let output = int64(object["output"] ?? object["output_tokens"] ?? object["completion_tokens"]) ?? 0
+        let total = int64(object["total"] ?? object["total_tokens"] ?? object["tokens"]) ?? max(0, input + output)
+        return Usage(input: input, cachedInput: cached, output: output, total: total)
+    }
+
+    private static func date(_ value: Any?) -> Date? {
+        guard let value else { return nil }
+        if let number = value as? Double { return Date(timeIntervalSince1970: number) }
+        if let string = value as? String {
+            return ISO8601DateFormatter().date(from: string)
+                ?? { let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"; return formatter.date(from: string) }()
+        }
+        return nil
+    }
+
+    private static func int(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? Int64 { return Int(value) }
+        if let value = value as? Double { return Int(value) }
+        if let value = value as? String { return Int(value) }
+        return nil
+    }
+
+    private static func int64(_ value: Any?) -> Int64? {
+        if let value = value as? Int64 { return value }
+        if let value = value as? Int { return Int64(value) }
+        if let value = value as? Double { return Int64(value) }
+        if let value = value as? String { return Int64(value) }
+        return nil
+    }
+}
+
+struct APIModelRate: Codable, Equatable {
     let inputPerMillionUSD: Double
     let cachedInputPerMillionUSD: Double
     let outputPerMillionUSD: Double
@@ -217,12 +476,10 @@ struct APIModelRate {
 }
 
 enum APICostEstimator {
-    private static let defaultUnlabeledModelName = "gpt-5.6-sol"
-
     static func estimate(report: TokenReport) -> APICostEstimate {
         var estimate = APICostEstimate()
         if report.modelBreakdown.isEmpty {
-            return Self.estimateAsDefaultModel(usage: report.usage)
+            return APICostEstimate(usdValue: 0, pricedTokens: 0, totalTokens: report.usage.total)
         }
 
         var modelTotal: Int64 = 0
@@ -231,7 +488,7 @@ enum APICostEstimator {
             estimate.add(Self.estimate(usage: model.usage, modelName: model.name))
         }
         if report.usage.total > modelTotal {
-            estimate.add(Self.estimateAsDefaultModel(totalTokens: report.usage.total - modelTotal))
+            estimate.totalTokens += report.usage.total - modelTotal
         }
         return estimate
     }
@@ -239,7 +496,7 @@ enum APICostEstimator {
     static func estimate(day: DayUsage) -> APICostEstimate {
         var estimate = APICostEstimate()
         if day.modelBreakdown.isEmpty {
-            return Self.estimateAsDefaultModel(usage: day.usage)
+            return APICostEstimate(usdValue: 0, pricedTokens: 0, totalTokens: day.usage.total)
         }
 
         var modelTotal: Int64 = 0
@@ -248,7 +505,7 @@ enum APICostEstimator {
             estimate.add(Self.estimate(usage: model.usage, modelName: model.name))
         }
         if day.usage.total > modelTotal {
-            estimate.add(Self.estimateAsDefaultModel(totalTokens: day.usage.total - modelTotal))
+            estimate.totalTokens += day.usage.total - modelTotal
         }
         return estimate
     }
@@ -274,23 +531,19 @@ enum APICostEstimator {
         return APICostEstimate(usdValue: value, pricedTokens: usage.total, totalTokens: usage.total)
     }
 
-    private static func estimateAsDefaultModel(totalTokens: Int64) -> APICostEstimate {
-        guard totalTokens > 0 else { return APICostEstimate() }
-        return estimate(
-            usage: Usage(input: totalTokens, cachedInput: 0, output: 0, reasoningOutput: 0, total: totalTokens),
-            modelName: defaultUnlabeledModelName
-        )
-    }
-
-    private static func estimateAsDefaultModel(usage: Usage) -> APICostEstimate {
-        if usage.input == 0 && usage.output == 0 && usage.total > 0 {
-            return estimateAsDefaultModel(totalTokens: usage.total)
-        }
-        return estimate(usage: usage, modelName: defaultUnlabeledModelName)
-    }
-
     private static func rate(for modelName: String) -> APIModelRate? {
+        if let catalogRate = OpenRouterPricingCatalog.shared.rate(for: modelName) {
+            return catalogRate
+        }
         let name = modelName.lowercased()
+        if name.contains("deepseek-v4-pro") {
+            return APIModelRate(inputPerMillionUSD: 0.435, cachedInputPerMillionUSD: 0.003625, outputPerMillionUSD: 0.87)
+        }
+        if name.contains("deepseek-v4-flash")
+            || name.contains("deepseek-chat")
+            || name.contains("deepseek-reasoner") {
+            return APIModelRate(inputPerMillionUSD: 0.14, cachedInputPerMillionUSD: 0.0028, outputPerMillionUSD: 0.28)
+        }
         if name.contains("gpt-5.6-luna") || name.contains("gpt-5.6 luna") {
             return APIModelRate(inputPerMillionUSD: 1, cachedInputPerMillionUSD: 0.1, outputPerMillionUSD: 6, cacheCreationInputPerMillionUSD: 1.25)
         }
