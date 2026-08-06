@@ -317,7 +317,8 @@ extension UsageDetailsView {
         let visible = selectedSection == .models && snapshot != nil
         let content = sectionContent(for: .models, in: bounds, sidebarWidth: detailsSidebarWidth)
         modelDateRangeControls.layout(content: content, visible: visible)
-        modelControls.layout(content: content, tableY: content.minY + 264, visible: visible)
+        let tableY = content.minY + 120 + quotaRowsPreferredHeight() + 16
+        modelControls.layout(content: content, tableY: tableY, visible: visible)
     }
 
     func layoutStorageControls() {

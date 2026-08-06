@@ -206,7 +206,7 @@ enum DetailsSection: CaseIterable {
     }
 
     var isVisibleInDetailsNavigation: Bool {
-        self != .combinationRanking
+        self != .costs && self != .combinationRanking
     }
 
     var visibleFallback: DetailsSection {
@@ -1553,7 +1553,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             targetHeight = contentWidth < 900 ? 1_390 : 968
         case .models:
             let tableHeight = snapshot.map { modelListPresentation(for: $0).tableHeight } ?? 132
-            targetHeight = 452 + tableHeight
+            targetHeight = 324 + quotaRowsPreferredHeight() + tableHeight
         case .modelRouting:
             targetHeight = 494 + CGFloat(max(1, modelRoutingControls.visibleProjects.count)) * 72
         case .calendar:

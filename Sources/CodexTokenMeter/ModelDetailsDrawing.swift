@@ -27,10 +27,12 @@ extension UsageDetailsView {
             font: .systemFont(ofSize: 11, weight: .semibold),
             color: NSColor.white.withAlphaComponent(0.52)
         )
-        drawQuotaRows(snapshot: snapshot, content: content, y: content.minY + 120, height: 128)
+        let quotaRowsY = content.minY + 120
+        let quotaRowsHeight = quotaRowsPreferredHeight()
+        drawQuotaRows(snapshot: snapshot, content: content, y: quotaRowsY, height: quotaRowsHeight)
         let presentation = modelListPresentation(for: snapshot)
         let tableHeight = presentation.tableHeight
-        let tableY = content.minY + 264
+        let tableY = quotaRowsY + quotaRowsHeight + 16
         drawModelsTable(presentation: presentation, content: content, y: tableY, height: tableHeight)
         let noteY = tableY + tableHeight + 16
         let noteRect = NSRect(x: content.minX, y: noteY, width: content.width, height: min(116, content.maxY - noteY))
@@ -152,29 +154,20 @@ extension UsageDetailsView {
         drawRight(t(.output), rect: NSRect(x: outputX, y: headerY, width: outputW, height: 14), color: NSColor.white.withAlphaComponent(0.38), font: .systemFont(ofSize: 10, weight: .bold))
         for (index, row) in rows.enumerated() {
             let rowY = rect.minY + 52 + CGFloat(index) * 22
-            let rowRect = NSRect(x: rect.minX + 10, y: rowY - 2, width: rect.width - 20, height: 21)
-            let rowIndex = modelUsageHoverRows.count
-            modelUsageHoverRows.append(ModelUsageHoverRow(
-                rect: rowRect,
-                title: row.0,
-                subtitle: row.1,
-                usage: row.2.usage,
-                shareText: nil,
-                sessions: row.2.sessions,
-                events: row.2.events,
-                apiCostText: nil,
-                apiCostColor: accentTeal
-            ))
-            if hoveredModelUsageRowIndex == rowIndex {
-                NSColor.white.withAlphaComponent(0.055).setFill()
-                NSBezierPath(roundedRect: rowRect, xRadius: 5, yRadius: 5).fill()
-            }
             drawText(row.0, rect: NSRect(x: rect.minX + 16, y: rowY, width: 90, height: 18), font: .systemFont(ofSize: 13, weight: .semibold), color: .white)
             drawText(row.1, rect: NSRect(x: descriptionX, y: rowY, width: descriptionW, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.45))
             drawRight(compactDashboardMetric(row.2.usage.total), rect: NSRect(x: totalX, y: rowY, width: totalW, height: 18), color: .white)
             drawRight(compactDashboardMetric(row.2.usage.input), rect: NSRect(x: inputX, y: rowY, width: inputW, height: 18), color: NSColor.white.withAlphaComponent(0.58))
             drawRight(compactDashboardMetric(row.2.usage.output), rect: NSRect(x: outputX, y: rowY, width: outputW, height: 18), color: NSColor.white.withAlphaComponent(0.58))
         }
+    }
+
+    func quotaRowsPreferredHeight() -> CGFloat {
+        let rowCount = selectedDetailsSource == .all
+            ? 1 + QuotaViewOption.visiblePlatformCases.count
+            : 1
+        // Keep a full text-height plus visual breathing room below the final row.
+        return 52 + CGFloat(rowCount - 1) * 22 + 18 + 12
     }
 
     private func drawModelsTable(presentation: ModelListPresentation, content: NSRect, y: CGFloat, height: CGFloat) {
