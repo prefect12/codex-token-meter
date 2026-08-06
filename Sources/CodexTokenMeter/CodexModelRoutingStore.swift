@@ -8,9 +8,24 @@ struct CodexModelOption: Equatable {
     let supportedReasoningEfforts: [String]
 }
 
-struct CodexConfigSelection: Equatable {
+struct CodexConfigSelection: Codable, Equatable {
     var model: String?
     var reasoningEffort: String?
+}
+
+struct CodexProtectedRoutingState: Codable, Equatable {
+    static let currentVersion = 1
+
+    let version: Int
+    let selectionsByPath: [String: CodexConfigSelection]
+
+    init(
+        version: Int = CodexProtectedRoutingState.currentVersion,
+        selectionsByPath: [String: CodexConfigSelection]
+    ) {
+        self.version = version
+        self.selectionsByPath = selectionsByPath
+    }
 }
 
 enum CodexProjectConfigValue: Equatable {
@@ -155,6 +170,49 @@ final class CodexModelRoutingStore {
         ] + snapshot.projects.flatMap { project in
             project.project.rootPaths.map(projectConfigURL(rootPath:))
         }
+    }
+
+    func captureProtectedRoutingState() -> CodexProtectedRoutingState {
+        var selections = [
+            globalConfigURL.standardizedFileURL.path:
+                ((try? readSelection(at: globalConfigURL)) ?? CodexConfigSelection())
+        ]
+        for project in loadProjects() {
+            for rootPath in project.rootPaths {
+                let url = projectConfigURL(rootPath: rootPath).standardizedFileURL
+                selections[url.path] = (try? readSelection(at: url)) ?? CodexConfigSelection()
+            }
+        }
+        return CodexProtectedRoutingState(selectionsByPath: selections)
+    }
+
+    /// Restores only the model-routing keys captured by Token Meter. Other
+    /// Codex settings in the same files are intentionally preserved.
+    @discardableResult
+    func restoreProtectedRoutingState(_ state: CodexProtectedRoutingState) throws -> Bool {
+        guard state.version == CodexProtectedRoutingState.currentVersion else { return false }
+
+        var changed = false
+        let globalPath = globalConfigURL.standardizedFileURL.path
+        if let desiredGlobal = state.selectionsByPath[globalPath],
+           try readSelection(at: globalConfigURL) != desiredGlobal {
+            try writeSelection(desiredGlobal, at: globalConfigURL)
+            changed = true
+        }
+
+        for project in loadProjects() {
+            for rootPath in project.rootPaths {
+                let url = projectConfigURL(rootPath: rootPath).standardizedFileURL
+                // Projects discovered after protection was enabled inherit the
+                // protected global default until configured from Token Meter.
+                let desired = state.selectionsByPath[url.path] ?? CodexConfigSelection()
+                if try readSelection(at: url) != desired {
+                    try writeSelection(desired, at: url)
+                    changed = true
+                }
+            }
+        }
+        return changed
     }
 
     func writeGlobal(model: String, reasoningEffort: String) throws {

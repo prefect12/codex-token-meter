@@ -13,7 +13,8 @@ final class CodexConfigWatcher {
     private let onChange: ChangeHandler
     private var targetURLs: [URL] = []
     private var lastContents: [String: Data?] = [:]
-    private var sources: [String: DispatchSourceFileSystemObject] = [:]
+    private var directorySources: [String: DispatchSourceFileSystemObject] = [:]
+    private var targetFileSources: [String: DispatchSourceFileSystemObject] = [:]
     private var pendingComparison: DispatchWorkItem?
 
     init(
@@ -32,7 +33,10 @@ final class CodexConfigWatcher {
 
     deinit {
         pendingComparison?.cancel()
-        for source in sources.values {
+        for source in directorySources.values {
+            source.cancel()
+        }
+        for source in targetFileSources.values {
             source.cancel()
         }
     }
@@ -50,6 +54,7 @@ final class CodexConfigWatcher {
             self.targetURLs = normalizedTargets
             self.lastContents = self.readContents(of: normalizedTargets)
             self.replaceDirectorySourcesIfNeeded(for: normalizedTargets)
+            self.replaceTargetFileSources(for: normalizedTargets)
             if let ready {
                 self.callbackQueue.async(execute: ready)
             }
@@ -67,12 +72,12 @@ final class CodexConfigWatcher {
             uniquingKeysWith: { first, _ in first }
         )
         let desiredPaths = Set(directoryURLs.keys)
-        guard desiredPaths != Set(sources.keys) else { return }
+        guard desiredPaths != Set(directorySources.keys) else { return }
 
-        for source in sources.values {
+        for source in directorySources.values {
             source.cancel()
         }
-        sources.removeAll()
+        directorySources.removeAll()
 
         for path in desiredPaths.sorted() {
             guard let directoryURL = directoryURLs[path] else { continue }
@@ -89,7 +94,34 @@ final class CodexConfigWatcher {
             source.setCancelHandler {
                 close(descriptor)
             }
-            sources[path] = source
+            directorySources[path] = source
+            source.resume()
+        }
+    }
+
+    private func replaceTargetFileSources(for targets: [URL]) {
+        for source in targetFileSources.values {
+            source.cancel()
+        }
+        targetFileSources.removeAll()
+
+        for target in targets {
+            let path = target.standardizedFileURL.path
+            guard fileManager.fileExists(atPath: path) else { continue }
+            let descriptor = open(path, O_EVTONLY)
+            guard descriptor >= 0 else { continue }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: descriptor,
+                eventMask: [.write, .extend, .attrib, .rename, .delete],
+                queue: queue
+            )
+            source.setEventHandler { [weak self] in
+                self?.scheduleComparison()
+            }
+            source.setCancelHandler {
+                close(descriptor)
+            }
+            targetFileSources[path] = source
             source.resume()
         }
     }

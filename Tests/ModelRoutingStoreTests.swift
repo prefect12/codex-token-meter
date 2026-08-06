@@ -5,6 +5,9 @@ struct ModelRoutingStoreTests {
     static func main() throws {
         try testTopLevelTOMLUpdatePreservesOtherContent()
         try testProjectGroupWritesEveryRoot()
+        try testProtectedDefaultsRestoreOnlyRoutingKeys()
+        try testProtectionPreferenceLifecycle()
+        try testAppLifetimeProtectionRestoresExternalRewrite()
         try testClaudeJSONUpdatePreservesOtherSettings()
         try testClaudeModelCatalogMatchesCurrentSelector()
         try testClaudeProjectWritesStayLocal()
@@ -109,6 +112,245 @@ struct ModelRoutingStoreTests {
         try require(!projectSnapshot.projects[0].inheritsEverything, "turning off inheritance should create project settings")
         try require(projectSnapshot.projects[0].model == .value("gpt-5.6-terra"), "project model should copy the global value")
         try require(projectSnapshot.projects[0].reasoningEffort == .value("medium"), "project effort should copy the global value")
+    }
+
+    private static func testProtectedDefaultsRestoreOnlyRoutingKeys() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-protected-routing-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        let codexHome = temporaryRoot.appendingPathComponent("home", isDirectory: true)
+        let firstRoot = temporaryRoot.appendingPathComponent("first", isDirectory: true)
+        let secondRoot = temporaryRoot.appendingPathComponent("second", isDirectory: true)
+        for url in [codexHome, firstRoot, secondRoot] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+
+        let store = CodexModelRoutingStore(codexHomeURL: codexHome)
+        try Data("""
+        model = "gpt-5.6-luna"
+        model_reasoning_effort = "high"
+        personality = "pragmatic"
+        """.utf8).write(to: store.globalConfigURL)
+        let firstConfig = store.projectConfigURL(rootPath: firstRoot.path)
+        try FileManager.default.createDirectory(
+            at: firstConfig.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("""
+        model = "gpt-5.6-sol"
+        model_reasoning_effort = "medium"
+        sandbox_mode = "danger-full-access"
+        """.utf8).write(to: firstConfig)
+        try writeProjectState(
+            [
+                "first": ("First", [firstRoot.path]),
+            ],
+            to: store.globalStateURL
+        )
+
+        let protected = store.captureProtectedRoutingState()
+
+        try Data("""
+        model = "gpt-5.6-terra"
+        model_reasoning_effort = "low"
+        personality = "friendly"
+        """.utf8).write(to: store.globalConfigURL, options: .atomic)
+        try Data("""
+        model = "gpt-5.6-terra"
+        model_reasoning_effort = "xhigh"
+        sandbox_mode = "read-only"
+        """.utf8).write(to: firstConfig, options: .atomic)
+
+        let secondConfig = store.projectConfigURL(rootPath: secondRoot.path)
+        try FileManager.default.createDirectory(
+            at: secondConfig.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("""
+        model = "gpt-5.6-terra"
+        model_reasoning_effort = "low"
+        approvals_reviewer = "user"
+        """.utf8).write(to: secondConfig)
+        try writeProjectState(
+            [
+                "first": ("First", [firstRoot.path]),
+                "second": ("Second", [secondRoot.path]),
+            ],
+            to: store.globalStateURL
+        )
+
+        let didRestore = try store.restoreProtectedRoutingState(protected)
+        try require(didRestore, "changed routing keys should be restored")
+        let restoredGlobalSelection = try store.readSelection(at: store.globalConfigURL)
+        try require(
+            restoredGlobalSelection
+                == CodexConfigSelection(model: "gpt-5.6-luna", reasoningEffort: "high"),
+            "global Token Meter defaults should win"
+        )
+        let restoredGlobal = try String(contentsOf: store.globalConfigURL, encoding: .utf8)
+        try require(
+            restoredGlobal.contains("personality = \"friendly\""),
+            "unrelated external global changes should be preserved"
+        )
+        let restoredFirstSelection = try store.readSelection(at: firstConfig)
+        try require(
+            restoredFirstSelection
+                == CodexConfigSelection(model: "gpt-5.6-sol", reasoningEffort: "medium"),
+            "captured project defaults should be restored"
+        )
+        let restoredFirst = try String(contentsOf: firstConfig, encoding: .utf8)
+        try require(
+            restoredFirst.contains("sandbox_mode = \"read-only\""),
+            "unrelated project settings should be preserved"
+        )
+        let restoredSecondSelection = try store.readSelection(at: secondConfig)
+        try require(
+            restoredSecondSelection == CodexConfigSelection(),
+            "projects discovered later should inherit the protected global defaults"
+        )
+        let restoredSecond = try String(contentsOf: secondConfig, encoding: .utf8)
+        try require(
+            restoredSecond.contains("approvals_reviewer = \"user\""),
+            "clearing a new project override must preserve unrelated settings"
+        )
+        let didRestoreAgain = try store.restoreProtectedRoutingState(protected)
+        try require(!didRestoreAgain, "an already restored configuration should not be rewritten")
+    }
+
+    private static func testProtectionPreferenceLifecycle() throws {
+        let suiteName = "ModelRoutingProtectionTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw NSError(
+                domain: "ModelRoutingStoreTests",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "could not create isolated defaults"]
+            )
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = CodexModelRoutingProtectionPreferences(defaults: defaults)
+        let initial = CodexProtectedRoutingState(
+            selectionsByPath: [
+                "/tmp/config.toml": CodexConfigSelection(
+                    model: "gpt-5.6-luna",
+                    reasoningEffort: "high"
+                ),
+            ]
+        )
+        try require(!preferences.isEnabled, "protection should default to off")
+        preferences.enable(capturing: initial)
+        try require(preferences.isEnabled, "enabling protection should persist the toggle")
+        try require(
+            preferences.protectedState() == initial,
+            "enabling protection should persist the Token Meter baseline"
+        )
+
+        let updated = CodexProtectedRoutingState(
+            selectionsByPath: [
+                "/tmp/config.toml": CodexConfigSelection(
+                    model: "gpt-5.6-sol",
+                    reasoningEffort: "medium"
+                ),
+            ]
+        )
+        preferences.updateProtectedState(updated)
+        try require(
+            preferences.protectedState() == updated,
+            "Token Meter edits should update the protected baseline"
+        )
+        preferences.disable()
+        try require(!preferences.isEnabled, "disabling protection should persist the toggle")
+        try require(
+            preferences.protectedState() == nil,
+            "disabling protection should discard the old baseline"
+        )
+    }
+
+    private static func testAppLifetimeProtectionRestoresExternalRewrite() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-routing-controller-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        let store = CodexModelRoutingStore(codexHomeURL: temporaryRoot)
+        try Data("""
+        model = "gpt-5.6-luna"
+        model_reasoning_effort = "high"
+        personality = "pragmatic"
+        """.utf8).write(to: store.globalConfigURL)
+
+        let suiteName = "ModelRoutingControllerTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw NSError(
+                domain: "ModelRoutingStoreTests",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "could not create controller defaults"]
+            )
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = CodexModelRoutingProtectionPreferences(defaults: defaults)
+        preferences.enable(capturing: store.captureProtectedRoutingState())
+        let watcherReady = DispatchSemaphore(value: 0)
+        let controller = CodexModelRoutingProtectionController(
+            routingStore: store,
+            preferences: preferences,
+            callbackQueue: DispatchQueue(label: "ModelRoutingControllerTests.callback"),
+            onWatcherReady: {
+                watcherReady.signal()
+            }
+        )
+        defer { withExtendedLifetime(controller) {} }
+        guard watcherReady.wait(timeout: .now() + 2) == .success else {
+            throw NSError(
+                domain: "ModelRoutingStoreTests",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "controller watcher did not become ready"]
+            )
+        }
+
+        try Data("""
+        model = "gpt-5.6-terra"
+        model_reasoning_effort = "low"
+        personality = "friendly"
+        """.utf8).write(to: store.globalConfigURL, options: .atomic)
+
+        let deadline = Date().addingTimeInterval(3)
+        var restored = false
+        while Date() < deadline {
+            if try store.readSelection(at: store.globalConfigURL)
+                == CodexConfigSelection(model: "gpt-5.6-luna", reasoningEffort: "high") {
+                restored = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        try require(
+            restored,
+            "app-lifetime protection should restore an external rewrite without opening the UI"
+        )
+        let source = try String(contentsOf: store.globalConfigURL, encoding: .utf8)
+        try require(
+            source.contains("personality = \"friendly\""),
+            "app-lifetime protection should preserve unrelated external changes"
+        )
+    }
+
+    private static func writeProjectState(
+        _ projects: [String: (String, [String])],
+        to url: URL
+    ) throws {
+        let localProjects = Dictionary(uniqueKeysWithValues: projects.map { id, value in
+            (
+                id,
+                [
+                    "name": value.0,
+                    "rootPaths": value.1,
+                ] as [String: Any]
+            )
+        })
+        let object: [String: Any] = [
+            "local-projects": localProjects,
+            "project-order": projects.keys.sorted(),
+        ]
+        try JSONSerialization.data(withJSONObject: object).write(to: url)
     }
 
     private static func testClaudeJSONUpdatePreservesOtherSettings() throws {

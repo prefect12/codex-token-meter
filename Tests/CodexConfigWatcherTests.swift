@@ -4,8 +4,31 @@ import Foundation
 struct CodexConfigWatcherTests {
     static func main() throws {
         try detectsCreatedAndAtomicallyReplacedConfig()
+        try detectsInPlaceConfigWrite()
         try ignoresUnrelatedDirectoryChanges()
         print("CodexConfigWatcherTests passed")
+    }
+
+    private static func detectsInPlaceConfigWrite() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let configURL = fixture.appendingPathComponent("config.toml")
+        try Data("model = \"gpt-5.6-luna\"\n".utf8).write(to: configURL)
+        let callbackQueue = DispatchQueue(label: "CodexConfigWatcherTests.in-place")
+        let changed = DispatchSemaphore(value: 0)
+        let watcher = CodexConfigWatcher(
+            callbackQueue: callbackQueue,
+            debounceInterval: 0.05
+        ) {
+            changed.signal()
+        }
+        try waitUntilReady(watcher: watcher, target: configURL)
+
+        let handle = try FileHandle(forWritingTo: configURL)
+        try handle.truncate(atOffset: 0)
+        try handle.write(contentsOf: Data("model = \"gpt-5.6-terra\"\n".utf8))
+        try handle.close()
+        try expectSignal(changed, message: "writing an existing config in place should trigger a change")
     }
 
     private static func detectsCreatedAndAtomicallyReplacedConfig() throws {
