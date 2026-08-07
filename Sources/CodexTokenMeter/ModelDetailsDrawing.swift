@@ -128,7 +128,7 @@ extension UsageDetailsView {
                     switch source {
                     case .codex: return (t(.codex), t(.codexDescription), modelSourceReport(for: snapshot, source: .codex))
                     case .claude: return (t(.claude), t(.claudeDescription), modelSourceReport(for: snapshot, source: .claude))
-                    case .api: return ("API", "All non-subscription provider usage + local imports", modelSourceReport(for: snapshot, source: .api))
+                    case .api: return ("API", t(.apiDescription), modelSourceReport(for: snapshot, source: .api))
                     case .all: return (t(.all), t(.allDescription), modelSourceReport(for: snapshot, source: .all))
                     }
                 }
@@ -137,7 +137,7 @@ extension UsageDetailsView {
         case .claude:
             rows = [(t(.claude), t(.claudeDescription), modelSourceReport(for: snapshot, source: .claude))]
         case .api:
-            rows = [("API", "All non-subscription provider usage + local imports", modelSourceReport(for: snapshot, source: .api))]
+            rows = [("API", t(.apiDescription), modelSourceReport(for: snapshot, source: .api))]
         }
         let outputW: CGFloat = 92
         let inputW: CGFloat = 104

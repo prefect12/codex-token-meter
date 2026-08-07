@@ -323,6 +323,7 @@ enum L10nKey {
     case aboutSubtitle
     case all
     case allDescription
+    case apiDescription
     case apiEquivalent
     case apiEquivalentHint
     case before
@@ -604,6 +605,7 @@ enum L10nKey {
         case .aboutSubtitle: return "How the meter reads and groups local usage"
         case .all: return "All"
         case .allDescription: return "Everything with token detail"
+        case .apiDescription: return "All non-subscription provider usage + local imports"
         case .apiEquivalent: return "API equivalent"
         case .apiEquivalentHint: return "Estimated from model-specific API prices. Unlabeled or unknown models remain unpriced."
         case .before: return "Before"
@@ -887,6 +889,7 @@ enum L10nKey {
         case .aboutSubtitle: return "本地用量的读取和分组方式"
         case .all: return "全部"
         case .allDescription: return "包含 token 明细的全部记录"
+        case .apiDescription: return "所有非订阅 provider 用量和本地导入"
         case .apiEquivalent: return "API 等价成本"
         case .apiEquivalentHint: return "按具体模型的 API 单价估算；没有标签或未知模型保持未定价。"
         case .before: return "刷新前"
@@ -1170,6 +1173,7 @@ enum L10nKey {
         case .aboutSubtitle: return "ローカル使用量の読み取りと分類方法"
         case .all: return "すべて"
         case .allDescription: return "token 詳細を含むすべての記録"
+        case .apiDescription: return "サブスクリプション外プロバイダーの使用量とローカル取り込み"
         case .apiEquivalent: return "API 換算"
         case .apiEquivalentHint: return "モデル別 API 単価から推定します。不明なモデルは未価格のまま表示します。"
         case .before: return "更新前"
