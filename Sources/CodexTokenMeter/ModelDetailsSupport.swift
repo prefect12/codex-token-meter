@@ -184,13 +184,17 @@ private enum ModelDateRangePreset: Int, CaseIterable {
     case last7Days
     case last30Days
     case last90Days
+    case allHistory
     case custom
+
+    static let quickPresets: [ModelDateRangePreset] = [.last7Days, .last30Days, .last90Days, .allHistory]
 
     var dayCount: Int? {
         switch self {
         case .last7Days: return 7
         case .last30Days: return 30
         case .last90Days: return 90
+        case .allHistory: return nil
         case .custom: return nil
         }
     }
@@ -205,6 +209,8 @@ private enum ModelDateRangePreset: Int, CaseIterable {
             return isSimplifiedChinese ? "30 天" : (isTraditionalChinese ? "30 天" : "30 days")
         case .last90Days:
             return isSimplifiedChinese ? "90 天" : (isTraditionalChinese ? "90 天" : "90 days")
+        case .allHistory:
+            return isSimplifiedChinese ? "全部" : (isTraditionalChinese ? "全部" : "All")
         case .custom:
             return isSimplifiedChinese ? "自定义" : (isTraditionalChinese ? "自訂" : "Custom")
         }
@@ -721,7 +727,7 @@ final class ModelDateRangeControls: NSObject {
 
     func install(in view: NSView, inputSurfaceColor: NSColor) {
         self.inputSurfaceColor = inputSurfaceColor
-        for preset in [ModelDateRangePreset.last7Days, .last30Days, .last90Days] {
+        for preset in ModelDateRangePreset.quickPresets {
             let button = NSButton(title: preset.title, target: self, action: #selector(quickRangePressed(_:)))
             button.tag = preset.rawValue
             button.isBordered = false
@@ -788,9 +794,9 @@ final class ModelDateRangeControls: NSObject {
         updateButtonTitle()
         updateAccessibilityLabel()
         let gap: CGFloat = 8
-        let customWidth = min(CGFloat(116), max(CGFloat(88), rect.width * 0.36))
-        let buttonWidth = max(CGFloat(42), (rect.width - customWidth - gap * 3) / 3)
-        for (index, preset) in [ModelDateRangePreset.last7Days, .last30Days, .last90Days].enumerated() {
+        let customWidth = min(CGFloat(104), max(CGFloat(82), rect.width * 0.30))
+        let buttonWidth = max(CGFloat(42), (rect.width - customWidth - gap * CGFloat(ModelDateRangePreset.quickPresets.count)) / CGFloat(ModelDateRangePreset.quickPresets.count))
+        for (index, preset) in ModelDateRangePreset.quickPresets.enumerated() {
             quickButtons[preset]?.frame = NSRect(
                 x: rect.minX + CGFloat(index) * (buttonWidth + gap),
                 y: rect.minY,
@@ -798,7 +804,7 @@ final class ModelDateRangeControls: NSObject {
                 height: rect.height
             )
         }
-        let customX = rect.minX + 3 * (buttonWidth + gap)
+        let customX = rect.minX + CGFloat(ModelDateRangePreset.quickPresets.count) * (buttonWidth + gap)
         rangeButton.frame = NSRect(x: customX, y: rect.minY, width: rect.maxX - customX, height: rect.height)
     }
 
@@ -864,12 +870,17 @@ final class ModelDateRangeControls: NSObject {
     }
 
     @objc private func quickRangePressed(_ sender: NSButton) {
-        guard let preset = ModelDateRangePreset(rawValue: sender.tag),
-              let dayCount = preset.dayCount else { return }
+        guard let preset = ModelDateRangePreset(rawValue: sender.tag) else { return }
         let calendar = appCalendar()
         let today = calendar.startOfDay(for: Date())
         selectedPreset = preset
-        startDate = calendar.date(byAdding: .day, value: -(dayCount - 1), to: today) ?? today
+        if preset == .allHistory {
+            startDate = Date(timeIntervalSince1970: 0)
+        } else if let dayCount = preset.dayCount {
+            startDate = calendar.date(byAdding: .day, value: -(dayCount - 1), to: today) ?? today
+        } else {
+            return
+        }
         endDate = today
         popover.performClose(nil)
         updateButtonTitle()
