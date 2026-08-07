@@ -22,6 +22,8 @@
 ## Git Workflow
 
 - Prefer merging changes through pull requests. Do not merge directly into `main` unless the user explicitly asks for it.
+- All source, behavior, or UI changes must use this sequence: a focused branch → PR → merged `main` → fetch `origin/main` → build and install from that exact merged revision. Do not install an unmerged working-tree build as the delivered app.
+- Before calling a change complete, verify the PR merge, confirm local `HEAD` equals `origin/main`, then run the relevant checks and validate the installed `/Applications/AI Token Meter.app` surface.
 
 ## Data Safety
 
