@@ -31,6 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let detailsController = UsageDetailsWindowController()
     private let codexModelRoutingProtectionController =
         CodexModelRoutingProtectionController()
+    private let claudeModelRoutingProtectionController =
+        ClaudeModelRoutingProtectionController()
     private var scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
     private var claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     private let rateLimitReader = LiveRateLimitReader()

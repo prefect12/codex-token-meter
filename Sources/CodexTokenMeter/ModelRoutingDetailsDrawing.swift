@@ -111,6 +111,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     private let codexStore: CodexModelRoutingStore
     private let claudeStore: ClaudeModelRoutingStore
     private let protectionPreferences: CodexModelRoutingProtectionPreferences
+    private let claudeProtectionPreferences: ClaudeModelRoutingProtectionPreferences
     private var configWatcher: CodexConfigWatcher?
     private weak var host: UsageDetailsView?
     private var bindings: [ObjectIdentifier: Binding] = [:]
@@ -134,16 +135,26 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         codexStore: CodexModelRoutingStore = CodexModelRoutingStore(),
         claudeStore: ClaudeModelRoutingStore = ClaudeModelRoutingStore(),
         protectionPreferences: CodexModelRoutingProtectionPreferences =
-            CodexModelRoutingProtectionPreferences()
+            CodexModelRoutingProtectionPreferences(),
+        claudeProtectionPreferences: ClaudeModelRoutingProtectionPreferences =
+            ClaudeModelRoutingProtectionPreferences()
     ) {
         self.codexStore = codexStore
         self.claudeStore = claudeStore
         self.protectionPreferences = protectionPreferences
+        self.claudeProtectionPreferences = claudeProtectionPreferences
         if protectionPreferences.isEnabled {
             if let protected = protectionPreferences.protectedState() {
                 _ = try? codexStore.restoreProtectedRoutingState(protected)
             } else {
                 protectionPreferences.enable(capturing: codexStore.captureProtectedRoutingState())
+            }
+        }
+        if claudeProtectionPreferences.isEnabled {
+            if let protected = claudeProtectionPreferences.protectedState() {
+                _ = try? claudeStore.restoreProtectedRoutingState(protected)
+            } else {
+                claudeProtectionPreferences.enable(capturing: claudeStore.captureProtectedRoutingState())
             }
         }
         selectedPlatform = ModelRoutingPlatform(
@@ -163,6 +174,16 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         protectionPreferences.isEnabled
     }
 
+    private var isClaudeDefaultsProtectionEnabled: Bool {
+        claudeProtectionPreferences.isEnabled
+    }
+
+    var isDefaultsProtectionEnabled: Bool {
+        selectedPlatform == .codex
+            ? isCodexDefaultsProtectionEnabled
+            : isClaudeDefaultsProtectionEnabled
+    }
+
     func setCodexDefaultsProtectionEnabled(_ enabled: Bool) {
         if enabled {
             protectionPreferences.enable(capturing: codexStore.captureProtectedRoutingState())
@@ -177,6 +198,28 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
                 chinese: "已允许 Codex 更新默认配置",
                 english: "Codex may now update defaults",
                 japanese: "Codex による既定設定の更新を許可しました"
+            )
+        }
+        statusIsError = false
+        protectionSwitch.state = enabled ? .on : .off
+        updateConfigWatcher()
+        invalidateLayout()
+    }
+
+    private func setClaudeDefaultsProtectionEnabled(_ enabled: Bool) {
+        if enabled {
+            claudeProtectionPreferences.enable(capturing: claudeStore.captureProtectedRoutingState())
+            statusMessage = localized(
+                chinese: "已锁定 Token Meter 的 Claude 默认配置",
+                english: "Token Meter's Claude defaults are now protected",
+                japanese: "Token Meter の Claude 既定設定を保護しました"
+            )
+        } else {
+            claudeProtectionPreferences.disable()
+            statusMessage = localized(
+                chinese: "已允许 Claude 更新默认配置",
+                english: "Claude may now update defaults",
+                japanese: "Claude による既定設定の更新を許可しました"
             )
         }
         statusIsError = false
@@ -246,15 +289,15 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
 
         protectionSwitch.controlSize = .small
         protectionSwitch.appearance = NSAppearance(named: .darkAqua)
-        protectionSwitch.state = isCodexDefaultsProtectionEnabled ? .on : .off
+        protectionSwitch.state = isDefaultsProtectionEnabled ? .on : .off
         protectionSwitch.target = self
         protectionSwitch.action = #selector(protectionChanged(_:))
         protectionSwitch.isHidden = true
         protectionSwitch.setAccessibilityLabel(
             localized(
-                chinese: "锁定 Codex 默认模型",
-                english: "Protect Codex defaults",
-                japanese: "Codex の既定モデルを保護"
+                chinese: "锁定默认模型",
+                english: "Protect default models",
+                japanese: "既定モデルを保護"
             )
         )
         host.addSubview(protectionSwitch)
@@ -364,7 +407,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         filterControl.isHidden = !visible
         codexPlatformButton.isHidden = !visible
         claudePlatformButton.isHidden = !visible
-        protectionSwitch.isHidden = !visible || selectedPlatform != .codex
+        protectionSwitch.isHidden = !visible
         refreshButton.isHidden = !visible
 
         for popup in modelPopups.values {
@@ -381,7 +424,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         let platformRects = modelRoutingPlatformRects(in: content)
         codexPlatformButton.frame = platformRects[.codex] ?? .zero
         claudePlatformButton.frame = platformRects[.claude] ?? .zero
-        protectionSwitch.state = isCodexDefaultsProtectionEnabled ? .on : .off
+        protectionSwitch.state = isDefaultsProtectionEnabled ? .on : .off
         protectionSwitch.frame = NSRect(
             x: layout.protectionRect.maxX - 68,
             y: layout.protectionRect.midY - 12,
@@ -511,7 +554,11 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     @objc private func protectionChanged(_ sender: NSSwitch) {
-        setCodexDefaultsProtectionEnabled(sender.state == .on)
+        if selectedPlatform == .codex {
+            setCodexDefaultsProtectionEnabled(sender.state == .on)
+        } else {
+            setClaudeDefaultsProtectionEnabled(sender.state == .on)
+        }
     }
 
     @objc private func refreshRequested() {
@@ -521,15 +568,20 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     private func handleExternalConfigChange() {
-        if protectionPreferences.isEnabled,
-           let protected = protectionPreferences.protectedState() {
+        let isCodex = selectedPlatform == .codex
+        let protected = isCodex
+            ? protectionPreferences.protectedState()
+            : claudeProtectionPreferences.protectedState()
+        if let protected {
             do {
-                let restored = try codexStore.restoreProtectedRoutingState(protected)
+                let restored = try (isCodex
+                    ? codexStore.restoreProtectedRoutingState(protected)
+                    : claudeStore.restoreProtectedRoutingState(protected))
                 if restored {
                     statusMessage = localized(
-                        chinese: "已恢复 Token Meter 的 Codex 默认配置",
-                        english: "Restored Token Meter's Codex defaults",
-                        japanese: "Token Meter の Codex 既定設定を復元しました"
+                        chinese: "已恢复 Token Meter 的 \(isCodex ? "Codex" : "Claude") 默认配置",
+                        english: "Restored Token Meter's \(isCodex ? "Codex" : "Claude") defaults",
+                        japanese: "Token Meter の \(isCodex ? "Codex" : "Claude") 既定設定を復元しました"
                     )
                     statusIsError = false
                     reload()
@@ -612,8 +664,11 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     private func recordProtectedCodexDefaultsIfNeeded() {
-        guard selectedPlatform == .codex, protectionPreferences.isEnabled else { return }
-        protectionPreferences.updateProtectedState(codexStore.captureProtectedRoutingState())
+        if selectedPlatform == .codex, protectionPreferences.isEnabled {
+            protectionPreferences.updateProtectedState(codexStore.captureProtectedRoutingState())
+        } else if selectedPlatform == .claude, claudeProtectionPreferences.isEnabled {
+            claudeProtectionPreferences.updateProtectedState(claudeStore.captureProtectedRoutingState())
+        }
     }
 
     private func invalidateLayout() {
@@ -1096,14 +1151,14 @@ extension UsageDetailsView {
 
     private func drawCodexDefaultsProtection(_ rect: NSRect) {
         let isCodex = modelRoutingControls.selectedPlatform == .codex
-        let enabled = modelRoutingControls.isCodexDefaultsProtectionEnabled
-        let fillColor = isCodex && enabled
+        let enabled = modelRoutingControls.isDefaultsProtectionEnabled
+        let fillColor = enabled
             ? accentBlue.withAlphaComponent(0.13)
             : panelSurfaceColor.withAlphaComponent(0.82)
         fillColor.setFill()
         NSBezierPath(roundedRect: rect, xRadius: 9, yRadius: 9).fill()
 
-        (isCodex && enabled ? accentTeal.withAlphaComponent(0.34) : borderColor).setStroke()
+        (enabled ? accentTeal.withAlphaComponent(0.34) : borderColor).setStroke()
         let border = NSBezierPath(
             roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
             xRadius: 9,
@@ -1113,27 +1168,21 @@ extension UsageDetailsView {
         border.stroke()
 
         drawSymbolIcon(
-            isCodex ? (enabled ? "checkmark.shield.fill" : "shield") : "info.circle",
+            enabled ? "checkmark.shield.fill" : "shield",
             in: NSRect(x: rect.minX + 20, y: rect.minY + 22, width: 22, height: 22),
-            color: isCodex && enabled ? accentTeal : NSColor.white.withAlphaComponent(0.46),
+            color: enabled ? accentTeal : NSColor.white.withAlphaComponent(0.46),
             pointSize: 16
         )
 
         let textX = rect.minX + 56
-        let trailingSpace: CGFloat = isCodex ? 96 : 24
+        let trailingSpace: CGFloat = 96
         let textWidth = max(160, rect.width - 56 - trailingSpace)
         drawText(
-            isCodex
-                ? modelRoutingLocalized(
-                    chinese: "锁定 Codex 默认配置",
-                    english: "Protect Codex defaults",
-                    japanese: "Codex の既定設定を保護"
-                )
-                : modelRoutingLocalized(
-                    chinese: "Claude 默认配置不受锁定保护",
-                    english: "Claude defaults are not protected",
-                    japanese: "Claude の既定設定は保護対象外です"
-                ),
+            modelRoutingLocalized(
+                chinese: "锁定 \(isCodex ? "Codex" : "Claude") 默认配置",
+                english: "Protect \(isCodex ? "Codex" : "Claude") defaults",
+                japanese: "\(isCodex ? "Codex" : "Claude") の既定設定を保護"
+            ),
             rect: NSRect(x: textX, y: rect.minY + 16, width: textWidth, height: 22),
             font: .systemFont(ofSize: 13.5, weight: .bold),
             color: .white
@@ -1141,14 +1190,14 @@ extension UsageDetailsView {
         drawMultilineText(
             isCodex
                 ? modelRoutingLocalized(
-                    chinese: "仅对 Codex 生效。对话内临时切换模型和思考强度仍然有效；如果 Codex 把这次选择写回配置文件，Token Meter 会自动恢复本页保存的默认值，之后的新对话继续使用这里的设置。只恢复 model 和 model_reasoning_effort，不改动其他配置。",
-                    english: "Codex only. Temporary model and effort changes still work within a conversation. If Codex writes that choice back to its config, Token Meter restores the defaults saved here for future conversations. Only model and model_reasoning_effort are restored.",
-                    japanese: "Codex のみに適用されます。会話内でのモデルや思考強度の一時変更はそのまま利用できます。Codex がその選択を設定ファイルへ書き戻した場合、Token Meter は今後の会話向けにこのページの既定値を復元します。復元対象は model と model_reasoning_effort のみです。"
+                    chinese: "对话内临时切换模型和思考强度仍然有效；如果 Codex 把这次选择写回配置文件，Token Meter 会自动恢复本页保存的默认值，之后的新对话继续使用这里的设置。只恢复 model 和 model_reasoning_effort，不改动其他配置。",
+                    english: "Temporary model and effort changes still work within a conversation. If Codex writes that choice back to its config, Token Meter restores the defaults saved here for future conversations. Only model and model_reasoning_effort are restored.",
+                    japanese: "会話内でのモデルや思考強度の一時変更はそのまま利用できます。Codex がその選択を設定ファイルへ書き戻した場合、Token Meter は今後の会話向けにこのページの既定値を復元します。復元対象は model と model_reasoning_effort のみです。"
                 )
                 : modelRoutingLocalized(
-                    chinese: "此功能目前不对 Claude 生效。下方的 Claude 全局和项目默认值仍会正常保存，但 Token Meter 不会监控或自动恢复 Claude 在会话中改写的模型配置。",
-                    english: "This protection does not currently apply to Claude. Claude global and project defaults below are still saved normally, but Token Meter does not monitor or automatically restore model settings changed from a Claude conversation.",
-                    japanese: "この保護機能は現在 Claude には適用されません。下の Claude グローバル設定とプロジェクト設定は通常どおり保存されますが、会話から変更されたモデル設定を Token Meter が監視・自動復元することはありません。"
+                    chinese: "会话内临时切换仍然有效；如果 Claude 改写全局 settings.json 或项目私有 settings.local.json，Token Meter 会自动恢复本页保存的默认值。只恢复 model 和 effortLevel，不改动其他设置，也不会改动仓库共享的 .claude/settings.json。",
+                    english: "Temporary conversation changes still work. If Claude rewrites global settings.json or a private project settings.local.json, Token Meter restores the defaults saved here. Only model and effortLevel are restored; other settings and shared .claude/settings.json files stay untouched.",
+                    japanese: "会話内の一時変更はそのまま利用できます。Claude がグローバル settings.json またはプロジェクト固有の settings.local.json を書き換えた場合、Token Meter はここで保存した既定値を復元します。復元するのは model と effortLevel のみで、他の設定や共有 .claude/settings.json は変更しません。"
                 ),
             rect: NSRect(x: textX, y: rect.minY + 42, width: textWidth, height: 42),
             font: .systemFont(ofSize: 10.5, weight: .medium),

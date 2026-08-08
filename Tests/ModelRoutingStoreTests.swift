@@ -12,6 +12,8 @@ struct ModelRoutingStoreTests {
         try testClaudeModelCatalogMatchesCurrentSelector()
         try testClaudeProjectWritesStayLocal()
         try testClaudeSharedProjectSettingsRemainUntouched()
+        try testClaudeProtectedDefaultsRestoreOnlyPrivateRoutingKeys()
+        try testClaudeAppLifetimeProtectionRestoresExternalRewrite()
         print("ModelRoutingStoreTests passed")
     }
 
@@ -551,6 +553,79 @@ struct ModelRoutingStoreTests {
             local == CodexConfigSelection(model: "opus", reasoningEffort: "high"),
             "private settings should override shared Claude routing"
         )
+    }
+
+    private static func testClaudeProtectedDefaultsRestoreOnlyPrivateRoutingKeys() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-routing-protection-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        let claudeHome = temporaryRoot.appendingPathComponent(".claude", isDirectory: true)
+        let projectRoot = temporaryRoot.appendingPathComponent("project", isDirectory: true)
+        let sharedURL = projectRoot.appendingPathComponent(".claude/settings.json")
+        try FileManager.default.createDirectory(at: sharedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: claudeHome, withIntermediateDirectories: true)
+        try Data("{\"model\":\"sonnet\",\"effortLevel\":\"high\",\"permissions\":{\"allow\":[\"Read\"]}}".utf8).write(to: claudeHome.appendingPathComponent("settings.json"))
+        let sharedData = Data("{\"model\":\"opus\",\"effortLevel\":\"medium\",\"permissions\":{\"deny\":[\"Read(.env)\"]}}".utf8)
+        try sharedData.write(to: sharedURL)
+        let project = CodexSavedProject(id: "protected-project", name: "Protected", rootPaths: [projectRoot.path])
+        let store = ClaudeModelRoutingStore(claudeHomeURL: claudeHome, projectsProvider: { [project] })
+        try store.writeProject(id: project.id, model: "haiku", reasoningEffort: nil)
+        let protected = store.captureProtectedRoutingState()
+        try Data("{\"model\":\"fable\",\"effortLevel\":\"low\",\"permissions\":{\"allow\":[\"Bash\"]}}".utf8).write(to: store.globalConfigURL)
+        let localURL = store.projectConfigURL(rootPath: projectRoot.path)
+        try Data("{\"model\":\"opus\",\"effortLevel\":\"xhigh\",\"hooks\":{\"PostToolUse\":[]}}".utf8).write(to: localURL)
+        let restored = try store.restoreProtectedRoutingState(protected)
+        let restoredGlobal = try store.readSelection(at: store.globalConfigURL)
+        let restoredLocal = try store.readSelection(at: localURL)
+        let global = try String(contentsOf: store.globalConfigURL, encoding: .utf8)
+        let local = try String(contentsOf: localURL, encoding: .utf8)
+        let finalSharedData = try Data(contentsOf: sharedURL)
+        try require(restored, "Claude protection should restore changed routing values")
+        try require(restoredGlobal == CodexConfigSelection(model: "sonnet", reasoningEffort: "high"), "Claude protection should restore global model defaults")
+        try require(restoredLocal == CodexConfigSelection(model: "haiku", reasoningEffort: nil), "Claude protection should restore private project model defaults")
+        try require(global.contains("Bash"), "Claude protection must preserve unrelated global settings")
+        try require(local.contains("PostToolUse"), "Claude protection must preserve unrelated private project settings")
+        try require(finalSharedData == sharedData, "Claude protection must not modify shared project settings")
+    }
+
+    private static func testClaudeAppLifetimeProtectionRestoresExternalRewrite() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-routing-controller-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        let store = ClaudeModelRoutingStore(claudeHomeURL: temporaryRoot, projectsProvider: { [] })
+        try Data("{\"model\":\"sonnet\",\"effortLevel\":\"high\",\"permissions\":{\"allow\":[\"Read\"]}}".utf8).write(to: store.globalConfigURL)
+        let suiteName = "ClaudeModelRoutingControllerTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw NSError(domain: "ModelRoutingStoreTests", code: 5, userInfo: [NSLocalizedDescriptionKey: "could not create isolated defaults"])
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = ClaudeModelRoutingProtectionPreferences(defaults: defaults)
+        preferences.enable(capturing: store.captureProtectedRoutingState())
+        let watcherReady = DispatchSemaphore(value: 0)
+        let controller = ClaudeModelRoutingProtectionController(
+            routingStore: store,
+            preferences: preferences,
+            callbackQueue: DispatchQueue(label: "ClaudeModelRoutingControllerTests.callback"),
+            onWatcherReady: { watcherReady.signal() }
+        )
+        defer { withExtendedLifetime(controller) {} }
+        guard watcherReady.wait(timeout: .now() + 2) == .success else {
+            throw NSError(domain: "ModelRoutingStoreTests", code: 6, userInfo: [NSLocalizedDescriptionKey: "controller watcher did not become ready"])
+        }
+        try Data("{\"model\":\"opus\",\"effortLevel\":\"low\",\"permissions\":{\"allow\":[\"Bash\"]}}".utf8).write(to: store.globalConfigURL, options: .atomic)
+        let deadline = Date().addingTimeInterval(3)
+        var restored = false
+        while Date() < deadline {
+            if try store.readSelection(at: store.globalConfigURL) == CodexConfigSelection(model: "sonnet", reasoningEffort: "high") {
+                restored = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        try require(restored, "Claude app-lifetime protection should restore an external rewrite without opening the UI")
+        let source = try String(contentsOf: store.globalConfigURL, encoding: .utf8)
+        try require(source.contains("Bash"), "Claude app-lifetime protection must preserve unrelated external settings")
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
