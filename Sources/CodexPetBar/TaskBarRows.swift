@@ -462,17 +462,13 @@ final class ThreadRowView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        let cardRect = bounds.insetBy(dx: 12, dy: 4)
-        let card = NSBezierPath(roundedRect: cardRect, xRadius: 14, yRadius: 14)
-        (isHovering ? taskBarCardHover : taskBarCardBackground).setFill()
-        card.fill()
-        taskBarPanelBorder.withAlphaComponent(isHovering ? 1 : 0.58).setStroke()
-        card.lineWidth = 1
-        card.stroke()
+        // Divider between rows.
+        NSColor(calibratedWhite: 1.0, alpha: 0.06).setFill()
+        NSRect(x: 20, y: 0, width: bounds.width - 40, height: 1).fill()
 
         // Colored status accent bar at the leading edge.
         if !isSwipeTracking || swipeOffset > -1 {
-            let barRect = NSRect(x: 18 + swipeOffset, y: 16, width: 3.5, height: bounds.height - 32)
+            let barRect = NSRect(x: 8 + swipeOffset, y: 14, width: 3.5, height: bounds.height - 28)
             statusAccentColor(item.status).setFill()
             NSBezierPath(roundedRect: barRect, xRadius: 1.75, yRadius: 1.75).fill()
         }
@@ -490,8 +486,11 @@ final class ThreadRowView: NSView {
             drawDismissLabel(in: revealRect)
         }
         guard isHovering, !isSwipeTracking else { return }
-        taskBarWarmAccent.withAlphaComponent(item.plan == nil ? 0.025 : 0.055).setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 12, dy: 4), xRadius: 14, yRadius: 14).fill()
+        let hoverColor = item.plan == nil
+            ? NSColor.controlAccentColor.withAlphaComponent(0.12)
+            : NSColor.white.withAlphaComponent(0.055)
+        hoverColor.setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 8, dy: 4), xRadius: 12, yRadius: 12).fill()
     }
 
     override func layout() {
@@ -505,8 +504,8 @@ final class ThreadRowView: NSView {
     /// Title and detail stacked over a single metadata line (time · status · source).
     private func layoutStandard() {
         let offset = swipeOffset
-        let contentX: CGFloat = 34
-        let contentWidth = max(120, bounds.width - 30 - contentX)
+        let contentX: CGFloat = 26
+        let contentWidth = max(120, bounds.width - 18 - contentX)
 
         layoutTitleAndPin(x: contentX, y: bounds.height - 32, width: contentWidth, offset: offset)
         detailLabel.frame = NSRect(x: contentX + offset, y: 28, width: contentWidth, height: 32)
@@ -523,11 +522,11 @@ final class ThreadRowView: NSView {
     /// title and detail filling the remaining width so rows stay short.
     private func layoutCompact() {
         let offset = swipeOffset
-        let contentX: CGFloat = 34
+        let contentX: CGFloat = 26
         let railWidth: CGFloat = 66
         let railGap: CGFloat = 10
         let rightX = contentX + railWidth + railGap
-        let rightWidth = max(80, bounds.width - 30 - rightX)
+        let rightWidth = max(80, bounds.width - 18 - rightX)
 
         layoutTitleAndPin(x: rightX, y: bounds.height - 30, width: rightWidth, offset: offset)
         detailLabel.frame = NSRect(x: rightX + offset, y: 8, width: rightWidth, height: 32)
@@ -1375,7 +1374,7 @@ final class MenuSeparatorView: NSView {
         self.inset = inset
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 7))
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.backgroundColor = menuPanelBackground.cgColor
     }
 
     private let inset: CGFloat
@@ -1386,7 +1385,7 @@ final class MenuSeparatorView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        NSColor.white.withAlphaComponent(0.10).setFill()
+        NSColor(calibratedWhite: 0.33, alpha: 0.72).setFill()
         NSRect(x: inset, y: floor(bounds.height / 2), width: bounds.width - inset * 2, height: 1).fill()
     }
 }
@@ -1407,7 +1406,7 @@ final class CommandRowView: NSView {
         self.enabled = enabled
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 27))
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.backgroundColor = menuPanelBackground.cgColor
 
         let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
         let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
@@ -1494,7 +1493,7 @@ final class CommandButtonBarView: NSView {
         )
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 46))
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.backgroundColor = menuPanelBackground.cgColor
         addSubview(settingsButton)
         addSubview(quitButton)
     }

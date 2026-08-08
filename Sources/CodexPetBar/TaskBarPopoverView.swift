@@ -157,9 +157,7 @@ final class TaskBarPopoverContentView: NSView {
 
         super.init(frame: NSRect(origin: .zero, size: initialSize))
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
-        layer?.cornerRadius = 20
-        layer?.masksToBounds = true
+        layer?.backgroundColor = menuPanelBackground.cgColor
         appearance = NSAppearance(named: .darkAqua)
 
         addSubview(headerView)
@@ -265,23 +263,6 @@ final class TaskBarPopoverContentView: NSView {
     }
 
     override var isFlipped: Bool { true }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        let panel = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 20, yRadius: 20)
-        if let gradient = NSGradient(
-            starting: NSColor(calibratedRed: 0.085, green: 0.070, blue: 0.090, alpha: 0.99),
-            ending: menuPanelBackground
-        ) {
-            gradient.draw(in: panel, angle: 90)
-        } else {
-            menuPanelBackground.setFill()
-            panel.fill()
-        }
-        taskBarPanelBorder.setStroke()
-        panel.lineWidth = 1
-        panel.stroke()
-    }
 
     override func layout() {
         super.layout()
