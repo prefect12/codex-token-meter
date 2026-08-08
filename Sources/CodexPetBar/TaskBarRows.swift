@@ -1614,6 +1614,35 @@ final class TaskBarRowsView: NSView {
 
     override var isFlipped: Bool { true }
 
+    func prepareForEntrance() {
+        for view in arrangedViews {
+            TaskBarMotion.prepareForReveal(view, offsetY: -8, scale: 0.99)
+        }
+    }
+
+    func animateEntrance(startDelay: CFTimeInterval = 0.18) {
+        for (index, view) in arrangedViews.prefix(8).enumerated() {
+            TaskBarMotion.reveal(
+                view,
+                delay: startDelay + CFTimeInterval(index) * 0.045,
+                offsetY: -8,
+                scale: 0.99
+            )
+        }
+    }
+
+    func animateRefresh() {
+        for (index, view) in arrangedViews.prefix(8).enumerated() {
+            TaskBarMotion.prepareForReveal(view, offsetY: -5, scale: 0.995)
+            TaskBarMotion.reveal(
+                view,
+                delay: CFTimeInterval(index) * 0.028,
+                offsetY: -5,
+                scale: 0.995
+            )
+        }
+    }
+
     override func layout() {
         super.layout()
         var y: CGFloat = 0

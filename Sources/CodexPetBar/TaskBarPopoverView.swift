@@ -53,6 +53,8 @@ final class TaskBarPopoverContentView: NSView {
     private let resizeHandle = PopoverResizeHandleView()
     private var rowsContentHeight: CGFloat
     private let onResize: (NSSize, Bool) -> Void
+    private let shouldAnimateEntrance: Bool
+    private var didAnimateEntrance = false
 
     // Retained so the tab filter can be re-applied in place, without a full rebuild.
     private let allThreads: [CodexThreadItem]
@@ -84,9 +86,11 @@ final class TaskBarPopoverContentView: NSView {
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void,
         initialSize: NSSize?,
+        shouldAnimateEntrance: Bool = false,
         onResize: @escaping (NSSize, Bool) -> Void
     ) {
         self.onResize = onResize
+        self.shouldAnimateEntrance = shouldAnimateEntrance
         self.allThreads = threads
         self.showPlatformLabels = showPlatformLabels
         self.rowLayout = rowLayout
@@ -214,6 +218,9 @@ final class TaskBarPopoverContentView: NSView {
         taskCountView.update(shown: filtered.count, total: totalCount)
         needsLayout = true
         layoutSubtreeIfNeeded()
+        DispatchQueue.main.async {
+            newRowsView.animateRefresh()
+        }
     }
 
     private func toggleSubtasks(for threadID: String) {
@@ -265,6 +272,25 @@ final class TaskBarPopoverContentView: NSView {
     }
 
     override var isFlipped: Bool { true }
+
+    func playEntranceMotion() {
+        guard shouldAnimateEntrance, !didAnimateEntrance else { return }
+        didAnimateEntrance = true
+
+        TaskBarMotion.prepareForReveal(headerView, offsetY: -12, scale: 0.97)
+        TaskBarMotion.prepareForReveal(tabsView, offsetY: -9, scale: 0.985)
+        TaskBarMotion.prepareForReveal(topSeparator, offsetY: -6, scale: 1)
+        TaskBarMotion.prepareForReveal(rowsScrollView, offsetY: -6, scale: 0.995)
+        TaskBarMotion.prepareForReveal(commandBar, offsetY: 8, scale: 0.99)
+        rowsView.prepareForEntrance()
+
+        TaskBarMotion.reveal(headerView, delay: 0.03, offsetY: -12, scale: 0.97)
+        TaskBarMotion.reveal(tabsView, delay: 0.08, offsetY: -9, scale: 0.985)
+        TaskBarMotion.reveal(topSeparator, delay: 0.12, offsetY: -6, scale: 1)
+        TaskBarMotion.reveal(rowsScrollView, delay: 0.14, offsetY: -6, scale: 0.995)
+        rowsView.animateEntrance(startDelay: 0.19)
+        TaskBarMotion.reveal(commandBar, delay: 0.27, offsetY: 8, scale: 0.99)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)

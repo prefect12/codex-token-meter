@@ -170,13 +170,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             closePopover()
             return
         }
-        rebuildPopover()
+        rebuildPopover(shouldAnimateEntrance: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        (popover.contentViewController?.view as? TaskBarPopoverContentView)?.playEntranceMotion()
         NSApp.activate(ignoringOtherApps: true)
         refresh(includeRolloutEnrichment: true)
     }
 
-    private func rebuildPopover() {
+    private func rebuildPopover(shouldAnimateEntrance: Bool = false) {
         ThreadHoverPanel.shared.hideAll()
         let primaryThreads = threads.primaryThreads
         let active = primaryThreads.filter { $0.status == .running }
@@ -219,6 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.quit()
             },
             initialSize: TaskBarSettings.popoverSize,
+            shouldAnimateEntrance: shouldAnimateEntrance,
             onResize: { [weak self, weak controller] size, persist in
                 controller?.preferredContentSize = size
                 self?.popover.contentSize = size

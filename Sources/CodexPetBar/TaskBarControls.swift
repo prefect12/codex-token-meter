@@ -161,6 +161,9 @@ final class CountChipView: NSView {
             dotView.layer?.backgroundColor = color.cgColor
             dotView.layer?.cornerRadius = 3
             addSubview(dotView)
+            if count > 0 {
+                TaskBarMotion.startLivePulse(on: dotView)
+            }
         }
 
         titleLabel.stringValue = title
@@ -297,6 +300,7 @@ final class TaskBarTabsView: NSView {
     private let tabs: [TaskBarTab]
     private var selectedIndex: Int
     var onSelect: (TaskBarTab) -> Void
+    private let selectionHighlight = NSView()
     private var iconViews: [NSImageView] = []
     private var labelViews: [NSTextField] = []
 
@@ -306,6 +310,13 @@ final class TaskBarTabsView: NSView {
         self.onSelect = onSelect
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 48))
         wantsLayer = true
+
+        selectionHighlight.wantsLayer = true
+        selectionHighlight.layer?.cornerRadius = 7
+        selectionHighlight.layer?.backgroundColor = taskBarWarmAccent.withAlphaComponent(0.18).cgColor
+        selectionHighlight.layer?.borderWidth = 1
+        selectionHighlight.layer?.borderColor = taskBarWarmAccent.withAlphaComponent(0.34).cgColor
+        addSubview(selectionHighlight)
 
         for (index, tab) in tabs.enumerated() {
             let isSelected = index == selectedIndex
@@ -350,12 +361,7 @@ final class TaskBarTabsView: NSView {
             width: segmentWidth,
             height: container.height
         ).insetBy(dx: 3, dy: 3)
-        let selection = NSBezierPath(roundedRect: cell, xRadius: 7, yRadius: 7)
-        taskBarWarmAccent.withAlphaComponent(0.18).setFill()
-        selection.fill()
-        selection.lineWidth = 1
-        taskBarWarmAccent.withAlphaComponent(0.34).setStroke()
-        selection.stroke()
+        _ = cell
     }
 
     private func labelWidth(_ field: NSTextField) -> CGFloat {
@@ -367,6 +373,7 @@ final class TaskBarTabsView: NSView {
         super.layout()
         let container = containerRect
         let segmentWidth = container.width / CGFloat(tabs.count)
+        selectionHighlight.frame = selectionFrame(in: container, segmentWidth: segmentWidth)
         let iconWidth: CGFloat = 14
         let gap: CGFloat = 6
         for index in tabs.indices {
@@ -393,9 +400,33 @@ final class TaskBarTabsView: NSView {
         let segmentWidth = container.width / CGFloat(tabs.count)
         let index = min(tabs.count - 1, max(0, Int((point.x - container.minX) / segmentWidth)))
         guard index != selectedIndex else { return }
+        let previousFrame = selectionHighlight.frame
         selectedIndex = index
+        for (labelIndex, label) in labelViews.enumerated() {
+            let selected = labelIndex == selectedIndex
+            label.font = .systemFont(ofSize: 11.5, weight: selected ? .semibold : .medium)
+            label.textColor = selected ? .white : NSColor(calibratedWhite: 0.6, alpha: 1)
+        }
         needsDisplay = true
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        let nextFrame = selectionHighlight.frame
+        selectionHighlight.frame = previousFrame
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.26
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.30, 1)
+            selectionHighlight.animator().frame = nextFrame
+        }
         onSelect(tabs[index])
+    }
+
+    private func selectionFrame(in container: NSRect, segmentWidth: CGFloat) -> NSRect {
+        NSRect(
+            x: container.minX + CGFloat(selectedIndex) * segmentWidth,
+            y: container.minY,
+            width: segmentWidth,
+            height: container.height
+        ).insetBy(dx: 3, dy: 3)
     }
 }
 

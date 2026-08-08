@@ -1,5 +1,13 @@
 # Task Bar visual QA — Vibe Island direction
 
+## Motion beta — Vibe Island state choreography
+
+- Reference: `https://vibeisland.app/` interactive demo, inspected 2026-08-09. The page has no downloadable video asset; its public demo is a DOM/CSS state machine.
+- Motion to reproduce: compact status surface expands into a focused overview, then its content enters in ordered layers. The active state alone retains a slow pulse; list refreshes should not replay the entire entrance.
+- Task Bar mapping: header → filter → list viewport → task groups (45ms stagger) → footer. Filter selection glides across its existing track. The running chip dot has a 0.92s autoreversing pulse.
+- Non-goals: no Vibe Island assets, sounds, pixel pets, terminal screenshots, wallpaper, or product copy are copied. Task Bar remains a readable task list with the same data and actions.
+- Isolation: built and launched only as `Task Bar Beta.app` from `build_petbar_beta.sh` / `run_petbar_beta.sh`; never installed over `/Applications/Task Bar.app`.
+
 ## Comparison target
 
 - Source visual truth: `/var/folders/hm/pmxxw3v90wl7nql88zsgljym0000gn/T/codex-clipboard-9a231fbd-d2c5-4315-8ad2-e9b381de7a20.png`
