@@ -172,7 +172,7 @@ private func mockTaskBarThreads() -> [CodexThreadItem] {
     ]
 }
 
-private func renderTaskBar(to path: String, showPlanHover: Bool = false) {
+private func renderTaskBar(to path: String, showPlanHover: Bool = false, showRowHover: Bool = false) {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
 
@@ -254,6 +254,12 @@ private func renderTaskBar(to path: String, showPlanHover: Bool = false) {
         renderedView = canvas
     } else {
         renderedView = content
+        if showRowHover,
+           let item = mock.primaryThreads.first(where: { selectedTab.matches($0.status) }),
+           let row = descendantThreadRow(in: content, threadID: item.id) {
+            row.setRenderPreviewHovering(true)
+            row.needsDisplay = true
+        }
     }
     let size = renderedView.frame.size
     let window = NSWindow(
@@ -328,6 +334,11 @@ if CommandLine.arguments.contains("--self-test-plan-parser") {
     renderTaskBar(
         to: String(arg.dropFirst("--render-taskbar-plan-hover=".count)),
         showPlanHover: true
+    )
+} else if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--render-taskbar-row-hover=") }) {
+    renderTaskBar(
+        to: String(arg.dropFirst("--render-taskbar-row-hover=".count)),
+        showRowHover: true
     )
 } else {
     let app = NSApplication.shared
