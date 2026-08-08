@@ -137,6 +137,7 @@ final class ThreadRowView: NSView {
     private let metaStatusLabel = NSTextField(labelWithString: "")
     private let platformLabel = NSTextField(labelWithString: "")
     private let pinIconView = NSImageView()
+    private let dismissIconView = NSImageView()
     private let disclosureIconView = NSImageView()
     private let planProgressView = TaskProgressRingView()
     private let subtaskBadgeView: SubtaskCountBadgeView
@@ -153,6 +154,7 @@ final class ThreadRowView: NSView {
         didSet {
             needsDisplay = true
             updatePinIcon()
+            updateDismissIcon()
         }
     }
 
@@ -233,6 +235,17 @@ final class ThreadRowView: NSView {
         pinIconView.imageScaling = .scaleProportionallyDown
         addSubview(pinIconView)
         updatePinIcon()
+
+        let dismissConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        dismissIconView.image = NSImage(
+            systemSymbolName: "trash",
+            accessibilityDescription: "从 Task Bar 移除"
+        )?.withSymbolConfiguration(dismissConfig)
+        dismissIconView.contentTintColor = NSColor.systemRed.withAlphaComponent(0.9)
+        dismissIconView.imageScaling = .scaleProportionallyDown
+        dismissIconView.toolTip = "从 Task Bar 移除（不会删除原对话）"
+        addSubview(dismissIconView)
+        updateDismissIcon()
 
         let disclosureConfig = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
         disclosureIconView.image = NSImage(
@@ -346,6 +359,10 @@ final class ThreadRowView: NSView {
             return
         }
         let point = convert(event.locationInWindow, from: nil)
+        if dismissHitRect.contains(point) {
+            onDismiss(item.id)
+            return
+        }
         if pinHitRect.contains(point) {
             togglePinTapped()
             return
@@ -360,6 +377,13 @@ final class ThreadRowView: NSView {
     /// Generous hit target around the pin glyph.
     private var pinHitRect: NSRect {
         pinIconView.frame.insetBy(dx: -6, dy: -6)
+    }
+
+    /// A visible button makes local cleanup discoverable without changing the
+    /// source conversations or their rollout logs.
+    private var dismissHitRect: NSRect {
+        guard isReadDismissible(item.status), !dismissIconView.isHidden else { return .zero }
+        return dismissIconView.frame.insetBy(dx: -6, dy: -6)
     }
 
     private var subtaskToggleHitRect: NSRect {
@@ -401,6 +425,10 @@ final class ThreadRowView: NSView {
         // The progress ring has its own slot immediately to the left of the pin.
         // Keep the pin discoverable on hover even when a task has a live plan.
         pinIconView.isHidden = !(isPinned || isHovering)
+    }
+
+    private func updateDismissIcon() {
+        dismissIconView.isHidden = !isReadDismissible(item.status) || !isHovering
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -556,7 +584,8 @@ final class ThreadRowView: NSView {
         let disclosureWidth: CGFloat = subtaskCount > 0 ? 15 : 0
         disclosureIconView.frame = NSRect(x: x + offset, y: y + 4, width: 11, height: 11)
         let titleX = x + disclosureWidth + offset
-        let pinX = bounds.width - ThreadRowView.pinTrailingInset - ThreadRowView.pinIconSize + offset
+        let dismissX = bounds.width - ThreadRowView.dismissTrailingInset - ThreadRowView.dismissIconSize + offset
+        let pinX = dismissX - ThreadRowView.dismissIconSize - ThreadRowView.actionIconGap
         let planSize: CGFloat = item.plan == nil ? 0 : 15
         let planX = item.plan == nil ? pinX : pinX - planSize - 6
         let badgeWidth: CGFloat = subtaskCount > 0 ? 66 : 0
@@ -585,6 +614,12 @@ final class ThreadRowView: NSView {
             y: titleLabel.frame.midY - ThreadRowView.pinIconSize / 2,
             width: ThreadRowView.pinIconSize,
             height: ThreadRowView.pinIconSize
+        )
+        dismissIconView.frame = NSRect(
+            x: dismissX,
+            y: titleLabel.frame.midY - ThreadRowView.dismissIconSize / 2,
+            width: ThreadRowView.dismissIconSize,
+            height: ThreadRowView.dismissIconSize
         )
     }
 
@@ -653,6 +688,9 @@ final class ThreadRowView: NSView {
 
     private static let dismissRevealWidth: CGFloat = 86
     private static let dismissThreshold: CGFloat = 58
+    private static let dismissIconSize: CGFloat = 16
+    private static let actionIconGap: CGFloat = 7
+    private static let dismissTrailingInset: CGFloat = 18
     private static let pinIconSize: CGFloat = 16
     private static let titlePinGap: CGFloat = 8
     private static let pinTrailingInset: CGFloat = 18
