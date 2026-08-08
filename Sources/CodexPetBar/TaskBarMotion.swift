@@ -1,6 +1,12 @@
 import Cocoa
 import QuartzCore
 
+enum TaskBarBuild {
+    static let isBeta = Bundle.main.bundleIdentifier == "local.task-bar.beta"
+    static let displayName = isBeta ? "Task Bar Beta" : "Task Bar"
+    static let liveWorkspaceLabel = isBeta ? "●  LIVE WORKSPACE · BETA" : "●  LIVE WORKSPACE"
+}
+
 /// Small, native motion primitives shared by Task Bar's popover surfaces.
 /// They deliberately animate state changes instead of replaying a decorative loop.
 enum TaskBarMotion {

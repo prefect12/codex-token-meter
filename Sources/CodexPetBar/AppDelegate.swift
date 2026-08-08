@@ -140,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureStatusButton() {
         guard let button = statusItem.button else { return }
-        button.toolTip = "Task Bar"
+        button.toolTip = TaskBarBuild.displayName
         button.action = #selector(togglePopover)
         button.target = self
     }

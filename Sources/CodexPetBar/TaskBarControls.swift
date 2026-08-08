@@ -218,8 +218,8 @@ final class CountChipView: NSView {
 
 final class PanelHeaderView: NSView {
     private let iconView = TaskBarAppIconView()
-    private let titleLabel = NSTextField(labelWithString: "Task Bar")
-    private let eyebrowLabel = NSTextField(labelWithString: "●  LIVE WORKSPACE")
+    private let titleLabel = NSTextField(labelWithString: TaskBarBuild.displayName)
+    private let eyebrowLabel = NSTextField(labelWithString: TaskBarBuild.liveWorkspaceLabel)
     private let summaryLabel = NSTextField(labelWithString: "")
     private var chips: [CountChipView] = []
 
