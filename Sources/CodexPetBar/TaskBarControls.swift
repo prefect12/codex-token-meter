@@ -91,19 +91,19 @@ final class TaskBarAppIconView: NSView {
         let radius = rect.width * 0.28
         let background = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
         if let gradient = NSGradient(
-            starting: NSColor(calibratedWhite: 1.0, alpha: 1.0),
-            ending: NSColor(calibratedWhite: 0.85, alpha: 1.0)
+            starting: NSColor(calibratedRed: 1.0, green: 0.69, blue: 0.35, alpha: 1.0),
+            ending: NSColor(calibratedRed: 0.90, green: 0.30, blue: 0.22, alpha: 1.0)
         ) {
             gradient.draw(in: background, angle: 90)
         } else {
-            NSColor.white.setFill()
+            taskBarWarmAccent.setFill()
             background.fill()
         }
 
         let bulletColors = [
-            NSColor(calibratedRed: 0.96, green: 0.52, blue: 0.22, alpha: 1),
-            NSColor(calibratedRed: 0.29, green: 0.55, blue: 0.96, alpha: 1),
-            NSColor(calibratedRed: 0.96, green: 0.52, blue: 0.22, alpha: 1)
+            NSColor.white.withAlphaComponent(0.94),
+            NSColor.white.withAlphaComponent(0.78),
+            NSColor.white.withAlphaComponent(0.94)
         ]
         let leftX = rect.width * 0.24
         let lineX = rect.width * 0.44
@@ -118,7 +118,7 @@ final class TaskBarAppIconView: NSView {
             bulletColors[index].setFill()
             NSBezierPath(roundedRect: bulletRect, xRadius: bulletSize * 0.3, yRadius: bulletSize * 0.3).fill()
             let lineRect = NSRect(x: lineX, y: centerY - lineHeight / 2, width: lineRight - lineX, height: lineHeight)
-            NSColor(calibratedWhite: 0.52, alpha: 0.9).setFill()
+            NSColor.white.withAlphaComponent(0.62).setFill()
             NSBezierPath(roundedRect: lineRect, xRadius: lineHeight / 2, yRadius: lineHeight / 2).fill()
         }
     }
@@ -216,18 +216,36 @@ final class CountChipView: NSView {
 final class PanelHeaderView: NSView {
     private let iconView = TaskBarAppIconView()
     private let titleLabel = NSTextField(labelWithString: "Task Bar")
+    private let eyebrowLabel = NSTextField(labelWithString: "●  LIVE WORKSPACE")
+    private let summaryLabel = NSTextField(labelWithString: "")
     private var chips: [CountChipView] = []
 
     init(runningCount: Int, waitingCount: Int, unreadCount: Int) {
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 56))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 76))
         wantsLayer = true
 
         addSubview(iconView)
 
-        titleLabel.font = .systemFont(ofSize: 15, weight: .bold)
+        eyebrowLabel.font = .monospacedSystemFont(ofSize: 9.5, weight: .bold)
+        eyebrowLabel.textColor = taskBarWarmAccent
+        eyebrowLabel.lineBreakMode = .byClipping
+        addSubview(eyebrowLabel)
+
+        titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
         titleLabel.textColor = .white
         titleLabel.lineBreakMode = .byTruncatingTail
         addSubview(titleLabel)
+
+        summaryLabel.stringValue = PanelHeaderView.activitySummary(
+            runningCount: runningCount,
+            waitingCount: waitingCount,
+            unreadCount: unreadCount
+        )
+        summaryLabel.font = .systemFont(ofSize: 10.5, weight: .medium)
+        summaryLabel.textColor = NSColor(calibratedWhite: 0.54, alpha: 1)
+        summaryLabel.alignment = .right
+        summaryLabel.lineBreakMode = .byTruncatingTail
+        addSubview(summaryLabel)
 
         chips = [
             CountChipView(title: "Running", count: runningCount, color: statusAccentColor(.running), showsDot: true),
@@ -241,23 +259,36 @@ final class PanelHeaderView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    private static func activitySummary(runningCount: Int, waitingCount: Int, unreadCount: Int) -> String {
+        if runningCount == 0 && waitingCount == 0 && unreadCount == 0 {
+            return "All caught up"
+        }
+        var parts: [String] = []
+        if runningCount > 0 { parts.append("\(runningCount) running") }
+        if waitingCount > 0 { parts.append("\(waitingCount) waiting") }
+        if unreadCount > 0 { parts.append("\(unreadCount) unread") }
+        return parts.joined(separator: "  ·  ")
+    }
+
     override func layout() {
         super.layout()
-        let iconSize: CGFloat = 26
-        iconView.frame = NSRect(x: 18, y: (bounds.height - iconSize) / 2, width: iconSize, height: iconSize)
+        let iconSize: CGFloat = 38
+        iconView.frame = NSRect(x: 20, y: 19, width: iconSize, height: iconSize)
 
-        let chipHeight: CGFloat = 24
-        let spacing: CGFloat = 7
-        var rightEdge = bounds.maxX - 18
+        let chipHeight: CGFloat = 22
+        let spacing: CGFloat = 6
+        var rightEdge = bounds.maxX - 20
         for chip in chips.reversed() {
             let width = chip.preferredWidth
-            chip.frame = NSRect(x: rightEdge - width, y: (bounds.height - chipHeight) / 2, width: width, height: chipHeight)
+            chip.frame = NSRect(x: rightEdge - width, y: 27, width: width, height: chipHeight)
             rightEdge -= (width + spacing)
         }
 
         let titleX = iconView.frame.maxX + 11
         let chipsLeft = chips.first?.frame.minX ?? bounds.maxX
-        titleLabel.frame = NSRect(x: titleX, y: (bounds.height - 24) / 2, width: max(0, chipsLeft - 10 - titleX), height: 24)
+        eyebrowLabel.frame = NSRect(x: titleX, y: 17, width: 160, height: 13)
+        titleLabel.frame = NSRect(x: titleX, y: 32, width: 130, height: 24)
+        summaryLabel.frame = NSRect(x: titleX + 140, y: 48, width: max(0, chipsLeft - 10 - (titleX + 140)), height: 14)
     }
 }
 
@@ -273,7 +304,7 @@ final class TaskBarTabsView: NSView {
         self.tabs = tabs
         self.selectedIndex = tabs.firstIndex(of: selected) ?? 0
         self.onSelect = onSelect
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 42))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 48))
         wantsLayer = true
 
         for (index, tab) in tabs.enumerated() {
@@ -301,14 +332,16 @@ final class TaskBarTabsView: NSView {
     }
 
     private var containerRect: NSRect {
-        NSRect(x: 14, y: 6, width: bounds.width - 28, height: 30)
+        NSRect(x: 18, y: 7, width: bounds.width - 36, height: 34)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         let container = containerRect
-        NSColor(calibratedWhite: 1.0, alpha: 0.08).setFill()
+        NSColor.white.withAlphaComponent(0.045).setFill()
         NSBezierPath(roundedRect: container, xRadius: 9, yRadius: 9).fill()
+        taskBarPanelBorder.withAlphaComponent(0.62).setStroke()
+        NSBezierPath(roundedRect: container.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9).stroke()
 
         let segmentWidth = container.width / CGFloat(tabs.count)
         let cell = NSRect(
@@ -318,10 +351,10 @@ final class TaskBarTabsView: NSView {
             height: container.height
         ).insetBy(dx: 3, dy: 3)
         let selection = NSBezierPath(roundedRect: cell, xRadius: 7, yRadius: 7)
-        NSColor(calibratedWhite: 1.0, alpha: 0.16).setFill()
+        taskBarWarmAccent.withAlphaComponent(0.18).setFill()
         selection.fill()
         selection.lineWidth = 1
-        NSColor(calibratedWhite: 1.0, alpha: 0.08).setStroke()
+        taskBarWarmAccent.withAlphaComponent(0.34).setStroke()
         selection.stroke()
     }
 
@@ -387,5 +420,15 @@ final class EmptyStateView: NSView {
     override func layout() {
         super.layout()
         label.frame = NSRect(x: 20, y: (bounds.height - 34) / 2, width: bounds.width - 40, height: 34)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let card = NSBezierPath(roundedRect: bounds.insetBy(dx: 18, dy: 10), xRadius: 14, yRadius: 14)
+        taskBarCardBackground.setFill()
+        card.fill()
+        taskBarPanelBorder.withAlphaComponent(0.65).setStroke()
+        card.lineWidth = 1
+        card.stroke()
     }
 }

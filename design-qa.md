@@ -1,4 +1,55 @@
-# Model Routing Platform Button Style QA
+# Task Bar visual QA — Vibe Island direction
+
+## Comparison target
+
+- Source visual truth: `/var/folders/hm/pmxxw3v90wl7nql88zsgljym0000gn/T/codex-clipboard-9a231fbd-d2c5-4315-8ad2-e9b381de7a20.png`
+- Implementation capture: `/tmp/taskbar-vibe-island-first.png`
+- Combined comparison: `/tmp/taskbar-vibe-island-comparison.png`
+- State: dark-mode Task Bar popover, `All` selected, three running tasks, one completed task, and expanded subtasks.
+- Source dimensions: 2486 × 888 pixels. Implementation dimensions: 920 × 1240 pixels (`460 × 620` AppKit points at 2×). For full-view comparison the source was scaled to 920 × 329 pixels and stacked above the 920-pixel-wide implementation. This is a style comparison rather than a literal layout clone: the source is a wide desktop scene, while the implementation is a compact menu-bar popover.
+
+## Findings
+
+- No actionable P0/P1/P2 findings.
+- Intentional deviation: the source places its translucent workflow panel over a colorful desktop scene. Task Bar stays opaque-near-black because its dense live task text needs dependable contrast over arbitrary macOS wallpaper. The matched surfaces are the rounded dark shell, fine light borders, layered translucent cards, warm orange emphasis, and high-contrast compact controls.
+
+## Fidelity surfaces
+
+- **Typography:** System type remains appropriate for a native AppKit utility. The title is raised to 18pt bold, with a 9.5pt monospaced live-status eyebrow and existing readable task hierarchy. Long task titles still truncate rather than collide with progress, pin, or subtask controls.
+- **Spacing and layout rhythm:** The popover widens to 460pt; the 76pt status header, 48pt segmented filter, 12pt card gutters, 14pt card radii, and 98pt standard rows create the intended layered rhythm without hiding the footer.
+- **Colors and tokens:** Near-black base (`0.035/0.037/0.050`), subtly warm panel gradient, translucent charcoal cards, one-pixel low-alpha borders, and orange primary accent produce the requested direction while preserving semantic green/yellow/blue task states.
+- **Image and icon fidelity:** There are no user-provided application assets to reproduce. Existing native SF Symbols and the Task Bar mark are preserved; no placeholder imagery was introduced. The reference's desktop wallpaper is intentionally not copied into a functional task-monitor surface.
+- **Copy and affordances:** `LIVE WORKSPACE`, status chips, filter labels, task cards, pins, progress rings, settings, and quit retain their clear existing meaning. Tabs and task actions keep their original code paths.
+
+## Interaction and verification
+
+- `./build_petbar.sh` passed.
+- `TaskBar --self-test-plan-parser` passed.
+- The real AppKit render command produced the implementation capture above.
+- `git diff --check` passed.
+- Browser-console verification is not applicable to this native macOS AppKit view. Live click/hover verification remains part of the installed-app check after merge.
+
+## Comparison history
+
+1. First implementation capture reviewed against the supplied reference in `/tmp/taskbar-vibe-island-comparison.png`. The warm accent, rounded dark shell, bordered cards, and compact control hierarchy are present; no P0/P1/P2 correction was needed.
+
+## Implementation checklist
+
+- [x] Preserve Task Bar data and interaction behavior.
+- [x] Apply shared dark control-surface tokens.
+- [x] Restyle header, segmented filter, task cards, empty state, and separators.
+- [x] Build and render the native view.
+- [ ] Merge PR, rebuild from `origin/main`, install, and visually check `/Applications/Task Bar.app`.
+
+## Follow-up polish
+
+- [P3] If desired, a future pass can add a user-selectable ambient backdrop treatment. It should remain optional so task text does not lose contrast against arbitrary desktop content.
+
+final result: passed
+
+---
+
+# Historical QA — Model Routing Platform Button Style
 
 ## Evidence
 
@@ -25,7 +76,7 @@ Passed.
 
 ---
 
-# Design QA: Codex / Claude model routing
+# Historical QA — Codex / Claude model routing
 
 ## Source and implementation
 
@@ -66,7 +117,7 @@ Passed. No P0, P1, or P2 visual or interaction issues remain in the verified sta
 
 ---
 
-# Follow Global Control Design QA
+# Historical QA — Follow Global Control
 
 ## Evidence
 
