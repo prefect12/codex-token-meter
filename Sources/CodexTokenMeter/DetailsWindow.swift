@@ -3005,7 +3005,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
 
             if index < navigationGroups.count - 1 {
-                borderColor.withAlphaComponent(0.72).setStroke()
+                borderColor.setStroke()
                 let dividerY = y + 16
                 let divider = NSBezierPath()
                 divider.move(to: NSPoint(x: 28, y: dividerY))
