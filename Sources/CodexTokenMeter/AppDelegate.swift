@@ -26,8 +26,8 @@ private struct ModelRangeReports {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private let popover = NSPopover()
     private let dashboardController = DashboardViewController()
+    private lazy var dashboardPanel = DashboardOverlayPanel(contentViewController: dashboardController)
     private let detailsController = UsageDetailsWindowController()
     private let codexModelRoutingProtectionController =
         CodexModelRoutingProtectionController()
@@ -96,15 +96,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveLimits = LiveRateLimitCacheStore.read()
 
         NSApp.applicationIconImage = NSImage(named: "LogoHeader")
-        popover.contentViewController = dashboardController
-        resizeDashboardPopover(to: DashboardView.idealSize)
-        popover.behavior = .transient
+        resizeDashboardOverlay(to: DashboardView.idealSize)
         configureStatusButton()
 
         dashboardController.dashboardView.onWindowChanged = { [weak self] option in self?.selectWindow(option) }
         dashboardController.dashboardView.onQuotaChanged = { [weak self] option in self?.selectQuota(option) }
         dashboardController.dashboardView.onPreferredSizeChanged = { [weak self] size in
-            self?.resizeDashboardPopover(to: size)
+            self?.resizeDashboardOverlay(to: size)
         }
         dashboardController.dashboardView.onRefresh = { [weak self] in
             self?.refresh(forceLive: false)
@@ -400,8 +398,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detailsController.update(snapshot: snapshot)
     }
 
-    private func resizeDashboardPopover(to size: NSSize) {
-        guard popover.contentSize != size else { return }
+    private func resizeDashboardOverlay(to size: NSSize) {
+        guard dashboardPanel.contentView?.bounds.size != size else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             context.allowsImplicitAnimation = false
@@ -409,7 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             dashboardController.view.frame = NSRect(origin: .zero, size: size)
             dashboardController.dashboardView.frame = NSRect(origin: .zero, size: size)
             dashboardController.dashboardView.layoutSubtreeIfNeeded()
-            popover.contentSize = size
+            dashboardPanel.resize(to: size)
         }
     }
 
@@ -485,11 +483,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
-        if popover.isShown {
-            popover.performClose(nil)
+        if dashboardPanel.isVisible {
+            dashboardPanel.orderOut(nil)
         } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
+            dashboardPanel.show(anchoredTo: button, size: dashboardController.dashboardView.preferredPopoverSize)
             if Date().timeIntervalSince(latestState.report.scannedAt) >= popoverRefreshMaxAge {
                 refresh(forceLive: false)
             }
