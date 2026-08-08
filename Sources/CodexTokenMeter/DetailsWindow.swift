@@ -1525,14 +1525,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let targetHeight: CGFloat
         switch selectedSection {
         case .overview:
-            // The Claude view hides the Codex reset-credits row (see drawOverview),
-            // while Codex/all expands it when reset credits wrap to another row.
+            // Keep this in lockstep with drawOverview: source rows can grow as
+            // platforms are enabled, and reset credits can wrap to another row.
+            let quotaHeight = quotaRowsPreferredHeight()
             if selectedDetailsSource == .claude {
-                targetHeight = 840
+                targetHeight = max(840, 736 + quotaHeight)
             } else if let snapshot {
-                targetHeight = 856 + resetCreditPanelHeight(for: snapshot)
+                targetHeight = 736 + resetCreditPanelHeight(for: snapshot) + quotaHeight
             } else {
-                targetHeight = 944
+                targetHeight = 736 + 88 + quotaHeight
             }
         case .insights:
             let heatmapHeight: CGFloat = 148

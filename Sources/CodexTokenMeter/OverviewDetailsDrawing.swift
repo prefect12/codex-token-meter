@@ -72,7 +72,11 @@ extension UsageDetailsView {
         let resetY = cardsY + cardsHeight + 16
         let resetHeight = resetCreditPanelHeight(for: snapshot)
         let quotaY = showResetCredits ? resetY + resetHeight + 16 : resetY
-        let modelsY = quotaY + 136
+        // The "All" source includes a total row plus every enabled platform.
+        // Keep the source panel and all following panels driven by the same
+        // measured height so a newly enabled source cannot draw outside its card.
+        let quotaHeight = quotaRowsPreferredHeight()
+        let modelsY = quotaY + quotaHeight + 16
         let gridY = modelsY + 146
         let gridReport = calendarReport(for: snapshot)
         let gridTitle = usesProfileAPIReport(for: snapshot)
@@ -82,7 +86,7 @@ extension UsageDetailsView {
         if showResetCredits {
             drawResetCreditCountdownRow(snapshot: snapshot, content: content, y: resetY, height: resetHeight)
         }
-        drawQuotaRows(snapshot: snapshot, content: content, y: quotaY, height: 120)
+        drawQuotaRows(snapshot: snapshot, content: content, y: quotaY, height: quotaHeight)
         drawModelRows(snapshot: snapshot, content: content, y: modelsY, height: 130, maxRows: 4)
         let gridHeight = contributionGridPreferredHeight(report: gridReport, width: content.width, compact: true)
         let gridRect = NSRect(x: content.minX, y: gridY, width: content.width, height: min(gridHeight, max(168, content.maxY - gridY)))
