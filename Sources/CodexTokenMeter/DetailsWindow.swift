@@ -2979,19 +2979,41 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     func drawSidebar(width: CGFloat) {
         sidebarItemRects.removeAll()
         drawText("AI Token Meter", rect: NSRect(x: 28, y: 28, width: width - 56, height: 28), font: .systemFont(ofSize: 20, weight: .bold), color: .white)
-        drawText(QuotaViewOption.visibleSourcesTitle, rect: NSRect(x: 28, y: 58, width: width - 56, height: 20), font: .systemFont(ofSize: 13, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
-        for (index, section) in DetailsSection.visibleSections.enumerated() {
-            let y = CGFloat(118 + index * 58)
-            let rect = NSRect(x: 18, y: y, width: width - 36, height: 42)
-            sidebarItemRects[section] = rect
-            if section == selectedSection {
-                accentBlue.withAlphaComponent(0.82).setFill()
-                NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+        let navigationGroups = sidebarNavigationGroups
+        var y: CGFloat = 86
+        for (index, group) in navigationGroups.enumerated() {
+            drawText(
+                group.title,
+                rect: NSRect(x: 28, y: y, width: width - 56, height: 18),
+                font: .systemFont(ofSize: 12.5, weight: .semibold),
+                color: NSColor.white.withAlphaComponent(0.48)
+            )
+            y += 26
+
+            for section in group.sections {
+                let rect = NSRect(x: 18, y: y, width: width - 36, height: 42)
+                sidebarItemRects[section] = rect
+                if section == selectedSection {
+                    accentBlue.withAlphaComponent(0.82).setFill()
+                    NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+                }
+                let textColor = section == selectedSection ? NSColor.white : NSColor.white.withAlphaComponent(0.82)
+                let iconRect = NSRect(x: rect.minX + 14, y: rect.minY + 12, width: 18, height: 18)
+                drawSymbolIcon(sidebarSymbolName(section), in: iconRect, color: textColor.withAlphaComponent(section == selectedSection ? 1.0 : 0.72))
+                drawText(section.title, rect: NSRect(x: rect.minX + 42, y: rect.minY + 10, width: rect.width - 56, height: 22), font: .systemFont(ofSize: 15, weight: .semibold), color: textColor)
+                y += 44
             }
-            let textColor = section == selectedSection ? NSColor.white : NSColor.white.withAlphaComponent(0.82)
-            let iconRect = NSRect(x: rect.minX + 14, y: rect.minY + 12, width: 18, height: 18)
-            drawSymbolIcon(sidebarSymbolName(section), in: iconRect, color: textColor.withAlphaComponent(section == selectedSection ? 1.0 : 0.72))
-            drawText(section.title, rect: NSRect(x: rect.minX + 42, y: rect.minY + 10, width: rect.width - 56, height: 22), font: .systemFont(ofSize: 15, weight: .semibold), color: textColor)
+
+            if index < navigationGroups.count - 1 {
+                borderColor.withAlphaComponent(0.72).setStroke()
+                let dividerY = y + 16
+                let divider = NSBezierPath()
+                divider.move(to: NSPoint(x: 28, y: dividerY))
+                divider.line(to: NSPoint(x: width - 28, y: dividerY))
+                divider.lineWidth = 1
+                divider.stroke()
+                y += 32
+            }
         }
         if (selectedSection == .reasoning || selectedSection == .combinationRanking),
            let report = snapshot?.codexRepoInsightReports[selectedInsightWindowDays] ?? snapshot?.codexRepoInsights {
@@ -3003,6 +3025,23 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             let seconds = appTimeZone().secondsFromGMT()
             let sign = seconds >= 0 ? "+" : "-"
             drawText("\(reasoningLocalized("时区", english: "Time zone")):  UTC\(sign)\(abs(seconds) / 3600)", rect: NSRect(x: 28, y: bounds.maxY - 42, width: width - 48, height: 17), font: .systemFont(ofSize: 10.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
+        }
+    }
+
+    var sidebarNavigationGroups: [(title: String, sections: [DetailsSection])] {
+        [
+            (sidebarGroupTitle(chinese: "用量", traditionalChinese: "用量", english: "Usage", japanese: "使用量"), [.overview, .calendar, .models]),
+            (sidebarGroupTitle(chinese: "分析", traditionalChinese: "分析", english: "Analysis", japanese: "分析"), [.reasoning, .insights, .storage]),
+            (sidebarGroupTitle(chinese: "偏好设置", traditionalChinese: "偏好設定", english: "Preferences", japanese: "環境設定"), [.modelRouting, .settings, .diagnostics, .about])
+        ]
+    }
+
+    func sidebarGroupTitle(chinese: String, traditionalChinese: String, english: String, japanese: String) -> String {
+        switch AppLanguage.current {
+        case .chinese: return chinese
+        case .traditionalChinese: return traditionalChinese
+        case .japanese: return japanese
+        default: return english
         }
     }
 
