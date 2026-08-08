@@ -117,3 +117,45 @@ No actionable P0, P1, or P2 differences remain.
 - P3: run a manual VoiceOver announcement pass in the installed application.
 
 final result: passed
+
+---
+
+# Top Overlay Dashboard Design QA
+
+## Evidence
+
+- Source visual truth: `/var/folders/hm/pmxxw3v90wl7nql88zsgljym0000gn/T/codex-clipboard-08352a05-a30e-4eea-855d-731e0a5d5a86.png`
+- Implementation: `/tmp/ai-token-meter-top-overlay-final.png`
+- Combined comparison: `/tmp/ai-token-meter-design-comparison.png`
+- Source pixels: 2486 x 888.
+- Implementation pixels: 1240 x 1484, rendered from a 620 x 742pt dashboard at 2x.
+- State: dark mode, week window, all sources selected; the reference is a visual-direction target rather than identical product content.
+
+## Comparison
+
+The implementation deliberately preserves AI Token Meter's quota table, usage chart, source selector, and controls. The visual motifs taken from the reference are the black, arrow-free floating surface; rounded outer frame; thin muted border; strong elevation; tight dark section hierarchy; and high-contrast operational type.
+
+Focused comparison covered the panel frame/header and the persistent controls. A content-for-content comparison is not applicable because the source is a permission dialog while the implementation is a live usage dashboard.
+
+## Required Fidelity Surfaces
+
+- **Fonts and typography:** bold, high-contrast title and tabular operational figures; compact metadata stays secondary without truncation.
+- **Spacing and layout rhythm:** 620pt wide top panel, 30pt outer radius, consistent 34pt side inset, and visible separation between header, metrics, and actions.
+- **Colors and visual tokens:** near-black surface with low-contrast charcoal layers; green remains reserved for live positive quota/value states.
+- **Image quality and assets:** existing app logo and SF Symbol controls are retained; no reference product imagery is relevant to this dashboard.
+- **Copy and content:** real AI Token Meter labels and localized quota/cost data are preserved.
+
+## Findings
+
+No actionable P0, P1, or P2 differences for the requested visual direction. The dashboard is intentionally taller than the source dialog because it must retain the app's live quota, table, chart, and action controls in one top overlay.
+
+## Follow-up Polish
+
+- [P3] Add a user preference for compact versus expanded overlay height if users prefer a summary-only top panel.
+
+## Verification
+
+- `./build.sh` completed successfully.
+- `--render-dashboard` rendered both all-source and Codex-only states with no clipped persistent controls.
+
+final result: passed

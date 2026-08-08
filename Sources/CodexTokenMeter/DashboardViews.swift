@@ -1612,8 +1612,8 @@ final class APIUsageMetricsView: NSView {
 }
 
 final class DashboardView: NSView {
-    static let allOverviewSize = NSSize(width: 430, height: 744)
-    static let singlePlatformSize = NSSize(width: 430, height: 610)
+    static let allOverviewSize = NSSize(width: 620, height: 742)
+    static let singlePlatformSize = NSSize(width: 620, height: 640)
     static let idealSize = singlePlatformSize
 
     private var state = DashboardState()
@@ -1863,13 +1863,31 @@ final class DashboardView: NSView {
         NSColor.clear.setFill()
         dirtyRect.fill()
 
-        let card = bounds.insetBy(dx: 8, dy: 8)
-        NSColor(calibratedWhite: 0.045, alpha: 0.98).setFill()
-        NSBezierPath(roundedRect: card, xRadius: 26, yRadius: 26).fill()
+        let card = bounds.insetBy(dx: 6, dy: 6)
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.62)
+        shadow.shadowBlurRadius = 28
+        shadow.shadowOffset = NSSize(width: 0, height: -8)
+        NSGraphicsContext.saveGraphicsState()
+        shadow.set()
+        NSColor(calibratedWhite: 0.035, alpha: 0.985).setFill()
+        NSBezierPath(roundedRect: card, xRadius: 30, yRadius: 30).fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        let header = NSRect(x: card.minX + 1, y: card.minY + 1, width: card.width - 2, height: 112)
+        let headerGradient = NSGradient(colors: [
+            NSColor(calibratedWhite: 0.075, alpha: 0.98),
+            NSColor(calibratedWhite: 0.050, alpha: 0.98)
+        ])
+        headerGradient?.draw(in: NSBezierPath(roundedRect: header, xRadius: 29, yRadius: 29), angle: 0)
+        NSColor(calibratedWhite: 0.10, alpha: 0.92).setFill()
+        NSBezierPath(rect: NSRect(x: card.minX + 1, y: header.maxY - 28, width: card.width - 2, height: 28)).fill()
         NSColor.white.withAlphaComponent(0.09).setStroke()
-        let border = NSBezierPath(roundedRect: card.insetBy(dx: 0.5, dy: 0.5), xRadius: 26, yRadius: 26)
+        let border = NSBezierPath(roundedRect: card.insetBy(dx: 0.5, dy: 0.5), xRadius: 30, yRadius: 30)
         border.lineWidth = 1
         border.stroke()
+        NSColor.white.withAlphaComponent(0.08).setFill()
+        NSBezierPath(rect: NSRect(x: card.minX + 34, y: card.minY + 112, width: card.width - 68, height: 1)).fill()
     }
 
     override func layout() {
@@ -1943,7 +1961,7 @@ final class DashboardView: NSView {
     }
 
     private func layoutComparison(in layoutBounds: NSRect) {
-        let content = layoutBounds.insetBy(dx: 28, dy: 24)
+        let content = layoutBounds.insetBy(dx: 34, dy: 26)
         let sourceWidth = quotaSelectorWidth
         layoutHeader(in: content, totalWidth: 132, quotaSegmentWidth: sourceWidth, usageOffset: sourceWidth + 12)
 
@@ -1969,7 +1987,7 @@ final class DashboardView: NSView {
     }
 
     private func layoutSinglePlatform(in layoutBounds: NSRect) {
-        let content = layoutBounds.insetBy(dx: 28, dy: 24)
+        let content = layoutBounds.insetBy(dx: 34, dy: 26)
         let sourceWidth = quotaSelectorWidth
         layoutHeader(in: content, totalWidth: 132, quotaSegmentWidth: sourceWidth, usageOffset: sourceWidth + 12)
 
@@ -2047,6 +2065,7 @@ final class DashboardView: NSView {
     private func setup() {
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
+        appearance = NSAppearance(named: .darkAqua)
         logoImageView.image = NSImage(named: "LogoHeader")
         logoImageView.imageScaling = .scaleProportionallyUpOrDown
         addSubview(logoImageView)
@@ -2059,7 +2078,7 @@ final class DashboardView: NSView {
             addSubview($0)
         }
 
-        titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
+        titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
         titleLabel.textColor = .white
         titleLabel.usesSingleLineMode = true
         titleLabel.lineBreakMode = .byTruncatingTail
@@ -2094,11 +2113,13 @@ final class DashboardView: NSView {
         quotaSegment.target = self
         quotaSegment.action = #selector(quotaSegmentChanged)
         quotaSegment.segmentStyle = .rounded
+        quotaSegment.controlSize = .small
         addSubview(quotaSegment)
 
         segment.target = self
         segment.action = #selector(segmentChanged)
         segment.segmentStyle = .rounded
+        segment.controlSize = .small
         segment.toolTip = t(.usageWindow)
         addSubview(segment)
 
@@ -2137,7 +2158,7 @@ final class DashboardView: NSView {
         button.attributedTitle = NSAttributedString(string: title, attributes: attributes)
         button.attributedAlternateTitle = NSAttributedString(string: title, attributes: attributes)
         button.image = symbolImage(for: titleKey)
-        button.bezelColor = NSColor.white.withAlphaComponent(0.16)
+        button.bezelColor = NSColor(calibratedWhite: 0.14, alpha: 1)
         button.contentTintColor = NSColor.white.withAlphaComponent(0.90)
         button.toolTip = title
     }
