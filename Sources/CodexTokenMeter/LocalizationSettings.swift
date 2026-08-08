@@ -345,7 +345,6 @@ enum L10nKey {
     case codex
     case codexAppTotal
     case codexDescription
-    case combinedUsage
     case copy
     case costs
     case costsSubtitle
@@ -627,7 +626,6 @@ enum L10nKey {
         case .codex: return "Codex"
         case .codexAppTotal: return "Codex app total"
         case .codexDescription: return "Codex local logs"
-        case .combinedUsage: return "Codex + Claude + API"
         case .copy: return "Copy"
         case .costs: return "Costs"
         case .costsSubtitle: return "Plan settings and estimated money usage"
@@ -911,7 +909,6 @@ enum L10nKey {
         case .codex: return "Codex"
         case .codexAppTotal: return "Codex 总用量"
         case .codexDescription: return "Codex 本地日志"
-        case .combinedUsage: return "Codex + Claude + API"
         case .copy: return "复制"
         case .costs: return "成本"
         case .costsSubtitle: return "订阅额度周期与直接 API 成本"
@@ -1195,7 +1192,6 @@ enum L10nKey {
         case .codex: return "Codex"
         case .codexAppTotal: return "Codex 全体使用量"
         case .codexDescription: return "Codex ローカルログ"
-        case .combinedUsage: return "Codex + Claude + API"
         case .copy: return "コピー"
         case .costs: return "金額"
         case .costsSubtitle: return "プラン設定と金額推定"
