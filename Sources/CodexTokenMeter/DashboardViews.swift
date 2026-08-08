@@ -1619,7 +1619,6 @@ final class DashboardView: NSView {
     private var state = DashboardState()
     private let logoImageView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "AI Token Meter")
-    private let subtitleLabel = NSTextField(labelWithString: "")
     private let totalLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private let usageLabel = NSTextField(labelWithString: "")
@@ -1680,7 +1679,6 @@ final class DashboardView: NSView {
         titleLabel.stringValue = "AI Token Meter"
         let displayLimit = selectedLimit(from: state.liveLimits, quota: state.selectedQuota)
         let fableLimit = state.liveLimits.first { $0.id == claudeFableLiveLimitID }
-        subtitleLabel.stringValue = state.selectedQuota.fallbackTitle
         totalLabel.stringValue = headerTotalSummary(totalReport.usage.total)
         detailLabel.stringValue = usesProfileTotal
             ? "\(state.selectedWindow.title) · \(t(.profileAPISource))"
@@ -1897,7 +1895,6 @@ final class DashboardView: NSView {
         logoImageView.frame = NSRect(x: content.minX, y: content.minY + 2, width: 22, height: 22)
         let titleWidth = max(0, totalX - titleX - 12)
         titleLabel.frame = NSRect(x: titleX, y: content.minY, width: titleWidth, height: 28)
-        subtitleLabel.frame = NSRect(x: titleX, y: content.minY + 30, width: titleWidth, height: 18)
         totalLabel.frame = NSRect(x: totalX, y: content.minY, width: totalWidth, height: 36)
         detailLabel.frame = NSRect(x: content.maxX - 172, y: content.minY + 37, width: 162, height: 16)
         quotaSegment.frame = NSRect(x: content.minX, y: content.minY + 52, width: quotaSegmentWidth, height: 24)
@@ -2054,7 +2051,7 @@ final class DashboardView: NSView {
         logoImageView.imageScaling = .scaleProportionallyUpOrDown
         addSubview(logoImageView)
 
-        [titleLabel, subtitleLabel, totalLabel, detailLabel, usageLabel, refreshLabel, sessionsLabel, costLabel].forEach {
+        [titleLabel, totalLabel, detailLabel, usageLabel, refreshLabel, sessionsLabel, costLabel].forEach {
             $0.isBezeled = false
             $0.drawsBackground = false
             $0.isEditable = false
@@ -2066,10 +2063,6 @@ final class DashboardView: NSView {
         titleLabel.textColor = .white
         titleLabel.usesSingleLineMode = true
         titleLabel.lineBreakMode = .byTruncatingTail
-        subtitleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        subtitleLabel.textColor = NSColor.white.withAlphaComponent(0.58)
-        subtitleLabel.usesSingleLineMode = true
-        subtitleLabel.lineBreakMode = .byTruncatingTail
         totalLabel.font = .monospacedDigitSystemFont(ofSize: 28, weight: .bold)
         totalLabel.alignment = .right
         totalLabel.textColor = NSColor.systemGreen
@@ -2172,7 +2165,6 @@ final class DashboardView: NSView {
 
     private func updateAccessibilityLabels(report: TokenReport, totalReport: TokenReport) {
         titleLabel.setAccessibilityLabel("AI Token Meter")
-        subtitleLabel.setAccessibilityLabel(subtitleLabel.stringValue)
         totalLabel.setAccessibilityLabel("\(t(.total)) \(headerTotalSummary(totalReport.usage.total))")
         usageLabel.setAccessibilityLabel("\(t(.input)) \(compactDashboardMetric(report.usage.input)), \(t(.output)) \(compactDashboardMetric(report.usage.output))")
         sessionsLabel.setAccessibilityLabel(sessionsLabel.stringValue)
