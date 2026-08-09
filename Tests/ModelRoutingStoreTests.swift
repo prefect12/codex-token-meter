@@ -8,6 +8,7 @@ struct ModelRoutingStoreTests {
         try testProtectedDefaultsRestoreOnlyRoutingKeys()
         try testProtectionPreferenceLifecycle()
         try testAppLifetimeProtectionRestoresExternalRewrite()
+        try testAppLifetimeProtectionKeepsConversationOverrideBriefly()
         try testClaudeJSONUpdatePreservesOtherSettings()
         try testClaudeModelCatalogMatchesCurrentSelector()
         try testClaudeProjectWritesStayLocal()
@@ -295,6 +296,7 @@ struct ModelRoutingStoreTests {
             routingStore: store,
             preferences: preferences,
             callbackQueue: DispatchQueue(label: "ModelRoutingControllerTests.callback"),
+            conversationOverrideGraceInterval: 0,
             onWatcherReady: {
                 watcherReady.signal()
             }
@@ -332,6 +334,78 @@ struct ModelRoutingStoreTests {
         try require(
             source.contains("personality = \"friendly\""),
             "app-lifetime protection should preserve unrelated external changes"
+        )
+    }
+
+    private static func testAppLifetimeProtectionKeepsConversationOverrideBriefly() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-routing-grace-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        let store = CodexModelRoutingStore(codexHomeURL: temporaryRoot)
+        try Data("""
+        model = "gpt-5.6-luna"
+        model_reasoning_effort = "high"
+        """.utf8).write(to: store.globalConfigURL)
+
+        let suiteName = "ModelRoutingGraceControllerTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw NSError(
+                domain: "ModelRoutingStoreTests",
+                code: 7,
+                userInfo: [NSLocalizedDescriptionKey: "could not create grace controller defaults"]
+            )
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = CodexModelRoutingProtectionPreferences(defaults: defaults)
+        preferences.enable(capturing: store.captureProtectedRoutingState())
+        let watcherReady = DispatchSemaphore(value: 0)
+        let controller = CodexModelRoutingProtectionController(
+            routingStore: store,
+            preferences: preferences,
+            callbackQueue: DispatchQueue(label: "ModelRoutingGraceControllerTests.callback"),
+            conversationOverrideGraceInterval: 0.5,
+            onWatcherReady: {
+                watcherReady.signal()
+            }
+        )
+        defer { withExtendedLifetime(controller) {} }
+        guard watcherReady.wait(timeout: .now() + 2) == .success else {
+            throw NSError(
+                domain: "ModelRoutingStoreTests",
+                code: 8,
+                userInfo: [NSLocalizedDescriptionKey: "grace controller watcher did not become ready"]
+            )
+        }
+
+        let selectedForConversation = CodexConfigSelection(
+            model: "gpt-5.6-sol",
+            reasoningEffort: "max"
+        )
+        try Data("""
+        model = "gpt-5.6-sol"
+        model_reasoning_effort = "max"
+        """.utf8).write(to: store.globalConfigURL, options: .atomic)
+
+        Thread.sleep(forTimeInterval: 0.35)
+        try require(
+            try store.readSelection(at: store.globalConfigURL) == selectedForConversation,
+            "protection should leave a brief window for the current conversation override"
+        )
+
+        let deadline = Date().addingTimeInterval(3)
+        var restored = false
+        while Date() < deadline {
+            if try store.readSelection(at: store.globalConfigURL)
+                == CodexConfigSelection(model: "gpt-5.6-luna", reasoningEffort: "high") {
+                restored = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        try require(
+            restored,
+            "protection should restore the saved defaults after the conversation override window"
         )
     }
 
