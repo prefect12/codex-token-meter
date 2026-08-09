@@ -326,11 +326,6 @@ final class ThreadRowView: NSView {
         let point = event.locationInWindow
         let deltaX = point.x - mouseDownPoint.x
         let deltaY = point.y - mouseDownPoint.y
-        guard isReadDismissible(item.status) else {
-            didDrag = hypot(deltaX, deltaY) > 3
-            return
-        }
-
         if !isSwipeTracking {
             guard abs(deltaX) > 6 || abs(deltaY) > 6 else { return }
             guard abs(deltaX) > abs(deltaY) * 1.2 else { return }
@@ -382,7 +377,7 @@ final class ThreadRowView: NSView {
     /// A visible button makes local cleanup discoverable without changing the
     /// source conversations or their rollout logs.
     private var dismissHitRect: NSRect {
-        guard isReadDismissible(item.status), !dismissIconView.isHidden else { return .zero }
+        guard !dismissIconView.isHidden else { return .zero }
         return dismissIconView.frame.insetBy(dx: -6, dy: -6)
     }
 
@@ -428,11 +423,11 @@ final class ThreadRowView: NSView {
     }
 
     private func updateDismissIcon() {
-        dismissIconView.isHidden = !isReadDismissible(item.status) || !isHovering
+        dismissIconView.isHidden = !isHovering
     }
 
     override func scrollWheel(with event: NSEvent) {
-        guard isReadDismissible(item.status), event.hasPreciseScrollingDeltas else {
+        guard event.hasPreciseScrollingDeltas else {
             super.scrollWheel(with: event)
             return
         }
@@ -501,7 +496,7 @@ final class ThreadRowView: NSView {
             NSBezierPath(roundedRect: barRect, xRadius: 1.75, yRadius: 1.75).fill()
         }
 
-        if swipeOffset < -1, isReadDismissible(item.status) {
+        if swipeOffset < -1 {
             let revealWidth = min(ThreadRowView.dismissRevealWidth, -swipeOffset + 16)
             let revealRect = NSRect(
                 x: bounds.maxX - revealWidth - 8,

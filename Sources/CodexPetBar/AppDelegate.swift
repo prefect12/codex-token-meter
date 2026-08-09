@@ -262,12 +262,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func dismissThread(id: String) {
         let selectedItem = threads.first(where: { $0.id == id })
-        if let item = selectedItem, isReadDismissible(item.status) {
-            readState.markRead(item)
+        if let selectedItem {
+            readState.dismiss(selectedItem)
         } else {
-            readState.markRead(threadID: id)
+            readState.dismiss(threadID: id)
         }
-        threads.removeAll { $0.id == id && isReadDismissible($0.status) }
+        threads.removeAll { $0.id == id }
         // A dismissed row leaves the list; keeping its pin would silently
         // re-float the thread if it ever reappears.
         if threads.first(where: { $0.id == id }) == nil {

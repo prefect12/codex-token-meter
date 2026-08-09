@@ -19,6 +19,9 @@ private struct ReadStateFile: Codable {
     var openedAt: [String: TimeInterval]
     var runningSeenAt: [String: TimeInterval]?
     var userReadAt: [String: TimeInterval]?
+    /// Local Task Bar dismissals. A later activity timestamp makes the thread
+    /// visible again, so this never changes the underlying conversation.
+    var dismissedAt: [String: TimeInterval]?
     var codexUpdatedAtSeen: [String: TimeInterval]?
     var codexUnreadSeenAt: [String: TimeInterval]?
 }
@@ -2478,7 +2481,7 @@ final class CodexActivityReader {
 }
 
 final class ReadStateStore {
-    private static let schemaVersion = 7
+    private static let schemaVersion = 8
     private static let userReadAtSchemaVersion = 6
     private static let readWatermarkTolerance: TimeInterval = 60
     /// A thread first seen as "unread" may simply be one whose running phase every
@@ -2517,6 +2520,7 @@ final class ReadStateStore {
                 // Older builds also wrote external/Codex-open read watermarks here,
                 // so only trust it after schema 6 where it means a Task Bar action.
                 userReadAt: decodedSchemaVersion >= Self.userReadAtSchemaVersion ? decoded.userReadAt : [:],
+                dismissedAt: decoded.dismissedAt ?? [:],
                 codexUpdatedAtSeen: decoded.codexUpdatedAtSeen ?? [:],
                 codexUnreadSeenAt: decoded.codexUnreadSeenAt ?? [:]
             )
@@ -2527,6 +2531,7 @@ final class ReadStateStore {
                 openedAt: [:],
                 runningSeenAt: [:],
                 userReadAt: [:],
+                dismissedAt: [:],
                 codexUpdatedAtSeen: [:],
                 codexUnreadSeenAt: [:]
             )
@@ -2576,6 +2581,11 @@ final class ReadStateStore {
 
         var visible: [CodexThreadItem] = []
         for item in items {
+            // Dismissals are local-only acknowledgements. Keep a task hidden
+            // until it has fresh activity, regardless of its current status.
+            if (current.dismissedAt?[item.id] ?? 0) >= item.lastActivity.timeIntervalSince1970 {
+                continue
+            }
             if item.status == .unread,
                completedSubtaskWasAcknowledgedWithParent(item, items: items, state: current) {
                 let timestamp = readThroughTime(for: item)
@@ -2677,6 +2687,34 @@ final class ReadStateStore {
         var userReadAt = state.userReadAt ?? [:]
         userReadAt[threadID] = timestamp
         state.userReadAt = userReadAt
+        saveLocked()
+        lock.unlock()
+    }
+
+    func dismiss(_ item: CodexThreadItem) {
+        lock.lock()
+        let timestamp = readThroughTime(for: item)
+        state.openedAt[item.id] = timestamp
+        var userReadAt = state.userReadAt ?? [:]
+        userReadAt[item.id] = timestamp
+        state.userReadAt = userReadAt
+        var dismissedAt = state.dismissedAt ?? [:]
+        dismissedAt[item.id] = timestamp
+        state.dismissedAt = dismissedAt
+        saveLocked()
+        lock.unlock()
+    }
+
+    func dismiss(threadID: String, at date: Date = Date()) {
+        lock.lock()
+        let timestamp = date.timeIntervalSince1970
+        state.openedAt[threadID] = timestamp
+        var userReadAt = state.userReadAt ?? [:]
+        userReadAt[threadID] = timestamp
+        state.userReadAt = userReadAt
+        var dismissedAt = state.dismissedAt ?? [:]
+        dismissedAt[threadID] = timestamp
+        state.dismissedAt = dismissedAt
         saveLocked()
         lock.unlock()
     }
