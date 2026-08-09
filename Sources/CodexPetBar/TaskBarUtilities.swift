@@ -386,6 +386,12 @@ let taskBarRowHeight: CGFloat = 98
 let taskBarCompactRowHeight: CGFloat = 72
 let taskBarEmptyStateHeight: CGFloat = 120
 
+/// The experimental Island surface uses a denser, continuous activity stream.
+/// Keep the stable Task Bar's configurable row sizing unchanged.
+func taskBarDisplayedRowHeight(for layout: TaskRowLayoutStyle) -> CGFloat {
+    TaskBarBuild.isBeta ? 68 : layout.rowHeight
+}
+
 func taskBarPopoverMaxHeight() -> CGFloat {
     let mouse = NSEvent.mouseLocation
     let screenHeight = NSScreen.screens.first { $0.frame.contains(mouse) }?.visibleFrame.height

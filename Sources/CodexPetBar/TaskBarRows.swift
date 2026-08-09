@@ -184,7 +184,7 @@ final class ThreadRowView: NSView {
         self.isExpanded = isExpanded
         self.subtaskBadgeView = SubtaskCountBadgeView(count: subtaskCount)
         self.isPinned = TaskBarSettings.isPinned(item.id)
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: rowLayout.rowHeight))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: taskBarDisplayedRowHeight(for: rowLayout)))
         wantsLayer = true
         let tooltip = tooltipText(for: item)
         setAccessibilityHelp(tooltip)
@@ -462,6 +462,11 @@ final class ThreadRowView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
+        if TaskBarBuild.isBeta {
+            drawIslandRow()
+            return
+        }
+
         let cardRect = bounds.insetBy(dx: 12, dy: 4)
         let card = NSBezierPath(roundedRect: cardRect, xRadius: 14, yRadius: 14)
         (isHovering ? taskBarCardHover : taskBarCardBackground).setFill()
@@ -496,10 +501,60 @@ final class ThreadRowView: NSView {
 
     override func layout() {
         super.layout()
+        if TaskBarBuild.isBeta {
+            layoutIslandRow()
+            return
+        }
         switch rowLayout {
         case .standard: layoutStandard()
         case .compact: layoutCompact()
         }
+    }
+
+    /// Vibe Island's list reads as one activity surface rather than a stack of cards:
+    /// a small state dot, compact task copy, then a quiet metadata line.
+    private func layoutIslandRow() {
+        let offset = swipeOffset
+        let contentX: CGFloat = 32
+        let contentWidth = max(130, bounds.width - contentX - 22)
+
+        layoutTitleAndPin(x: contentX, y: bounds.height - 27, width: contentWidth, offset: offset)
+        detailLabel.frame = NSRect(x: contentX + offset, y: 24, width: contentWidth, height: 16)
+        detailLabel.maximumNumberOfLines = 1
+
+        clockIconView.frame = NSRect(x: contentX + offset, y: 7, width: 10, height: 10)
+        durationLabel.frame = NSRect(x: contentX + 14 + offset, y: 4.5, width: 48, height: 14)
+        metaDotView.frame = NSRect(x: 17 + offset, y: bounds.height - 22, width: 6, height: 6)
+        metaStatusLabel.frame = NSRect(x: contentX + 67 + offset, y: 4, width: max(0, contentWidth - 67), height: 15)
+        platformLabel.isHidden = true
+    }
+
+    private func drawIslandRow() {
+        let rowRect = bounds.insetBy(dx: 8, dy: 1)
+        if isHovering, !isSwipeTracking {
+            NSColor.white.withAlphaComponent(0.055).setFill()
+            NSBezierPath(roundedRect: rowRect, xRadius: 8, yRadius: 8).fill()
+        }
+
+        if swipeOffset < -1, isReadDismissible(item.status) {
+            let revealWidth = min(ThreadRowView.dismissRevealWidth, -swipeOffset + 16)
+            let revealRect = NSRect(
+                x: bounds.maxX - revealWidth - 8,
+                y: 4,
+                width: revealWidth,
+                height: bounds.height - 8
+            )
+            NSColor.systemRed.withAlphaComponent(0.82).setFill()
+            NSBezierPath(roundedRect: revealRect, xRadius: 8, yRadius: 8).fill()
+            drawDismissLabel(in: revealRect)
+        } else {
+            statusAccentColor(item.status).setFill()
+            NSBezierPath(ovalIn: NSRect(x: 17 + swipeOffset, y: bounds.height - 22, width: 6, height: 6)).fill()
+        }
+
+        guard bounds.maxY > 1 else { return }
+        NSColor.white.withAlphaComponent(isHovering ? 0.12 : 0.075).setFill()
+        NSBezierPath.fill(NSRect(x: 32, y: bounds.maxY - 1, width: bounds.width - 50, height: 1))
     }
 
     /// Title and detail stacked over a single metadata line (time · status · source).
@@ -680,7 +735,7 @@ final class ThreadGroupView: NSView {
         onToggleSubtasks: @escaping (String) -> Void
     ) {
         self.isExpanded = isExpanded && !subtasks.isEmpty
-        self.rootHeight = rowLayout.rowHeight
+        self.rootHeight = taskBarDisplayedRowHeight(for: rowLayout)
         self.rootView = ThreadRowView(
             item: root,
             showPlatformLabel: showPlatformLabel,
@@ -696,7 +751,7 @@ final class ThreadGroupView: NSView {
         let childrenHeight = self.isExpanded
             ? Self.topGap + CGFloat(subtasks.count) * Self.childHeight + Self.bottomGap
             : 0
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: rowLayout.rowHeight + childrenHeight))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: rootHeight + childrenHeight))
         wantsLayer = true
         addSubview(rootView)
         if self.isExpanded {
@@ -713,18 +768,20 @@ final class ThreadGroupView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard isExpanded, !subtaskViews.isEmpty else { return }
-        let groupRect = NSRect(
-            x: 45,
-            y: rootHeight + Self.topGap,
-            width: bounds.width - 57,
-            height: CGFloat(subtaskViews.count) * Self.childHeight
-        )
-        NSColor.white.withAlphaComponent(0.025).setFill()
-        NSBezierPath(roundedRect: groupRect, xRadius: 9, yRadius: 9).fill()
-        NSColor.white.withAlphaComponent(0.10).setStroke()
-        let border = NSBezierPath(roundedRect: groupRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
-        border.lineWidth = 1
-        border.stroke()
+        if !TaskBarBuild.isBeta {
+            let groupRect = NSRect(
+                x: 45,
+                y: rootHeight + Self.topGap,
+                width: bounds.width - 57,
+                height: CGFloat(subtaskViews.count) * Self.childHeight
+            )
+            NSColor.white.withAlphaComponent(0.025).setFill()
+            NSBezierPath(roundedRect: groupRect, xRadius: 9, yRadius: 9).fill()
+            NSColor.white.withAlphaComponent(0.10).setStroke()
+            let border = NSBezierPath(roundedRect: groupRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
+            border.lineWidth = 1
+            border.stroke()
+        }
 
         let treeX: CGFloat = 31
         let firstCenterY = rootHeight + Self.topGap + Self.childHeight / 2
@@ -737,7 +794,7 @@ final class ThreadGroupView: NSView {
             tree.move(to: NSPoint(x: treeX, y: centerY))
             tree.line(to: NSPoint(x: 45, y: centerY))
         }
-        NSColor.white.withAlphaComponent(0.24).setStroke()
+        NSColor.white.withAlphaComponent(TaskBarBuild.isBeta ? 0.14 : 0.24).setStroke()
         tree.lineWidth = 1
         tree.stroke()
     }
@@ -1549,7 +1606,7 @@ final class TaskCountView: NSView {
     init(shown: Int, total: Int) {
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 26))
         wantsLayer = true
-        layer?.backgroundColor = menuPanelBackground.cgColor
+        layer?.backgroundColor = (TaskBarBuild.isBeta ? NSColor.clear : menuPanelBackground).cgColor
         label.font = .systemFont(ofSize: 10.5, weight: .medium)
         label.textColor = NSColor(calibratedWhite: 0.5, alpha: 1)
         label.alignment = .center
