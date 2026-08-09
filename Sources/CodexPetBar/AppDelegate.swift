@@ -169,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
         if TaskBarBuild.isBeta {
-            toggleIslandPanel()
+            toggleIslandPanel(from: button)
             return
         }
         if popover.isShown {
@@ -509,14 +509,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TaskBarBuild.isBeta ? islandPanel?.isVisible == true : popover.isShown
     }
 
-    private func toggleIslandPanel() {
+    private func toggleIslandPanel(from button: NSStatusBarButton) {
         if isTaskSurfaceShown {
             closePopover()
             return
         }
         rebuildPopover(shouldAnimateEntrance: true)
         guard let betaContent else { return }
-        let panel = TaskBarIslandPanel(content: betaContent)
+        let anchorFrame = button.window.map { window in
+            window.convertToScreen(button.convert(button.bounds, to: nil))
+        }
+        let panel = TaskBarIslandPanel(content: betaContent, anchorFrame: anchorFrame)
         islandPanel = panel
         panel.presentAnimated()
         NSApp.activate(ignoringOtherApps: true)

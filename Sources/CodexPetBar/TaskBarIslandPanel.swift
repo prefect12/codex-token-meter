@@ -6,10 +6,12 @@ import QuartzCore
 final class TaskBarIslandPanel: NSPanel {
     private let hostView: TaskBarIslandHostView
     private var presentedContent: TaskBarPopoverContentView
+    private let anchorFrame: NSRect?
     private var isDismissing = false
 
-    init(content: TaskBarPopoverContentView) {
+    init(content: TaskBarPopoverContentView, anchorFrame: NSRect?) {
         presentedContent = content
+        self.anchorFrame = anchorFrame
         hostView = TaskBarIslandHostView(content: content)
         super.init(
             contentRect: NSRect(origin: .zero, size: content.frame.size),
@@ -78,12 +80,19 @@ final class TaskBarIslandPanel: NSPanel {
     }
 
     private func expandedFrame(for size: NSSize) -> NSRect {
-        let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens.first
+        let targetScreen = anchorFrame.flatMap { frame in
+            NSScreen.screens.first { $0.frame.intersects(frame) }
+        } ?? screen ?? NSScreen.main ?? NSScreen.screens.first
         let visible = targetScreen?.visibleFrame ?? NSRect(x: 0, y: 0, width: size.width, height: size.height)
         let width = min(size.width, visible.width - 24)
+        let desiredCenterX = anchorFrame?.midX ?? visible.midX
+        let x = min(max(visible.minX + 12, desiredCenterX - width / 2), visible.maxX - width - 12)
+        // A status-item button lives inside the menu bar. Its lower edge is the
+        // native attachment line; fall back to the screen's usable top edge.
+        let attachmentY = min(visible.maxY, anchorFrame?.minY ?? visible.maxY)
         return NSRect(
-            x: visible.midX - width / 2,
-            y: visible.maxY - size.height,
+            x: x,
+            y: attachmentY - size.height,
             width: width,
             height: size.height
         )
