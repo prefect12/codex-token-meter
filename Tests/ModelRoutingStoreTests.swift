@@ -388,8 +388,9 @@ struct ModelRoutingStoreTests {
         """.utf8).write(to: store.globalConfigURL, options: .atomic)
 
         Thread.sleep(forTimeInterval: 0.35)
+        let selectionDuringGracePeriod = try store.readSelection(at: store.globalConfigURL)
         try require(
-            try store.readSelection(at: store.globalConfigURL) == selectedForConversation,
+            selectionDuringGracePeriod == selectedForConversation,
             "protection should leave a brief window for the current conversation override"
         )
 
