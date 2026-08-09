@@ -252,22 +252,30 @@ final class ThreadRowView: NSView {
             planProgressView.isAnimating = item.status == .running
             planProgressView.setAccessibilityLabel("任务进度 \(plan.displayedStepNumber) / \(plan.steps.count)")
             planProgressView.toolTip = "任务计划 \(plan.displayedStepNumber) / \(plan.steps.count)"
+            // The compact Island row reserves its trailing edge for time, state,
+            // and source. Its plan details remain available from the row hover.
+            planProgressView.isHidden = TaskBarBuild.isBeta
             addSubview(planProgressView)
         } else {
             planProgressView.isAnimating = false
             planProgressView.isHidden = true
         }
 
-        switch rowLayout {
-        case .standard:
-            // Status word plus the source label share a single trailing line.
-            metaStatusLabel.attributedStringValue = rowMetadataAttributed(for: item, showSource: showPlatformLabel)
+        if TaskBarBuild.isBeta {
+            metaStatusLabel.attributedStringValue = islandRowMetadataAttributed(for: item, showSource: showPlatformLabel)
             platformLabel.isHidden = true
-        case .compact:
-            // Status and source get their own lines in the left rail.
-            metaStatusLabel.attributedStringValue = rowStatusOnlyAttributed(for: item)
-            platformLabel.attributedStringValue = rowSourceAttributed(for: item)
-            platformLabel.isHidden = !showPlatformLabel
+        } else {
+            switch rowLayout {
+            case .standard:
+                // Status word plus the source label share a single trailing line.
+                metaStatusLabel.attributedStringValue = rowMetadataAttributed(for: item, showSource: showPlatformLabel)
+                platformLabel.isHidden = true
+            case .compact:
+                // Status and source get their own lines in the left rail.
+                metaStatusLabel.attributedStringValue = rowStatusOnlyAttributed(for: item)
+                platformLabel.attributedStringValue = rowSourceAttributed(for: item)
+                platformLabel.isHidden = !showPlatformLabel
+            }
         }
 
         updateElapsedLabel()
@@ -516,16 +524,21 @@ final class ThreadRowView: NSView {
     private func layoutIslandRow() {
         let offset = swipeOffset
         let contentX: CGFloat = 32
-        let contentWidth = max(130, bounds.width - contentX - 22)
+        // Keep the three pieces of operational metadata together at the trailing
+        // edge. This leaves the title and context as the readable left column.
+        let metadataWidth: CGFloat = showPlatformLabel ? 94 : 58
+        let metadataX = bounds.width - metadataWidth - 18
+        let timeX = metadataX - 57
+        let contentWidth = max(100, timeX - contentX - 10)
 
-        layoutTitleAndPin(x: contentX, y: bounds.height - 27, width: contentWidth, offset: offset)
-        detailLabel.frame = NSRect(x: contentX + offset, y: 24, width: contentWidth, height: 16)
+        layoutTitleAndPin(x: contentX, y: bounds.height - 24, width: contentWidth, offset: offset)
+        detailLabel.frame = NSRect(x: contentX + offset, y: 6, width: contentWidth, height: 16)
         detailLabel.maximumNumberOfLines = 1
 
-        clockIconView.frame = NSRect(x: contentX + offset, y: 7, width: 10, height: 10)
-        durationLabel.frame = NSRect(x: contentX + 14 + offset, y: 4.5, width: 48, height: 14)
-        metaDotView.frame = NSRect(x: 17 + offset, y: bounds.height - 22, width: 6, height: 6)
-        metaStatusLabel.frame = NSRect(x: contentX + 67 + offset, y: 4, width: max(0, contentWidth - 67), height: 15)
+        clockIconView.frame = NSRect(x: timeX + offset, y: 20, width: 9, height: 9)
+        durationLabel.frame = NSRect(x: timeX + 12 + offset, y: 17.5, width: 45, height: 14)
+        metaDotView.frame = NSRect(x: 17 + offset, y: bounds.height - 20, width: 6, height: 6)
+        metaStatusLabel.frame = NSRect(x: metadataX + offset, y: 17, width: metadataWidth, height: 15)
         platformLabel.isHidden = true
     }
 
@@ -549,7 +562,7 @@ final class ThreadRowView: NSView {
             drawDismissLabel(in: revealRect)
         } else {
             statusAccentColor(item.status).setFill()
-            NSBezierPath(ovalIn: NSRect(x: 17 + swipeOffset, y: bounds.height - 22, width: 6, height: 6)).fill()
+            NSBezierPath(ovalIn: NSRect(x: 17 + swipeOffset, y: bounds.height - 20, width: 6, height: 6)).fill()
         }
 
         guard bounds.maxY > 1 else { return }

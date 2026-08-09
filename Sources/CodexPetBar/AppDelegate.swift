@@ -156,14 +156,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let totalCount = runningCount + actionNeededCount
         let statusIconStatus: ThreadRunStatus = waitingCount > 0 ? .waiting : (unreadCount > 0 ? .unread : .running)
         let showsRedDot = actionNeededCount > 0
-        let title = totalCount > 0 ? " \(totalCount)" : ""
+        // The Island Beta no longer has a summary header, so retain a clear,
+        // always-present count beside its menu-bar icon.
+        let title = " \(totalCount)"
         let signature = "\(runningCount)|\(waitingCount)|\(unreadCount)|\(statusIconStatus)|\(showsRedDot)|\(title)"
         guard signature != lastStatusIconSignature else { return }
         lastStatusIconSignature = signature
 
         statusItem.button?.image = icon.image(status: statusIconStatus, showsRedDot: showsRedDot)
         statusItem.button?.imagePosition = .imageLeading
-        statusItem.button?.title = title
+        statusItem.button?.attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.labelColor
+        ])
     }
 
     @objc private func togglePopover() {

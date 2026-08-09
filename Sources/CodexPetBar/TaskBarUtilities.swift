@@ -96,6 +96,27 @@ func rowMetadataAttributed(for item: CodexThreadItem, showSource: Bool) -> NSAtt
     return result
 }
 
+/// The Beta Island keeps the same semantics as the standard metadata line, but
+/// uses a tighter separator so the three trailing pieces read as one compact unit.
+func islandRowMetadataAttributed(for item: CodexThreadItem, showSource: Bool) -> NSAttributedString {
+    let font = NSFont.systemFont(ofSize: 10.5, weight: .medium)
+    let result = NSMutableAttributedString(string: rowStatusLabel(item.status), attributes: [
+        .font: font,
+        .foregroundColor: statusAccentColor(item.status)
+    ])
+    if showSource {
+        result.append(NSAttributedString(string: " · ", attributes: [
+            .font: font,
+            .foregroundColor: NSColor(calibratedWhite: 0.42, alpha: 1)
+        ]))
+        result.append(NSAttributedString(string: sourceLabel(item), attributes: [
+            .font: NSFont.systemFont(ofSize: 10.5, weight: .semibold),
+            .foregroundColor: sourceColor(item)
+        ]))
+    }
+    return result
+}
+
 /// Just the colored status word — used for the compact layout's left rail,
 /// where the source label lives on its own line.
 func rowStatusOnlyAttributed(for item: CodexThreadItem) -> NSAttributedString {
@@ -389,7 +410,7 @@ let taskBarEmptyStateHeight: CGFloat = 120
 /// The experimental Island surface uses a denser, continuous activity stream.
 /// Keep the stable Task Bar's configurable row sizing unchanged.
 func taskBarDisplayedRowHeight(for layout: TaskRowLayoutStyle) -> CGFloat {
-    TaskBarBuild.isBeta ? 68 : layout.rowHeight
+    TaskBarBuild.isBeta ? 52 : layout.rowHeight
 }
 
 func taskBarPopoverMaxHeight() -> CGFloat {
