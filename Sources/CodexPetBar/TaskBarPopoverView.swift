@@ -54,6 +54,7 @@ final class TaskBarPopoverContentView: NSView {
     private var rowsContentHeight: CGFloat
     private let onResize: (NSSize, Bool) -> Void
     private let shouldAnimateEntrance: Bool
+    private let usesExternalSurface: Bool
     private var didAnimateEntrance = false
 
     // Retained so the tab filter can be re-applied in place, without a full rebuild.
@@ -87,10 +88,12 @@ final class TaskBarPopoverContentView: NSView {
         onQuit: @escaping () -> Void,
         initialSize: NSSize?,
         shouldAnimateEntrance: Bool = false,
+        usesExternalSurface: Bool = false,
         onResize: @escaping (NSSize, Bool) -> Void
     ) {
         self.onResize = onResize
         self.shouldAnimateEntrance = shouldAnimateEntrance
+        self.usesExternalSurface = usesExternalSurface
         self.allThreads = threads
         self.showPlatformLabels = showPlatformLabels
         self.rowLayout = rowLayout
@@ -162,8 +165,8 @@ final class TaskBarPopoverContentView: NSView {
         super.init(frame: NSRect(origin: .zero, size: initialSize))
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
-        layer?.cornerRadius = 20
-        layer?.masksToBounds = true
+        layer?.cornerRadius = usesExternalSurface ? 0 : 20
+        layer?.masksToBounds = !usesExternalSurface
         appearance = NSAppearance(named: .darkAqua)
 
         addSubview(headerView)
@@ -294,6 +297,7 @@ final class TaskBarPopoverContentView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        guard !usesExternalSurface else { return }
         let panel = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 20, yRadius: 20)
         if let gradient = NSGradient(
             starting: NSColor(calibratedRed: 0.085, green: 0.070, blue: 0.090, alpha: 0.99),

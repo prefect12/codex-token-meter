@@ -4,6 +4,8 @@ import Foundation
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
+    private var islandPanel: TaskBarIslandPanel?
+    private var betaContent: TaskBarPopoverContentView?
     private let reader = CodexActivityReader()
     private let icon = PetStatusIcon()
     private let readState = ReadStateStore()
@@ -95,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.updateStatusIcon()
                 // Only rebuild when the visible set actually changed; per-row timers keep
                 // elapsed times ticking, so a static list never needs to flash.
-                if changed, self.popover.isShown {
+                if changed, self.isTaskSurfaceShown {
                     self.rebuildPopover()
                 }
                 if self.pendingRefresh || !self.pendingPriorityRolloutURLs.isEmpty {
@@ -166,6 +168,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
+        if TaskBarBuild.isBeta {
+            toggleIslandPanel()
+            return
+        }
         if popover.isShown {
             closePopover()
             return
@@ -221,14 +227,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             initialSize: TaskBarSettings.popoverSize,
             shouldAnimateEntrance: shouldAnimateEntrance,
+            usesExternalSurface: TaskBarBuild.isBeta,
             onResize: { [weak self, weak controller] size, persist in
                 controller?.preferredContentSize = size
-                self?.popover.contentSize = size
+                if TaskBarBuild.isBeta {
+                    self?.islandPanel?.resizeContent(to: size)
+                } else {
+                    self?.popover.contentSize = size
+                }
                 if persist {
                     TaskBarSettings.popoverSize = size
                 }
             }
         )
+        if TaskBarBuild.isBeta {
+            betaContent = content
+            if islandPanel?.isVisible == true {
+                islandPanel?.replaceContent(content)
+            }
+            return
+        }
         controller.view = content
         controller.preferredContentSize = content.frame.size
         popover.contentViewController = controller
@@ -242,7 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ThreadHoverPanel.shared.hideAll()
                 self?.startRolloutActivityMonitor()
                 self?.refresh()
-                if self?.popover.isShown == true {
+                if self?.isTaskSurfaceShown == true {
                     self?.rebuildPopover()
                 }
             }
@@ -256,7 +274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TaskBarSettings.togglePin(id)
         threads.sort(by: stableThreadOrder)
         lastThreadsSignature = threadsSignature(threads)
-        if popover.isShown {
+        if isTaskSurfaceShown {
             rebuildPopover()
         }
         ThreadHoverPanel.shared.hideAll()
@@ -277,7 +295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         lastThreadsSignature = threadsSignature(threads)
         updateStatusIcon()
-        if popover.isShown {
+        if isTaskSurfaceShown {
             rebuildPopover()
         }
         ThreadHoverPanel.shared.hideAll()
@@ -295,7 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             TaskBarSettings.setPinned(false, for: id)
         }
         updateStatusIcon()
-        if popover.isShown {
+        if isTaskSurfaceShown {
             rebuildPopover()
             closePopover()
         }
@@ -478,7 +496,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func closePopover() {
+        if TaskBarBuild.isBeta {
+            islandPanel?.dismissAnimated()
+            ThreadHoverPanel.shared.hideAll()
+            return
+        }
         popover.performClose(nil)
         ThreadHoverPanel.shared.hideAll()
+    }
+
+    private var isTaskSurfaceShown: Bool {
+        TaskBarBuild.isBeta ? islandPanel?.isVisible == true : popover.isShown
+    }
+
+    private func toggleIslandPanel() {
+        if isTaskSurfaceShown {
+            closePopover()
+            return
+        }
+        rebuildPopover(shouldAnimateEntrance: true)
+        guard let betaContent else { return }
+        let panel = TaskBarIslandPanel(content: betaContent)
+        islandPanel = panel
+        panel.presentAnimated()
+        NSApp.activate(ignoringOtherApps: true)
+        // Keep the entry choreography intact; a live-data replacement starts only
+        // after the island has reached its settled size.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.70) { [weak self] in
+            self?.refresh(includeRolloutEnrichment: true)
+        }
     }
 }
