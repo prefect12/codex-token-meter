@@ -48,9 +48,16 @@ final class CodexModelRoutingProtectionPreferences {
 /// Keeps protection active for the entire menu-bar app lifetime, including
 /// before the details window or Default Models page has ever been opened.
 final class CodexModelRoutingProtectionController {
+    /// Gives Codex Desktop time to attach a user-selected model or effort to
+    /// the active task before restoring the saved defaults for the next task.
+    static let defaultConversationOverrideGraceInterval: TimeInterval = 30
+
     private let routingStore: CodexModelRoutingStore
     private let preferences: CodexModelRoutingProtectionPreferences
+    private let callbackQueue: DispatchQueue
+    private let conversationOverrideGraceInterval: TimeInterval
     private var watcher: CodexConfigWatcher?
+    private var pendingRestoration: DispatchWorkItem?
 
     init(
         routingStore: CodexModelRoutingStore = CodexModelRoutingStore(),
@@ -60,10 +67,14 @@ final class CodexModelRoutingProtectionController {
             label: "local.ai-token-meter.codex-routing-protection",
             qos: .utility
         ),
+        conversationOverrideGraceInterval: TimeInterval =
+            CodexModelRoutingProtectionController.defaultConversationOverrideGraceInterval,
         onWatcherReady: (() -> Void)? = nil
     ) {
         self.routingStore = routingStore
         self.preferences = preferences
+        self.callbackQueue = callbackQueue
+        self.conversationOverrideGraceInterval = max(0, conversationOverrideGraceInterval)
         enforceProtectedDefaultsIfNeeded()
         watcher = CodexConfigWatcher(callbackQueue: callbackQueue) { [weak self] in
             self?.handleExternalChange()
@@ -71,9 +82,27 @@ final class CodexModelRoutingProtectionController {
         refreshWatcherTargets(ready: onWatcherReady)
     }
 
+    deinit {
+        pendingRestoration?.cancel()
+    }
+
     private func handleExternalChange() {
-        enforceProtectedDefaultsIfNeeded()
         refreshWatcherTargets()
+        scheduleProtectedDefaultsRestoration()
+    }
+
+    private func scheduleProtectedDefaultsRestoration() {
+        pendingRestoration?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.enforceProtectedDefaultsIfNeeded()
+            self.refreshWatcherTargets()
+        }
+        pendingRestoration = workItem
+        callbackQueue.asyncAfter(
+            deadline: .now() + conversationOverrideGraceInterval,
+            execute: workItem
+        )
     }
 
     private func enforceProtectedDefaultsIfNeeded() {

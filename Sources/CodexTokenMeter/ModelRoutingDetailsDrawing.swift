@@ -1190,9 +1190,9 @@ extension UsageDetailsView {
         drawMultilineText(
             isCodex
                 ? modelRoutingLocalized(
-                    chinese: "对话内临时切换模型和思考强度仍然有效；如果 Codex 把这次选择写回配置文件，Token Meter 会自动恢复本页保存的默认值，之后的新对话继续使用这里的设置。只恢复 model 和 model_reasoning_effort，不改动其他配置。",
-                    english: "Temporary model and effort changes still work within a conversation. If Codex writes that choice back to its config, Token Meter restores the defaults saved here for future conversations. Only model and model_reasoning_effort are restored.",
-                    japanese: "会話内でのモデルや思考強度の一時変更はそのまま利用できます。Codex がその選択を設定ファイルへ書き戻した場合、Token Meter は今後の会話向けにこのページの既定値を復元します。復元対象は model と model_reasoning_effort のみです。"
+                    chinese: "对话内可临时切换模型和思考强度。若 Codex 将选择写回配置文件，Token Meter 会先留出 30 秒让当前对话启动，再恢复本页保存的默认值；之后的新对话继续使用这里的设置。只恢复 model 和 model_reasoning_effort，不改动其他配置。",
+                    english: "Temporary model and effort changes work within a conversation. If Codex writes that choice back to its config, Token Meter leaves 30 seconds for the current conversation to start, then restores the defaults saved here for future conversations. Only model and model_reasoning_effort are restored.",
+                    japanese: "会話内でモデルや思考強度を一時変更できます。Codex がその選択を設定ファイルへ書き戻した場合、Token Meter は現在の会話を開始するために 30 秒待ってから、今後の会話向けにこのページの既定値を復元します。復元対象は model と model_reasoning_effort のみです。"
                 )
                 : modelRoutingLocalized(
                     chinese: "会话内临时切换仍然有效；如果 Claude 改写全局 settings.json 或项目私有 settings.local.json，Token Meter 会自动恢复本页保存的默认值。只恢复 model 和 effortLevel，不改动其他设置，也不会改动仓库共享的 .claude/settings.json。",
