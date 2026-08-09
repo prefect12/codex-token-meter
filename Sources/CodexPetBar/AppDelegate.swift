@@ -225,7 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.closePopover()
                 self?.quit()
             },
-            initialSize: TaskBarSettings.popoverSize,
+            initialSize: TaskBarBuild.isBeta ? nil : TaskBarSettings.popoverSize,
             shouldAnimateEntrance: shouldAnimateEntrance,
             usesExternalSurface: TaskBarBuild.isBeta,
             onResize: { [weak self, weak controller] size, persist in

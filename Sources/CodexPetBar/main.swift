@@ -214,6 +214,7 @@ private func renderTaskBar(to path: String, showPlanHover: Bool = false) {
         onOpenSettings: {},
         onQuit: {},
         initialSize: nil,
+        usesExternalSurface: TaskBarBuild.isBeta,
         onResize: { _, _ in }
     )
 
