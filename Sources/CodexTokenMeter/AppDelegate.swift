@@ -24,7 +24,7 @@ private struct ModelRangeReports {
     let cachedAt: Date
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let dashboardController = DashboardViewController()
@@ -55,6 +55,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var claudeServiceStatus: CodexServiceStatusSnapshot?
     private var refreshTimer: Timer?
     private var liveRefreshTimer: Timer?
+    private var claudeQuotaTimer: Timer?
+    private var claudeQuotaRefreshInFlight = false
+    private var claudeCaptureWatcher: ClaudeCaptureFileWatcher?
     private var activeScans: Set<ReportCacheKey> = []
     private var liveRefreshInFlight = false
     private var detailsSnapshotPrewarmInFlight = false
@@ -68,6 +71,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let refreshInterval: TimeInterval = 300
     private let popoverRefreshMaxAge: TimeInterval = 60
     private let liveRefreshInterval: TimeInterval = 60
+    /// Claude quota runs on its own cadence because its source is a cheap
+    /// read-only endpoint, unlike the Codex live refresh it used to ride along
+    /// with. While the dashboard is open it tracks close to real time; closed,
+    /// it only needs to keep the menu bar roughly current.
+    private let claudeQuotaVisibleInterval: TimeInterval = 15
+    private let claudeQuotaIdleInterval: TimeInterval = 120
     private let detailsSnapshotPrewarmInterval: TimeInterval = 30 * 60
     private let liveCostReferenceCacheTTL: TimeInterval = 5 * 60
     private let modelRangeReportCacheTTL: TimeInterval = 5 * 60
@@ -99,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController = dashboardController
         resizeDashboardPopover(to: DashboardView.idealSize)
         popover.behavior = .transient
+        popover.delegate = self
         configureStatusButton()
 
         dashboardController.dashboardView.onWindowChanged = { [weak self] option in self?.selectWindow(option) }
@@ -109,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dashboardController.dashboardView.onRefresh = { [weak self] in
             self?.refresh(forceLive: false)
             self?.refreshLiveLimits()
+            self?.refreshClaudeQuota()
         }
         dashboardController.dashboardView.onOpenDetails = { [weak self] in self?.openUsageDetailsWindow() }
         dashboardController.dashboardView.onOpenSettings = { [weak self] in self?.openSettingsWindow() }
@@ -182,6 +193,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         refreshTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+        refreshClaudeQuota()
+        startClaudeCaptureWatcher()
         if CommandLine.arguments.contains("--open-details=models") {
             detailsController.detailsView.showSection(.models)
             DispatchQueue.main.async { [weak self] in
@@ -487,6 +500,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem.button else { return }
         if popover.isShown {
             popover.performClose(nil)
+            // Drop back to the idle cadence now that nobody is watching.
+            scheduleClaudeQuotaRefresh()
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
@@ -494,7 +509,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 refresh(forceLive: false)
             }
             refreshLiveLimits()
+            refreshClaudeQuota()
         }
+    }
+
+    /// `.transient` popovers also close on an outside click, which never routes
+    /// through `togglePopover`.
+    func popoverDidClose(_ notification: Notification) {
+        scheduleClaudeQuotaRefresh()
     }
 
     private func selectWindow(_ option: WindowOption) {
@@ -782,6 +804,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.detailsController.updateLiveLimits(limits, costReferenceReport: costReferenceReport, serviceStatus: self.serviceStatus)
             }
         }
+    }
+
+    /// Pulls Claude quota on its own schedule and merges just those windows into
+    /// the dashboard. Deliberately lighter than `refreshLiveLimits`: no Codex
+    /// read, no service-status requests, so it is cheap enough to run often.
+    private func refreshClaudeQuota() {
+        guard !claudeQuotaRefreshInFlight else { return }
+        claudeQuotaRefreshInFlight = true
+        liveQueue.async { [weak self] in
+            guard let self else { return }
+            let store = ClaudeStatuslineStore()
+            _ = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: store)
+            let snapshot = store.read()
+            let claudeLimits = [snapshot?.liveRateLimit, snapshot?.fableLiveRateLimit].compactMap { $0 }
+            DispatchQueue.main.async {
+                self.claudeQuotaRefreshInFlight = false
+                self.scheduleClaudeQuotaRefresh()
+                self.applyClaudeLimits(claudeLimits)
+            }
+        }
+    }
+
+    /// Replaces only the Claude-owned windows so a Claude update never drops or
+    /// resurrects Codex limits fetched on the other cadence.
+    private func applyClaudeLimits(_ claudeLimits: [LiveRateLimit]) {
+        guard !claudeLimits.isEmpty else { return }
+        let claudeIDs = Set(claudeLimits.map(\.id))
+        var merged = liveLimits.filter { !claudeIDs.contains($0.id) }
+        merged.append(contentsOf: claudeLimits)
+        merged.sort { $0.id < $1.id }
+        guard merged != liveLimits else { return }
+        liveLimits = merged
+        latestState.liveLimits = merged
+        latestState.error = nil
+        LiveRateLimitCacheStore.write(merged)
+        updateStatusTitle(report: latestState.report, limits: merged, quota: latestState.selectedQuota)
+        dashboardController.dashboardView.update(latestState)
+        detailsController.updateLiveLimits(
+            merged,
+            costReferenceReport: liveCostReferenceReport(limits: merged),
+            serviceStatus: serviceStatus
+        )
+    }
+
+    private func scheduleClaudeQuotaRefresh() {
+        claudeQuotaTimer?.invalidate()
+        let delay = popover.isShown ? claudeQuotaVisibleInterval : claudeQuotaIdleInterval
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+            self?.refreshClaudeQuota()
+        }
+        claudeQuotaTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    /// A statusline write from any Claude Code session is a free, immediate
+    /// signal that the numbers moved; reflect it without waiting for a poll.
+    private func startClaudeCaptureWatcher() {
+        let watcher = ClaudeCaptureFileWatcher { [weak self] in
+            guard let self else { return }
+            let snapshot = ClaudeStatuslineStore().read()
+            self.applyClaudeLimits(
+                [snapshot?.liveRateLimit, snapshot?.fableLiveRateLimit].compactMap { $0 }
+            )
+        }
+        claudeCaptureWatcher = watcher
+        watcher.start()
     }
 
     private func scheduleNextLiveRefresh(succeeded: Bool) {

@@ -107,7 +107,7 @@ enum QuotaViewOption: String, CaseIterable {
     }
 }
 
-struct RateWindow: Codable {
+struct RateWindow: Codable, Equatable {
     let usedPercent: Double
     let windowMinutes: Int
     let resetsAt: Date?
@@ -159,7 +159,7 @@ func paceComparison(for window: RateWindow, now: Date = Date()) -> PaceCompariso
     )
 }
 
-struct LiveRateLimit: Codable {
+struct LiveRateLimit: Codable, Equatable {
     let id: String
     let name: String
     let primary: RateWindow?
@@ -206,7 +206,7 @@ struct ClaudeStatuslineWindow {
     let usedPercent: Double
     let resetsAt: Date?
     /// True when `usedPercent` cannot be trusted: either the window was
-    /// captured longer ago than the cache TTL, or its reset already passed so
+    /// captured longer ago than the display TTL, or its reset already passed so
     /// the percentage belongs to a cycle that has since rolled over.
     var isStale: Bool = false
 }
@@ -215,6 +215,10 @@ struct ClaudeStatuslineSnapshot {
     let capturedAt: Date?
     let readAt: Date
     let isStale: Bool
+    /// Whether the usage endpoint should be queried again. Tracked separately
+    /// from `isStale` because the two answer different questions: a capture can
+    /// stay perfectly displayable while still being due for re-verification.
+    let needsRefresh: Bool
     let fiveHour: ClaudeStatuslineWindow?
     let sevenDay: ClaudeStatuslineWindow?
     let fableSevenDay: ClaudeStatuslineWindow?
@@ -313,7 +317,6 @@ enum LiveRateLimitCacheStore {
 }
 
 final class ClaudeStatuslineStore {
-    private static let ttlSeconds: TimeInterval = 10 * 60
     static let fiveHourKey = "five_hour"
     static let sevenDayKey = "seven_day"
     /// Capture-file key for the model-scoped Fable weekly window.
@@ -340,12 +343,21 @@ final class ClaudeStatuslineStore {
             return try writeCapture(rateLimits: nil, now: now)
         }
         let stored = storedWindowDicts(now: now)
-        // Claude Code can hand the statusline an already-expired window whose
-        // used_percentage froze at the previous cycle. Writing it would publish
-        // a wrong percentage *and* keep the capture file permanently fresh,
-        // starving the OAuth refresher that holds the real numbers.
-        for key in [Self.fiveHourKey, Self.sevenDayKey] where !isCurrentWindowDict(rateLimits[key], now: now) {
-            rateLimits[key] = stored[key]
+        // Claude Code can hand the statusline an already-expired window, or one
+        // an idle session has been replaying since its last API response.
+        // Writing either would publish a wrong percentage, so the merge rules
+        // decide per window which reading actually wins.
+        for key in [Self.fiveHourKey, Self.sevenDayKey] {
+            let merged = ClaudeCaptureMerge.mergedStatuslineWindow(
+                incoming: rateLimits[key],
+                stored: stored[key] as? [String: Any],
+                now: now
+            )
+            if let merged {
+                rateLimits[key] = merged
+            } else {
+                rateLimits.removeValue(forKey: key)
+            }
         }
         // The statusline payload never carries model-scoped limits. Preserve a
         // recent OAuth-captured Fable window.
@@ -353,15 +365,6 @@ final class ClaudeStatuslineStore {
             rateLimits[Self.fableWindowKey] = stored[Self.fableWindowKey]
         }
         return try writeCapture(rateLimits: rateLimits, now: now)
-    }
-
-    /// Incoming statusline windows are only worth writing when they carry a
-    /// usable percentage for a cycle that has not already reset.
-    private func isCurrentWindowDict(_ raw: Any?, now: Date) -> Bool {
-        guard let dict = raw as? [String: Any], cleanPercent(dict["used_percentage"]) != nil else {
-            return false
-        }
-        return !windowResetPassed(dict, now: now)
     }
 
     /// Previously captured windows that are still current, each stamped with
@@ -386,13 +389,11 @@ final class ClaudeStatuslineStore {
     }
 
     private func windowResetPassed(_ dict: [String: Any], now: Date) -> Bool {
-        guard let resetsAt = finiteDouble(dict["resets_at"]) else { return false }
-        return now.timeIntervalSince1970 >= resetsAt
+        ClaudeCaptureMerge.resetPassed(dict, now: now)
     }
 
     private func windowCaptureExpired(_ dict: [String: Any], now: Date) -> Bool {
-        guard let captured = finiteDouble(dict["captured_at_epoch"]) else { return false }
-        return now.timeIntervalSince(Date(timeIntervalSince1970: captured)) > Self.ttlSeconds
+        ClaudeCaptureMerge.displayExpired(dict, now: now)
     }
 
     func captureUsageWindows(
@@ -402,16 +403,14 @@ final class ClaudeStatuslineStore {
         now: Date = Date()
     ) throws -> ClaudeStatuslineSnapshot? {
         func windowDict(_ window: ClaudeStatuslineWindow) -> [String: Any] {
-            // Every window carries its own capture time so a later statusline
-            // write that only preserves it cannot make it look fresh again.
-            var dict: [String: Any] = [
-                "used_percentage": window.usedPercent,
-                "captured_at_epoch": Int(now.timeIntervalSince1970)
-            ]
-            if let resetsAt = window.resetsAt {
-                dict["resets_at"] = Int(resetsAt.timeIntervalSince1970)
-            }
-            return dict
+            // Every window carries its own capture time and writer identity, so
+            // a later statusline write that only preserves it cannot make it
+            // look server-verified again.
+            ClaudeCaptureMerge.oauthWindow(
+                usedPercent: window.usedPercent,
+                resetsAt: window.resetsAt,
+                now: now
+            )
         }
         var rateLimits: [String: Any] = [
             Self.fiveHourKey: windowDict(fiveHour),
@@ -470,19 +469,21 @@ final class ClaudeStatuslineStore {
     private func parseCapture(_ object: [String: Any], now: Date) -> ClaudeStatuslineSnapshot? {
         guard let rateLimits = object["rate_limits"] as? [String: Any] else { return nil }
         let capturedAt = finiteDouble(object["captured_at_epoch"]).map { Date(timeIntervalSince1970: $0) }
-        let captureExpired = capturedAt.map { now.timeIntervalSince($0) > Self.ttlSeconds } ?? false
+        let captureExpired = capturedAt.map {
+            now.timeIntervalSince($0) > ClaudeCaptureMerge.displayTTLSeconds
+        } ?? false
         let fiveHour = parseWindow(rateLimits[Self.fiveHourKey], now: now, windowMinutes: 5 * 60)
         let sevenDay = parseWindow(rateLimits[Self.sevenDayKey], now: now, windowMinutes: 7 * 24 * 60)
         let fableSevenDay = parseWindow(rateLimits[Self.fableWindowKey], now: now, windowMinutes: 7 * 24 * 60)
         guard fiveHour != nil || sevenDay != nil || fableSevenDay != nil else { return nil }
-        // A single outdated window taints the snapshot: the capture file is the
-        // OAuth refresher's only "do I need to fetch?" signal.
+        // A single outdated window taints the snapshot's trustworthiness.
         let isStale = captureExpired
             || [fiveHour, sevenDay, fableSevenDay].contains { $0?.isStale == true }
         return ClaudeStatuslineSnapshot(
             capturedAt: capturedAt,
             readAt: now,
             isStale: isStale,
+            needsRefresh: ClaudeCaptureMerge.needsServerRefresh(rateLimits: rateLimits, now: now),
             fiveHour: fiveHour,
             sevenDay: sevenDay,
             fableSevenDay: fableSevenDay
@@ -511,29 +512,101 @@ final class ClaudeStatuslineStore {
     }
 
     private func cleanPercent(_ raw: Any?) -> Double? {
-        guard let value = finiteDouble(raw), value >= 0 else { return nil }
-        if value > 100 {
-            return value <= 101 ? 100 : nil
-        }
-        return value
+        ClaudeCaptureMerge.percent(raw)
     }
 
     private func finiteDouble(_ raw: Any?) -> Double? {
-        if let raw, CFGetTypeID(raw as CFTypeRef) == CFBooleanGetTypeID() {
-            return nil
+        ClaudeCaptureMerge.finiteDouble(raw)
+    }
+}
+
+/// Watches the Claude capture file so a statusline write from any Claude Code
+/// session reaches the menu bar right away instead of waiting for the next poll.
+///
+/// The file is replaced atomically, which swaps the inode out from under an
+/// open descriptor, so the watch is rearmed after every event rather than held
+/// across writes.
+final class ClaudeCaptureFileWatcher {
+    private let url: URL
+    private let onChange: () -> Void
+    private let queue = DispatchQueue(label: "local.codex-token-meter.claude-capture-watch")
+    private let debounceInterval: TimeInterval = 0.25
+    private let retryInterval: TimeInterval = 5
+    private var source: DispatchSourceFileSystemObject?
+    private var descriptor: CInt = -1
+    private var pendingNotify: DispatchWorkItem?
+    private var isStopped = false
+
+    init(url: URL = AppSettings.claudeStatuslineCaptureURL, onChange: @escaping () -> Void) {
+        self.url = url
+        self.onChange = onChange
+    }
+
+    deinit {
+        source?.cancel()
+        if descriptor >= 0 { close(descriptor) }
+    }
+
+    func start() {
+        queue.async { [weak self] in
+            self?.isStopped = false
+            self?.arm()
         }
-        let value: Double?
-        if let raw = raw as? Double {
-            value = raw
-        } else if let raw = raw as? Int {
-            value = Double(raw)
-        } else if let raw = raw as? String {
-            value = Double(raw)
-        } else {
-            value = nil
+    }
+
+    func stop() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.isStopped = true
+            self.pendingNotify?.cancel()
+            self.pendingNotify = nil
+            self.teardown()
         }
-        guard let value, value.isFinite else { return nil }
-        return value
+    }
+
+    private func teardown() {
+        source?.cancel()
+        source = nil
+        // The cancel handler owns closing the descriptor.
+        descriptor = -1
+    }
+
+    private func arm() {
+        guard !isStopped, source == nil else { return }
+        let fd = open(url.path, O_EVTONLY)
+        guard fd >= 0 else {
+            // The capture file does not exist until something writes it.
+            queue.asyncAfter(deadline: .now() + retryInterval) { [weak self] in
+                self?.arm()
+            }
+            return
+        }
+        descriptor = fd
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .extend, .delete, .rename, .revoke],
+            queue: queue
+        )
+        source.setEventHandler { [weak self] in
+            self?.handleEvent()
+        }
+        source.setCancelHandler { close(fd) }
+        self.source = source
+        source.resume()
+    }
+
+    private func handleEvent() {
+        // Rearm unconditionally: an atomic replace leaves this descriptor
+        // pointing at the old, now-unlinked inode.
+        teardown()
+        arm()
+        pendingNotify?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.isStopped else { return }
+            DispatchQueue.main.async { self.onChange() }
+        }
+        pendingNotify = work
+        queue.asyncAfter(deadline: .now() + debounceInterval, execute: work)
     }
 }
 
@@ -546,7 +619,10 @@ final class ClaudeOAuthUsageRefresher {
     private static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     private let lock = NSLock()
     private var nextAttemptAt = Date.distantPast
-    private let attemptInterval: TimeInterval = 60
+    /// Floor between fetches. Below the refresh TTL so a poll landing just
+    /// before the TTL elapses does not push the next real fetch a full cycle
+    /// out.
+    private let attemptInterval: TimeInterval = 20
     private let failureBackoff: TimeInterval = 15 * 60
     private let credentialFailureBackoff: TimeInterval = 30 * 60
     private let session: URLSession
@@ -567,10 +643,11 @@ final class ClaudeOAuthUsageRefresher {
 
     @discardableResult
     func refreshIfNeeded(store: ClaudeStatuslineStore, now: Date = Date()) -> Bool {
-        // Statusline captures can keep the top-level windows fresh without
-        // carrying Fable. Fetch until Fable is present or its absence was
-        // recently confirmed.
-        if let snapshot = store.read(now: now), !snapshot.isStale,
+        // Skipping a fetch requires a recent *server* confirmation. Statusline
+        // writes keep the file's own timestamp fresh without ever proving the
+        // numbers are current, so they must not gate this. Fable is fetched
+        // until present or its absence was recently confirmed.
+        if let snapshot = store.read(now: now), !snapshot.needsRefresh,
            snapshot.fiveHour != nil, snapshot.sevenDay != nil,
            snapshot.fableSevenDay != nil || fableConfirmedAbsent(now: now) {
             setOutcome("fresh-cache")

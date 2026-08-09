@@ -139,6 +139,15 @@ For Claude Code official rate limits, configure Claude Code statusline to run:
 
 The command reads Claude Code's statusline JSON from stdin and atomically writes `claude-statusline.json` under Application Support.
 
+`claude-statusline.json` has two writers, and `ClaudeCaptureMerge` holds the rules that keep them from fighting:
+
+- Every window records `source` (`oauth` or `statusline`) and its own `captured_at_epoch`.
+- Only `source: oauth` windows count as server verification. A statusline write refreshes the file but never proves the numbers are current, so it cannot suppress the next fetch — an open but idle Claude Code session used to do exactly that and pin the displayed quota for as long as it stayed open.
+- Within one quota cycle, usage only climbs. A statusline window reporting a lower percentage than the stored one is an idle session replaying an old API response and is rejected; a later `resets_at` means the cycle rolled over, so a lower percentage is accepted.
+- `displayTTLSeconds` (10 minutes) governs how long a window stays worth showing. `refreshTTLSeconds` (30 seconds) governs when to query the server again. These are separate on purpose: showing a slightly old number beats blanking the quota, but the refresher must keep pulling so the number never gets that old.
+
+`AppDelegate` runs Claude quota on its own cadence rather than on the Codex live-refresh cycle: 15 seconds while the dashboard popover is open, 120 seconds when it is closed, plus a `ClaudeCaptureFileWatcher` that reflects any statusline write immediately.
+
 For live quota changes:
 
 ```bash
