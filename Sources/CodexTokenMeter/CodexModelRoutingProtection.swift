@@ -61,6 +61,7 @@ final class CodexModelRoutingProtectionController {
     private var pendingRestoration: DispatchWorkItem?
     private var lastObservedGlobalSelection = CodexConfigSelection()
     private var lastObservedGlobalModificationDate: Date?
+    private var lastObservedRoutingModificationDates: [String: Date] = [:]
 
     init(
         routingStore: CodexModelRoutingStore = CodexModelRoutingStore(),
@@ -87,6 +88,7 @@ final class CodexModelRoutingProtectionController {
         lastObservedGlobalSelection = (try? routingStore.readSelection(at: routingStore.globalConfigURL))
             ?? CodexConfigSelection()
         lastObservedGlobalModificationDate = globalConfigModificationDate()
+        lastObservedRoutingModificationDates = routingConfigModificationDates()
         watcher = CodexConfigWatcher(callbackQueue: callbackQueue) { [weak self] in
             self?.handleExternalChange()
         }
@@ -103,8 +105,17 @@ final class CodexModelRoutingProtectionController {
             ?? CodexConfigSelection()
         let globalModificationDate = globalConfigModificationDate()
         let globalConfigWasRewritten = globalModificationDate != lastObservedGlobalModificationDate
+        let routingModificationDates = routingConfigModificationDates()
+        let routingConfigWasRewritten =
+            routingModificationDates != lastObservedRoutingModificationDates
         lastObservedGlobalSelection = globalSelection
         lastObservedGlobalModificationDate = globalModificationDate
+        lastObservedRoutingModificationDates = routingModificationDates
+
+        // Project discovery and model-catalog updates share this watcher so its
+        // targets stay current, but they must not extend a task override beyond
+        // the promised grace period.
+        guard routingConfigWasRewritten else { return }
 
         if globalConfigWasRewritten,
            applyTaskScopedOverrideIfNeeded(selection: globalSelection) {
@@ -141,6 +152,7 @@ final class CodexModelRoutingProtectionController {
                 at: self.routingStore.globalConfigURL
             )) ?? CodexConfigSelection()
             self.lastObservedGlobalModificationDate = self.globalConfigModificationDate()
+            self.lastObservedRoutingModificationDates = self.routingConfigModificationDates()
             self.refreshWatcherTargets()
         }
         pendingRestoration = workItem
@@ -170,5 +182,19 @@ final class CodexModelRoutingProtectionController {
     private func globalConfigModificationDate() -> Date? {
         (try? FileManager.default.attributesOfItem(atPath: routingStore.globalConfigURL.path))?[.modificationDate]
             as? Date
+    }
+
+    private func routingConfigModificationDates() -> [String: Date] {
+        let snapshot = routingStore.loadSnapshot()
+        let urls = [routingStore.globalConfigURL] + snapshot.projects.flatMap { project in
+            project.project.rootPaths.map(routingStore.projectConfigURL(rootPath:))
+        }
+        return Dictionary(uniqueKeysWithValues: urls.compactMap { url in
+            guard let date = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate]
+                as? Date else {
+                return nil
+            }
+            return (url.standardizedFileURL.path, date)
+        })
     }
 }
