@@ -380,7 +380,7 @@ struct ModelRoutingStoreTests {
             routingStore: store,
             preferences: preferences,
             callbackQueue: DispatchQueue(label: "ModelRoutingGraceControllerTests.callback"),
-            conversationOverrideGraceInterval: 0.5,
+            conversationOverrideGraceInterval: 1,
             temporaryOverrideTargetProvider: { _ in projectConfigURL },
             onWatcherReady: {
                 watcherReady.signal()
@@ -404,7 +404,7 @@ struct ModelRoutingStoreTests {
         model_reasoning_effort = "max"
         """.utf8).write(to: store.globalConfigURL, options: .atomic)
 
-        Thread.sleep(forTimeInterval: 0.35)
+        Thread.sleep(forTimeInterval: 0.7)
         let selectionDuringGracePeriod = try store.readSelection(at: store.globalConfigURL)
         try require(
             selectionDuringGracePeriod == selectedForConversation,
@@ -416,19 +416,13 @@ struct ModelRoutingStoreTests {
             "the selected project should receive the temporary task override"
         )
 
-        let deadline = Date().addingTimeInterval(3)
-        var restored = false
-        while Date() < deadline {
-            if try store.readSelection(at: store.globalConfigURL)
-                == CodexConfigSelection(model: "gpt-5.6-luna", reasoningEffort: "high") {
-                restored = true
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.02)
-        }
+        try Data("{}".utf8).write(to: store.modelCacheURL, options: .atomic)
+        Thread.sleep(forTimeInterval: 1)
+        let restoredGlobalSelection = try store.readSelection(at: store.globalConfigURL)
         try require(
-            restored,
-            "protection should restore the saved defaults after the conversation override window"
+            restoredGlobalSelection
+                == CodexConfigSelection(model: "gpt-5.6-luna", reasoningEffort: "high"),
+            "model-catalog updates should not postpone restoration beyond the override window"
         )
         let restoredProjectSelection = try store.readSelection(at: projectConfigURL)
         try require(
