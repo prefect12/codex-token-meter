@@ -116,15 +116,12 @@ final class CodexModelRoutingStore {
 
     let codexHomeURL: URL
     private let fileManager: FileManager
-    private let desktopSentryScopeURLOverride: URL?
 
     init(
         codexHomeURL: URL = CodexModelRoutingStore.defaultCodexHomeURL(),
-        desktopSentryScopeURL: URL? = nil,
         fileManager: FileManager = .default
     ) {
         self.codexHomeURL = codexHomeURL.standardizedFileURL
-        self.desktopSentryScopeURLOverride = desktopSentryScopeURL?.standardizedFileURL
         self.fileManager = fileManager
     }
 
@@ -147,21 +144,6 @@ final class CodexModelRoutingStore {
 
     var modelCacheURL: URL {
         codexHomeURL.appendingPathComponent("models_cache.json")
-    }
-
-    var desktopSentryScopeURL: URL? {
-        if let desktopSentryScopeURLOverride {
-            return desktopSentryScopeURLOverride
-        }
-        guard codexHomeURL == Self.defaultCodexHomeURL().standardizedFileURL else { return nil }
-        return fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Codex/sentry/scope_v3.json")
-    }
-
-    func desktopComposerContext() -> CodexDesktopComposerContext {
-        guard let desktopSentryScopeURL else { return .unknown }
-        return CodexDesktopNavigationReader(scopeURL: desktopSentryScopeURL)
-            .currentComposerContext()
     }
 
     func loadSnapshot() -> CodexModelRoutingSnapshot {
@@ -204,17 +186,13 @@ final class CodexModelRoutingStore {
     }
 
     func routingInputURLs(for snapshot: CodexModelRoutingSnapshot) -> [URL] {
-        var urls = [
+        [
             globalConfigURL,
             globalStateURL,
             modelCacheURL,
         ] + snapshot.projects.flatMap { project in
             project.project.rootPaths.map(projectConfigURL(rootPath:))
         }
-        if let desktopSentryScopeURL {
-            urls.append(desktopSentryScopeURL)
-        }
-        return urls
     }
 
     func captureProtectedRoutingState() -> CodexProtectedRoutingState {
@@ -288,8 +266,7 @@ final class CodexModelRoutingStore {
     func activateVirtualProjectDefaults(_ state: CodexProtectedRoutingState) throws -> Bool {
         guard state.version == CodexProtectedRoutingState.currentVersion else { return false }
         var changed = try clearProjectRoutingOverrides()
-        let project = desktopComposerContext() == .projectless ? nil : selectedProject()
-        let desired = protectedDefault(for: project, state: state)
+        let desired = protectedDefault(for: selectedProject(), state: state)
         if try readSelection(at: globalConfigURL) != desired {
             try writeSelection(desired, at: globalConfigURL)
             changed = true

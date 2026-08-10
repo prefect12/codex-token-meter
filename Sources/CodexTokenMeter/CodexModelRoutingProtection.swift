@@ -61,7 +61,6 @@ final class CodexModelRoutingProtectionController {
     private var lastObservedGlobalModificationDate: Date?
     private var lastObservedRoutingModificationDates: [String: Date] = [:]
     private var lastSelectedProjectID: String?
-    private var lastDesktopComposerContext = CodexDesktopComposerContext.unknown
 
     init(
         routingStore: CodexModelRoutingStore = CodexModelRoutingStore(),
@@ -83,7 +82,6 @@ final class CodexModelRoutingProtectionController {
         lastObservedGlobalModificationDate = globalConfigModificationDate()
         lastObservedRoutingModificationDates = routingConfigModificationDates()
         lastSelectedProjectID = routingStore.selectedProject()?.id
-        lastDesktopComposerContext = routingStore.desktopComposerContext()
         watcher = CodexConfigWatcher(callbackQueue: callbackQueue) { [weak self] in
             self?.handleExternalChange()
         }
@@ -96,18 +94,6 @@ final class CodexModelRoutingProtectionController {
 
     private func handleExternalChange() {
         refreshWatcherTargets()
-        let desktopComposerContext = routingStore.desktopComposerContext()
-        if desktopComposerContext != .unknown,
-           desktopComposerContext != lastDesktopComposerContext {
-            pendingRestoration?.cancel()
-            lastDesktopComposerContext = desktopComposerContext
-            enforceProtectedDefaultsIfNeeded()
-            lastObservedGlobalModificationDate = globalConfigModificationDate()
-            lastObservedRoutingModificationDates = routingConfigModificationDates()
-            lastSelectedProjectID = routingStore.selectedProject()?.id
-            return
-        }
-
         let selectedProjectID = routingStore.selectedProject()?.id
         if selectedProjectID != lastSelectedProjectID {
             pendingRestoration?.cancel()
@@ -147,7 +133,6 @@ final class CodexModelRoutingProtectionController {
             self.lastObservedGlobalModificationDate = self.globalConfigModificationDate()
             self.lastObservedRoutingModificationDates = self.routingConfigModificationDates()
             self.lastSelectedProjectID = self.routingStore.selectedProject()?.id
-            self.lastDesktopComposerContext = self.routingStore.desktopComposerContext()
             self.refreshWatcherTargets()
         }
         pendingRestoration = workItem
