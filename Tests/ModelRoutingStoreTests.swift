@@ -276,8 +276,8 @@ struct ModelRoutingStoreTests {
         try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
         let store = CodexModelRoutingStore(codexHomeURL: temporaryRoot)
         try Data("""
-        model = "gpt-5.6-luna"
-        model_reasoning_effort = "high"
+        model = "gpt-5.6-sol"
+        model_reasoning_effort = "max"
         personality = "pragmatic"
         """.utf8).write(to: store.globalConfigURL)
 
@@ -420,7 +420,7 @@ struct ModelRoutingStoreTests {
         var restored = false
         while Date() < deadline {
             if try store.readSelection(at: store.globalConfigURL)
-                == CodexConfigSelection(model: "gpt-5.6-luna", reasoningEffort: "high") {
+                == CodexConfigSelection(model: "gpt-5.6-sol", reasoningEffort: "max") {
                 restored = true
                 break
             }

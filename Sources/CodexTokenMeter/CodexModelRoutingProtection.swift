@@ -60,6 +60,7 @@ final class CodexModelRoutingProtectionController {
     private var watcher: CodexConfigWatcher?
     private var pendingRestoration: DispatchWorkItem?
     private var lastObservedGlobalSelection = CodexConfigSelection()
+    private var lastObservedGlobalModificationDate: Date?
 
     init(
         routingStore: CodexModelRoutingStore = CodexModelRoutingStore(),
@@ -85,6 +86,7 @@ final class CodexModelRoutingProtectionController {
         enforceProtectedDefaultsIfNeeded()
         lastObservedGlobalSelection = (try? routingStore.readSelection(at: routingStore.globalConfigURL))
             ?? CodexConfigSelection()
+        lastObservedGlobalModificationDate = globalConfigModificationDate()
         watcher = CodexConfigWatcher(callbackQueue: callbackQueue) { [weak self] in
             self?.handleExternalChange()
         }
@@ -99,10 +101,13 @@ final class CodexModelRoutingProtectionController {
         refreshWatcherTargets()
         let globalSelection = (try? routingStore.readSelection(at: routingStore.globalConfigURL))
             ?? CodexConfigSelection()
-        guard globalSelection != lastObservedGlobalSelection else { return }
+        let globalModificationDate = globalConfigModificationDate()
+        let globalConfigWasRewritten = globalModificationDate != lastObservedGlobalModificationDate
         lastObservedGlobalSelection = globalSelection
+        lastObservedGlobalModificationDate = globalModificationDate
 
-        if applyTaskScopedOverrideIfNeeded(selection: globalSelection) {
+        if globalConfigWasRewritten,
+           applyTaskScopedOverrideIfNeeded(selection: globalSelection) {
             scheduleProtectedDefaultsRestoration()
             return
         }
@@ -115,12 +120,7 @@ final class CodexModelRoutingProtectionController {
     /// period, then restore the saved per-project default. This deliberately
     /// never changes other projects.
     private func applyTaskScopedOverrideIfNeeded(selection: CodexConfigSelection) -> Bool {
-        guard preferences.isEnabled,
-              let protected = preferences.protectedState(),
-              let protectedGlobal = protected.selectionsByPath[
-                  routingStore.globalConfigURL.standardizedFileURL.path
-              ],
-              selection != protectedGlobal,
+        guard preferences.protectedState() != nil,
               let projectConfigURL = temporaryOverrideTargetProvider(selection) else {
             return false
         }
@@ -140,6 +140,7 @@ final class CodexModelRoutingProtectionController {
             self.lastObservedGlobalSelection = (try? self.routingStore.readSelection(
                 at: self.routingStore.globalConfigURL
             )) ?? CodexConfigSelection()
+            self.lastObservedGlobalModificationDate = self.globalConfigModificationDate()
             self.refreshWatcherTargets()
         }
         pendingRestoration = workItem
@@ -164,5 +165,10 @@ final class CodexModelRoutingProtectionController {
             targetURLs: routingStore.routingInputURLs(for: snapshot),
             ready: ready
         )
+    }
+
+    private func globalConfigModificationDate() -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: routingStore.globalConfigURL.path))?[.modificationDate]
+            as? Date
     }
 }
