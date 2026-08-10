@@ -29,6 +29,7 @@ The split is intentionally conservative: code moved by section, with behavior pr
 - `Sources/CodexTokenMeter/ModelDetailsDrawing.swift`: model-page source rows, full model table, share bar, data-trust panel, and hover tooltip drawing. It extends `UsageDetailsView` and uses only the module-internal drawing primitives and state explicitly exposed by `DetailsWindow.swift`.
 - `Sources/CodexTokenMeter/CodexModelRoutingStore.swift`: read/write support for Codex global and trusted-project model defaults. It discovers Codex Desktop projects, reads the local model catalog, and updates only top-level `model` and `model_reasoning_effort` keys while preserving unrelated TOML content.
 - `Sources/CodexTokenMeter/CodexModelRoutingProtection.swift`: optional virtual project defaults for Codex. When enabled, it persists model-routing defaults in Token Meter preferences, keeps project config routing keys clear so Codex Desktop's task picker remains editable, follows the selected Desktop project, and restores its saved default after a temporary task override.
+- `Sources/CodexTokenMeter/CodexDesktopNavigationReader.swift`: narrowly reads Codex Desktop's persisted Sentry UI-click selectors to distinguish the projectless New chat composer from a selected project. Codex leaves `selected-project` stale after returning home, so this reader intentionally ignores prompt/input payloads and only derives navigation context.
 - `Sources/CodexTokenMeter/ClaudeModelRoutingStore.swift`: read/write support for Claude Code user defaults and private project overrides. It preserves unrelated JSON settings, updates only `model` and `effortLevel`, and writes project overrides to `.claude/settings.local.json` so shared repository configuration is not changed.
 - `Sources/CodexTokenMeter/ModelRoutingDetailsDrawing.swift`: the native global/project default-model page, including search, inherited/overridden filtering, inline model and reasoning controls, and effective inheritance state.
 - `Sources/CodexTokenMeter/DiagnosticsDetailsDrawing.swift`: diagnostics-page source health, API file, tool detection, and local log probe rendering. Keeping these read-only probes out of the window orchestrator makes their filesystem work and UI presentation easier to review together.
@@ -109,8 +110,8 @@ unrelated TOML and JSON settings are retained.
 The optional **Protect Codex defaults** setting stores global and per-project
 defaults in application preferences. Token Meter clears only `model` and
 `model_reasoning_effort` from project config files, watches Codex Desktop's
-`selected-project`, and makes that project's saved default the global effective
-default. A model or effort change made in Codex Desktop remains active for 60
+project selection and projectless New chat navigation, and makes the applicable
+saved default the global effective default. A model or effort change made in Codex Desktop remains active for 60
 seconds so a task can bind to it, then the selected project's saved default is
 restored for future tasks. Newly discovered projects inherit the protected global
 default until the user creates a virtual project default from Token Meter.
