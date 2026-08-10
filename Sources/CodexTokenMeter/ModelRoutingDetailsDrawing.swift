@@ -1074,7 +1074,7 @@ extension UsageDetailsView {
             x: content.minX,
             y: content.minY + 58,
             width: content.width,
-            height: 96
+            height: 126
         )
         let globalRect = NSRect(
             x: content.minX,
@@ -1188,19 +1188,41 @@ extension UsageDetailsView {
         drawMultilineText(
             isCodex
                 ? modelRoutingLocalized(
-                    chinese: "对话内可临时切换模型和思考强度。Token Meter 会把这一次选择仅同步到当前项目，保留 60 秒让对话启动，再恢复本页保存的项目默认值；之后的新对话继续使用这里的设置。只恢复 model 和 model_reasoning_effort，不改动其他配置。",
-                    english: "Temporary model and effort changes apply only to the current project. Token Meter keeps that one choice for 60 seconds so the conversation can start, then restores the saved project default for future conversations. Only model and model_reasoning_effort are restored.",
-                    japanese: "会話内でモデルや思考強度を一時変更できます。Token Meter は今回の選択を現在のプロジェクトだけに 60 秒間反映し、会話開始後に保存済みのプロジェクト既定値へ戻します。復元対象は model と model_reasoning_effort のみで、他の設定は変更しません。"
+                    chinese: "开启后，Token Meter 会持续恢复本页保存的项目默认值。只管理 model 和 model_reasoning_effort，不改动其他配置。",
+                    english: "When enabled, Token Meter continuously restores the project defaults saved here. Only model and model_reasoning_effort are managed; other settings stay untouched.",
+                    japanese: "有効にすると、Token Meter はここに保存されたプロジェクト既定値を継続的に復元します。管理するのは model と model_reasoning_effort のみで、他の設定は変更しません。"
                 )
                 : modelRoutingLocalized(
                     chinese: "会话内临时切换仍然有效；如果 Claude 改写全局 settings.json 或项目私有 settings.local.json，Token Meter 会自动恢复本页保存的默认值。只恢复 model 和 effortLevel，不改动其他设置，也不会改动仓库共享的 .claude/settings.json。",
                     english: "Temporary conversation changes still work. If Claude rewrites global settings.json or a private project settings.local.json, Token Meter restores the defaults saved here. Only model and effortLevel are restored; other settings and shared .claude/settings.json files stay untouched.",
                     japanese: "会話内の一時変更はそのまま利用できます。Claude がグローバル settings.json またはプロジェクト固有の settings.local.json を書き換えた場合、Token Meter はここで保存した既定値を復元します。復元するのは model と effortLevel のみで、他の設定や共有 .claude/settings.json は変更しません。"
                 ),
-            rect: NSRect(x: textX, y: rect.minY + 42, width: textWidth, height: 42),
+            rect: NSRect(x: textX, y: rect.minY + 42, width: textWidth, height: isCodex ? 36 : 64),
             font: .systemFont(ofSize: 10.5, weight: .medium),
             color: NSColor.white.withAlphaComponent(0.56)
         )
+
+        if isCodex {
+            let warningColor = enabled
+                ? accentAmber.withAlphaComponent(0.92)
+                : NSColor.white.withAlphaComponent(0.40)
+            drawSymbolIcon(
+                "exclamationmark.triangle.fill",
+                in: NSRect(x: textX, y: rect.minY + 86, width: 16, height: 16),
+                color: warningColor,
+                pointSize: 11
+            )
+            drawMultilineText(
+                modelRoutingLocalized(
+                    chinese: "提示：锁定可能使项目中的下拉选择被配置覆盖。如需临时修改当前对话，请先开始对话，再修改模型和思考等级。",
+                    english: "Tip: Protection may cause the project config to override picker changes. For a temporary change, start the conversation first, then change the model and reasoning effort.",
+                    japanese: "ヒント：保護を有効にすると、プロジェクト設定が選択内容を上書きする場合があります。一時的に変更するには、先に会話を開始してからモデルと思考レベルを変更してください。"
+                ),
+                rect: NSRect(x: textX + 22, y: rect.minY + 83, width: max(138, textWidth - 22), height: 34),
+                font: .systemFont(ofSize: 10.5, weight: .semibold),
+                color: warningColor
+            )
+        }
     }
 
     private func drawRoutingSearchSurface(_ rect: NSRect) {
