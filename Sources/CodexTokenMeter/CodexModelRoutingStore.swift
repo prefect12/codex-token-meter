@@ -14,7 +14,7 @@ struct CodexConfigSelection: Codable, Equatable {
 }
 
 struct CodexProtectedRoutingState: Codable, Equatable {
-    static let currentVersion = 2
+    static let currentVersion = 1
 
     let version: Int
     let selectionsByPath: [String: CodexConfigSelection]
@@ -116,15 +116,12 @@ final class CodexModelRoutingStore {
 
     let codexHomeURL: URL
     private let fileManager: FileManager
-    private let desktopSentryScopeURLOverride: URL?
 
     init(
         codexHomeURL: URL = CodexModelRoutingStore.defaultCodexHomeURL(),
-        desktopSentryScopeURL: URL? = nil,
         fileManager: FileManager = .default
     ) {
         self.codexHomeURL = codexHomeURL.standardizedFileURL
-        self.desktopSentryScopeURLOverride = desktopSentryScopeURL?.standardizedFileURL
         self.fileManager = fileManager
     }
 
@@ -149,21 +146,6 @@ final class CodexModelRoutingStore {
         codexHomeURL.appendingPathComponent("models_cache.json")
     }
 
-    var desktopSentryScopeURL: URL? {
-        if let desktopSentryScopeURLOverride {
-            return desktopSentryScopeURLOverride
-        }
-        guard codexHomeURL == Self.defaultCodexHomeURL().standardizedFileURL else { return nil }
-        return fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Codex/sentry/scope_v3.json")
-    }
-
-    func desktopComposerContext() -> CodexDesktopComposerContext {
-        guard let desktopSentryScopeURL else { return .unknown }
-        return CodexDesktopNavigationReader(scopeURL: desktopSentryScopeURL)
-            .currentComposerContext()
-    }
-
     func loadSnapshot() -> CodexModelRoutingSnapshot {
         let models = loadModels()
         let global = (try? readSelection(at: globalConfigURL)) ?? CodexConfigSelection()
@@ -180,41 +162,14 @@ final class CodexModelRoutingStore {
         return CodexModelRoutingSnapshot(global: global, models: models, projects: projects)
     }
 
-    func loadSnapshot(protectedState: CodexProtectedRoutingState) -> CodexModelRoutingSnapshot {
-        let physical = loadSnapshot()
-        let globalPath = globalConfigURL.standardizedFileURL.path
-        let protectedGlobal = protectedState.selectionsByPath[globalPath] ?? physical.global
-        let projects = physical.projects.map { project in
-            let rootSelections = project.project.rootPaths.map { rootPath in
-                protectedState.selectionsByPath[
-                    projectConfigURL(rootPath: rootPath).standardizedFileURL.path
-                ] ?? CodexConfigSelection()
-            }
-            return CodexProjectRoutingSnapshot(
-                project: project.project,
-                model: mergedValue(rootSelections.map(\.model)),
-                reasoningEffort: mergedValue(rootSelections.map(\.reasoningEffort))
-            )
-        }
-        return CodexModelRoutingSnapshot(
-            global: protectedGlobal,
-            models: physical.models,
-            projects: projects
-        )
-    }
-
     func routingInputURLs(for snapshot: CodexModelRoutingSnapshot) -> [URL] {
-        var urls = [
+        [
             globalConfigURL,
             globalStateURL,
             modelCacheURL,
         ] + snapshot.projects.flatMap { project in
             project.project.rootPaths.map(projectConfigURL(rootPath:))
         }
-        if let desktopSentryScopeURL {
-            urls.append(desktopSentryScopeURL)
-        }
-        return urls
     }
 
     func captureProtectedRoutingState() -> CodexProtectedRoutingState {
@@ -229,88 +184,6 @@ final class CodexModelRoutingStore {
             }
         }
         return CodexProtectedRoutingState(selectionsByPath: selections)
-    }
-
-    func updatingProtectedState(
-        _ state: CodexProtectedRoutingState,
-        global selection: CodexConfigSelection
-    ) -> CodexProtectedRoutingState {
-        var selections = state.selectionsByPath
-        selections[globalConfigURL.standardizedFileURL.path] = selection
-        return CodexProtectedRoutingState(selectionsByPath: selections)
-    }
-
-    func updatingProtectedState(
-        _ state: CodexProtectedRoutingState,
-        projectID: String,
-        selection: CodexConfigSelection
-    ) throws -> CodexProtectedRoutingState {
-        guard let project = loadProjects().first(where: { $0.id == projectID }) else {
-            throw CodexModelRoutingStoreError.missingProject(projectID)
-        }
-        var selections = state.selectionsByPath
-        for rootPath in project.rootPaths {
-            selections[projectConfigURL(rootPath: rootPath).standardizedFileURL.path] = selection
-        }
-        return CodexProtectedRoutingState(selectionsByPath: selections)
-    }
-
-    func selectedProject() -> CodexSavedProject? {
-        guard let data = try? Data(contentsOf: globalStateURL),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let selected = object["selected-project"] as? [String: Any],
-              selected["type"] as? String == "local",
-              let projectID = selected["projectId"] as? String else {
-            return nil
-        }
-        return loadProjects().first { $0.id == projectID }
-    }
-
-    func protectedDefault(
-        for project: CodexSavedProject?,
-        state: CodexProtectedRoutingState
-    ) -> CodexConfigSelection {
-        let global = state.selectionsByPath[globalConfigURL.standardizedFileURL.path]
-            ?? CodexConfigSelection()
-        guard let rootPath = project?.rootPaths.first,
-              let projectSelection = state.selectionsByPath[
-                projectConfigURL(rootPath: rootPath).standardizedFileURL.path
-              ] else {
-            return global
-        }
-        return CodexConfigSelection(
-            model: projectSelection.model ?? global.model,
-            reasoningEffort: projectSelection.reasoningEffort ?? global.reasoningEffort
-        )
-    }
-
-    @discardableResult
-    func activateVirtualProjectDefaults(_ state: CodexProtectedRoutingState) throws -> Bool {
-        guard state.version == CodexProtectedRoutingState.currentVersion else { return false }
-        var changed = try clearProjectRoutingOverrides()
-        let project = desktopComposerContext() == .projectless ? nil : selectedProject()
-        let desired = protectedDefault(for: project, state: state)
-        if try readSelection(at: globalConfigURL) != desired {
-            try writeSelection(desired, at: globalConfigURL)
-            changed = true
-        }
-        return changed
-    }
-
-    @discardableResult
-    func clearProjectRoutingOverrides() throws -> Bool {
-        var changed = false
-        for project in loadProjects() {
-            for rootPath in project.rootPaths {
-                let url = projectConfigURL(rootPath: rootPath)
-                let selection = try readSelection(at: url)
-                if selection.model != nil || selection.reasoningEffort != nil {
-                    try writeSelection(CodexConfigSelection(), at: url)
-                    changed = true
-                }
-            }
-        }
-        return changed
     }
 
     /// Restores only the model-routing keys captured by Token Meter. Other
@@ -539,8 +412,9 @@ final class CodexModelRoutingStore {
 
     private static let fallbackReasoningEfforts = ["low", "medium", "high", "xhigh", "max", "ultra"]
 
-    /// Writes only the two model-routing keys at an already resolved config URL.
-    /// Callers are responsible for choosing global versus project scope.
+    /// Writes only the two model-routing keys at an already resolved project
+    /// config URL. The protection controller uses this for a task-scoped
+    /// override; callers must restore the captured selection afterwards.
     func writeSelection(_ selection: CodexConfigSelection, at url: URL) throws {
         if !fileManager.fileExists(atPath: url.path),
            selection.model == nil,
