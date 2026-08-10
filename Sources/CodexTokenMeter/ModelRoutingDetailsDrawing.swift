@@ -145,9 +145,11 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         self.claudeProtectionPreferences = claudeProtectionPreferences
         if protectionPreferences.isEnabled {
             if let protected = protectionPreferences.protectedState() {
-                _ = try? codexStore.restoreProtectedRoutingState(protected)
+                _ = try? codexStore.activateVirtualProjectDefaults(protected)
             } else {
-                protectionPreferences.enable(capturing: codexStore.captureProtectedRoutingState())
+                let protected = codexStore.captureProtectedRoutingState()
+                protectionPreferences.enable(capturing: protected)
+                _ = try? codexStore.activateVirtualProjectDefaults(protected)
             }
         }
         if claudeProtectionPreferences.isEnabled {
@@ -186,24 +188,46 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
 
     func setCodexDefaultsProtectionEnabled(_ enabled: Bool) {
         if enabled {
-            protectionPreferences.enable(capturing: codexStore.captureProtectedRoutingState())
-            statusMessage = localized(
-                chinese: "已锁定 Token Meter 默认配置",
-                english: "Token Meter defaults are now protected",
-                japanese: "Token Meter の既定設定を保護しました"
-            )
+            let protected = codexStore.captureProtectedRoutingState()
+            protectionPreferences.enable(capturing: protected)
+            do {
+                try codexStore.activateVirtualProjectDefaults(protected)
+                statusMessage = localized(
+                    chinese: "已启用可临时覆盖的项目默认配置",
+                    english: "Project defaults now allow temporary task overrides",
+                    japanese: "一時的なタスク上書きを許可するプロジェクト既定値を有効にしました"
+                )
+            } catch {
+                protectionPreferences.disable()
+                statusMessage = error.localizedDescription
+                statusIsError = true
+                protectionSwitch.state = .off
+                reload()
+                return
+            }
         } else {
+            if let protected = protectionPreferences.protectedState() {
+                do {
+                    try codexStore.restoreProtectedRoutingState(protected)
+                } catch {
+                    statusMessage = error.localizedDescription
+                    statusIsError = true
+                    protectionSwitch.state = .on
+                    reload()
+                    return
+                }
+            }
             protectionPreferences.disable()
             statusMessage = localized(
-                chinese: "已允许 Codex 更新默认配置",
-                english: "Codex may now update defaults",
-                japanese: "Codex による既定設定の更新を許可しました"
+                chinese: "已恢复原生项目配置并关闭保护",
+                english: "Restored native project config and disabled protection",
+                japanese: "ネイティブのプロジェクト設定を復元し、保護を無効にしました"
             )
         }
         statusIsError = false
         protectionSwitch.state = enabled ? .on : .off
         updateConfigWatcher()
-        invalidateLayout()
+        reload()
     }
 
     private func setClaudeDefaultsProtectionEnabled(_ enabled: Bool) {
@@ -499,6 +523,9 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     private func loadActiveSnapshot() -> CodexModelRoutingSnapshot {
         switch selectedPlatform {
         case .codex:
+            if let protected = protectionPreferences.protectedState() {
+                return codexStore.loadSnapshot(protectedState: protected)
+            }
             return codexStore.loadSnapshot()
         case .claude:
             return claudeStore.loadSnapshot()
@@ -511,7 +538,14 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             guard let reasoningEffort, !reasoningEffort.isEmpty else {
                 throw CodexModelRoutingStoreError.missingGlobalDefault("model_reasoning_effort")
             }
-            try codexStore.writeGlobal(model: model, reasoningEffort: reasoningEffort)
+            let selection = CodexConfigSelection(model: model, reasoningEffort: reasoningEffort)
+            if let protected = protectionPreferences.protectedState() {
+                let updated = codexStore.updatingProtectedState(protected, global: selection)
+                protectionPreferences.updateProtectedState(updated)
+                try codexStore.activateVirtualProjectDefaults(updated)
+            } else {
+                try codexStore.writeGlobal(model: model, reasoningEffort: reasoningEffort)
+            }
         case .claude:
             try claudeStore.writeGlobal(model: model, reasoningEffort: reasoningEffort)
         }
@@ -524,11 +558,21 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     ) throws {
         switch selectedPlatform {
         case .codex:
-            try codexStore.writeProject(
-                id: id,
-                model: model,
-                reasoningEffort: reasoningEffort
-            )
+            if let protected = protectionPreferences.protectedState() {
+                let updated = try codexStore.updatingProtectedState(
+                    protected,
+                    projectID: id,
+                    selection: CodexConfigSelection(model: model, reasoningEffort: reasoningEffort)
+                )
+                protectionPreferences.updateProtectedState(updated)
+                try codexStore.activateVirtualProjectDefaults(updated)
+            } else {
+                try codexStore.writeProject(
+                    id: id,
+                    model: model,
+                    reasoningEffort: reasoningEffort
+                )
+            }
         case .claude:
             try claudeStore.writeProject(
                 id: id,
@@ -662,9 +706,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     private func recordProtectedCodexDefaultsIfNeeded() {
-        if selectedPlatform == .codex, protectionPreferences.isEnabled {
-            protectionPreferences.updateProtectedState(codexStore.captureProtectedRoutingState())
-        } else if selectedPlatform == .claude, claudeProtectionPreferences.isEnabled {
+        if selectedPlatform == .claude, claudeProtectionPreferences.isEnabled {
             claudeProtectionPreferences.updateProtectedState(claudeStore.captureProtectedRoutingState())
         }
     }
@@ -1188,9 +1230,9 @@ extension UsageDetailsView {
         drawMultilineText(
             isCodex
                 ? modelRoutingLocalized(
-                    chinese: "对话内可临时切换模型和思考强度。Token Meter 会把这一次选择仅同步到当前项目，保留 60 秒让对话启动，再恢复本页保存的项目默认值；之后的新对话继续使用这里的设置。只恢复 model 和 model_reasoning_effort，不改动其他配置。",
-                    english: "Temporary model and effort changes apply only to the current project. Token Meter keeps that one choice for 60 seconds so the conversation can start, then restores the saved project default for future conversations. Only model and model_reasoning_effort are restored.",
-                    japanese: "会話内でモデルや思考強度を一時変更できます。Token Meter は今回の選択を現在のプロジェクトだけに 60 秒間反映し、会話開始後に保存済みのプロジェクト既定値へ戻します。復元対象は model と model_reasoning_effort のみで、他の設定は変更しません。"
+                    chinese: "项目默认值保存在 Token Meter，不写入会锁死下拉框的项目配置。对话内选择会保留 60 秒，再恢复当前项目默认值；切换项目时自动应用对应默认值。只管理 model 和 model_reasoning_effort。",
+                    english: "Project defaults are stored in Token Meter, not in the project config that locks the picker. A task choice stays active for 60 seconds, then the current project default returns. Switching projects activates its saved default.",
+                    japanese: "プロジェクト既定値は Token Meter に保存し、選択を固定するプロジェクト設定には書き込みません。タスク内の選択は 60 秒間維持した後、現在のプロジェクト既定値へ戻り、プロジェクト切替時も自動適用されます。"
                 )
                 : modelRoutingLocalized(
                     chinese: "会话内临时切换仍然有效；如果 Claude 改写全局 settings.json 或项目私有 settings.local.json，Token Meter 会自动恢复本页保存的默认值。只恢复 model 和 effortLevel，不改动其他设置，也不会改动仓库共享的 .claude/settings.json。",
