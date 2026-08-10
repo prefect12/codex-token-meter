@@ -7,6 +7,7 @@ struct ModelRoutingStoreTests {
         try testProjectGroupWritesEveryRoot()
         try testProtectedDefaultsRestoreOnlyRoutingKeys()
         try testProtectionPreferenceLifecycle()
+        try testActiveProjectResolverUsesRecentMatchingTask()
         try testAppLifetimeProtectionRestoresExternalRewrite()
         try testAppLifetimeProtectionKeepsConversationOverrideBriefly()
         try testClaudeJSONUpdatePreservesOtherSettings()
@@ -343,10 +344,25 @@ struct ModelRoutingStoreTests {
         defer { try? FileManager.default.removeItem(at: temporaryRoot) }
         try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
         let store = CodexModelRoutingStore(codexHomeURL: temporaryRoot)
+        let projectRoot = temporaryRoot.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
         try Data("""
         model = "gpt-5.6-luna"
         model_reasoning_effort = "high"
         """.utf8).write(to: store.globalConfigURL)
+        let projectConfigURL = store.projectConfigURL(rootPath: projectRoot.path)
+        try FileManager.default.createDirectory(
+            at: projectConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("""
+        model = "gpt-5.6-terra"
+        model_reasoning_effort = "high"
+        """.utf8).write(to: projectConfigURL)
+        try writeProjectState(
+            ["project": ("Project", [projectRoot.path])],
+            to: store.globalStateURL
+        )
 
         let suiteName = "ModelRoutingGraceControllerTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -365,6 +381,7 @@ struct ModelRoutingStoreTests {
             preferences: preferences,
             callbackQueue: DispatchQueue(label: "ModelRoutingGraceControllerTests.callback"),
             conversationOverrideGraceInterval: 0.5,
+            temporaryOverrideTargetProvider: { _ in projectConfigURL },
             onWatcherReady: {
                 watcherReady.signal()
             }
@@ -393,6 +410,11 @@ struct ModelRoutingStoreTests {
             selectionDuringGracePeriod == selectedForConversation,
             "protection should leave a brief window for the current conversation override"
         )
+        let projectSelectionDuringGracePeriod = try store.readSelection(at: projectConfigURL)
+        try require(
+            projectSelectionDuringGracePeriod == selectedForConversation,
+            "the selected project should receive the temporary task override"
+        )
 
         let deadline = Date().addingTimeInterval(3)
         var restored = false
@@ -407,6 +429,50 @@ struct ModelRoutingStoreTests {
         try require(
             restored,
             "protection should restore the saved defaults after the conversation override window"
+        )
+        let restoredProjectSelection = try store.readSelection(at: projectConfigURL)
+        try require(
+            restoredProjectSelection
+                == CodexConfigSelection(model: "gpt-5.6-terra", reasoningEffort: "high"),
+            "the selected project should return to its captured default"
+        )
+    }
+
+    private static func testActiveProjectResolverUsesRecentMatchingTask() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-active-project-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        let codexHome = temporaryRoot.appendingPathComponent("home", isDirectory: true)
+        let projectRoot = temporaryRoot.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let store = CodexModelRoutingStore(codexHomeURL: codexHome)
+        try writeProjectState(
+            ["project": ("Project", [projectRoot.path])],
+            to: store.globalStateURL
+        )
+
+        let databaseURL = codexHome.appendingPathComponent("state_5.sqlite")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        process.arguments = [databaseURL.path, """
+        CREATE TABLE threads (cwd TEXT, model TEXT, reasoning_effort TEXT, archived INTEGER, updated_at_ms INTEGER);
+        INSERT INTO threads VALUES ('\(projectRoot.path)', 'gpt-5.6-sol', 'max', 0, 1234567890000);
+        """]
+        try process.run()
+        process.waitUntilExit()
+        try require(process.terminationStatus == 0, "test state database should be created")
+
+        let resolver = CodexActiveProjectConfigResolver(
+            routingStore: store,
+            now: { Date(timeIntervalSince1970: 1_234_567_890) }
+        )
+        let resolved = resolver.mostRecentlySelectedProjectConfigURL(
+            matching: CodexConfigSelection(model: "gpt-5.6-sol", reasoningEffort: "max")
+        )
+        try require(
+            resolved == store.projectConfigURL(rootPath: projectRoot.path),
+            "a recent matching Codex task should identify only its project config"
         )
     }
 
