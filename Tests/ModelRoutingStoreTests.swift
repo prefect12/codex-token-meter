@@ -321,7 +321,7 @@ struct ModelRoutingStoreTests {
         var restored = false
         while Date() < deadline {
             if try store.readSelection(at: store.globalConfigURL)
-                == CodexConfigSelection(model: "gpt-5.6-luna", reasoningEffort: "high") {
+                == CodexConfigSelection(model: "gpt-5.6-sol", reasoningEffort: "max") {
                 restored = true
                 break
             }
@@ -420,7 +420,7 @@ struct ModelRoutingStoreTests {
         var restored = false
         while Date() < deadline {
             if try store.readSelection(at: store.globalConfigURL)
-                == CodexConfigSelection(model: "gpt-5.6-sol", reasoningEffort: "max") {
+                == CodexConfigSelection(model: "gpt-5.6-luna", reasoningEffort: "high") {
                 restored = true
                 break
             }

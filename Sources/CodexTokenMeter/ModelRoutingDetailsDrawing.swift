@@ -569,19 +569,17 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
 
     private func handleExternalConfigChange() {
         let isCodex = selectedPlatform == .codex
-        let protected = isCodex
-            ? protectionPreferences.protectedState()
-            : claudeProtectionPreferences.protectedState()
-        if let protected {
+        // Codex restoration is owned by the app-lifetime controller because it
+        // must preserve the task-scoped override grace period. Restoring here
+        // would race that controller and immediately undo the Desktop picker.
+        if !isCodex, let protected = claudeProtectionPreferences.protectedState() {
             do {
-                let restored = try (isCodex
-                    ? codexStore.restoreProtectedRoutingState(protected)
-                    : claudeStore.restoreProtectedRoutingState(protected))
+                let restored = try claudeStore.restoreProtectedRoutingState(protected)
                 if restored {
                     statusMessage = localized(
-                        chinese: "已恢复 Token Meter 的 \(isCodex ? "Codex" : "Claude") 默认配置",
-                        english: "Restored Token Meter's \(isCodex ? "Codex" : "Claude") defaults",
-                        japanese: "Token Meter の \(isCodex ? "Codex" : "Claude") 既定設定を復元しました"
+                        chinese: "已恢复 Token Meter 的 Claude 默认配置",
+                        english: "Restored Token Meter's Claude defaults",
+                        japanese: "Token Meter の Claude 既定設定を復元しました"
                     )
                     statusIsError = false
                     reload()
