@@ -28,7 +28,7 @@ The split is intentionally conservative: code moved by section, with behavior pr
 - `Sources/CodexTokenMeter/ModelDetailsSupport.swift`: model-page filtering, sorting, unknown-label suppression, table-height calculation, and model/pricing coverage metrics. Keep these data transformations separate from AppKit drawing.
 - `Sources/CodexTokenMeter/ModelDetailsDrawing.swift`: model-page source rows, full model table, share bar, data-trust panel, and hover tooltip drawing. It extends `UsageDetailsView` and uses only the module-internal drawing primitives and state explicitly exposed by `DetailsWindow.swift`.
 - `Sources/CodexTokenMeter/CodexModelRoutingStore.swift`: read/write support for Codex global and trusted-project model defaults. It discovers Codex Desktop projects, reads the local model catalog, and updates only top-level `model` and `model_reasoning_effort` keys while preserving unrelated TOML content.
-- `Sources/CodexTokenMeter/CodexModelRoutingProtection.swift`: optional virtual project defaults for Codex. When enabled, it persists model-routing defaults in Token Meter preferences, keeps project config routing keys clear so Codex Desktop's task picker remains editable, follows the selected Desktop project, and restores its saved default after a temporary task override.
+- `Sources/CodexTokenMeter/CodexModelRoutingProtection.swift`: optional Token Meter authority state for Codex defaults. When enabled, it persists the model-routing keys selected in Token Meter and runs an app-lifetime config watcher that restores only those keys after an external rewrite, even before the details window is opened; unrelated Codex configuration remains untouched.
 - `Sources/CodexTokenMeter/ClaudeModelRoutingStore.swift`: read/write support for Claude Code user defaults and private project overrides. It preserves unrelated JSON settings, updates only `model` and `effortLevel`, and writes project overrides to `.claude/settings.local.json` so shared repository configuration is not changed.
 - `Sources/CodexTokenMeter/ModelRoutingDetailsDrawing.swift`: the native global/project default-model page, including search, inherited/overridden filtering, inline model and reasoning controls, and effective inheritance state.
 - `Sources/CodexTokenMeter/DiagnosticsDetailsDrawing.swift`: diagnostics-page source health, API file, tool detection, and local log probe rendering. Keeping these read-only probes out of the window orchestrator makes their filesystem work and UI presentation easier to review together.
@@ -99,21 +99,15 @@ $CODEX_HOME/archived_sessions
 
 The default-model page reads `~/.codex/config.toml`, `~/.codex/models_cache.json`,
 Codex Desktop's local project registry, and Claude Code's `~/.claude/settings.json`.
-When Codex protection is disabled, project overrides are written to each project
-root's `.codex/config.toml`. When protection is enabled, Codex project defaults
-are virtualized in Token Meter preferences instead, because Codex Desktop treats
-those project-file routing keys as hard overrides and immediately resets its task
-picker. Claude project overrides are written to `.claude/settings.local.json`;
-unrelated TOML and JSON settings are retained.
+Codex project overrides are written to each project root's `.codex/config.toml`.
+Claude project overrides are written to `.claude/settings.local.json`; unrelated
+TOML and JSON settings are retained.
 
-The optional **Protect Codex defaults** setting stores global and per-project
-defaults in application preferences. Token Meter clears only `model` and
-`model_reasoning_effort` from project config files, watches Codex Desktop's
-`selected-project`, and makes that project's saved default the global effective
-default. A model or effort change made in Codex Desktop remains active for 60
-seconds so a task can bind to it, then the selected project's saved default is
-restored for future tasks. Newly discovered projects inherit the protected global
-default until the user creates a virtual project default from Token Meter.
+The optional **Protect Codex defaults** setting stores a separate Token Meter
+baseline in application preferences. Token Meter edits replace that baseline.
+External rewrites restore only `model` and `model_reasoning_effort`; newly
+discovered projects inherit the protected global defaults until the user creates
+an explicit project override from Token Meter.
 
 `storage-snapshot-cache.json` stores the last local disk-usage snapshot, including category roots and per-project paths. Those local paths are the essential content of a disk-usage report, so this cache intentionally keeps them; it must never contain log file contents.
 
