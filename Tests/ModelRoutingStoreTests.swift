@@ -10,6 +10,7 @@ struct ModelRoutingStoreTests {
         try testActiveProjectResolverUsesRecentMatchingTask()
         try testAppLifetimeProtectionRestoresExternalRewrite()
         try testAppLifetimeProtectionKeepsConversationOverrideBriefly()
+        try testVirtualProjectDefaultsFollowSelectedProject()
         try testClaudeJSONUpdatePreservesOtherSettings()
         try testClaudeModelCatalogMatchesCurrentSelector()
         try testClaudeProjectWritesStayLocal()
@@ -361,6 +362,7 @@ struct ModelRoutingStoreTests {
         """.utf8).write(to: projectConfigURL)
         try writeProjectState(
             ["project": ("Project", [projectRoot.path])],
+            selectedProjectID: "project",
             to: store.globalStateURL
         )
 
@@ -381,7 +383,6 @@ struct ModelRoutingStoreTests {
             preferences: preferences,
             callbackQueue: DispatchQueue(label: "ModelRoutingGraceControllerTests.callback"),
             conversationOverrideGraceInterval: 1,
-            temporaryOverrideTargetProvider: { _ in projectConfigURL },
             onWatcherReady: {
                 watcherReady.signal()
             }
@@ -412,8 +413,8 @@ struct ModelRoutingStoreTests {
         )
         let projectSelectionDuringGracePeriod = try store.readSelection(at: projectConfigURL)
         try require(
-            projectSelectionDuringGracePeriod == selectedForConversation,
-            "the selected project should receive the temporary task override"
+            projectSelectionDuringGracePeriod == CodexConfigSelection(),
+            "the physical project config must stay clear so Codex Desktop can accept the task override"
         )
 
         try Data("{}".utf8).write(to: store.modelCacheURL, options: .atomic)
@@ -421,15 +422,117 @@ struct ModelRoutingStoreTests {
         let restoredGlobalSelection = try store.readSelection(at: store.globalConfigURL)
         try require(
             restoredGlobalSelection
-                == CodexConfigSelection(model: "gpt-5.6-luna", reasoningEffort: "high"),
+                == CodexConfigSelection(model: "gpt-5.6-terra", reasoningEffort: "high"),
             "model-catalog updates should not postpone restoration beyond the override window"
         )
         let restoredProjectSelection = try store.readSelection(at: projectConfigURL)
         try require(
-            restoredProjectSelection
-                == CodexConfigSelection(model: "gpt-5.6-terra", reasoningEffort: "high"),
-            "the selected project should return to its captured default"
+            restoredProjectSelection == CodexConfigSelection(),
+            "the protected project default should remain virtual after restoration"
         )
+    }
+
+    private static func testVirtualProjectDefaultsFollowSelectedProject() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-virtual-project-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        let codexHome = temporaryRoot.appendingPathComponent("home", isDirectory: true)
+        let firstRoot = temporaryRoot.appendingPathComponent("first", isDirectory: true)
+        let secondRoot = temporaryRoot.appendingPathComponent("second", isDirectory: true)
+        for url in [codexHome, firstRoot, secondRoot] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        let store = CodexModelRoutingStore(codexHomeURL: codexHome)
+        try Data("""
+        model = "gpt-5.6-luna"
+        model_reasoning_effort = "low"
+        """.utf8).write(to: store.globalConfigURL)
+        try writeProjectState(
+            [
+                "first": ("First", [firstRoot.path]),
+                "second": ("Second", [secondRoot.path]),
+            ],
+            selectedProjectID: "first",
+            to: store.globalStateURL
+        )
+        let firstConfig = store.projectConfigURL(rootPath: firstRoot.path)
+        let secondConfig = store.projectConfigURL(rootPath: secondRoot.path)
+        for (url, source) in [
+            (firstConfig, "model = \"gpt-5.6-terra\"\nmodel_reasoning_effort = \"high\"\n"),
+            (secondConfig, "model = \"gpt-5.6-sol\"\nmodel_reasoning_effort = \"medium\"\n"),
+        ] {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data(source.utf8).write(to: url)
+        }
+
+        let suiteName = "VirtualProjectDefaultsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw NSError(
+                domain: "ModelRoutingStoreTests",
+                code: 9,
+                userInfo: [NSLocalizedDescriptionKey: "could not create virtual defaults"]
+            )
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = CodexModelRoutingProtectionPreferences(defaults: defaults)
+        let protected = store.captureProtectedRoutingState()
+        preferences.enable(capturing: protected)
+        let watcherReady = DispatchSemaphore(value: 0)
+        let controller = CodexModelRoutingProtectionController(
+            routingStore: store,
+            preferences: preferences,
+            callbackQueue: DispatchQueue(label: "VirtualProjectDefaultsTests.callback"),
+            conversationOverrideGraceInterval: 0.2,
+            onWatcherReady: { watcherReady.signal() }
+        )
+        defer { withExtendedLifetime(controller) {} }
+        guard watcherReady.wait(timeout: .now() + 2) == .success else {
+            throw NSError(
+                domain: "ModelRoutingStoreTests",
+                code: 10,
+                userInfo: [NSLocalizedDescriptionKey: "virtual defaults watcher did not become ready"]
+            )
+        }
+        let firstEffectiveSelection = try store.readSelection(at: store.globalConfigURL)
+        try require(
+            firstEffectiveSelection
+                == CodexConfigSelection(model: "gpt-5.6-terra", reasoningEffort: "high"),
+            "the selected project's virtual default should become the effective global default"
+        )
+        let clearedFirstSelection = try store.readSelection(at: firstConfig)
+        let clearedSecondSelection = try store.readSelection(at: secondConfig)
+        try require(
+            clearedFirstSelection == CodexConfigSelection()
+                && clearedSecondSelection == CodexConfigSelection(),
+            "physical project routing overrides should be removed"
+        )
+
+        try writeProjectState(
+            [
+                "first": ("First", [firstRoot.path]),
+                "second": ("Second", [secondRoot.path]),
+            ],
+            selectedProjectID: "second",
+            to: store.globalStateURL
+        )
+        let deadline = Date().addingTimeInterval(3)
+        var switched = false
+        while Date() < deadline {
+            if try store.readSelection(at: store.globalConfigURL)
+                == CodexConfigSelection(model: "gpt-5.6-sol", reasoningEffort: "medium") {
+                switched = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        try require(switched, "switching projects should activate that project's virtual default")
+
+        let snapshot = store.loadSnapshot(protectedState: protected)
+        try require(snapshot.projects[0].model == .value("gpt-5.6-terra"), "the UI should show the first virtual default")
+        try require(snapshot.projects[1].model == .value("gpt-5.6-sol"), "the UI should show the second virtual default")
     }
 
     private static func testActiveProjectResolverUsesRecentMatchingTask() throws {
@@ -472,6 +575,7 @@ struct ModelRoutingStoreTests {
 
     private static func writeProjectState(
         _ projects: [String: (String, [String])],
+        selectedProjectID: String? = nil,
         to url: URL
     ) throws {
         let localProjects = Dictionary(uniqueKeysWithValues: projects.map { id, value in
@@ -483,10 +587,16 @@ struct ModelRoutingStoreTests {
                 ] as [String: Any]
             )
         })
-        let object: [String: Any] = [
+        var object: [String: Any] = [
             "local-projects": localProjects,
             "project-order": projects.keys.sorted(),
         ]
+        if let selectedProjectID {
+            object["selected-project"] = [
+                "type": "local",
+                "projectId": selectedProjectID,
+            ]
+        }
         try JSONSerialization.data(withJSONObject: object).write(to: url)
     }
 
