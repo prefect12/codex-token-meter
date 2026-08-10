@@ -15,7 +15,7 @@ final class PetStatusIcon {
         case .running:
             color = NSColor.systemGreen
         case .stale:
-            color = NSColor.systemYellow
+            color = NSColor.systemGray
         case .waiting:
             color = NSColor.systemYellow
         case .unread:

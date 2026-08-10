@@ -589,7 +589,9 @@ final class CodexActivityReader {
             }
             // Silence alone is not proof that a turn finished: a long tool call can
             // legitimately write nothing for minutes. Keep it visible as stale until
-            // the rollout writes an explicit completion or abort event.
+            // the rollout writes an explicit completion or abort event. "Stale" is
+            // intentionally a non-terminal observation, never confirmation that the
+            // task was stopped.
             let isRecentlyRunning = !summary.isWaitingForInput
                 && summary.isRunning
                 && Date().timeIntervalSince(activityDate) <= runningActivityTimeout

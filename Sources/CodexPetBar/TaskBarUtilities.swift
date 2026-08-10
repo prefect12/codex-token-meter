@@ -29,7 +29,7 @@ func statusColor(_ status: ThreadRunStatus) -> NSColor {
     case .running:
         return NSColor(calibratedRed: 0.35, green: 0.74, blue: 0.38, alpha: 1)
     case .stale:
-        return NSColor(calibratedRed: 0.82, green: 0.58, blue: 0.30, alpha: 1)
+        return NSColor(calibratedWhite: 0.60, alpha: 1)
     case .waiting:
         return NSColor(calibratedRed: 0.91, green: 0.48, blue: 0.28, alpha: 1)
     case .unread:
@@ -42,7 +42,7 @@ func compactStatusLabel(_ status: ThreadRunStatus) -> String {
     case .running:
         return "RUN"
     case .stale:
-        return "SLOW"
+        return "IDLE"
     case .waiting:
         return "WAIT"
     case .unread:
@@ -56,7 +56,7 @@ func statusAccentColor(_ status: ThreadRunStatus) -> NSColor {
     case .running:
         return NSColor(calibratedRed: 0.30, green: 0.80, blue: 0.45, alpha: 1)
     case .stale:
-        return NSColor(calibratedRed: 0.95, green: 0.70, blue: 0.30, alpha: 1)
+        return NSColor(calibratedWhite: 0.68, alpha: 1)
     case .waiting:
         return NSColor(calibratedRed: 0.98, green: 0.68, blue: 0.20, alpha: 1)
     case .unread:
@@ -67,7 +67,7 @@ func statusAccentColor(_ status: ThreadRunStatus) -> NSColor {
 func rowStatusLabel(_ status: ThreadRunStatus) -> String {
     switch status {
     case .running: return "Running"
-    case .stale: return "Stopped"
+    case .stale: return "Inactive"
     case .waiting:
         return "Waiting"
     case .unread:
@@ -365,7 +365,7 @@ func cleanedTooltipRows(_ rows: [ThreadTooltipRow]) -> [ThreadTooltipRow] {
 func tooltipStatusLabel(_ status: ThreadRunStatus) -> String {
     switch status {
     case .running: return "运行中"
-    case .stale: return "已停止（无活动）"
+    case .stale: return "无活动（未确认停止）"
     case .waiting: return "等待输入"
     case .unread: return "未读"
     }
