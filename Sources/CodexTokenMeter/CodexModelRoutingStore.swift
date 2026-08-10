@@ -412,7 +412,10 @@ final class CodexModelRoutingStore {
 
     private static let fallbackReasoningEfforts = ["low", "medium", "high", "xhigh", "max", "ultra"]
 
-    private func writeSelection(_ selection: CodexConfigSelection, at url: URL) throws {
+    /// Writes only the two model-routing keys at an already resolved project
+    /// config URL. The protection controller uses this for a task-scoped
+    /// override; callers must restore the captured selection afterwards.
+    func writeSelection(_ selection: CodexConfigSelection, at url: URL) throws {
         if !fileManager.fileExists(atPath: url.path),
            selection.model == nil,
            selection.reasoningEffort == nil {

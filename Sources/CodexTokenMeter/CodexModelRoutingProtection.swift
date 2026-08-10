@@ -48,16 +48,18 @@ final class CodexModelRoutingProtectionPreferences {
 /// Keeps protection active for the entire menu-bar app lifetime, including
 /// before the details window or Default Models page has ever been opened.
 final class CodexModelRoutingProtectionController {
-    /// Gives Codex Desktop time to attach a user-selected model or effort to
-    /// the active task before restoring the saved defaults for the next task.
-    static let defaultConversationOverrideGraceInterval: TimeInterval = 30
+    /// Keeps a user-selected task override in place long enough for Codex
+    /// Desktop to bind it to the active task before the fixed defaults return.
+    static let defaultConversationOverrideGraceInterval: TimeInterval = 60
 
     private let routingStore: CodexModelRoutingStore
     private let preferences: CodexModelRoutingProtectionPreferences
     private let callbackQueue: DispatchQueue
     private let conversationOverrideGraceInterval: TimeInterval
+    private let temporaryOverrideTargetProvider: (CodexConfigSelection) -> URL?
     private var watcher: CodexConfigWatcher?
     private var pendingRestoration: DispatchWorkItem?
+    private var lastObservedGlobalSelection = CodexConfigSelection()
 
     init(
         routingStore: CodexModelRoutingStore = CodexModelRoutingStore(),
@@ -69,13 +71,20 @@ final class CodexModelRoutingProtectionController {
         ),
         conversationOverrideGraceInterval: TimeInterval =
             CodexModelRoutingProtectionController.defaultConversationOverrideGraceInterval,
+        temporaryOverrideTargetProvider: ((CodexConfigSelection) -> URL?)? = nil,
         onWatcherReady: (() -> Void)? = nil
     ) {
         self.routingStore = routingStore
         self.preferences = preferences
         self.callbackQueue = callbackQueue
         self.conversationOverrideGraceInterval = max(0, conversationOverrideGraceInterval)
+        self.temporaryOverrideTargetProvider = temporaryOverrideTargetProvider ?? { [routingStore] selection in
+            CodexActiveProjectConfigResolver(routingStore: routingStore)
+                .mostRecentlySelectedProjectConfigURL(matching: selection)
+        }
         enforceProtectedDefaultsIfNeeded()
+        lastObservedGlobalSelection = (try? routingStore.readSelection(at: routingStore.globalConfigURL))
+            ?? CodexConfigSelection()
         watcher = CodexConfigWatcher(callbackQueue: callbackQueue) { [weak self] in
             self?.handleExternalChange()
         }
@@ -88,7 +97,39 @@ final class CodexModelRoutingProtectionController {
 
     private func handleExternalChange() {
         refreshWatcherTargets()
+        let globalSelection = (try? routingStore.readSelection(at: routingStore.globalConfigURL))
+            ?? CodexConfigSelection()
+        guard globalSelection != lastObservedGlobalSelection else { return }
+        lastObservedGlobalSelection = globalSelection
+
+        if applyTaskScopedOverrideIfNeeded(selection: globalSelection) {
+            scheduleProtectedDefaultsRestoration()
+            return
+        }
         scheduleProtectedDefaultsRestoration()
+    }
+
+    /// Codex Desktop currently persists a picker choice to the global config,
+    /// while an explicit project config wins during task resolution. Mirror that
+    /// one external choice to the *selected* project's config for the grace
+    /// period, then restore the saved per-project default. This deliberately
+    /// never changes other projects.
+    private func applyTaskScopedOverrideIfNeeded(selection: CodexConfigSelection) -> Bool {
+        guard preferences.isEnabled,
+              let protected = preferences.protectedState(),
+              let protectedGlobal = protected.selectionsByPath[
+                  routingStore.globalConfigURL.standardizedFileURL.path
+              ],
+              selection != protectedGlobal,
+              let projectConfigURL = temporaryOverrideTargetProvider(selection) else {
+            return false
+        }
+        do {
+            try routingStore.writeSelection(selection, at: projectConfigURL)
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func scheduleProtectedDefaultsRestoration() {
@@ -96,6 +137,9 @@ final class CodexModelRoutingProtectionController {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.enforceProtectedDefaultsIfNeeded()
+            self.lastObservedGlobalSelection = (try? self.routingStore.readSelection(
+                at: self.routingStore.globalConfigURL
+            )) ?? CodexConfigSelection()
             self.refreshWatcherTargets()
         }
         pendingRestoration = workItem
