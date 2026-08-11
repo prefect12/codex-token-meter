@@ -476,6 +476,9 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         if routingSearch != nil || routingFilter != nil {
             view.modelRoutingControls.configure(query: routingSearch, filter: routingFilter)
         }
+        if arguments.contains("--model-routing-preview-unsaved") {
+            view.configureModelRoutingPreviewUnsavedChange()
+        }
     }
     if section == .reasoning || section == .combinationRanking {
         if let rawSort = arguments
