@@ -2529,6 +2529,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         modelControls.configure(query: query, sort: sort)
     }
 
+    /// Debug hook for deterministic pending-save model-routing screenshots.
+    func configureModelRoutingPreviewUnsavedChange() {
+        modelRoutingControls.configurePreviewUnsavedChange()
+    }
+
     /// Debug hook for rendering a multi-day selection.
     func selectCalendarRange(startDay: String, endDay: String) {
         guard let snapshot else { return }

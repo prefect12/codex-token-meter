@@ -116,6 +116,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     private weak var host: UsageDetailsView?
     private var bindings: [ObjectIdentifier: Binding] = [:]
     private var inheritanceBindings: [ObjectIdentifier: String] = [:]
+    private var draftSelections: [Scope: CodexConfigSelection] = [:]
     private var modelPopups: [Scope: NSPopUpButton] = [:]
     private var effortPopups: [Scope: NSPopUpButton] = [:]
     private var inheritanceCheckboxes: [String: NSButton] = [:]
@@ -130,6 +131,8 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     private let claudePlatformButton = NSButton(title: "Claude", target: nil, action: nil)
     private let protectionSwitch = NSSwitch(frame: .zero)
     private let refreshButton = NSButton(title: "", target: nil, action: nil)
+    private let discardButton = NSButton(title: "", target: nil, action: nil)
+    private let saveButton = NSButton(title: "", target: nil, action: nil)
 
     init(
         codexStore: CodexModelRoutingStore = CodexModelRoutingStore(),
@@ -311,7 +314,36 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         refreshButton.target = self
         refreshButton.action = #selector(refreshRequested)
         refreshButton.isHidden = true
+        refreshButton.setAccessibilityLabel(
+            localized(chinese: "刷新项目", english: "Refresh projects", japanese: "プロジェクトを更新")
+        )
         host.addSubview(refreshButton)
+
+        for button in [discardButton, saveButton] {
+            button.isBordered = true
+            button.bezelStyle = .rounded
+            button.controlSize = .regular
+            button.font = .systemFont(ofSize: 11.5, weight: .semibold)
+            button.appearance = NSAppearance(named: .darkAqua)
+            button.isHidden = true
+            host.addSubview(button)
+        }
+        discardButton.target = self
+        discardButton.action = #selector(discardRequested)
+        discardButton.contentTintColor = NSColor.white.withAlphaComponent(0.76)
+        discardButton.setAccessibilityLabel(
+            localized(chinese: "放弃未保存的修改", english: "Discard unsaved changes", japanese: "未保存の変更を破棄")
+        )
+        saveButton.target = self
+        saveButton.action = #selector(saveRequested)
+        saveButton.isBordered = false
+        saveButton.wantsLayer = true
+        saveButton.layer?.cornerRadius = 7
+        saveButton.layer?.masksToBounds = true
+        saveButton.contentTintColor = .white
+        saveButton.setAccessibilityLabel(
+            localized(chinese: "保存配置", english: "Save configuration", japanese: "設定を保存")
+        )
 
         rebuildPopups()
     }
@@ -401,6 +433,26 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         invalidateLayout()
     }
 
+    /// Debug hook for a deterministic pending-save render. It never writes a
+    /// local Codex or Claude configuration file.
+    func configurePreviewUnsavedChange() {
+        guard let project = snapshot.projects.first else { return }
+        let model = snapshot.models.first(where: { $0.slug == "gpt-5.6-terra" })?.slug
+            ?? effectiveGlobalModel()
+        draftSelections[.project(project.project.id)] = CodexConfigSelection(
+            model: model,
+            reasoningEffort: preferredEffort(for: model)
+        )
+        statusMessage = localized(
+            chinese: "有未保存的修改",
+            english: "Unsaved changes",
+            japanese: "未保存の変更があります"
+        )
+        statusIsError = false
+        rebuildPopups()
+        invalidateLayout()
+    }
+
     func layout(in content: NSRect, visible: Bool) {
         let layout = host?.modelRoutingPageLayout(in: content)
         searchField.isHidden = !visible
@@ -409,6 +461,8 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         claudePlatformButton.isHidden = !visible
         protectionSwitch.isHidden = !visible
         refreshButton.isHidden = !visible
+        discardButton.isHidden = !visible
+        saveButton.isHidden = !visible
 
         for popup in modelPopups.values {
             popup.isHidden = true
@@ -456,16 +510,47 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         )
 
         refreshButton.title = localized(
-            chinese: "重新读取项目…",
-            english: "Reload projects…",
-            japanese: "プロジェクトを再読込…"
+            chinese: "刷新项目",
+            english: "Refresh projects",
+            japanese: "プロジェクトを更新"
         )
         refreshButton.frame = NSRect(
             x: layout.footerRect.minX,
             y: layout.footerRect.minY + 10,
-            width: 132,
+            width: 104,
             height: 32
         )
+
+        discardButton.title = localized(chinese: "放弃", english: "Discard", japanese: "破棄")
+        discardButton.frame = NSRect(
+            x: layout.footerRect.maxX - 220,
+            y: layout.footerRect.minY + 10,
+            width: 86,
+            height: 32
+        )
+        discardButton.isEnabled = hasUnsavedChanges
+        discardButton.alphaValue = hasUnsavedChanges ? 1 : 0.42
+
+        saveButton.title = hasUnsavedChanges
+            ? localized(
+                chinese: "保存配置（\(unsavedChangeCount)）",
+                english: "Save (\(unsavedChangeCount))",
+                japanese: "設定を保存（\(unsavedChangeCount)）"
+            )
+            : localized(chinese: "保存配置", english: "Save configuration", japanese: "設定を保存")
+        saveButton.frame = NSRect(
+            x: layout.footerRect.maxX - 126,
+            y: layout.footerRect.minY + 10,
+            width: 126,
+            height: 32
+        )
+        saveButton.isEnabled = hasUnsavedChanges
+        saveButton.alphaValue = hasUnsavedChanges ? 1 : 0.42
+        saveButton.layer?.backgroundColor = (
+            hasUnsavedChanges
+                ? host?.accentBlue.withAlphaComponent(0.88)
+                : host?.inputSurfaceColor.withAlphaComponent(0.70)
+        )?.cgColor
 
         layoutGlobalPopups(in: layout.globalRect)
         for project in visibleProjects {
@@ -475,14 +560,14 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     func effectiveGlobalModel() -> String {
-        if let model = snapshot.global.model {
+        if let model = displayedGlobalSelection.model {
             return model
         }
         return snapshot.models.first?.slug ?? "gpt-5.6-terra"
     }
 
     func effectiveGlobalEffort() -> String {
-        snapshot.global.reasoningEffort
+        displayedGlobalSelection.reasoningEffort
             ?? modelOption(slug: effectiveGlobalModel())?.defaultReasoningEffort
             ?? "medium"
     }
@@ -496,6 +581,18 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         selectedPlatform == .codex ? "Codex" : "Claude"
     }
 
+    var hasUnsavedChanges: Bool {
+        !draftSelections.isEmpty
+    }
+
+    var unsavedChangeCount: Int {
+        draftSelections.count
+    }
+
+    private var displayedGlobalSelection: CodexConfigSelection {
+        draftSelections[.global] ?? snapshot.global
+    }
+
     private func loadActiveSnapshot() -> CodexModelRoutingSnapshot {
         switch selectedPlatform {
         case .codex:
@@ -503,6 +600,17 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         case .claude:
             return claudeStore.loadSnapshot()
         }
+    }
+
+    private func displayedProjectSelection(_ project: CodexProjectRoutingSnapshot) -> CodexConfigSelection {
+        let scope = Scope.project(project.project.id)
+        if let draft = draftSelections[scope] {
+            return draft
+        }
+        return CodexConfigSelection(
+            model: project.model.explicitValue,
+            reasoningEffort: project.reasoningEffort.explicitValue
+        )
     }
 
     private func writeGlobal(model: String, reasoningEffort: String?) throws {
@@ -562,9 +670,18 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     @objc private func refreshRequested() {
+        let previousProjectIDs = Set(snapshot.projects.map(\.project.id))
         statusMessage = nil
         statusIsError = false
         reload()
+        let discovered = snapshot.projects.count
+        let added = snapshot.projects.filter { !previousProjectIDs.contains($0.project.id) }.count
+        statusMessage = localized(
+            chinese: added > 0 ? "已刷新 \(discovered) 个项目，新增 \(added) 个" : "已刷新 \(discovered) 个项目",
+            english: added > 0 ? "Refreshed \(discovered) projects, found \(added) new" : "Refreshed \(discovered) projects",
+            japanese: added > 0 ? "\(discovered) 件を更新、\(added) 件を追加" : "\(discovered) 件のプロジェクトを更新"
+        )
+        invalidateLayout()
     }
 
     private func handleExternalConfigChange() {
@@ -617,41 +734,76 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         do {
             switch binding.scope {
             case .global:
-                try writeGlobalChange(field: binding.field, sender: sender)
+                draftSelections[.global] = try proposedGlobalChange(field: binding.field, sender: sender)
             case let .project(id):
-                try writeProjectChange(id: id, field: binding.field, sender: sender)
+                draftSelections[binding.scope] = try proposedProjectChange(
+                    id: id,
+                    field: binding.field,
+                    sender: sender
+                )
             }
-            recordProtectedCodexDefaultsIfNeeded()
             statusMessage = localized(
-                chinese: "已保存",
-                english: "Saved",
-                japanese: "保存済み"
+                chinese: "有未保存的修改",
+                english: "Unsaved changes",
+                japanese: "未保存の変更があります"
             )
             statusIsError = false
         } catch {
             statusMessage = error.localizedDescription
             statusIsError = true
         }
-        reload()
+        rebuildPopups()
+        invalidateLayout()
     }
 
     @objc private func inheritanceChanged(_ sender: NSButton) {
         guard let id = inheritanceBindings[ObjectIdentifier(sender)] else { return }
+        if sender.state == .on {
+            draftSelections[.project(id)] = CodexConfigSelection(model: nil, reasoningEffort: nil)
+        } else {
+            draftSelections[.project(id)] = CodexConfigSelection(
+                model: effectiveGlobalModel(),
+                reasoningEffort: effectiveGlobalEffort()
+            )
+        }
+        statusMessage = localized(
+            chinese: "有未保存的修改",
+            english: "Unsaved changes",
+            japanese: "未保存の変更があります"
+        )
+        statusIsError = false
+        rebuildPopups()
+        invalidateLayout()
+    }
+
+    @objc private func discardRequested() {
+        guard hasUnsavedChanges else { return }
+        draftSelections.removeAll()
+        statusMessage = localized(chinese: "已放弃未保存的修改", english: "Discarded unsaved changes", japanese: "未保存の変更を破棄しました")
+        statusIsError = false
+        reload()
+    }
+
+    @objc private func saveRequested() {
+        guard hasUnsavedChanges else { return }
+        let drafts = draftSelections
         do {
-            if sender.state == .on {
-                try writeProject(id: id, model: nil, reasoningEffort: nil)
-            } else {
-                try writeProject(
-                    id: id,
-                    model: effectiveGlobalModel(),
-                    reasoningEffort: effectiveGlobalEffort()
-                )
+            if let global = drafts[.global] {
+                guard let model = global.model, !model.isEmpty else {
+                    throw CodexModelRoutingStoreError.missingGlobalDefault("model")
+                }
+                try writeGlobal(model: model, reasoningEffort: global.reasoningEffort)
             }
+            for (scope, selection) in drafts {
+                guard case let .project(id) = scope else { continue }
+                try writeProject(id: id, model: selection.model, reasoningEffort: selection.reasoningEffort)
+            }
+            draftSelections.removeAll()
             recordProtectedCodexDefaultsIfNeeded()
             statusMessage = localized(
-                chinese: "已保存",
-                english: "Saved",
-                japanese: "保存済み"
+                chinese: "已保存 \(drafts.count) 项配置；新建聊天后生效",
+                english: "Saved \(drafts.count) configuration changes; applies to new chats",
+                japanese: "\(drafts.count) 件の設定を保存しました。新しい会話から有効です"
             )
             statusIsError = false
         } catch {
@@ -675,9 +827,9 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         host?.needsLayout = true
     }
 
-    private func writeGlobalChange(field: Field, sender: NSPopUpButton) throws {
-        var model = snapshot.global.model ?? effectiveGlobalModel()
-        var effort: String? = snapshot.global.reasoningEffort
+    private func proposedGlobalChange(field: Field, sender: NSPopUpButton) throws -> CodexConfigSelection {
+        var model = displayedGlobalSelection.model ?? effectiveGlobalModel()
+        var effort: String? = displayedGlobalSelection.reasoningEffort
             ?? modelOption(slug: model)?.defaultReasoningEffort
         if effort?.isEmpty == true {
             effort = nil
@@ -701,15 +853,16 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         if selectedPlatform == .codex, effort?.isEmpty != false {
             throw CodexModelRoutingStoreError.missingGlobalDefault("model_reasoning_effort")
         }
-        try writeGlobal(model: model, reasoningEffort: effort)
+        return CodexConfigSelection(model: model, reasoningEffort: effort)
     }
 
-    private func writeProjectChange(id: String, field: Field, sender: NSPopUpButton) throws {
+    private func proposedProjectChange(id: String, field: Field, sender: NSPopUpButton) throws -> CodexConfigSelection {
         guard let project = snapshot.projects.first(where: { $0.project.id == id }) else {
             throw CodexModelRoutingStoreError.missingProject(id)
         }
-        var model = project.model.explicitValue ?? effectiveGlobalModel()
-        var effort: String? = project.reasoningEffort.explicitValue ?? effectiveGlobalEffort()
+        let current = displayedProjectSelection(project)
+        var model = current.model ?? effectiveGlobalModel()
+        var effort: String? = current.reasoningEffort ?? effectiveGlobalEffort()
         if effort?.isEmpty == true {
             effort = nil
         }
@@ -727,7 +880,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         case .effort:
             effort = value == modelRoutingNotApplicableValue ? nil : value
         }
-        try writeProject(id: id, model: model, reasoningEffort: effort)
+        return CodexConfigSelection(model: model, reasoningEffort: effort)
     }
 
     private func rebuildPopups() {
@@ -767,11 +920,16 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         let selectedModel: CodexProjectConfigValue
         let selectedEffort: CodexProjectConfigValue
         if let project {
-            selectedModel = project.model
-            selectedEffort = project.reasoningEffort
+            if let selection = draftSelections[scope] {
+                selectedModel = selection.model.map(CodexProjectConfigValue.value) ?? .inherited
+                selectedEffort = selection.reasoningEffort.map(CodexProjectConfigValue.value) ?? .inherited
+            } else {
+                selectedModel = project.model
+                selectedEffort = project.reasoningEffort
+            }
         } else {
-            selectedModel = snapshot.global.model.map(CodexProjectConfigValue.value) ?? .inherited
-            selectedEffort = snapshot.global.reasoningEffort.map(CodexProjectConfigValue.value) ?? .inherited
+            selectedModel = displayedGlobalSelection.model.map(CodexProjectConfigValue.value) ?? .inherited
+            selectedEffort = displayedGlobalSelection.reasoningEffort.map(CodexProjectConfigValue.value) ?? .inherited
         }
         configureModelPopup(modelPopup, selected: selectedModel)
         configureEffortPopup(
@@ -787,10 +945,13 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             inheritanceBindings[ObjectIdentifier(checkbox)] = project.project.id
             host.addSubview(checkbox)
 
-            let controlsEnabled = !project.inheritsEverything && !project.hasMixedValues
+            let hasDraft = draftSelections[scope] != nil
+            let controlsEnabled = hasDraft
+                ? selectedModel != .inherited
+                : !project.inheritsEverything && !project.hasMixedValues
             modelPopup.isEnabled = controlsEnabled
             effortPopup.isEnabled = controlsEnabled && modelSupportsEffort(
-                project.model.explicitValue ?? effectiveGlobalModel()
+                selectedModel.explicitValue ?? effectiveGlobalModel()
             )
             modelPopup.alphaValue = controlsEnabled ? 1 : 0.52
             effortPopup.alphaValue = effortPopup.isEnabled ? 1 : 0.52
@@ -824,6 +985,9 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         checkbox.controlSize = .small
         checkbox.appearance = NSAppearance(named: .darkAqua)
         checkbox.allowsMixedState = true
+        let draft = draftSelections[.project(project.project.id)]
+        let followsGlobal = draft.map { $0.model == nil && $0.reasoningEffort == nil }
+            ?? project.inheritsEverything
         if project.blocksGlobalInheritance {
             checkbox.state = .off
             checkbox.isEnabled = false
@@ -840,7 +1004,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
                 english: "Settings differ across roots. Check to follow global everywhere, or uncheck to create project settings from the current global values.",
                 japanese: "ルート間で設定が異なります。チェックするとすべてグローバルに従い、外すと現在のグローバル値からプロジェクト設定を作成します。"
             )
-        } else if project.inheritsEverything {
+        } else if followsGlobal {
             checkbox.state = .on
             checkbox.toolTip = localized(
                 chinese: "正在跟随全局。取消勾选后可修改项目设置。",
@@ -1277,7 +1441,9 @@ extension UsageDetailsView {
                 modelRoutingControls.selectedPlatform == .claude
                     || modelRoutingControls.snapshot.global.reasoningEffort != nil
             )
-        let defaultStatus = hasExplicitGlobal
+        let defaultStatus = modelRoutingControls.hasUnsavedChanges
+            ? modelRoutingLocalized(chinese: "未保存", english: "Unsaved", japanese: "未保存")
+            : hasExplicitGlobal
             ? modelRoutingLocalized(chinese: "已保存", english: "Saved", japanese: "保存済み")
             : modelRoutingLocalized(
                 chinese: "使用 \(modelRoutingControls.platformDisplayName) 默认",
@@ -1287,11 +1453,13 @@ extension UsageDetailsView {
         let statusText = modelRoutingControls.statusMessage ?? defaultStatus
         let statusColor = modelRoutingControls.statusIsError
             ? accentRose
+            : modelRoutingControls.hasUnsavedChanges
+                ? accentAmber
             : NSColor.white.withAlphaComponent(0.60)
         let statusRect = NSRect(x: row.maxX - 132, y: row.minY + 30, width: 112, height: 26)
         if !modelRoutingControls.statusIsError {
             drawSymbolIcon(
-                "checkmark.circle",
+                modelRoutingControls.hasUnsavedChanges ? "pencil.circle" : "checkmark.circle",
                 in: NSRect(x: statusRect.minX, y: statusRect.minY + 3, width: 18, height: 18),
                 color: statusColor,
                 pointSize: 13
@@ -1416,10 +1584,20 @@ extension UsageDetailsView {
                 japanese: "設定範囲：一覧の Codex プロジェクト"
             )
         }
+        let statusText = modelRoutingControls.hasUnsavedChanges
+            ? modelRoutingLocalized(
+                chinese: "\(modelRoutingControls.unsavedChangeCount) 项修改待保存 · 保存后影响新建聊天",
+                english: "\(modelRoutingControls.unsavedChangeCount) changes waiting to save · applies to new chats",
+                japanese: "\(modelRoutingControls.unsavedChangeCount) 件の変更が未保存 · 新しい会話から有効"
+            )
+            : countText
+        let statusColor = modelRoutingControls.hasUnsavedChanges
+            ? accentAmber.withAlphaComponent(0.92)
+            : NSColor.white.withAlphaComponent(0.42)
         drawRight(
-            countText,
-            rect: NSRect(x: rect.minX + 154, y: rect.minY + 16, width: rect.width - 154, height: 20),
-            color: NSColor.white.withAlphaComponent(0.42),
+            statusText,
+            rect: NSRect(x: rect.minX + 120, y: rect.minY + 16, width: rect.width - 354, height: 20),
+            color: statusColor,
             font: .systemFont(ofSize: 10.5, weight: .medium)
         )
     }
