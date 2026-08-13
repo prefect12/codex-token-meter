@@ -1775,9 +1775,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     func selectedCalendarDay(in report: TokenReport) -> DayUsage? {
-        selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
-            ?? report.byDay.last(where: { $0.usage.total > 0 })
-            ?? report.byDay.last
+        let days = paddedContributionDays(report.byDay)
+        return selectedDay.flatMap { selected in days.first { $0.day == selected } }
+            ?? days.last(where: { $0.usage.total > 0 })
+            ?? days.last
     }
 
     func profileSelectedDayUsesLocalFallback(snapshot: DetailsSnapshot, report: TokenReport) -> Bool {
@@ -2356,13 +2357,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 } else {
                     applyContributionSelection([day])
                     contributionSelectionAnchor = (day, day)
-                    AppSettings.selectedCalendarDay = day
                 }
             } else {
                 selectedContributionDays.removeAll()
                 selectedDay = day
                 contributionSelectionAnchor = (day, day)
-                AppSettings.selectedCalendarDay = day
                 selectedSection = .calendar
             }
             return
@@ -2546,15 +2545,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     func preferredSelectedDay(in report: TokenReport, fallback: String?) -> String? {
-        if let global = AppSettings.selectedCalendarDay,
-           report.byDay.contains(where: { $0.day == global }) {
-            return global
-        }
+        let days = paddedContributionDays(report.byDay)
         if let fallback,
-           report.byDay.contains(where: { $0.day == fallback }) {
+           days.contains(where: { $0.day == fallback }) {
             return fallback
         }
-        return report.byDay.last(where: { $0.usage.total > 0 })?.day ?? report.byDay.last?.day
+        let today = dayFormatter().string(from: Date())
+        if days.contains(where: { $0.day == today }) {
+            return today
+        }
+        return days.last(where: { $0.usage.total > 0 })?.day ?? days.last?.day
     }
 
     @objc private func paymentCurrencyPopupChanged() {

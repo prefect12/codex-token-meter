@@ -137,6 +137,11 @@ extension UsageDetailsView {
         return calendar.compare(date, to: today, toGranularity: .day) == .orderedDescending
     }
 
+    func isTodayContributionDay(_ day: String, formatter: DateFormatter, calendar: Calendar, today: Date) -> Bool {
+        guard let date = formatter.date(from: day) else { return false }
+        return calendar.isDate(date, inSameDayAs: today)
+    }
+
     /// Aggregates the padded contribution days into the same 7-day columns the
     /// grid renders, so week selection maps 1:1 to what the user clicked.
     func contributionWeekColumns(in report: TokenReport) -> [ContributionWeekSummary] {
@@ -366,6 +371,11 @@ extension UsageDetailsView {
                 NSColor.white.withAlphaComponent(0.92).setStroke()
                 let path = NSBezierPath(roundedRect: cell.insetBy(dx: -2, dy: -2), xRadius: 5, yRadius: 5)
                 path.lineWidth = 2
+                path.stroke()
+            } else if isTodayContributionDay(day.day, formatter: formatter, calendar: calendar, today: today) {
+                accentTeal.withAlphaComponent(0.82).setStroke()
+                let path = NSBezierPath(roundedRect: cell.insetBy(dx: -1, dy: -1), xRadius: 4, yRadius: 4)
+                path.lineWidth = 1.5
                 path.stroke()
             } else if enableDayHover && day.day == hoveredContributionDay {
                 NSColor.white.withAlphaComponent(0.72).setStroke()
