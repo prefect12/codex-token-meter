@@ -1550,9 +1550,7 @@ extension UsageDetailsView {
 
     func drawProfileSelectedDayPanel(snapshot: DetailsSnapshot, report: TokenReport, rect: NSRect) {
         drawPanel(rect)
-        let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
-            ?? report.byDay.last(where: { $0.usage.total > 0 })
-            ?? report.byDay.last
+        let day = selectedCalendarDay(in: report)
         guard let day else {
             drawText(t(.noDaySelected), rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
             return
@@ -1645,9 +1643,7 @@ extension UsageDetailsView {
     func drawSelectedDayPanel(snapshot: DetailsSnapshot, rect: NSRect) {
         drawPanel(rect)
         let report = calendarReport(for: snapshot)
-        let day = selectedDay.flatMap { selected in report.byDay.first { $0.day == selected } }
-            ?? report.byDay.last(where: { $0.usage.total > 0 })
-            ?? report.byDay.last
+        let day = selectedCalendarDay(in: report)
         guard let day else {
             drawText(t(.noDaySelected), rect: NSRect(x: rect.minX + 18, y: rect.minY + 18, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
             return
