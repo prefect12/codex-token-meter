@@ -386,14 +386,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return registeredURL
     }
 
-    /// Task Bar integrates OpenCode sessions read-only, so there is no deep link
-    /// to resume one; clicking reveals the session's project folder instead.
+    /// OpenChamber 1.20 has no session-ID deep link. The correct fallback is its
+    /// own desktop window; showing the project directory in Finder is unrelated
+    /// to the conversation the user selected in Task Bar.
     private func openOpenCodeSession(_ item: CodexThreadItem) {
-        guard let cwd = item.cwd, !cwd.isEmpty,
-              FileManager.default.fileExists(atPath: cwd) else {
-            return
+        let applicationsURL = URL(fileURLWithPath: "/Applications/OpenChamber.app", isDirectory: true)
+        let appURL: URL?
+        if FileManager.default.fileExists(atPath: applicationsURL.path) {
+            appURL = applicationsURL
+        } else {
+            appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "dev.openchamber.desktop")
         }
-        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: cwd)
+        guard let appURL else { return }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, _ in }
     }
 
     private func openCodexAPIThread(id: String) {
