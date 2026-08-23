@@ -4,15 +4,15 @@ import QuartzCore
 enum TaskBarBuild {
     static let isBetaBuild = Bundle.main.bundleIdentifier == "local.task-bar.beta"
     static var isBeta: Bool {
-        isBetaBuild && TaskBarSettings.pageStyle == .island
+        TaskBarSettings.pageStyle == .island
     }
     static var isClassicPage: Bool {
-        // The stable bundle must always retain the current main UI. Only the
-        // dedicated Beta bundle can opt into the experimental Island surface.
         !isBeta
     }
-    static var displayName: String { isBeta ? "Task Bar Beta" : "Task Bar" }
-    static var liveWorkspaceLabel: String { isBeta ? "●  LIVE WORKSPACE · BETA" : "●  LIVE WORKSPACE" }
+    static var displayName: String { isBetaBuild ? "Task Bar Beta" : "Task Bar" }
+    static var liveWorkspaceLabel: String {
+        isBetaBuild ? "●  LIVE WORKSPACE · BETA" : "●  LIVE WORKSPACE"
+    }
 }
 
 /// Small, native motion primitives shared by Task Bar's popover surfaces.
