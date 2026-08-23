@@ -20,7 +20,6 @@ swiftc \
   -O \
   -framework Cocoa \
   -framework CoreServices \
-  -lsqlite3 \
   "${SWIFT_SOURCES[@]}" \
   -o "$BIN"
 

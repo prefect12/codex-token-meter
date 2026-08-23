@@ -385,30 +385,15 @@ func tooltipStatusLabel(_ status: ThreadRunStatus) -> String {
     }
 }
 
-var menuPanelWidth: CGFloat { TaskBarBuild.isClassicPage ? 420 : 460 }
+let menuPanelWidth: CGFloat = 420
 let taskBarPopoverMinWidth: CGFloat = 340
 let taskBarPopoverMinHeight: CGFloat = 200
 let taskBarVisibleThreadLimit = 12
 let taskBarCandidateThreadLimit = 48
-// Shared control-surface tokens keep the floating popover and task cards cohesive.
-var menuPanelBackground: NSColor {
-    TaskBarBuild.isClassicPage
-        ? NSColor(calibratedWhite: 0.105, alpha: 0.97)
-        : NSColor(calibratedRed: 0.035, green: 0.037, blue: 0.050, alpha: 0.985)
-}
-let taskBarPanelBorder = NSColor(calibratedWhite: 1.0, alpha: 0.13)
-let taskBarCardBackground = NSColor(calibratedRed: 0.095, green: 0.090, blue: 0.105, alpha: 0.94)
-let taskBarCardHover = NSColor(calibratedRed: 0.155, green: 0.135, blue: 0.145, alpha: 0.94)
-let taskBarWarmAccent = NSColor(calibratedRed: 1.0, green: 0.50, blue: 0.20, alpha: 1.0)
-var taskBarRowHeight: CGFloat { TaskBarBuild.isClassicPage ? 92 : 98 }
+let menuPanelBackground = NSColor(calibratedWhite: 0.105, alpha: 0.97)
+let taskBarRowHeight: CGFloat = 92
 let taskBarCompactRowHeight: CGFloat = 72
 let taskBarEmptyStateHeight: CGFloat = 120
-
-/// The experimental Island surface uses a denser, continuous activity stream.
-/// Keep the stable Task Bar's configurable row sizing unchanged.
-func taskBarDisplayedRowHeight(for layout: TaskRowLayoutStyle) -> CGFloat {
-    TaskBarBuild.isBeta ? 52 : layout.rowHeight
-}
 
 func taskBarPopoverMaxHeight() -> CGFloat {
     let mouse = NSEvent.mouseLocation
@@ -449,20 +434,12 @@ func isCodexAPIThread(_ item: CodexThreadItem) -> Bool {
     item.source.contains("codex-api")
 }
 
-func isOpenCodeThread(_ item: CodexThreadItem) -> Bool {
-    item.source == "opencode"
-        || item.id.hasPrefix("opencode:")
-}
-
 func sourceLabel(_ item: CodexThreadItem) -> String {
     if isClaudeThread(item) {
         return "Claude"
     }
     if isCodexAPIThread(item) {
         return "Codex API"
-    }
-    if isOpenCodeThread(item) {
-        return "OpenCode"
     }
     return "Codex"
 }
@@ -473,9 +450,6 @@ func sourceColor(_ item: CodexThreadItem) -> NSColor {
     }
     if isCodexAPIThread(item) {
         return NSColor(calibratedRed: 0.36, green: 0.78, blue: 0.88, alpha: 1)
-    }
-    if isOpenCodeThread(item) {
-        return NSColor(calibratedRed: 0.68, green: 0.52, blue: 1.0, alpha: 1)
     }
     return NSColor(calibratedRed: 0.45, green: 0.58, blue: 1.0, alpha: 1)
 }

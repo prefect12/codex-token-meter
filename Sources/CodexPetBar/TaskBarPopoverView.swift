@@ -53,9 +53,6 @@ final class TaskBarPopoverContentView: NSView {
     private let resizeHandle = PopoverResizeHandleView()
     private var rowsContentHeight: CGFloat
     private let onResize: (NSSize, Bool) -> Void
-    private let shouldAnimateEntrance: Bool
-    private let usesExternalSurface: Bool
-    private var didAnimateEntrance = false
 
     // Retained so the tab filter can be re-applied in place, without a full rebuild.
     private let allThreads: [CodexThreadItem]
@@ -88,13 +85,9 @@ final class TaskBarPopoverContentView: NSView {
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void,
         initialSize: NSSize?,
-        shouldAnimateEntrance: Bool = false,
-        usesExternalSurface: Bool = false,
         onResize: @escaping (NSSize, Bool) -> Void
     ) {
         self.onResize = onResize
-        self.shouldAnimateEntrance = shouldAnimateEntrance
-        self.usesExternalSurface = usesExternalSurface
         self.allThreads = threads
         self.showPlatformLabels = showPlatformLabels
         self.rowLayout = rowLayout
@@ -150,12 +143,9 @@ final class TaskBarPopoverContentView: NSView {
             onQuit: onQuit
         )
 
-        let navigationChromeHeight = usesExternalSurface ? 0 : (
-            headerView.frame.height
+        let fixedHeight = headerView.frame.height
             + tabsView.frame.height
             + topSeparator.frame.height
-        )
-        let fixedHeight = navigationChromeHeight
             + taskCountHeight
             + bottomSeparator.frame.height
             + commandBar.frame.height
@@ -176,10 +166,7 @@ final class TaskBarPopoverContentView: NSView {
 
         super.init(frame: NSRect(origin: .zero, size: initialSize))
         wantsLayer = true
-        let classic = TaskBarBuild.isClassicPage
-        layer?.backgroundColor = (classic ? menuPanelBackground : NSColor.clear).cgColor
-        layer?.cornerRadius = usesExternalSurface || classic ? 0 : 20
-        layer?.masksToBounds = !usesExternalSurface && !classic
+        layer?.backgroundColor = menuPanelBackground.cgColor
         appearance = NSAppearance(named: .darkAqua)
 
         addSubview(headerView)
@@ -190,9 +177,6 @@ final class TaskBarPopoverContentView: NSView {
         addSubview(bottomSeparator)
         addSubview(commandBar)
         addSubview(resizeHandle)
-        headerView.isHidden = usesExternalSurface
-        tabsView.isHidden = usesExternalSurface
-        topSeparator.isHidden = usesExternalSurface
         resizeHandle.onResize = { [weak self] size, persist in
             self?.applyResize(size, persist: persist)
         }
@@ -248,11 +232,6 @@ final class TaskBarPopoverContentView: NSView {
         taskCountView.update(shown: filtered.count, total: totalCount)
         needsLayout = true
         layoutSubtreeIfNeeded()
-        if !TaskBarBuild.isClassicPage {
-            DispatchQueue.main.async {
-                newRowsView.animateRefresh()
-            }
-        }
     }
 
     private func toggleSubtasks(for threadID: String) {
@@ -309,69 +288,21 @@ final class TaskBarPopoverContentView: NSView {
 
     override var isFlipped: Bool { true }
 
-    func playEntranceMotion() {
-        guard shouldAnimateEntrance, !TaskBarBuild.isClassicPage, !didAnimateEntrance else { return }
-        didAnimateEntrance = true
-
-        if !usesExternalSurface {
-            TaskBarMotion.prepareForReveal(headerView, offsetY: -12, scale: 0.97)
-            TaskBarMotion.prepareForReveal(tabsView, offsetY: -9, scale: 0.985)
-            TaskBarMotion.prepareForReveal(topSeparator, offsetY: -6, scale: 1)
-        }
-        TaskBarMotion.prepareForReveal(rowsScrollView, offsetY: -6, scale: 0.995)
-        TaskBarMotion.prepareForReveal(commandBar, offsetY: 8, scale: 0.99)
-        rowsView.prepareForEntrance()
-
-        if usesExternalSurface {
-            TaskBarMotion.reveal(rowsScrollView, delay: 0.05, offsetY: -6, scale: 0.995)
-            rowsView.animateEntrance(startDelay: 0.10)
-            TaskBarMotion.reveal(commandBar, delay: 0.18, offsetY: 8, scale: 0.99)
-        } else {
-            TaskBarMotion.reveal(headerView, delay: 0.03, offsetY: -12, scale: 0.97)
-            TaskBarMotion.reveal(tabsView, delay: 0.08, offsetY: -9, scale: 0.985)
-            TaskBarMotion.reveal(topSeparator, delay: 0.12, offsetY: -6, scale: 1)
-            TaskBarMotion.reveal(rowsScrollView, delay: 0.14, offsetY: -6, scale: 0.995)
-            rowsView.animateEntrance(startDelay: 0.19)
-            TaskBarMotion.reveal(commandBar, delay: 0.27, offsetY: 8, scale: 0.99)
-        }
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard !usesExternalSurface, !TaskBarBuild.isClassicPage else { return }
-        let panel = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 20, yRadius: 20)
-        if let gradient = NSGradient(
-            starting: NSColor(calibratedRed: 0.085, green: 0.070, blue: 0.090, alpha: 0.99),
-            ending: menuPanelBackground
-        ) {
-            gradient.draw(in: panel, angle: 90)
-        } else {
-            menuPanelBackground.setFill()
-            panel.fill()
-        }
-        taskBarPanelBorder.setStroke()
-        panel.lineWidth = 1
-        panel.stroke()
-    }
-
     override func layout() {
         super.layout()
         var y: CGFloat = 0
-        let headerHeight = usesExternalSurface ? 0 : headerView.frame.height
-        headerView.frame = NSRect(x: 0, y: y, width: bounds.width, height: headerHeight)
-        y += headerHeight
+        headerView.frame = NSRect(x: 0, y: y, width: bounds.width, height: headerView.frame.height)
+        y += headerView.frame.height
 
-        let tabsHeight = usesExternalSurface ? 0 : tabsView.frame.height
-        tabsView.frame = NSRect(x: 0, y: y, width: bounds.width, height: tabsHeight)
-        y += tabsHeight
+        tabsView.frame = NSRect(x: 0, y: y, width: bounds.width, height: tabsView.frame.height)
+        y += tabsView.frame.height
 
-        let separatorHeight = usesExternalSurface ? 0 : topSeparator.frame.height
-        topSeparator.frame = NSRect(x: 0, y: y, width: bounds.width, height: separatorHeight)
-        y += separatorHeight
+        topSeparator.frame = NSRect(x: 0, y: y, width: bounds.width, height: topSeparator.frame.height)
+        y += topSeparator.frame.height
 
-        let fixedHeight = headerHeight
-            + tabsHeight
-            + separatorHeight
+        let fixedHeight = headerView.frame.height
+            + tabsView.frame.height
+            + topSeparator.frame.height
             + taskCountHeight
             + bottomSeparator.frame.height
             + commandBar.frame.height

@@ -307,12 +307,16 @@ private func rolloutLine(
 }
 
 func configuredCodexHomeURLs(home: String = NSHomeDirectory()) -> [URL] {
-    let configured = TaskBarSettings.codexHomeDirectory
-    let defaultPath = URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true).path
-    let path = configured == URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex", isDirectory: true).path
-        ? defaultPath
-        : configured
-    return [URL(fileURLWithPath: path, isDirectory: true)]
+    var urls = [
+        URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
+    ]
+    if TaskBarSettings.includeCodexAPISource {
+        urls.append(URL(fileURLWithPath: home).appendingPathComponent(".codex-api", isDirectory: true))
+    }
+    urls.append(contentsOf: TaskBarSettings.extraCodexHomeFolderPaths.map { path in
+        URL(fileURLWithPath: path, isDirectory: true)
+    })
+    return unique(urls)
 }
 
 private func readCodexUnreadState(in codexHome: URL) -> CodexUnreadStateRead {
@@ -520,7 +524,6 @@ final class CodexActivityReader {
     private let fileManager = FileManager.default
     private let home = NSHomeDirectory()
     private let claudeHomeReader = ClaudeHomeActivityReader()
-    private let openCodeReader = OpenCodeActivityReader()
     private var rolloutScanCache: [String: RolloutScanState] = [:]
     private var claudeScanCache: [String: ClaudeScanState] = [:]
     private var rolloutURLCacheByThreadID: [String: URL] = [:]
@@ -685,9 +688,6 @@ final class CodexActivityReader {
         }
         let claudeHomeCutoff = Date().addingTimeInterval(-TimeInterval(max(1, lookbackHours)) * 3600)
         for item in claudeHomeReader.read(limit: max(limit, 8), cutoff: claudeHomeCutoff) {
-            byID[item.id] = item
-        }
-        for item in openCodeReader.read(limit: max(limit, 8), cutoff: claudeHomeCutoff) {
             byID[item.id] = item
         }
 
@@ -2411,11 +2411,29 @@ final class CodexActivityReader {
     }
 
     private func claudeProjectRoots() -> [URL] {
-        let configured = URL(fileURLWithPath: TaskBarSettings.claudeDirectory, isDirectory: true)
-        let directory = configured.lastPathComponent == "projects"
-            ? configured
-            : configured.appendingPathComponent("projects", isDirectory: true)
-        return [directory]
+        var roots: [URL] = []
+        if let raw = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !raw.isEmpty {
+            roots.append(contentsOf: raw.split(separator: ",").map { value in
+                let path = String(value).trimmingCharacters(in: .whitespacesAndNewlines)
+                let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+                return url.lastPathComponent == "projects" ? url : url.appendingPathComponent("projects", isDirectory: true)
+            })
+        }
+        let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
+            .flatMap { $0.isEmpty ? nil : $0 }
+            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+            ?? URL(fileURLWithPath: home).appendingPathComponent(".config", isDirectory: true)
+        roots.append(
+            xdgConfigHome
+                .appendingPathComponent("claude", isDirectory: true)
+                .appendingPathComponent("projects", isDirectory: true)
+        )
+        roots.append(
+            URL(fileURLWithPath: home)
+                .appendingPathComponent(".claude", isDirectory: true)
+                .appendingPathComponent("projects", isDirectory: true)
+        )
+        return unique(roots)
     }
 
     private func logsDatabaseURLs() -> [URL] {
@@ -2433,11 +2451,17 @@ final class CodexActivityReader {
     }
 
     private func codexExecutablePaths() -> [String] {
-        let paths = [
+        var paths = [
             "/Applications/Codex.app/Contents/Resources/codex",
             "/opt/homebrew/bin/codex",
             "/usr/local/bin/codex"
         ]
+        if TaskBarSettings.includeCodexAPISource {
+            paths.insert(contentsOf: [
+                "\(home)/Applications/Codex API.app/Contents/Resources/codex",
+                "/Applications/Codex API.app/Contents/Resources/codex"
+            ], at: 0)
+        }
         return paths.filter { fileManager.isExecutableFile(atPath: $0) }
     }
 
