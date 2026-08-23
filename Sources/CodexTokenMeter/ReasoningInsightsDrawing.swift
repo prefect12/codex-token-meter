@@ -8,7 +8,7 @@ private struct ReasoningTrendPoint {
 }
 
 extension UsageDetailsView {
-    private var reasoningEfforts: [String] { ["low", "medium", "high", "xhigh", "ultra", "max"] }
+    private var reasoningEfforts: [String] { ["low", "medium", "high", "xhigh", "ultra", "max", "unavailable"] }
 
     func normalizeReasoningSelection(_ report: ReasoningInsightsReport?) {
         guard let report else {
@@ -187,7 +187,7 @@ extension UsageDetailsView {
         drawText(reasoningLocalized("较高", english: "Higher"), rect: NSRect(x: gradientRect.maxX + 10, y: legendY, width: 44, height: 16), font: .systemFont(ofSize: 10.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.54))
 
         for (column, effort) in reasoningEfforts.enumerated() {
-            drawCentered(effort, rect: NSRect(x: grid.minX + labelW + CGFloat(column) * cellW, y: grid.minY - 29, width: cellW, height: 20), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.70))
+            drawCentered(reasoningEffortLabel(effort), rect: NSRect(x: grid.minX + labelW + CGFloat(column) * cellW, y: grid.minY - 29, width: cellW, height: 20), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.70))
         }
 
         for (row, model) in models.enumerated() {
@@ -227,7 +227,7 @@ extension UsageDetailsView {
         let modelW = min(rect.width - 110, measuredTextWidth(selected.model, font: modelFont) + 2)
         drawTruncatedText(selected.model, rect: NSRect(x: rect.minX + 16, y: rect.minY + 52, width: modelW, height: 26), font: modelFont, color: accentBlue)
         drawText("×", rect: NSRect(x: rect.minX + 22 + modelW, y: rect.minY + 54, width: 18, height: 22), font: .systemFont(ofSize: 15, weight: .semibold), color: NSColor.white.withAlphaComponent(0.52))
-        drawTruncatedText(selected.effort, rect: NSRect(x: rect.minX + 43 + modelW, y: rect.minY + 52, width: rect.width - modelW - 59, height: 26), font: modelFont, color: reasoningEffortColor(selected.effort))
+        drawTruncatedText(reasoningEffortLabel(selected.effort), rect: NSRect(x: rect.minX + 43 + modelW, y: rect.minY + 52, width: rect.width - modelW - 59, height: 26), font: modelFont, color: reasoningEffortColor(selected.effort))
 
         let knownRuns = max(1, report.knownRunCount)
         let taskTotal = max(1, report.taskCount)
@@ -400,7 +400,7 @@ extension UsageDetailsView {
         for effort in reasoningEfforts {
             reasoningEffortColor(effort).setFill()
             NSBezierPath(ovalIn: NSRect(x: x, y: rect.minY + 8, width: 8, height: 8)).fill()
-            drawText(effort, rect: NSRect(x: x + 12, y: rect.minY + 4, width: 48, height: 18), font: font, color: NSColor.white.withAlphaComponent(0.68))
+            drawText(reasoningEffortLabel(effort), rect: NSRect(x: x + 12, y: rect.minY + 4, width: 48, height: 18), font: font, color: NSColor.white.withAlphaComponent(0.68))
             x += 58
         }
         accentTeal.setStroke()
@@ -461,6 +461,12 @@ extension UsageDetailsView {
         case "max": return NSColor(calibratedRed: 0.91, green: 0.43, blue: 0.64, alpha: 1)
         default: return NSColor.white.withAlphaComponent(0.28)
         }
+    }
+
+    func reasoningEffortLabel(_ effort: String) -> String {
+        effort == "unavailable"
+            ? reasoningLocalized("未提供", english: "Unavailable")
+            : effort
     }
 
     func reasoningRoundedAxisMaximum(_ raw: Int64) -> Int64 {

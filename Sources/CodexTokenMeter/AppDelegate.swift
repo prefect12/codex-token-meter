@@ -307,7 +307,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         scanQueue.async { [weak self] in
             guard let self else { return }
             let codexInsights = self.scanner.scanRepoInsights(from: rangeStart, to: rangeEnd, partition: .codex)
-            let apiInsights = self.scanner.scanRepoInsights(from: rangeStart, to: rangeEnd, partition: .api)
+            var apiInsights = self.scanner.scanRepoInsights(from: rangeStart, to: rangeEnd, partition: .api)
+            apiInsights.reasoning = mergedReasoningInsightsReports([
+                apiInsights.reasoning,
+                OpenCodeTokenScanner.shared.scanReasoningInsights(from: rangeStart, to: rangeEnd)
+            ])
             let claude = self.claudeScanner.scan(from: rangeStart, to: rangeEnd)
             DispatchQueue.main.async {
                 guard var snapshot = self.detailsController.detailsView.snapshot,
@@ -1559,7 +1563,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let modelAll = mergedTokenReport([modelCodex, modelClaude, modelAPI])
         updateProgress?(0.62, .loadingRepoInsights)
         let codexRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90], partition: .codex)
-        let apiRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90], partition: .api)
+        var apiRepoInsightReports = scanner.scanRepoInsights(windows: [7, 30, 90], partition: .api)
+        for days in [7, 30, 90] {
+            guard var report = apiRepoInsightReports[days] else { continue }
+            report.reasoning = mergedReasoningInsightsReports([
+                report.reasoning,
+                OpenCodeTokenScanner.shared.scanReasoningInsights(days: days)
+            ])
+            apiRepoInsightReports[days] = report
+        }
         let claudeRepoInsightReports = claudeDetails.repoInsights
         let repoInsightReports = Dictionary(uniqueKeysWithValues: [7, 30, 90].map { days in
             let report = mergedRepoInsightsReport(

@@ -339,9 +339,19 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let codexRepoInsightReports = isModelRoutingSection
         ? [:]
         : scanner.scanRepoInsights(windows: [7, 30, 90], partition: .codex)
-    let apiRepoInsightReports = isModelRoutingSection
+    var apiRepoInsightReports = isModelRoutingSection
         ? [:]
         : scanner.scanRepoInsights(windows: [7, 30, 90], partition: .api)
+    if !isModelRoutingSection {
+        for days in [7, 30, 90] {
+            guard var report = apiRepoInsightReports[days] else { continue }
+            report.reasoning = mergedReasoningInsightsReports([
+                report.reasoning,
+                OpenCodeTokenScanner.shared.scanReasoningInsights(days: days)
+            ])
+            apiRepoInsightReports[days] = report
+        }
+    }
     let claudeRepoInsightReports = isModelRoutingSection
         ? [:]
         : (combinedClaudeRepoInsightReports ?? claudeScanner.scanRepoInsights(windows: [7, 30, 90]))
