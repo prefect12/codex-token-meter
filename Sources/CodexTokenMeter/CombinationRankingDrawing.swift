@@ -43,7 +43,18 @@ extension UsageDetailsView {
             let preferredModels = ["gpt-5.6-sol", "gpt-5.6-terra"].compactMap { preferred in
                 models.first { $0.caseInsensitiveCompare(preferred) == .orderedSame }
             }
-            var defaults = combinationRankingHighestUsageModel(rows).map { [$0] } ?? []
+            let unavailableModels = rows
+                .filter { $0.effort == "unavailable" }
+                .sorted { $0.usage.total > $1.usage.total }
+                .map(\.model)
+            var defaults: [String] = []
+            for model in unavailableModels where !defaults.contains(where: { $0.caseInsensitiveCompare(model) == .orderedSame }) {
+                defaults.append(model)
+            }
+            if let highestUsageModel = combinationRankingHighestUsageModel(rows),
+               !defaults.contains(where: { $0.caseInsensitiveCompare(highestUsageModel) == .orderedSame }) {
+                defaults.append(highestUsageModel)
+            }
             defaults.append(contentsOf: preferredModels.filter { candidate in
                 !defaults.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
             })
