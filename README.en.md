@@ -48,14 +48,6 @@ Switch between `All / Codex / Claude` and `24h / 7d / 30d`. Platform quota rings
 
 365-day totals by source and model, input/output breakdown, and a full-year activity heatmap.
 
-### Repository Insights
-
-<p align="center">
-  <img src="docs/images/en-details-insights.webp" alt="AI Token Meter repository insights page" width="760">
-</p>
-
-Repo conversation check: find long-running threads and context-compaction pressure per project, with length/compaction distributions, active-day intensity, and split-thread recommendations.
-
 ### Activity Calendar
 
 <p align="center">
@@ -103,12 +95,6 @@ Interface language, number units, log folders, status-bar display and source, qu
   <img src="docs/images/zh-menu-popover.webp" alt="AI Token Meter Chinese menu bar dashboard" width="420">
 </p>
 
-### 仓库洞察
-
-<p align="center">
-  <img src="docs/images/zh-details-insights.webp" alt="AI Token Meter Chinese repository insights page" width="760">
-</p>
-
 ### 详情概览
 
 <p align="center">
@@ -146,9 +132,8 @@ Interface language, number units, log folders, status-bar display and source, qu
 - Cache hit-rate ring.
 - Compact Codex service-status chip sourced from `status.openai.com`, with a settings toggle to show or hide it.
 - Token breakdown for input, output, cached input, fresh input, and total tokens.
-- Details window with overview, calendar, insights, models, storage, settings, diagnostics, and about pages.
+- Details window with overview, calendar, reasoning, models, storage, settings, diagnostics, and about pages.
 - The menu dashboard and details window cache aggregate snapshots, showing the last complete result first and refreshing in the background.
-- Insights page that groups local Codex and Claude Code conversations by repository or folder, highlights long-running threads, context-compaction pressure, active worktrees, and split-thread recommendations.
 - 365-day activity calendar with daily detail cards and clickable weekly-summary dots.
 - Model-level aggregation for long-term usage analysis, including per-model API-equivalent cost.
 - Storage page that tracks local log disk usage by source, project, and category, with 14-day growth, cleanup-risk composition, report export, and open-in-Finder.
@@ -166,12 +151,11 @@ AI Token Meter uses local data sources:
 
 - **Token usage** comes from local Codex session logs and Claude Code project logs. Codex scans `~/.codex/sessions`, `~/.codex/archived_sessions`, and matching `sessions` / `archived_sessions` folders under `$CODEX_HOME` when that environment variable is set. If you choose a custom log folder in Settings, that folder overrides the default Codex roots. Codex scans `token_count` events, reads `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`, and `total_tokens`, then calculates the delta between adjacent cumulative counters. Claude Code scans `*.jsonl` assistant usage records under `CLAUDE_CONFIG_DIR`, `$XDG_CONFIG_HOME/claude/projects`, and `~/.claude/projects`; reads `input_tokens`, `cache_creation_input_tokens`, `cache_creation.ephemeral_5m_input_tokens`, `cache_creation.ephemeral_1h_input_tokens`, `cache_read_input_tokens`, and `output_tokens`; keeps the final/largest token snapshot for the same message; then aggregates by hour, day, session, model, and repository.
 - **Dashboard cache** stores local aggregate reports for `24h / 7d / 30d` and `All / Codex / Claude` in `dashboard-report-cache.json`. On launch or window switching, the menu dashboard shows the last aggregate first and refreshes in the background. Raw log content is not cached there.
-- **Details cache** stores the aggregate snapshot needed by the 365-day overview, calendar, cost, model, and repository-insight pages in `details-snapshot-cache.json`. Opening the details window shows the last snapshot first, then recomputes in the background and replaces it. The cache removes top-session paths and real repository paths, keeping only display names and aggregate statistics.
+- **Details cache** stores the aggregate snapshot needed by the 365-day overview, calendar, cost, model, and reasoning pages in `details-snapshot-cache.json`. Opening the details window shows the last snapshot first, then recomputes in the background and replaces it. The cache removes top-session paths and real repository paths, keeping only display names and aggregate statistics.
 - **Live quota percentages** come from a direct read-only request to the normal ChatGPT Codex usage endpoint for Codex and from optional Claude Code statusline capture for Claude. The app does not start `codex app-server`. It reuses the existing local ChatGPT login, caches successful results, and backs off for 1, 5, then 15 minutes after failures while keeping the normal successful refresh interval at 15 seconds. Claude can use `--claude-statusline` to capture official `rate_limits` from Claude Code statusline JSON. Remaining quota in the menu bar and quota rings is displayed as `100 - usedPercent`. The app learns the current non-Codex model-level quota window from the live response instead of relying only on the historical Spark ID.
 - **Cache percentage** comes from local token detail and is calculated as `cached_input_tokens / input_tokens * 100`.
 - **Cost estimates** are not official billing. Codex and Claude each keep their own monthly plan cost, payment currency, display currency, and payment start date, defaulting from the legacy `$200` setting. Weekly budget is `that platform's monthly plan cost * 12 / 52`. Current-week used value prefers that platform's live weekly `usedPercent`. Historical days and weeks are estimated from local token usage, historical peaks, and recorded weekly quota percentages. The All cost view converts the Codex and Claude monthly plans from their own payment currencies into the selected display currency before summing them.
 - **API-equivalent cost** is a separate estimate. It answers: "if this same local token usage had been billed directly through API-style token pricing, roughly how much would it cost?" The app prices recognized models by token type: fresh input, cached input, and output. Current built-in rates use the official API prices for GPT-5.6 Sol / Terra / Luna, GPT-5.5, GPT-5.4, and GPT-5.4 mini, the token-based Codex rate-card equivalent for GPT-5.3-Codex / GPT-5.2-style Codex models, and official Claude Opus / Sonnet / Haiku API prices. GPT-5.6 cache writes use the official 1.25× input rate when the source reports cache-creation tokens; current local Codex `token_count` events expose cache reads but not cache writes, so unseparated input uses the normal input rate. `reasoning_output_tokens` is not added again because local `total_tokens` already equals input plus output in Codex token-count events. Total-only Profile API rows without a model label use a GPT-5.6 Sol fresh-input fallback so single-day API totals still show a realistic amount. Unknown model labels are left unpriced and reduce the displayed priced-token coverage.
-- **Repo insights** are derived locally from rollout metadata and events. The insights scanner reads `cwd`, `turn` activity, `context_compacted` signals, and `token_count` deltas, then groups normal `Documents/github/<repo>` work and Codex-created worktrees back to the same repository display name. It reports conversations, turns, compactions, longest-thread pressure, active days, and recommendations for when to split work into a fresh thread.
 - **Codex speed tier / fast mode** is not reconstructed from historical local logs. Current `rollout-*.jsonl` metadata does not expose whether a past request used standard or fast speed, so the app does not infer fast mode from reasoning effort or other indirect fields. If a future Codex data source exposes the speed tier per request, it can be priced explicitly.
 - **External API cost** is an optional local JSON input for direct OpenAI API usage that bypasses Codex logs. By default the app reads `~/Library/Application Support/Codex Token Meter/api-usage.json` when present. Supported keys include `usd_value`, `total_usd`, `usd`, or `cost_usd` for cost, plus `total_tokens`, `tokens`, or `usage_tokens` for token count. The renamed AI Token Meter app intentionally keeps the old support folder so upgrades preserve settings, caches, and local cost files.
 
@@ -323,10 +307,10 @@ To inspect the OpenAI/Codex status feed directly:
 "./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-service-status
 ```
 
-To render the details window for visual checks, including the insights page:
+To render the details window for visual checks:
 
 ```bash
-"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-details=/tmp/ai-token-meter-insights.png --section=insights --insight-window=90
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-details=/tmp/ai-token-meter-overview.png --section=overview
 ```
 
 The JSON output includes `model_limit_id`, `model_limit_name`, API-equivalent cost fields, `external_api_cost` status, and service-status fields when using `--print-service-status`.
