@@ -199,7 +199,7 @@ final class ThreadRowView: NSView {
         self.isExpanded = isExpanded
         self.subtaskBadgeView = SubtaskCountBadgeView(count: subtaskCount)
         self.isPinned = TaskBarSettings.isPinned(item.id)
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: rowLayout.rowHeight))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: taskBarDisplayedRowHeight(for: rowLayout)))
         wantsLayer = true
         let tooltip = tooltipText(for: item)
         setAccessibilityHelp(tooltip)
@@ -278,6 +278,9 @@ final class ThreadRowView: NSView {
             planProgressView.isAnimating = item.status == .running
             planProgressView.setAccessibilityLabel("任务进度 \(plan.displayedStepNumber) / \(plan.steps.count)")
             planProgressView.toolTip = "任务计划 \(plan.displayedStepNumber) / \(plan.steps.count)"
+            // The compact Island row reserves its trailing edge for time, state,
+            // and source. Its plan details remain available from the row hover.
+            planProgressView.isHidden = TaskBarBuild.isBeta
             addSubview(planProgressView)
         } else {
             planProgressView.isAnimating = false
@@ -516,13 +519,44 @@ final class ThreadRowView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        // Divider between rows.
-        NSColor(calibratedWhite: 1.0, alpha: 0.06).setFill()
-        NSRect(x: 20, y: 0, width: bounds.width - 40, height: 1).fill()
+        if TaskBarBuild.isBeta {
+            drawIslandRow()
+            return
+        }
+
+        if TaskBarBuild.isClassicPage {
+            NSColor(calibratedWhite: 1.0, alpha: 0.06).setFill()
+            NSRect(x: 20, y: 0, width: bounds.width - 40, height: 1).fill()
+            if !isSwipeTracking || swipeOffset > -1 {
+                let barRect = NSRect(x: 8 + swipeOffset, y: 14, width: 3.5, height: bounds.height - 28)
+                statusAccentColor(item.status).setFill()
+                NSBezierPath(roundedRect: barRect, xRadius: 1.75, yRadius: 1.75).fill()
+            }
+            if swipeOffset < -1, isReadDismissible(item.status) {
+                let revealWidth = min(ThreadRowView.dismissRevealWidth, -swipeOffset + 16)
+                let revealRect = NSRect(x: bounds.maxX - revealWidth - 8, y: 6, width: revealWidth, height: bounds.height - 12)
+                NSColor.systemRed.withAlphaComponent(0.82).setFill()
+                NSBezierPath(roundedRect: revealRect, xRadius: 10, yRadius: 10).fill()
+                drawDismissLabel(in: revealRect)
+            }
+            guard isHovering, !isSwipeTracking else { return }
+            let hoverColor = item.plan == nil ? NSColor.controlAccentColor.withAlphaComponent(0.12) : NSColor.white.withAlphaComponent(0.055)
+            hoverColor.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 8, dy: 4), xRadius: 12, yRadius: 12).fill()
+            return
+        }
+
+        let cardRect = bounds.insetBy(dx: 12, dy: 4)
+        let card = NSBezierPath(roundedRect: cardRect, xRadius: 14, yRadius: 14)
+        (isHovering ? taskBarCardHover : taskBarCardBackground).setFill()
+        card.fill()
+        taskBarPanelBorder.withAlphaComponent(isHovering ? 1 : 0.58).setStroke()
+        card.lineWidth = 1
+        card.stroke()
 
         // Colored status accent bar at the leading edge.
         if !isSwipeTracking || swipeOffset > -1 {
-            let barRect = NSRect(x: 8 + swipeOffset, y: 14, width: 3.5, height: bounds.height - 28)
+            let barRect = NSRect(x: 18 + swipeOffset, y: 16, width: 3.5, height: bounds.height - 32)
             statusAccentColor(item.status).setFill()
             NSBezierPath(roundedRect: barRect, xRadius: 1.75, yRadius: 1.75).fill()
         }
@@ -540,26 +574,79 @@ final class ThreadRowView: NSView {
             drawDismissLabel(in: revealRect)
         }
         guard isHovering, !isSwipeTracking else { return }
-        let hoverColor = item.plan == nil
-            ? NSColor.controlAccentColor.withAlphaComponent(0.12)
-            : NSColor.white.withAlphaComponent(0.055)
-        hoverColor.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 8, dy: 4), xRadius: 12, yRadius: 12).fill()
+        taskBarWarmAccent.withAlphaComponent(item.plan == nil ? 0.025 : 0.055).setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 12, dy: 4), xRadius: 14, yRadius: 14).fill()
     }
 
     override func layout() {
         super.layout()
+        if TaskBarBuild.isBeta {
+            layoutIslandRow()
+            return
+        }
         switch rowLayout {
         case .standard: layoutStandard()
         case .compact: layoutCompact()
         }
     }
 
+    /// Vibe Island's list reads as one activity surface rather than a stack of cards:
+    /// a small state dot, compact task copy, then a quiet metadata line.
+    private func layoutIslandRow() {
+        let offset = swipeOffset
+        let contentX: CGFloat = 32
+        // Keep the three pieces of operational metadata together at the trailing
+        // edge. This leaves the title and context as the readable left column.
+        let metadataWidth: CGFloat = showPlatformLabel ? 112 : 58
+        let metadataX = bounds.width - metadataWidth - 18
+        let timeX = metadataX - 66
+        let contentWidth = max(100, timeX - contentX - 10)
+
+        layoutTitleAndPin(x: contentX, y: bounds.height - 24, width: contentWidth, offset: offset)
+        detailLabel.frame = NSRect(x: contentX + offset, y: 6, width: contentWidth, height: 16)
+        detailLabel.maximumNumberOfLines = 1
+
+        clockIconView.frame = NSRect(x: timeX + offset, y: 20, width: 10, height: 10)
+        durationLabel.frame = NSRect(x: timeX + 14 + offset, y: 17.5, width: 50, height: 14)
+        metaDotView.frame = NSRect(x: 17 + offset, y: bounds.height - 20, width: 6, height: 6)
+        metaStatusLabel.frame = NSRect(x: metadataX + offset, y: 17, width: metadataWidth, height: 15)
+        platformLabel.isHidden = true
+    }
+
+    private func drawIslandRow() {
+        let rowRect = bounds.insetBy(dx: 8, dy: 1)
+        if isHovering, !isSwipeTracking {
+            NSColor.white.withAlphaComponent(0.055).setFill()
+            NSBezierPath(roundedRect: rowRect, xRadius: 8, yRadius: 8).fill()
+        }
+
+        if swipeOffset < -1, isReadDismissible(item.status) {
+            let revealWidth = min(ThreadRowView.dismissRevealWidth, -swipeOffset + 16)
+            let revealRect = NSRect(
+                x: bounds.maxX - revealWidth - 8,
+                y: 4,
+                width: revealWidth,
+                height: bounds.height - 8
+            )
+            NSColor.systemRed.withAlphaComponent(0.82).setFill()
+            NSBezierPath(roundedRect: revealRect, xRadius: 8, yRadius: 8).fill()
+            drawDismissLabel(in: revealRect)
+        } else {
+            statusAccentColor(item.status).setFill()
+            NSBezierPath(ovalIn: NSRect(x: 17 + swipeOffset, y: bounds.height - 20, width: 6, height: 6)).fill()
+        }
+
+        guard bounds.maxY > 1 else { return }
+        NSColor.white.withAlphaComponent(isHovering ? 0.12 : 0.075).setFill()
+        NSBezierPath.fill(NSRect(x: 32, y: bounds.maxY - 1, width: bounds.width - 50, height: 1))
+    }
+
     /// Title and detail stacked over a single metadata line (time · status · source).
     private func layoutStandard() {
         let offset = swipeOffset
-        let contentX: CGFloat = 26
-        let contentWidth = max(120, bounds.width - 18 - contentX)
+        let classic = TaskBarBuild.isClassicPage
+        let contentX: CGFloat = classic ? 26 : 34
+        let contentWidth = max(120, bounds.width - (classic ? 18 : 30) - contentX)
 
         layoutTitleAndPin(x: contentX, y: bounds.height - 32, width: contentWidth, offset: offset)
         detailLabel.frame = NSRect(x: contentX + offset, y: 28, width: contentWidth, height: 32)
@@ -576,11 +663,12 @@ final class ThreadRowView: NSView {
     /// title and detail filling the remaining width so rows stay short.
     private func layoutCompact() {
         let offset = swipeOffset
-        let contentX: CGFloat = 26
+        let classic = TaskBarBuild.isClassicPage
+        let contentX: CGFloat = classic ? 26 : 34
         let railWidth: CGFloat = 66
         let railGap: CGFloat = 10
         let rightX = contentX + railWidth + railGap
-        let rightWidth = max(80, bounds.width - 18 - rightX)
+        let rightWidth = max(80, bounds.width - (classic ? 18 : 30) - rightX)
 
         layoutTitleAndPin(x: rightX, y: bounds.height - 30, width: rightWidth, offset: offset)
         detailLabel.frame = NSRect(x: rightX + offset, y: 8, width: rightWidth, height: 32)
@@ -749,7 +837,7 @@ final class ThreadGroupView: NSView {
         onManualReorderDrag: ((String, TaskThreadManualDragPhase, NSPoint) -> Void)?
     ) {
         self.isExpanded = isExpanded && !subtasks.isEmpty
-        self.rootHeight = rowLayout.rowHeight
+        self.rootHeight = taskBarDisplayedRowHeight(for: rowLayout)
         self.rootThreadID = root.id
         self.statusGroup = TaskStatusGroup.group(for: root.status)
         self.isPinned = TaskBarSettings.isPinned(root.id)
@@ -770,7 +858,7 @@ final class ThreadGroupView: NSView {
         let childrenHeight = self.isExpanded
             ? Self.topGap + CGFloat(subtasks.count) * Self.childHeight + Self.bottomGap
             : 0
-        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: rowLayout.rowHeight + childrenHeight))
+        super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: rootHeight + childrenHeight))
         wantsLayer = true
         addSubview(rootView)
         if self.isExpanded {
@@ -787,18 +875,20 @@ final class ThreadGroupView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard isExpanded, !subtaskViews.isEmpty else { return }
-        let groupRect = NSRect(
-            x: 45,
-            y: rootHeight + Self.topGap,
-            width: bounds.width - 57,
-            height: CGFloat(subtaskViews.count) * Self.childHeight
-        )
-        NSColor.white.withAlphaComponent(0.025).setFill()
-        NSBezierPath(roundedRect: groupRect, xRadius: 9, yRadius: 9).fill()
-        NSColor.white.withAlphaComponent(0.10).setStroke()
-        let border = NSBezierPath(roundedRect: groupRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
-        border.lineWidth = 1
-        border.stroke()
+        if !TaskBarBuild.isBeta {
+            let groupRect = NSRect(
+                x: 45,
+                y: rootHeight + Self.topGap,
+                width: bounds.width - 57,
+                height: CGFloat(subtaskViews.count) * Self.childHeight
+            )
+            NSColor.white.withAlphaComponent(0.025).setFill()
+            NSBezierPath(roundedRect: groupRect, xRadius: 9, yRadius: 9).fill()
+            NSColor.white.withAlphaComponent(0.10).setStroke()
+            let border = NSBezierPath(roundedRect: groupRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
+            border.lineWidth = 1
+            border.stroke()
+        }
 
         let treeX: CGFloat = 31
         let firstCenterY = rootHeight + Self.topGap + Self.childHeight / 2
@@ -811,7 +901,7 @@ final class ThreadGroupView: NSView {
             tree.move(to: NSPoint(x: treeX, y: centerY))
             tree.line(to: NSPoint(x: 45, y: centerY))
         }
-        NSColor.white.withAlphaComponent(0.24).setStroke()
+        NSColor.white.withAlphaComponent(TaskBarBuild.isBeta ? 0.14 : 0.24).setStroke()
         tree.lineWidth = 1
         tree.stroke()
     }
@@ -1449,7 +1539,7 @@ final class MenuSeparatorView: NSView {
         self.inset = inset
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 7))
         wantsLayer = true
-        layer?.backgroundColor = menuPanelBackground.cgColor
+        layer?.backgroundColor = (TaskBarBuild.isClassicPage ? menuPanelBackground : NSColor.clear).cgColor
     }
 
     private let inset: CGFloat
@@ -1460,7 +1550,7 @@ final class MenuSeparatorView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        NSColor(calibratedWhite: 0.33, alpha: 0.72).setFill()
+        (TaskBarBuild.isClassicPage ? NSColor(calibratedWhite: 0.33, alpha: 0.72) : NSColor.white.withAlphaComponent(0.10)).setFill()
         NSRect(x: inset, y: floor(bounds.height / 2), width: bounds.width - inset * 2, height: 1).fill()
     }
 }
@@ -1481,7 +1571,7 @@ final class CommandRowView: NSView {
         self.enabled = enabled
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 27))
         wantsLayer = true
-        layer?.backgroundColor = menuPanelBackground.cgColor
+        layer?.backgroundColor = (TaskBarBuild.isClassicPage ? menuPanelBackground : NSColor.clear).cgColor
 
         let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
         let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
@@ -1568,7 +1658,7 @@ final class CommandButtonBarView: NSView {
         )
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 46))
         wantsLayer = true
-        layer?.backgroundColor = menuPanelBackground.cgColor
+        layer?.backgroundColor = (TaskBarBuild.isClassicPage ? menuPanelBackground : NSColor.clear).cgColor
         addSubview(settingsButton)
         addSubview(quitButton)
     }
@@ -1623,7 +1713,7 @@ final class TaskCountView: NSView {
     init(shown: Int, total: Int) {
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: 26))
         wantsLayer = true
-        layer?.backgroundColor = menuPanelBackground.cgColor
+        layer?.backgroundColor = (TaskBarBuild.isBeta ? NSColor.clear : menuPanelBackground).cgColor
         label.font = .systemFont(ofSize: 10.5, weight: .medium)
         label.textColor = NSColor(calibratedWhite: 0.5, alpha: 1)
         label.alignment = .center
@@ -1696,6 +1786,38 @@ final class TaskBarRowsView: NSView {
     }
 
     override var isFlipped: Bool { true }
+
+    func prepareForEntrance() {
+        guard !TaskBarBuild.isClassicPage else { return }
+        for view in arrangedViews {
+            TaskBarMotion.prepareForReveal(view, offsetY: -8, scale: 0.99)
+        }
+    }
+
+    func animateEntrance(startDelay: CFTimeInterval = 0.18) {
+        guard !TaskBarBuild.isClassicPage else { return }
+        for (index, view) in arrangedViews.prefix(8).enumerated() {
+            TaskBarMotion.reveal(
+                view,
+                delay: startDelay + CFTimeInterval(index) * 0.045,
+                offsetY: -8,
+                scale: 0.99
+            )
+        }
+    }
+
+    func animateRefresh() {
+        guard !TaskBarBuild.isClassicPage else { return }
+        for (index, view) in arrangedViews.prefix(8).enumerated() {
+            TaskBarMotion.prepareForReveal(view, offsetY: -5, scale: 0.995)
+            TaskBarMotion.reveal(
+                view,
+                delay: CFTimeInterval(index) * 0.028,
+                offsetY: -5,
+                scale: 0.995
+            )
+        }
+    }
 
     override func layout() {
         super.layout()
