@@ -726,7 +726,7 @@ func mergedRepoInsightsReport(_ reports: [RepoInsightsReport], scannedAt: Date =
         rows: rows,
         scannedAt: scannedAt,
         windowDays: windowDays,
-        reasoning: reports.compactMap(\.reasoning).first
+        reasoning: mergedReasoningInsightsReports(reports.map(\.reasoning))
     )
 }
 

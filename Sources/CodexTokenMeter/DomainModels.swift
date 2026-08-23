@@ -787,6 +787,55 @@ struct ReasoningInsightsReport: Codable {
     }
 }
 
+func mergedReasoningInsightsReports(_ reports: [ReasoningInsightsReport?]) -> ReasoningInsightsReport? {
+    let values = reports.compactMap { $0 }
+    guard !values.isEmpty else { return nil }
+    var effortBuckets: [String: ReasoningEffortSummary] = [:]
+    var modelBuckets: [String: ReasoningModelEffortSummary] = [:]
+    var dailyBuckets: [String: ReasoningDailyModelEffortSummary] = [:]
+    var taskCount = 0
+    var runCount = 0
+    var usage = Usage()
+    var knownRunCount = 0
+    var knownTokenCount: Int64 = 0
+    for report in values {
+        taskCount += report.taskCount
+        runCount += report.runCount
+        usage.add(report.usage)
+        knownRunCount += report.knownRunCount
+        knownTokenCount += report.knownTokenCount
+        for effort in report.efforts {
+            var bucket = effortBuckets[effort.effort] ?? ReasoningEffortSummary(effort: effort.effort, runs: 0, tasks: 0, usage: Usage(), medianTokens: 0, p90Tokens: 0)
+            bucket.runs += effort.runs
+            bucket.tasks += effort.tasks
+            bucket.usage.add(effort.usage)
+            bucket.medianTokens = max(bucket.medianTokens, effort.medianTokens)
+            bucket.p90Tokens = max(bucket.p90Tokens, effort.p90Tokens)
+            effortBuckets[effort.effort] = bucket
+        }
+        for model in report.modelEfforts {
+            let key = "\(model.model)\u{1F}\(model.effort)"
+            var bucket = modelBuckets[key] ?? ReasoningModelEffortSummary(model: model.model, effort: model.effort, runs: 0, tasks: 0, projectCount: model.projectCount, usage: Usage(), medianTokens: 0, p90Tokens: 0)
+            bucket.runs += model.runs
+            bucket.tasks += model.tasks
+            bucket.projectCount = max(bucket.projectCount ?? 0, model.projectCount ?? 0)
+            bucket.usage.add(model.usage)
+            bucket.medianTokens = max(bucket.medianTokens, model.medianTokens)
+            bucket.p90Tokens = max(bucket.p90Tokens, model.p90Tokens)
+            modelBuckets[key] = bucket
+        }
+        for daily in report.dailyModelEfforts {
+            let key = "\(daily.day)\u{1F}\(daily.model)\u{1F}\(daily.effort)"
+            var bucket = dailyBuckets[key] ?? ReasoningDailyModelEffortSummary(day: daily.day, model: daily.model, effort: daily.effort, runs: 0, usage: Usage(), runTokenTotals: [])
+            bucket.runs += daily.runs
+            bucket.usage.add(daily.usage)
+            bucket.runTokenTotals.append(contentsOf: daily.runTokenTotals)
+            dailyBuckets[key] = bucket
+        }
+    }
+    return ReasoningInsightsReport(taskCount: taskCount, runCount: runCount, usage: usage, knownRunCount: knownRunCount, knownTokenCount: knownTokenCount, efforts: effortBuckets.values.sorted { CodexTokenScanner.reasoningEffortRank($0.effort) < CodexTokenScanner.reasoningEffortRank($1.effort) }, modelEfforts: modelBuckets.values.sorted { $0.model == $1.model ? CodexTokenScanner.reasoningEffortRank($0.effort) < CodexTokenScanner.reasoningEffortRank($1.effort) : $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending }, dailyModelEfforts: dailyBuckets.values.sorted { $0.day == $1.day ? $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending : $0.day < $1.day })
+}
+
 struct RepoInsight: Codable {
     var key: String
     var displayName: String

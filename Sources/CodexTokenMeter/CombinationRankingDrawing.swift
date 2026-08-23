@@ -43,11 +43,11 @@ extension UsageDetailsView {
             let preferredModels = ["gpt-5.6-sol", "gpt-5.6-terra"].compactMap { preferred in
                 models.first { $0.caseInsensitiveCompare(preferred) == .orderedSame }
             }
-            selectedCombinationRankingModels = Set(
-                preferredModels.isEmpty
-                    ? combinationRankingHighestUsageModel(rows).map { [$0] } ?? []
-                    : preferredModels
-            )
+            var defaults = combinationRankingHighestUsageModel(rows).map { [$0] } ?? []
+            defaults.append(contentsOf: preferredModels.filter { candidate in
+                !defaults.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
+            })
+            selectedCombinationRankingModels = Set(defaults.prefix(3))
         }
         if activeCombinationRankingModel == nil || !models.contains(activeCombinationRankingModel ?? "") {
             activeCombinationRankingModel = selectedCombinationRankingModels.sorted().first ?? models.first
@@ -379,8 +379,15 @@ extension UsageDetailsView {
     }
 
     private func combinationDailyRows(for row: CombinationRankingRow, snapshot: DetailsSnapshot) -> [ReasoningDailyModelEffortSummary] {
-        guard row.platform == "Codex" else { return [] }
-        let report = snapshot.codexRepoInsightReports[selectedInsightWindowDays]?.reasoning ?? snapshot.codexRepoInsights.reasoning
+        let report: ReasoningInsightsReport?
+        switch row.platform {
+        case "Codex":
+            report = snapshot.codexRepoInsightReports[selectedInsightWindowDays]?.reasoning ?? snapshot.codexRepoInsights.reasoning
+        case "API":
+            report = snapshot.apiRepoInsightReports[selectedInsightWindowDays]?.reasoning ?? snapshot.apiRepoInsights.reasoning
+        default:
+            return []
+        }
         return report?.dailyModelEfforts.filter { $0.model == row.model && $0.effort == row.effort }.sorted { $0.day < $1.day } ?? []
     }
 
@@ -524,7 +531,7 @@ extension UsageDetailsView {
     }
     private func combinationRankingAvailableEfforts(_ rows: [CombinationRankingRow], model: String) -> [String] {
         let available = Set(rows.filter { $0.model == model }.map(\.effort))
-        let order = ["low", "medium", "high", "xhigh", "ultra", "max", "none"]
+        let order = ["low", "medium", "high", "xhigh", "ultra", "max", "none", "unavailable"]
         return order.filter(available.contains) + available.filter { !order.contains($0) }.sorted()
     }
     private func combinationRankingHighestUsageModel(_ rows: [CombinationRankingRow]) -> String? {
@@ -607,9 +614,21 @@ extension UsageDetailsView {
     }
 
     private func combinationRankingEffortRank(_ effort: String) -> Int {
-        ["low", "medium", "high", "xhigh", "ultra", "max", "none"].firstIndex(of: effort) ?? Int.max
+        ["low", "medium", "high", "xhigh", "ultra", "max", "none", "unavailable"].firstIndex(of: effort) ?? Int.max
     }
-    private func combinationRankingEffortTitle(_ effort: String) -> String { effort == "none" ? reasoningLocalized("无等级", english: "No Level") : effort }
-    private func combinationRankingEffortColor(_ effort: String) -> NSColor { effort == "none" ? NSColor(calibratedRed: 0.20, green: 0.67, blue: 0.65, alpha: 1) : reasoningEffortColor(effort) }
+    private func combinationRankingEffortTitle(_ effort: String) -> String {
+        switch effort {
+        case "none": return reasoningLocalized("无等级", english: "No Level")
+        case "unavailable": return reasoningLocalized("未提供", english: "Unavailable")
+        default: return effort
+        }
+    }
+    private func combinationRankingEffortColor(_ effort: String) -> NSColor {
+        switch effort {
+        case "none": return NSColor(calibratedRed: 0.20, green: 0.67, blue: 0.65, alpha: 1)
+        case "unavailable": return NSColor(calibratedWhite: 0.72, alpha: 1)
+        default: return reasoningEffortColor(effort)
+        }
+    }
     private func combinationRankingMoney(_ usdValue: Double) -> String { displayAPIMoney(usdValue, source: selectedDetailsSource) }
 }

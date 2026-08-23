@@ -92,6 +92,85 @@ final class OpenCodeTokenScanner {
         scan(start: min(start, end), now: max(start, end), fillDayCount: nil)
     }
 
+    /// OpenCode stores reasoning-token counts but not a user-selected reasoning
+    /// effort. Surface those runs explicitly as `unavailable`, never as an
+    /// inferred low/medium/high setting.
+    func scanReasoningInsights(days: Int) -> ReasoningInsightsReport? {
+        let now = Date()
+        let dayCount = max(days, 1)
+        let start = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -(dayCount - 1), to: now) ?? now)
+        return scanReasoningInsights(from: start, to: now)
+    }
+
+    func scanReasoningInsights(from start: Date, to end: Date = Date()) -> ReasoningInsightsReport? {
+        let rangeStart = min(start, end)
+        let rangeEnd = max(start, end)
+        guard let parsed = readParsedData(), !parsed.events.isEmpty else { return nil }
+        let formatter = dayFormatter()
+        struct Run {
+            let model: String
+            let sessionKey: String
+            let day: String
+            let directory: String?
+            var usage: Usage
+        }
+        var runs: [String: Run] = [:]
+        for event in parsed.events where event.timestamp >= rangeStart && event.timestamp <= rangeEnd {
+            let day = formatter.string(from: event.timestamp)
+            let key = "\(event.sessionKey)\u{1F}\(event.model)\u{1F}\(day)"
+            if var existing = runs[key] {
+                existing.usage.add(event.usage)
+                runs[key] = existing
+            } else {
+                runs[key] = Run(model: event.model, sessionKey: event.sessionKey, day: day, directory: event.directory, usage: event.usage)
+            }
+        }
+        guard !runs.isEmpty else { return nil }
+
+        var totalUsage = Usage()
+        var modelRuns: [String: [Run]] = [:]
+        var dailyRuns: [String: [Run]] = [:]
+        var sessions = Set<String>()
+        for run in runs.values {
+            totalUsage.add(run.usage)
+            modelRuns[run.model, default: []].append(run)
+            dailyRuns["\(run.day)\u{1F}\(run.model)", default: []].append(run)
+            sessions.insert(run.sessionKey)
+        }
+
+        func percentile(_ totals: [Int64], _ value: Double) -> Int64 {
+            let sorted = totals.sorted()
+            guard !sorted.isEmpty else { return 0 }
+            let index = max(0, min(sorted.count - 1, Int(ceil(Double(sorted.count) * value)) - 1))
+            return sorted[index]
+        }
+        func summary(model: String, values: [Run]) -> ReasoningModelEffortSummary {
+            let totals = values.map { $0.usage.total }
+            return ReasoningModelEffortSummary(
+                model: model,
+                effort: "unavailable",
+                runs: values.count,
+                tasks: Set(values.map(\.sessionKey)).count,
+                projectCount: Set(values.compactMap(\.directory)).count,
+                usage: values.reduce(Usage()) { partial, run in var result = partial; result.add(run.usage); return result },
+                medianTokens: percentile(totals, 0.5),
+                p90Tokens: percentile(totals, 0.9)
+            )
+        }
+
+        let modelEfforts = modelRuns.map { summary(model: $0.key, values: $0.value) }
+            .sorted { $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending }
+        let dailyModelEfforts = dailyRuns.compactMap { key, values -> ReasoningDailyModelEffortSummary? in
+            let parts = key.components(separatedBy: "\u{1F}")
+            guard parts.count == 2 else { return nil }
+            return ReasoningDailyModelEffortSummary(day: parts[0], model: parts[1], effort: "unavailable", runs: values.count, usage: values.reduce(Usage()) { partial, run in var result = partial; result.add(run.usage); return result }, runTokenTotals: values.map { $0.usage.total })
+        }
+        .sorted { $0.day == $1.day ? $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending : $0.day < $1.day }
+        let allTotals = runs.values.map { $0.usage.total }
+        let unavailable = ReasoningEffortSummary(effort: "unavailable", runs: runs.count, tasks: sessions.count, usage: totalUsage, medianTokens: percentile(allTotals, 0.5), p90Tokens: percentile(allTotals, 0.9))
+        return ReasoningInsightsReport(taskCount: sessions.count, runCount: runs.count, usage: totalUsage, knownRunCount: 0, knownTokenCount: 0, efforts: [unavailable], modelEfforts: modelEfforts, dailyModelEfforts: dailyModelEfforts)
+    }
+
     // MARK: Aggregation
 
     private func scan(start: Date, now: Date, fillDayCount: Int?) -> TokenReport {
