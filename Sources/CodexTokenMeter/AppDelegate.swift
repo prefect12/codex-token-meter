@@ -171,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self?.changeVisibleUsageSources(sources)
         }
         detailsController.detailsView.onExportMachineUsageReport = { [weak self] in self?.exportMachineUsageReport() }
+        detailsController.detailsView.onAddManualModelPriceRule = { [weak self] in self?.addManualModelPriceRule() }
         detailsController.detailsView.onStorageScanRequested = { [weak self] in self?.refreshStorageSnapshot() }
         detailsController.detailsView.onModelDateRangeChanged = { [weak self] start, end in
             self?.refreshModelDateRange(from: start, to: end)
@@ -1217,6 +1218,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func resetCodexAPISources() {
         AppSettings.resetCodexAPISourceHomeURLs()
         reloadOfficialAPISourcesFromSettings()
+    }
+
+    private func addManualModelPriceRule() {
+        let alert = NSAlert()
+        alert.messageText = "添加模型价格规则"
+        alert.informativeText = "规则仅保存在本机；先用于模型级估算，真实账单始终优先。"
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 8
+        func field(_ placeholder: String) -> NSTextField {
+            let value = NSTextField(string: "")
+            value.placeholderString = placeholder
+            value.frame = NSRect(x: 0, y: 0, width: 300, height: 24)
+            stack.addArrangedSubview(value)
+            return value
+        }
+        let provider = field("供应商，例如 OpenCode Zen")
+        let model = field("模型，例如 Ox Alpha Free")
+        let input = field("输入价格 USD / 1M")
+        let cached = field("缓存读取价格 USD / 1M")
+        let output = field("输出价格 USD / 1M")
+        alert.accessoryView = stack
+        alert.addButton(withTitle: "保存规则")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn,
+              let inputValue = Double(input.stringValue),
+              let cachedValue = Double(cached.stringValue),
+              let outputValue = Double(output.stringValue) else { return }
+        ManualModelPriceStore.shared.upsert(provider: provider.stringValue.isEmpty ? "手动" : provider.stringValue, model: model.stringValue, input: inputValue, cached: cachedValue, output: outputValue)
+        refresh(forceLive: false, allowProfileAPI: false)
+        detailsController.detailsView.needsDisplay = true
     }
 
     private func changePlanCost(_ value: Double, source: QuotaViewOption) {
