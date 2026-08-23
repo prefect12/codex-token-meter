@@ -2102,7 +2102,7 @@ final class DashboardView: NSView {
         segment.toolTip = t(.usageWindow)
         addSubview(segment)
 
-        [primaryRing, weeklyRing, primaryBullet, weeklyBullet, cacheBullet, cacheRing, apiUsageMetrics, dayChart, platformQuotaView, serviceStatusView].forEach { addSubview($0) }
+        [primaryRing, weeklyRing, primaryBullet, weeklyBullet, cacheBullet, cacheRing, apiUsageMetrics, platformQuotaView, serviceStatusView].forEach { addSubview($0) }
         serviceStatusView.toolTip = "Open OpenAI Status"
 
         buttonsStack.orientation = .horizontal
@@ -2113,6 +2113,10 @@ final class DashboardView: NSView {
         addButton(.details, action: #selector(detailsTapped))
         addButton(.settings, action: #selector(settingsTapped))
         addButton(.quit, action: #selector(quitTapped))
+
+        // The chart draws its rich hover card outside its own bounds. Keep it above
+        // the action controls so the card is not painted over by the button stack.
+        addSubview(dayChart, positioned: .above, relativeTo: nil)
         applyLanguage()
     }
 
