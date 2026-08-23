@@ -349,12 +349,27 @@ final class OpenCodeTokenScanner {
             events.append(Event(
                 timestamp: timestamp,
                 usage: usage,
-                model: text(statement, 4) ?? "unknown",
+                model: Self.displayModelName(text(statement, 4)),
                 sessionKey: sessionKey,
                 directory: text(statement, 3)
             ))
         }
         return ParsedData(events: events, turns: turns)
+    }
+
+    /// OpenCode persists provider model IDs, which are useful for routing but
+    /// are not a readable name for a usage table. Keep the mapping local to
+    /// this scanner so other providers retain their own canonicalization and
+    /// an unknown OpenCode ID remains visible rather than guessed.
+    private static func displayModelName(_ rawModelID: String?) -> String {
+        switch rawModelID?.lowercased() {
+        case "x-preview-f-free":
+            return "Ox Alpha Free"
+        case .none, .some(""):
+            return "unknown"
+        default:
+            return rawModelID ?? "unknown"
+        }
     }
 
     private func text(_ statement: OpaquePointer?, _ index: Int32) -> String? {
