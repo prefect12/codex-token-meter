@@ -287,12 +287,11 @@ final class ThreadRowView: NSView {
             planProgressView.isHidden = true
         }
 
-        switch rowLayout {
-        case .standard:
+        if TaskBarBuild.isBeta || rowLayout == .standard {
             // Status word plus the source label share a single trailing line.
             metaStatusLabel.attributedStringValue = rowMetadataAttributed(for: item, showSource: showPlatformLabel)
             platformLabel.isHidden = true
-        case .compact:
+        } else {
             // Status and source get their own lines in the left rail.
             metaStatusLabel.attributedStringValue = rowStatusOnlyAttributed(for: item)
             platformLabel.attributedStringValue = rowSourceAttributed(for: item)
@@ -597,7 +596,7 @@ final class ThreadRowView: NSView {
         let contentX: CGFloat = 32
         // Keep the three pieces of operational metadata together at the trailing
         // edge. This leaves the title and context as the readable left column.
-        let metadataWidth: CGFloat = showPlatformLabel ? 112 : 58
+        let metadataWidth: CGFloat = showPlatformLabel ? 150 : 58
         let metadataX = bounds.width - metadataWidth - 18
         let timeX = metadataX - 66
         let contentWidth = max(100, timeX - contentX - 10)
