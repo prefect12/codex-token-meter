@@ -436,6 +436,7 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
        }).first {
         switch rawSubsection {
         case "data": view.selectedSettingsSubsection = .data
+        case "provider-costs": view.selectedSettingsSubsection = .providerCosts
         case "quota": view.selectedSettingsSubsection = .quota
         case "system": view.selectedSettingsSubsection = .system
         default: view.selectedSettingsSubsection = .appearance

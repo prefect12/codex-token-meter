@@ -532,6 +532,9 @@ enum APICostEstimator {
     }
 
     private static func rate(for modelName: String) -> APIModelRate? {
+        if let manualRate = ManualModelPriceStore.shared.rate(for: modelName) {
+            return manualRate
+        }
         if let catalogRate = OpenRouterPricingCatalog.shared.rate(for: modelName) {
             return catalogRate
         }

@@ -497,6 +497,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     enum SettingsSubsection: CaseIterable {
         case appearance
         case data
+        case providerCosts
         case quota
         case system
 
@@ -506,6 +507,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 switch self {
                 case .appearance: return "外观显示"
                 case .data: return "数据来源"
+                case .providerCosts: return "成本与额度"
                 case .quota: return "额度提醒"
                 case .system: return "系统"
                 }
@@ -513,6 +515,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 switch self {
                 case .appearance: return "表示"
                 case .data: return "データソース"
+                case .providerCosts: return "コストと上限"
                 case .quota: return "制限と通知"
                 case .system: return "システム"
                 }
@@ -520,6 +523,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 switch self {
                 case .appearance: return "Appearance"
                 case .data: return "Data Sources"
+                case .providerCosts: return "Costs & Limits"
                 case .quota: return "Quota & Alerts"
                 case .system: return "System"
                 }
@@ -532,6 +536,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 switch self {
                 case .appearance: return "语言、单位和状态栏"
                 case .data: return "日志目录和 API 总量"
+                case .providerCosts: return "供应商余额和模型价格规则"
                 case .quota: return "额度显示和提醒"
                 case .system: return "启动行为"
                 }
@@ -539,6 +544,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 switch self {
                 case .appearance: return "言語、単位、メニューバー"
                 case .data: return "ログルートと API 合計"
+                case .providerCosts: return "プロバイダー残高と価格ルール"
                 case .quota: return "制限表示と通知"
                 case .system: return "起動動作"
                 }
@@ -546,6 +552,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 switch self {
                 case .appearance: return "Language, units, and menu bar"
                 case .data: return "Log roots and API totals"
+                case .providerCosts: return "Provider balances and model price rules"
                 case .quota: return "Quota visuals and warnings"
                 case .system: return "Startup behavior"
                 }
@@ -556,6 +563,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             switch self {
             case .appearance: return "slider.horizontal.3"
             case .data: return "externaldrive"
+            case .providerCosts: return "creditcard"
             case .quota: return "bell.badge"
             case .system: return "power"
             }
@@ -620,6 +628,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var onProfileAPITotalsChanged: ((Bool) -> Void)?
     var onVisibleUsageSourcesChanged: ((Set<QuotaViewOption>) -> Void)?
     var onExportMachineUsageReport: (() -> Void)?
+    var onAddManualModelPriceRule: (() -> Void)?
     var onPreferredHeightChanged: (() -> Void)?
     var selectedSection: DetailsSection = .overview {
         didSet {
@@ -761,6 +770,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var resetCodexAPISourceRect: NSRect?
     var openCodexAPISourceRect: NSRect?
     var machineUsageExportRect: NSRect?
+    var addManualPriceRuleRect: NSRect?
     var contributionDayRects: [String: NSRect] = [:]
     var contributionDaySummaries: [String: ContributionDaySummary] = [:]
     var hoveredContributionDay: String?
@@ -2318,6 +2328,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             }
             if machineUsageExportRect?.contains(point) == true {
                 onExportMachineUsageReport?()
+                return
+            }
+            if addManualPriceRuleRect?.contains(point) == true {
+                onAddManualModelPriceRule?()
                 return
             }
         }

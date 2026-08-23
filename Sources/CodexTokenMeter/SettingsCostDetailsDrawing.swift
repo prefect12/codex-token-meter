@@ -15,6 +15,7 @@ extension UsageDetailsView {
         resetCodexAPISourceRect = nil
         openCodexAPISourceRect = nil
         machineUsageExportRect = nil
+        addManualPriceRuleRect = nil
 
         let rect = settingsPanelRect(in: content)
         drawSettingsSubnavigation(in: rect)
@@ -26,6 +27,8 @@ extension UsageDetailsView {
             drawAppearanceSettings(in: page)
         case .data:
             drawDataSettings(in: page)
+        case .providerCosts:
+            drawProviderCostSettings(in: page)
         case .quota:
             drawQuotaSettings(in: page)
         case .system:
@@ -144,6 +147,40 @@ extension UsageDetailsView {
         machineUsageExportRect = NSRect(x: page.maxX - exportW, y: exportY, width: exportW, height: 34)
         drawSettingText(title: exportCopy.title, hint: exportCopy.hint, x: page.minX, y: exportY, width: max(180, machineUsageExportRect!.minX - page.minX - 16))
         drawSmallButton(exportCopy.exportAction, rect: machineUsageExportRect!, emphasized: true)
+    }
+
+    func drawProviderCostSettings(in page: NSRect) {
+        let rules = ManualModelPriceStore.shared.allRules()
+        drawSettingText(title: "成本口径", hint: "真实余额仅在供应商提供并经你主动连接后显示；其余模型按本地 token 和价格规则估算。", x: page.minX, y: page.minY + 76, width: page.width)
+        let addW: CGFloat = 116
+        addManualPriceRuleRect = NSRect(x: page.maxX - addW, y: page.minY + 132, width: addW, height: 34)
+        drawSmallButton("添加价格规则", rect: addManualPriceRuleRect!, emphasized: true)
+        let providers: [(String, String, NSColor)] = [
+            ("OpenRouter", "可连接读取真实余额", accentTeal),
+            ("OpenCode Zen / Ox", "仅本地用量；余额未提供", accentAmber),
+            ("Codex / Claude", "订阅额度由现有只读接口提供", accentBlue)
+        ]
+        var y = page.minY + 188
+        for provider in providers {
+            NSColor.black.withAlphaComponent(0.16).setFill()
+            let row = NSRect(x: page.minX, y: y, width: page.width, height: 54)
+            NSBezierPath(roundedRect: row, xRadius: 7, yRadius: 7).fill()
+            provider.2.setFill(); NSBezierPath(ovalIn: NSRect(x: row.minX + 14, y: row.minY + 22, width: 9, height: 9)).fill()
+            drawText(provider.0, rect: NSRect(x: row.minX + 34, y: row.minY + 11, width: 220, height: 17), font: .systemFont(ofSize: 12, weight: .bold), color: .white)
+            drawText(provider.1, rect: NSRect(x: row.minX + 34, y: row.minY + 30, width: row.width - 50, height: 15), font: .systemFont(ofSize: 10.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+            y += 62
+        }
+        drawText("手动模型价格", rect: NSRect(x: page.minX, y: y + 8, width: page.width, height: 20), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
+        y += 38
+        if rules.isEmpty {
+            drawText("尚无规则。未定价模型会保留未定价状态，不会被默认单价覆盖。", rect: NSRect(x: page.minX, y: y, width: page.width, height: 20), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
+        } else {
+            for rule in rules.prefix(5) {
+                drawText("\(rule.provider) · \(rule.model)", rect: NSRect(x: page.minX, y: y, width: page.width * 0.48, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: .white)
+                drawRight("入 $\(String(format: "%.2f", rule.inputPerMillionUSD)) · 出 $\(String(format: "%.2f", rule.outputPerMillionUSD)) / 1M", rect: NSRect(x: page.minX + page.width * 0.48, y: y, width: page.width * 0.52, height: 18), color: accentTeal, font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .medium))
+                y += 28
+            }
+        }
     }
 
     func drawQuotaSettings(in page: NSRect) {

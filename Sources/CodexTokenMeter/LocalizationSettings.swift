@@ -1767,6 +1767,10 @@ enum AppSettings {
         appSupportDirectoryURL.appendingPathComponent("openrouter-model-pricing.json")
     }
 
+    static var manualModelPricingURL: URL {
+        appSupportDirectoryURL.appendingPathComponent("manual-model-pricing.json")
+    }
+
     static var logFolderURL: URL {
         get {
             customLogFolderURLs.last ?? defaultLogFolderURL
