@@ -24,7 +24,7 @@ private struct ModelRangeReports {
     let cachedAt: Date
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let dashboardController = DashboardViewController()
@@ -55,9 +55,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var claudeServiceStatus: CodexServiceStatusSnapshot?
     private var refreshTimer: Timer?
     private var liveRefreshTimer: Timer?
-    private var claudeQuotaTimer: Timer?
-    private var claudeQuotaRefreshInFlight = false
-    private var claudeCaptureWatcher: ClaudeCaptureFileWatcher?
     private var activeScans: Set<ReportCacheKey> = []
     private var liveRefreshInFlight = false
     private var detailsSnapshotPrewarmInFlight = false
@@ -71,12 +68,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let refreshInterval: TimeInterval = 300
     private let popoverRefreshMaxAge: TimeInterval = 60
     private let liveRefreshInterval: TimeInterval = 60
-    /// Claude quota runs on its own cadence because its source is a cheap
-    /// read-only endpoint, unlike the Codex live refresh it used to ride along
-    /// with. While the dashboard is open it tracks close to real time; closed,
-    /// it only needs to keep the menu bar roughly current.
-    private let claudeQuotaVisibleInterval: TimeInterval = 15
-    private let claudeQuotaIdleInterval: TimeInterval = 120
     private let detailsSnapshotPrewarmInterval: TimeInterval = 30 * 60
     private let liveCostReferenceCacheTTL: TimeInterval = 5 * 60
     private let modelRangeReportCacheTTL: TimeInterval = 5 * 60
@@ -108,7 +99,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.contentViewController = dashboardController
         resizeDashboardPopover(to: DashboardView.idealSize)
         popover.behavior = .transient
-        popover.delegate = self
         configureStatusButton()
 
         dashboardController.dashboardView.onWindowChanged = { [weak self] option in self?.selectWindow(option) }
@@ -119,7 +109,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         dashboardController.dashboardView.onRefresh = { [weak self] in
             self?.refresh(forceLive: false)
             self?.refreshLiveLimits()
-            self?.refreshClaudeQuota()
         }
         dashboardController.dashboardView.onOpenDetails = { [weak self] in self?.openUsageDetailsWindow() }
         dashboardController.dashboardView.onOpenSettings = { [weak self] in self?.openSettingsWindow() }
@@ -193,8 +182,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         refreshTimer = timer
         RunLoop.main.add(timer, forMode: .common)
-        refreshClaudeQuota()
-        startClaudeCaptureWatcher()
         if CommandLine.arguments.contains("--open-details=models") {
             detailsController.detailsView.showSection(.models)
             DispatchQueue.main.async { [weak self] in
@@ -274,7 +261,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                     presetDayCount.map { self.scanner.scan(days: $0, partition: .api) }
                         ?? self.scanner.scan(from: start, to: end, partition: .api),
                     presetDayCount.map { ExternalAPIUsageStore.readReport(days: $0) }
-                        ?? ExternalAPIUsageStore.readReport(from: start, to: end)
+                        ?? ExternalAPIUsageStore.readReport(from: start, to: end),
+                    presetDayCount.map { OpenCodeTokenScanner.shared.scan(days: $0) }
+                        ?? OpenCodeTokenScanner.shared.scan(from: start, to: end)
                 ])
                 let all = mergedTokenReport([codex, claude, api])
                 DispatchQueue.main.async {
@@ -363,7 +352,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let api = reportCache[ReportCacheKey(window: window, quota: .api)]
             ?? mergedTokenReport([
                 scanner.scan(window: window, partition: .api),
-                ExternalAPIUsageStore.readReport(window: window)
+                ExternalAPIUsageStore.readReport(window: window),
+                OpenCodeTokenScanner.shared.scan(window: window)
             ])
         let reports = ModelRangeReports(codex: codex, claude: claude, api: api, all: all, cachedAt: cachedAt)
         modelRangeReportCache[key] = reports
@@ -500,8 +490,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard let button = statusItem.button else { return }
         if popover.isShown {
             popover.performClose(nil)
-            // Drop back to the idle cadence now that nobody is watching.
-            scheduleClaudeQuotaRefresh()
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
@@ -509,14 +497,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 refresh(forceLive: false)
             }
             refreshLiveLimits()
-            refreshClaudeQuota()
         }
-    }
-
-    /// `.transient` popovers also close on an outside click, which never routes
-    /// through `togglePopover`.
-    func popoverDidClose(_ notification: Notification) {
-        scheduleClaudeQuotaRefresh()
     }
 
     private func selectWindow(_ option: WindowOption) {
@@ -641,7 +622,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 let claude = enabled.contains(.claude) ? self.claudeScanner.scan(window: window) : nil
                 let api = enabled.contains(.api) ? mergedTokenReport([
                     self.scanner.scan(window: window, partition: .api),
-                    ExternalAPIUsageStore.readReport(window: window)
+                    ExternalAPIUsageStore.readReport(window: window),
+                    OpenCodeTokenScanner.shared.scan(window: window)
                 ]) : nil
                 codexReport = codex
                 claudeReport = claude
@@ -806,72 +788,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    /// Pulls Claude quota on its own schedule and merges just those windows into
-    /// the dashboard. Deliberately lighter than `refreshLiveLimits`: no Codex
-    /// read, no service-status requests, so it is cheap enough to run often.
-    private func refreshClaudeQuota() {
-        guard !claudeQuotaRefreshInFlight else { return }
-        claudeQuotaRefreshInFlight = true
-        liveQueue.async { [weak self] in
-            guard let self else { return }
-            let store = ClaudeStatuslineStore()
-            _ = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: store)
-            let snapshot = store.read()
-            let claudeLimits = [snapshot?.liveRateLimit, snapshot?.fableLiveRateLimit].compactMap { $0 }
-            DispatchQueue.main.async {
-                self.claudeQuotaRefreshInFlight = false
-                self.scheduleClaudeQuotaRefresh()
-                self.applyClaudeLimits(claudeLimits)
-            }
-        }
-    }
-
-    /// Replaces only the Claude-owned windows so a Claude update never drops or
-    /// resurrects Codex limits fetched on the other cadence.
-    private func applyClaudeLimits(_ claudeLimits: [LiveRateLimit]) {
-        guard !claudeLimits.isEmpty else { return }
-        let claudeIDs = Set(claudeLimits.map(\.id))
-        var merged = liveLimits.filter { !claudeIDs.contains($0.id) }
-        merged.append(contentsOf: claudeLimits)
-        merged.sort { $0.id < $1.id }
-        guard merged != liveLimits else { return }
-        liveLimits = merged
-        latestState.liveLimits = merged
-        latestState.error = nil
-        LiveRateLimitCacheStore.write(merged)
-        updateStatusTitle(report: latestState.report, limits: merged, quota: latestState.selectedQuota)
-        dashboardController.dashboardView.update(latestState)
-        detailsController.updateLiveLimits(
-            merged,
-            costReferenceReport: liveCostReferenceReport(limits: merged),
-            serviceStatus: serviceStatus
-        )
-    }
-
-    private func scheduleClaudeQuotaRefresh() {
-        claudeQuotaTimer?.invalidate()
-        let delay = popover.isShown ? claudeQuotaVisibleInterval : claudeQuotaIdleInterval
-        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
-            self?.refreshClaudeQuota()
-        }
-        claudeQuotaTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
-    }
-
-    /// A statusline write from any Claude Code session is a free, immediate
-    /// signal that the numbers moved; reflect it without waiting for a poll.
-    private func startClaudeCaptureWatcher() {
-        let watcher = ClaudeCaptureFileWatcher { [weak self] in
-            guard let self else { return }
-            let snapshot = ClaudeStatuslineStore().read()
-            self.applyClaudeLimits(
-                [snapshot?.liveRateLimit, snapshot?.fableLiveRateLimit].compactMap { $0 }
-            )
-        }
-        claudeCaptureWatcher = watcher
-        watcher.start()
-    }
-
     private func scheduleNextLiveRefresh(succeeded: Bool) {
         liveRefreshTimer?.invalidate()
         if succeeded {
@@ -975,7 +891,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             if enabled.contains(.api) {
                 reports.append(mergedTokenReport([
                     scanner.scan(window: window, partition: .api),
-                    ExternalAPIUsageStore.readReport(window: window)
+                    ExternalAPIUsageStore.readReport(window: window),
+                    OpenCodeTokenScanner.shared.scan(window: window)
                 ]))
             }
             return mergedTokenReport(reports)
@@ -986,7 +903,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         case .api:
             return mergedTokenReport([
                 scanner.scan(window: window, partition: .api),
-                ExternalAPIUsageStore.readReport(window: window)
+                ExternalAPIUsageStore.readReport(window: window),
+                OpenCodeTokenScanner.shared.scan(window: window)
             ])
         }
     }
@@ -1001,7 +919,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             if enabled.contains(.api) {
                 reports.append(mergedTokenReport([
                     scanner.scan(days: days, partition: .api),
-                    ExternalAPIUsageStore.readReport(days: days)
+                    ExternalAPIUsageStore.readReport(days: days),
+                    OpenCodeTokenScanner.shared.scan(days: days)
                 ]))
             }
             return mergedTokenReport(reports)
@@ -1012,7 +931,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         case .api:
             return mergedTokenReport([
                 scanner.scan(days: days, partition: .api),
-                ExternalAPIUsageStore.readReport(days: days)
+                ExternalAPIUsageStore.readReport(days: days),
+                OpenCodeTokenScanner.shared.scan(days: days)
             ])
         }
     }
@@ -1537,14 +1457,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         updateProgress?(0.44, .loadingAllUsage)
         let api = mergedTokenReport([
             scanner.scan(days: 365, partition: .api),
-            ExternalAPIUsageStore.readReport(days: 365)
+            ExternalAPIUsageStore.readReport(days: 365),
+            OpenCodeTokenScanner.shared.scan(days: 365)
         ])
         let all = mergedTokenReport([codex, claude, api])
         let modelCodex = scanner.scan(days: 90, partition: .codex)
         let modelClaude = claudeScanner.scan(days: 90)
         let modelAPI = mergedTokenReport([
             scanner.scan(days: 90, partition: .api),
-            ExternalAPIUsageStore.readReport(days: 90)
+            ExternalAPIUsageStore.readReport(days: 90),
+            OpenCodeTokenScanner.shared.scan(days: 90)
         ])
         let modelAll = mergedTokenReport([modelCodex, modelClaude, modelAPI])
         updateProgress?(0.62, .loadingRepoInsights)
