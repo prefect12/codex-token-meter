@@ -274,7 +274,7 @@ enum TaskBarSettings {
         get {
             guard let raw = UserDefaults.standard.string(forKey: pageStyleKey),
                   let style = TaskBarPageStyle(rawValue: raw) else {
-                return TaskBarBuild.isBetaBuild ? .island : .classic
+                return .island
             }
             return style
         }
