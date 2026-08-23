@@ -4,6 +4,8 @@ import Foundation
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
+    private var islandPanel: TaskBarIslandPanel?
+    private var betaContent: TaskBarPopoverContentView?
     private let reader = CodexActivityReader()
     private let icon = PetStatusIcon()
     private let readState = ReadStateStore()
@@ -95,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.updateStatusIcon()
                 // Only rebuild when the visible set actually changed; per-row timers keep
                 // elapsed times ticking, so a static list never needs to flash.
-                if changed, self.popover.isShown {
+                if changed, self.isTaskSurfaceShown {
                     self.rebuildPopover()
                 }
                 if self.pendingRefresh || !self.pendingPriorityRolloutURLs.isEmpty {
@@ -140,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureStatusButton() {
         guard let button = statusItem.button else { return }
-        button.toolTip = "Task Bar"
+        button.toolTip = TaskBarBuild.displayName
         button.action = #selector(togglePopover)
         button.target = self
     }
@@ -151,32 +153,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let waitingCount = primaryThreads.filter { $0.status == .waiting }.count
         let unreadCount = primaryThreads.filter { $0.status == .unread }.count
         let actionNeededCount = waitingCount + unreadCount
-        let totalCount = runningCount + actionNeededCount
+        // The menu-bar number is an active-work count. Completed-but-unread
+        // rows still keep the red-dot reminder, but do not turn "Running 2"
+        // into a confusing "3" beside the status icon.
+        let activeCount = runningCount + waitingCount
         let statusIconStatus: ThreadRunStatus = waitingCount > 0 ? .waiting : (unreadCount > 0 ? .unread : .running)
         let showsRedDot = actionNeededCount > 0
-        let title = totalCount > 0 ? " \(totalCount)" : ""
+        // The Island Beta no longer has a summary header, so retain a clear,
+        // always-present count beside its menu-bar icon.
+        let title = " \(activeCount)"
         let signature = "\(runningCount)|\(waitingCount)|\(unreadCount)|\(statusIconStatus)|\(showsRedDot)|\(title)"
         guard signature != lastStatusIconSignature else { return }
         lastStatusIconSignature = signature
 
         statusItem.button?.image = icon.image(status: statusIconStatus, showsRedDot: showsRedDot)
         statusItem.button?.imagePosition = .imageLeading
-        statusItem.button?.title = title
+        statusItem.button?.attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.labelColor
+        ])
     }
 
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
+        if TaskBarBuild.isBeta {
+            toggleIslandPanel(from: button)
+            return
+        }
+        popover.animates = !TaskBarBuild.isClassicPage
         if popover.isShown {
             closePopover()
             return
         }
-        rebuildPopover()
+        rebuildPopover(shouldAnimateEntrance: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        (popover.contentViewController?.view as? TaskBarPopoverContentView)?.playEntranceMotion()
         NSApp.activate(ignoringOtherApps: true)
         refresh(includeRolloutEnrichment: true)
     }
 
-    private func rebuildPopover() {
+    private func rebuildPopover(shouldAnimateEntrance: Bool = false) {
         ThreadHoverPanel.shared.hideAll()
         let primaryThreads = threads.primaryThreads
         let active = primaryThreads.filter { $0.status == .running }
@@ -190,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             unreadCount: unreadCount,
             selectedTab: selectedTab,
             showPlatformLabels: TaskBarSettings.showPlatformLabels,
-            rowLayout: TaskBarSettings.rowLayout,
+            rowLayout: TaskBarBuild.isClassicPage ? .compact : TaskBarSettings.rowLayout,
             onOpenThread: { [weak self] id in
                 self?.openThread(id: id)
             },
@@ -218,15 +234,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.closePopover()
                 self?.quit()
             },
-            initialSize: TaskBarSettings.popoverSize,
+            initialSize: TaskBarBuild.isBeta ? nil : TaskBarSettings.popoverSize,
+            shouldAnimateEntrance: shouldAnimateEntrance,
+            usesExternalSurface: TaskBarBuild.isBeta,
             onResize: { [weak self, weak controller] size, persist in
                 controller?.preferredContentSize = size
-                self?.popover.contentSize = size
+                if TaskBarBuild.isBeta {
+                    self?.islandPanel?.resizeContent(to: size)
+                } else {
+                    self?.popover.contentSize = size
+                }
                 if persist {
                     TaskBarSettings.popoverSize = size
                 }
             }
         )
+        if TaskBarBuild.isBeta {
+            betaContent = content
+            if islandPanel?.isVisible == true {
+                islandPanel?.replaceContent(content)
+            }
+            return
+        }
         controller.view = content
         controller.preferredContentSize = content.frame.size
         popover.contentViewController = controller
@@ -240,7 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ThreadHoverPanel.shared.hideAll()
                 self?.startRolloutActivityMonitor()
                 self?.refresh()
-                if self?.popover.isShown == true {
+                if self?.isTaskSurfaceShown == true {
                     self?.rebuildPopover()
                 }
             }
@@ -254,7 +283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TaskBarSettings.togglePin(id)
         threads.sort(by: stableThreadOrder)
         lastThreadsSignature = threadsSignature(threads)
-        if popover.isShown {
+        if isTaskSurfaceShown {
             rebuildPopover()
         }
         ThreadHoverPanel.shared.hideAll()
@@ -275,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         lastThreadsSignature = threadsSignature(threads)
         updateStatusIcon()
-        if popover.isShown {
+        if isTaskSurfaceShown {
             rebuildPopover()
         }
         ThreadHoverPanel.shared.hideAll()
@@ -293,7 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             TaskBarSettings.setPinned(false, for: id)
         }
         updateStatusIcon()
-        if popover.isShown {
+        if isTaskSurfaceShown {
             rebuildPopover()
             closePopover()
         }
@@ -305,6 +334,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if id.hasPrefix("claude:") {
             openClaudeThread(id: id, fallbackFolder: nil)
+            return
+        }
+
+        if let selectedItem, isOpenCodeThread(selectedItem) {
+            openOpenCodeSession(selectedItem)
+            return
+        }
+        if id.hasPrefix("opencode:") {
             return
         }
 
@@ -347,6 +384,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return nil
         }
         return registeredURL
+    }
+
+    /// Task Bar integrates OpenCode sessions read-only, so there is no deep link
+    /// to resume one; clicking reveals the session's project folder instead.
+    private func openOpenCodeSession(_ item: CodexThreadItem) {
+        guard let cwd = item.cwd, !cwd.isEmpty,
+              FileManager.default.fileExists(atPath: cwd) else {
+            return
+        }
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: cwd)
     }
 
     private func openCodexAPIThread(id: String) {
@@ -476,7 +523,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func closePopover() {
+        if TaskBarBuild.isBeta {
+            islandPanel?.dismissAnimated()
+            ThreadHoverPanel.shared.hideAll()
+            return
+        }
         popover.performClose(nil)
         ThreadHoverPanel.shared.hideAll()
+    }
+
+    private var isTaskSurfaceShown: Bool {
+        TaskBarBuild.isBeta ? islandPanel?.isVisible == true : popover.isShown
+    }
+
+    private func toggleIslandPanel(from button: NSStatusBarButton) {
+        if isTaskSurfaceShown {
+            closePopover()
+            return
+        }
+        rebuildPopover(shouldAnimateEntrance: true)
+        guard let betaContent else { return }
+        let anchorFrame = button.window.map { window in
+            window.convertToScreen(button.convert(button.bounds, to: nil))
+        }
+        let panel = TaskBarIslandPanel(content: betaContent, anchorFrame: anchorFrame)
+        islandPanel = panel
+        panel.presentAnimated()
+        NSApp.activate(ignoringOtherApps: true)
+        // Keep the entry choreography intact; a live-data replacement starts only
+        // after the island has reached its settled size.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.70) { [weak self] in
+            self?.refresh(includeRolloutEnrichment: true)
+        }
     }
 }

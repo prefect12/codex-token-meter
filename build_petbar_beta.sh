@@ -3,17 +3,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$ROOT/build"
-APP="$BUILD_DIR/Task Bar.app"
-OLD_APP="$BUILD_DIR/Codex Bar.app"
-OLDER_APP="$BUILD_DIR/Codex Pet Bar.app"
-BIN="$APP/Contents/MacOS/TaskBar"
+APP="$BUILD_DIR/Task Bar Beta.app"
+BIN="$APP/Contents/MacOS/TaskBarBeta"
 SWIFT_SOURCES=()
 
 while IFS= read -r source; do
   SWIFT_SOURCES+=("$source")
 done < <(find "$ROOT/Sources/CodexPetBar" -name '*.swift' -print | sort)
 
-rm -rf "$APP" "$OLD_APP" "$OLDER_APP"
+rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 swiftc \
@@ -24,7 +22,7 @@ swiftc \
   "${SWIFT_SOURCES[@]}" \
   -o "$BIN"
 
-cp "$ROOT/Info-CodexPetBar.plist" "$APP/Contents/Info.plist"
+cp "$ROOT/Info-TaskBarBeta.plist" "$APP/Contents/Info.plist"
 if [[ -f "$ROOT/Resources/CodexBarAppIcon.icns" ]]; then
   cp "$ROOT/Resources/CodexBarAppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 elif [[ -f "$ROOT/Resources/AppIcon.icns" ]]; then

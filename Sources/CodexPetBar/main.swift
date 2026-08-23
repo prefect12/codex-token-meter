@@ -23,7 +23,7 @@ private func printThreads() {
         .sorted(by: stableThreadOrder)
         .limitedForTaskBar(limit: taskBarVisibleThreadLimit)
     if items.isEmpty {
-        print("No running or unread Codex or Claude turns")
+        print("No running or unread Codex, Claude, or OpenCode turns")
         return
     }
     func printItem(_ item: CodexThreadItem, prefix: String = "") {
@@ -214,6 +214,7 @@ private func renderTaskBar(to path: String, showPlanHover: Bool = false, showRow
         onOpenSettings: {},
         onQuit: {},
         initialSize: nil,
+        usesExternalSurface: TaskBarBuild.isBeta,
         onResize: { _, _ in }
     )
 
