@@ -497,7 +497,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     enum SettingsSubsection: CaseIterable {
         case appearance
         case data
-        case apiIntegration
         case quota
         case system
 
@@ -507,7 +506,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 switch self {
                 case .appearance: return "外观显示"
                 case .data: return "数据来源"
-                case .apiIntegration: return "API 接入"
                 case .quota: return "额度提醒"
                 case .system: return "系统"
                 }
@@ -515,7 +513,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 switch self {
                 case .appearance: return "表示"
                 case .data: return "データソース"
-                case .apiIntegration: return "API 連携"
                 case .quota: return "制限と通知"
                 case .system: return "システム"
                 }
@@ -523,7 +520,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 switch self {
                 case .appearance: return "Appearance"
                 case .data: return "Data Sources"
-                case .apiIntegration: return "API Integration"
                 case .quota: return "Quota & Alerts"
                 case .system: return "System"
                 }
@@ -536,7 +532,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 switch self {
                 case .appearance: return "语言、单位和状态栏"
                 case .data: return "日志目录和 API 总量"
-                case .apiIntegration: return "官方额度与外部 API 用量"
                 case .quota: return "额度显示和提醒"
                 case .system: return "启动行为"
                 }
@@ -544,7 +539,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 switch self {
                 case .appearance: return "言語、単位、メニューバー"
                 case .data: return "ログルートと API 合計"
-                case .apiIntegration: return "公式枠と外部 API 使用量"
                 case .quota: return "制限表示と通知"
                 case .system: return "起動動作"
                 }
@@ -552,7 +546,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 switch self {
                 case .appearance: return "Language, units, and menu bar"
                 case .data: return "Log roots and API totals"
-                case .apiIntegration: return "Official quota and external API usage"
                 case .quota: return "Quota visuals and warnings"
                 case .system: return "Startup behavior"
                 }
@@ -563,38 +556,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             switch self {
             case .appearance: return "slider.horizontal.3"
             case .data: return "externaldrive"
-            case .apiIntegration: return "point.3.connected.trianglepath.dotted"
             case .quota: return "bell.badge"
             case .system: return "power"
-            }
-        }
-    }
-
-    enum APIIntegrationGuidePage: CaseIterable {
-        case overview
-        case codex
-        case external
-
-        var title: String {
-            switch AppLanguage.current {
-            case .chinese, .traditionalChinese:
-                switch self {
-                case .overview: return "接入概览"
-                case .codex: return "Codex 官方数据"
-                case .external: return "外部 API 导入"
-                }
-            case .japanese:
-                switch self {
-                case .overview: return "連携の概要"
-                case .codex: return "Codex 公式データ"
-                case .external: return "外部 API の取込"
-                }
-            default:
-                switch self {
-                case .overview: return "Overview"
-                case .codex: return "Codex account"
-                case .external: return "External API import"
-                }
             }
         }
     }
@@ -791,13 +754,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var claudeHomeRingMetricRects: [HomeQuotaRingMetric: NSRect] = [:]
     var claudeThirdRingMetricRects: [ClaudeThirdRingMetric: NSRect] = [:]
     var settingsSubsectionRects: [SettingsSubsection: NSRect] = [:]
-    var apiIntegrationPageRects: [APIIntegrationGuidePage: NSRect] = [:]
-    var selectedAPIIntegrationPage: APIIntegrationGuidePage = .overview {
-        didSet {
-            guard selectedAPIIntegrationPage != oldValue else { return }
-            needsDisplay = true
-        }
-    }
     var chooseLogFolderRect: NSRect?
     var resetLogFolderRect: NSRect?
     var openLogFolderRect: NSRect?
@@ -2316,10 +2272,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 selectedSettingsSubsection = subsection
                 return
             }
-            for (page, rect) in apiIntegrationPageRects where rect.contains(point) {
-                selectedAPIIntegrationPage = page
-                return
-            }
             for (style, rect) in numberUnitOptionRects where rect.contains(point) {
                 onNumberUnitStyleChanged?(style)
                 return
@@ -2849,7 +2801,6 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         claudeHomeRingMetricRects.removeAll()
         claudeThirdRingMetricRects.removeAll()
         settingsSubsectionRects.removeAll()
-        apiIntegrationPageRects.removeAll()
         sourceOptionRects.removeAll()
         chooseLogFolderRect = nil
         resetLogFolderRect = nil
