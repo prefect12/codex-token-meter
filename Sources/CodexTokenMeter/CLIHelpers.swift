@@ -436,9 +436,22 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
        }).first {
         switch rawSubsection {
         case "data": view.selectedSettingsSubsection = .data
+        case "api", "api-integration", "api_integration": view.selectedSettingsSubsection = .apiIntegration
         case "quota": view.selectedSettingsSubsection = .quota
         case "system": view.selectedSettingsSubsection = .system
         default: view.selectedSettingsSubsection = .appearance
+        }
+    }
+    if section == .settings,
+       view.selectedSettingsSubsection == .apiIntegration,
+       let rawGuidePage = arguments.compactMap({ argument -> String? in
+           guard argument.hasPrefix("--api-guide-page=") else { return nil }
+           return String(argument.dropFirst("--api-guide-page=".count))
+       }).first {
+        switch rawGuidePage {
+        case "codex", "account": view.selectedAPIIntegrationPage = .codex
+        case "external", "import": view.selectedAPIIntegrationPage = .external
+        default: view.selectedAPIIntegrationPage = .overview
         }
     }
     view.snapshot = snapshot

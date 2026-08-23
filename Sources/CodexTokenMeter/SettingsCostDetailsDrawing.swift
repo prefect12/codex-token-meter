@@ -26,6 +26,8 @@ extension UsageDetailsView {
             drawAppearanceSettings(in: page)
         case .data:
             drawDataSettings(in: page)
+        case .apiIntegration:
+            drawAPIIntegrationGuide(in: page)
         case .quota:
             drawQuotaSettings(in: page)
         case .system:
