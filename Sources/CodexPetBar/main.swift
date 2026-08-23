@@ -325,6 +325,19 @@ private func renderTaskBar(to path: String, showPlanHover: Bool = false, showRow
     }
 }
 
+private func renderTaskBarSettings(to path: String) {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    let settings = TaskBarSettingsView(onSettingsChanged: {})
+    do {
+        try settings.writePreview(to: path)
+        print("wrote \(path) (\(Int(settings.bounds.width))x\(Int(settings.bounds.height)))")
+    } catch {
+        fputs("settings render failed: \(error)\n", stderr)
+        exit(1)
+    }
+}
+
 if CommandLine.arguments.contains("--self-test-plan-parser") {
     testPlanParser()
 } else if CommandLine.arguments.contains("--print") {
@@ -341,6 +354,8 @@ if CommandLine.arguments.contains("--self-test-plan-parser") {
         to: String(arg.dropFirst("--render-taskbar-row-hover=".count)),
         showRowHover: true
     )
+} else if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--render-taskbar-settings=") }) {
+    renderTaskBarSettings(to: String(arg.dropFirst("--render-taskbar-settings=".count)))
 } else {
     let app = NSApplication.shared
     let delegate = AppDelegate()

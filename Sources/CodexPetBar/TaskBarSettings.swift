@@ -483,7 +483,7 @@ final class TaskBarSettingsWindowController: NSWindowController {
             defer: false
         )
         window.title = "Task Bar 设置"
-        window.contentMinSize = NSSize(width: 680, height: 800)
+        window.contentMinSize = NSSize(width: 780, height: 800)
         window.contentView = contentView
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor(calibratedRed: 0.055, green: 0.066, blue: 0.086, alpha: 1.0)
@@ -579,8 +579,16 @@ private enum TaskDirectorySource: CaseIterable {
     }
 }
 
-private final class TaskBarSettingsView: NSView, NSTextFieldDelegate {
-    static let preferredSize = NSSize(width: 720, height: 824)
+final class TaskBarSettingsView: NSView, NSTextFieldDelegate {
+    static let preferredSize = NSSize(width: 780, height: 824)
+
+    /// Settings rows share one four-column control grid. Keeping the grid
+    /// fixed prevents two-option rows from drifting right of the rows with
+    /// three or four choices, and gives every selectable pill equal weight.
+    private let settingPillHeight: CGFloat = 34
+    private let settingPillWidth: CGFloat = 82
+    private let settingPillGap: CGFloat = 8
+    private let settingControlColumnCount = 4
 
     private let onSettingsChanged: () -> Void
     private var selectedSection: TaskBarSettingsSection = .settings
@@ -644,6 +652,28 @@ private final class TaskBarSettingsView: NSView, NSTextFieldDelegate {
     func reload() {
         syncDirectoryFields()
         needsDisplay = true
+    }
+
+    /// A deterministic snapshot hook for visual regression checks. It keeps
+    /// this custom AppKit page testable without opening a user-facing window.
+    func writePreview(to path: String) throws {
+        let imageBounds = bounds
+        guard let image = bitmapImageRepForCachingDisplay(in: imageBounds) else {
+            throw NSError(
+                domain: "TaskBarSettingsView",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Unable to allocate settings preview bitmap."]
+            )
+        }
+        cacheDisplay(in: imageBounds, to: image)
+        guard let pngData = image.representation(using: .png, properties: [:]) else {
+            throw NSError(
+                domain: "TaskBarSettingsView",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Unable to encode settings preview PNG."]
+            )
+        }
+        try pngData.write(to: URL(fileURLWithPath: path))
     }
 
     private static func makeDirectoryField() -> NSTextField {
@@ -736,82 +766,78 @@ private final class TaskBarSettingsView: NSView, NSTextFieldDelegate {
             color: .white
         )
 
-        let pillHeight: CGFloat = 34
-        let pillGap: CGFloat = 8
-        let binaryPillWidth: CGFloat = 104
-        let binaryOptionX = settingsCard.maxX - 16 - binaryPillWidth * 2 - pillGap
+        let controlGridWidth = settingPillWidth * CGFloat(settingControlColumnCount)
+            + settingPillGap * CGFloat(settingControlColumnCount - 1)
+        let controlGridX = settingsCard.maxX - 16 - controlGridWidth
+        func optionRect(column: Int, y: CGFloat) -> NSRect {
+            NSRect(
+                x: controlGridX + CGFloat(column) * (settingPillWidth + settingPillGap),
+                y: y,
+                width: settingPillWidth,
+                height: settingPillHeight
+            )
+        }
+        func labelRect(y: CGFloat) -> NSRect {
+            NSRect(
+                x: settingsCard.minX + 16,
+                y: y + 7,
+                width: controlGridX - settingsCard.minX - 28,
+                height: 20
+            )
+        }
 
         let layoutStyles = TaskRowLayoutStyle.allCases
         let layoutPillY = settingsCard.minY + 48
         layoutOptionRects.removeAll(keepingCapacity: true)
         drawSettingLabel(
             "信息位置",
-            rect: NSRect(x: settingsCard.minX + 16, y: layoutPillY + 7, width: binaryOptionX - settingsCard.minX - 32, height: 20),
+            rect: labelRect(y: layoutPillY),
             info: .layout
         )
         for (index, style) in layoutStyles.enumerated() {
-            let optionRect = NSRect(
-                x: binaryOptionX + CGFloat(index) * (binaryPillWidth + pillGap),
-                y: layoutPillY,
-                width: binaryPillWidth,
-                height: pillHeight
-            )
-            layoutOptionRects[style] = optionRect
-            drawSelectablePill(style.title, rect: optionRect, selected: TaskBarSettings.rowLayout == style)
+            let rect = optionRect(column: index, y: layoutPillY)
+            layoutOptionRects[style] = rect
+            drawSelectablePill(style.title, rect: rect, selected: TaskBarSettings.rowLayout == style)
         }
 
-        let sortPillWidth: CGFloat = 82
         let sortModes = TaskThreadSortMode.allCases
-        let sortOptionX = settingsCard.maxX - 16 - sortPillWidth * CGFloat(sortModes.count) - pillGap * CGFloat(sortModes.count - 1)
         let sortPillY = settingsCard.minY + 92
         sortModeOptionRects.removeAll(keepingCapacity: true)
         drawSettingLabel(
             "任务排序",
-            rect: NSRect(x: settingsCard.minX + 16, y: sortPillY + 7, width: sortOptionX - settingsCard.minX - 32, height: 20),
+            rect: labelRect(y: sortPillY),
             info: .threadSort
         )
         for (index, mode) in sortModes.enumerated() {
-            let optionRect = NSRect(
-                x: sortOptionX + CGFloat(index) * (sortPillWidth + pillGap),
-                y: sortPillY,
-                width: sortPillWidth,
-                height: pillHeight
-            )
-            sortModeOptionRects[mode] = optionRect
-            drawSelectablePill(mode.title, rect: optionRect, selected: TaskBarSettings.threadSortMode == mode)
+            let rect = optionRect(column: index, y: sortPillY)
+            sortModeOptionRects[mode] = rect
+            drawSelectablePill(mode.title, rect: rect, selected: TaskBarSettings.threadSortMode == mode)
         }
 
         let labelPillY = settingsCard.minY + 136
-        let showRect = NSRect(x: binaryOptionX, y: labelPillY, width: binaryPillWidth, height: pillHeight)
-        let hideRect = NSRect(x: showRect.maxX + pillGap, y: labelPillY, width: binaryPillWidth, height: pillHeight)
+        let showRect = optionRect(column: 0, y: labelPillY)
+        let hideRect = optionRect(column: 1, y: labelPillY)
         platformOptionRects = [true: showRect, false: hideRect]
         drawSettingLabel(
             "来源标签",
-            rect: NSRect(x: settingsCard.minX + 16, y: labelPillY + 7, width: binaryOptionX - settingsCard.minX - 32, height: 20),
+            rect: labelRect(y: labelPillY),
             info: .sourceLabel
         )
         drawSelectablePill("显示", rect: showRect, selected: TaskBarSettings.showPlatformLabels)
         drawSelectablePill("隐藏", rect: hideRect, selected: !TaskBarSettings.showPlatformLabels)
 
-        let unitPillWidth: CGFloat = 82
         let unitStyles = TaskTokenUnitStyle.allCases
-        let unitOptionX = settingsCard.maxX - 16 - unitPillWidth * CGFloat(unitStyles.count) - pillGap * CGFloat(unitStyles.count - 1)
         let unitPillY = settingsCard.minY + 180
         tokenUnitOptionRects.removeAll(keepingCapacity: true)
         drawSettingLabel(
             "Token 单位",
-            rect: NSRect(x: settingsCard.minX + 16, y: unitPillY + 7, width: unitOptionX - settingsCard.minX - 32, height: 20),
+            rect: labelRect(y: unitPillY),
             info: .tokenUnit
         )
         for (index, style) in unitStyles.enumerated() {
-            let optionRect = NSRect(
-                x: unitOptionX + CGFloat(index) * (unitPillWidth + pillGap),
-                y: unitPillY,
-                width: unitPillWidth,
-                height: pillHeight
-            )
-            tokenUnitOptionRects[style] = optionRect
-            drawSelectablePill(style.title, rect: optionRect, selected: TaskBarSettings.tokenUnitStyle == style)
+            let rect = optionRect(column: index, y: unitPillY)
+            tokenUnitOptionRects[style] = rect
+            drawSelectablePill(style.title, rect: rect, selected: TaskBarSettings.tokenUnitStyle == style)
         }
 
         let orderCard = NSRect(x: content.minX, y: settingsCard.maxY + 16, width: content.width, height: 208)
