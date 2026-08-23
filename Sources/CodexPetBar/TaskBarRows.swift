@@ -1,6 +1,12 @@
 import Cocoa
 import Foundation
 
+enum TaskThreadManualDragPhase {
+    case began
+    case moved
+    case ended
+}
+
 final class TaskProgressRingView: NSView {
     var progress: Double = 0 {
         didSet { needsDisplay = true }
@@ -125,6 +131,8 @@ final class ThreadRowView: NSView {
     private let onDismiss: (String) -> Void
     private let onTogglePin: (String) -> Void
     private let onToggleSubtasks: (String) -> Void
+    private let manualReorderEnabled: Bool
+    private let onManualReorderDrag: ((String, TaskThreadManualDragPhase, NSPoint) -> Void)?
     private let showPlatformLabel: Bool
     private let rowLayout: TaskRowLayoutStyle
     private let subtaskCount: Int
@@ -148,6 +156,7 @@ final class ThreadRowView: NSView {
     private var dragStartOffset: CGFloat = 0
     private var swipeOffset: CGFloat = 0
     private var isSwipeTracking = false
+    private var isManualReorderTracking = false
     private var scrollSwipeSettleTimer: Timer?
     private var didDrag = false
     private var isHovering = false {
@@ -173,7 +182,9 @@ final class ThreadRowView: NSView {
         onTogglePin: @escaping (String) -> Void,
         subtaskCount: Int,
         isExpanded: Bool,
-        onToggleSubtasks: @escaping (String) -> Void
+        onToggleSubtasks: @escaping (String) -> Void,
+        manualReorderEnabled: Bool,
+        onManualReorderDrag: ((String, TaskThreadManualDragPhase, NSPoint) -> Void)?
     ) {
         self.item = item
         self.showPlatformLabel = showPlatformLabel
@@ -182,6 +193,8 @@ final class ThreadRowView: NSView {
         self.onDismiss = onDismiss
         self.onTogglePin = onTogglePin
         self.onToggleSubtasks = onToggleSubtasks
+        self.manualReorderEnabled = manualReorderEnabled
+        self.onManualReorderDrag = onManualReorderDrag
         self.subtaskCount = subtaskCount
         self.isExpanded = isExpanded
         self.subtaskBadgeView = SubtaskCountBadgeView(count: subtaskCount)
@@ -322,6 +335,7 @@ final class ThreadRowView: NSView {
         mouseDownPoint = event.locationInWindow
         dragStartOffset = swipeOffset
         isSwipeTracking = false
+        isManualReorderTracking = false
         didDrag = false
     }
 
@@ -329,6 +343,17 @@ final class ThreadRowView: NSView {
         let point = event.locationInWindow
         let deltaX = point.x - mouseDownPoint.x
         let deltaY = point.y - mouseDownPoint.y
+        if manualReorderEnabled, !isSwipeTracking,
+           (isManualReorderTracking || (abs(deltaY) > 6 && abs(deltaY) >= abs(deltaX))) {
+            if !isManualReorderTracking {
+                isManualReorderTracking = true
+                ThreadHoverPanel.shared.hide(owner: self)
+                onManualReorderDrag?(item.id, .began, mouseDownPoint)
+            }
+            didDrag = true
+            onManualReorderDrag?(item.id, .moved, point)
+            return
+        }
         if !isSwipeTracking {
             guard abs(deltaX) > 6 || abs(deltaY) > 6 else { return }
             guard abs(deltaX) > abs(deltaY) * 1.2 else { return }
@@ -342,6 +367,12 @@ final class ThreadRowView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         ThreadHoverPanel.shared.hide(owner: self)
+        if isManualReorderTracking {
+            onManualReorderDrag?(item.id, .ended, event.locationInWindow)
+            isManualReorderTracking = false
+            didDrag = false
+            return
+        }
         if isSwipeTracking {
             if swipeOffset <= -ThreadRowView.dismissThreshold {
                 onDismiss(item.id)
@@ -788,6 +819,10 @@ final class ThreadGroupView: NSView {
     private static let topGap: CGFloat = 6
     private static let bottomGap: CGFloat = 8
 
+    let rootThreadID: String
+    let statusGroup: TaskStatusGroup
+    let isPinned: Bool
+
     init(
         root: CodexThreadItem,
         subtasks: [CodexThreadItem],
@@ -797,10 +832,15 @@ final class ThreadGroupView: NSView {
         onOpen: @escaping (String) -> Void,
         onDismiss: @escaping (String) -> Void,
         onTogglePin: @escaping (String) -> Void,
-        onToggleSubtasks: @escaping (String) -> Void
+        onToggleSubtasks: @escaping (String) -> Void,
+        manualReorderEnabled: Bool,
+        onManualReorderDrag: ((String, TaskThreadManualDragPhase, NSPoint) -> Void)?
     ) {
         self.isExpanded = isExpanded && !subtasks.isEmpty
         self.rootHeight = taskBarDisplayedRowHeight(for: rowLayout)
+        self.rootThreadID = root.id
+        self.statusGroup = TaskStatusGroup.group(for: root.status)
+        self.isPinned = TaskBarSettings.isPinned(root.id)
         self.rootView = ThreadRowView(
             item: root,
             showPlatformLabel: showPlatformLabel,
@@ -810,7 +850,9 @@ final class ThreadGroupView: NSView {
             onTogglePin: onTogglePin,
             subtaskCount: subtasks.count,
             isExpanded: isExpanded,
-            onToggleSubtasks: onToggleSubtasks
+            onToggleSubtasks: onToggleSubtasks,
+            manualReorderEnabled: manualReorderEnabled,
+            onManualReorderDrag: onManualReorderDrag
         )
         self.subtaskViews = subtasks.map { SubtaskRowView(item: $0, onOpen: onOpen) }
         let childrenHeight = self.isExpanded
@@ -1715,12 +1757,21 @@ private final class TaskBarActionButton: NSButton {
 }
 
 final class TaskBarRowsView: NSView {
-    private let arrangedViews: [NSView]
-    private let arrangedHeights: [CGFloat]
+    private var arrangedViews: [NSView]
+    private var arrangedHeights: [CGFloat]
+    private let manualReorderEnabled: Bool
+    private let onManualOrderCommitted: ([String]) -> Void
+    private var draggedGroup: ThreadGroupView?
 
-    init(rowViews: [NSView]) {
+    init(
+        rowViews: [NSView],
+        manualReorderEnabled: Bool = false,
+        onManualOrderCommitted: @escaping ([String]) -> Void = { _ in }
+    ) {
         arrangedViews = rowViews
         arrangedHeights = rowViews.map(\.frame.height)
+        self.manualReorderEnabled = manualReorderEnabled
+        self.onManualOrderCommitted = onManualOrderCommitted
         let height = arrangedHeights.reduce(CGFloat(0), +)
         super.init(frame: NSRect(x: 0, y: 0, width: menuPanelWidth, height: height))
         wantsLayer = true
@@ -1776,5 +1827,49 @@ final class TaskBarRowsView: NSView {
             view.frame = NSRect(x: 0, y: y, width: bounds.width, height: height)
             y += height
         }
+    }
+
+    func handleManualReorderDrag(id: String, phase: TaskThreadManualDragPhase, windowPoint: NSPoint) {
+        guard manualReorderEnabled else { return }
+        let point = convert(windowPoint, from: nil)
+        switch phase {
+        case .began:
+            draggedGroup = arrangedViews
+                .compactMap { $0 as? ThreadGroupView }
+                .first { $0.rootThreadID == id }
+        case .moved:
+            reflowManualOrder(at: point)
+        case .ended:
+            reflowManualOrder(at: point)
+            commitManualOrder()
+            draggedGroup = nil
+        }
+    }
+
+    private func reflowManualOrder(at point: NSPoint) {
+        guard let draggedGroup,
+              let currentIndex = arrangedViews.firstIndex(where: { $0 === draggedGroup }) else { return }
+        let eligibleTargets = arrangedViews.compactMap { $0 as? ThreadGroupView }.filter {
+            $0.statusGroup == draggedGroup.statusGroup && $0.isPinned == draggedGroup.isPinned
+        }
+        guard let target = eligibleTargets.min(by: {
+            abs($0.frame.midY - point.y) < abs($1.frame.midY - point.y)
+        }), let targetIndex = arrangedViews.firstIndex(where: { $0 === target }), targetIndex != currentIndex else {
+            return
+        }
+        arrangedViews.remove(at: currentIndex)
+        arrangedViews.insert(draggedGroup, at: targetIndex)
+        arrangedHeights = arrangedViews.map(\.frame.height)
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+    }
+
+    private func commitManualOrder() {
+        guard let draggedGroup else { return }
+        let orderedIDs = arrangedViews.compactMap { $0 as? ThreadGroupView }
+            .filter { $0.statusGroup == draggedGroup.statusGroup && $0.isPinned == draggedGroup.isPinned }
+            .map(\.rootThreadID)
+        guard orderedIDs.count > 1 else { return }
+        onManualOrderCommitted(orderedIDs)
     }
 }

@@ -153,6 +153,18 @@ func stableThreadOrder(_ lhs: CodexThreadItem, _ rhs: CodexThreadItem) -> Bool {
     if lhsRank != rhsRank { return lhsRank < rhsRank }
 
     let sortMode = TaskBarSettings.threadSortMode
+    if sortMode == .manual {
+        let lhsManualRank = TaskBarSettings.manualThreadRank(lhs.id)
+        let rhsManualRank = TaskBarSettings.manualThreadRank(rhs.id)
+        if lhsManualRank != rhsManualRank {
+            switch (lhsManualRank, rhsManualRank) {
+            case let (lhsRank?, rhsRank?): return lhsRank < rhsRank
+            case (.some, .none): return true
+            case (.none, .some): return false
+            case (.none, .none): break
+            }
+        }
+    }
     let lhsPrimary = threadSortTimestamp(lhs, mode: sortMode)
     let rhsPrimary = threadSortTimestamp(rhs, mode: sortMode)
     if lhsPrimary != rhsPrimary {
@@ -176,6 +188,8 @@ private func threadSortTimestamp(_ item: CodexThreadItem, mode: TaskThreadSortMo
         return item.lastActivity.timeIntervalSince1970
     case .startedNewest, .startedOldest:
         return (item.startedAt ?? item.lastActivity).timeIntervalSince1970
+    case .manual:
+        return item.lastActivity.timeIntervalSince1970
     }
 }
 

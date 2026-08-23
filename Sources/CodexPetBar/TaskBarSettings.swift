@@ -43,12 +43,14 @@ enum TaskThreadSortMode: String, CaseIterable {
     case updatedNewest
     case startedNewest
     case startedOldest
+    case manual
 
     var title: String {
         switch self {
         case .updatedNewest: return "最近更新"
         case .startedNewest: return "最近开始"
         case .startedOldest: return "最早开始"
+        case .manual: return "手动排序"
         }
     }
 
@@ -148,6 +150,7 @@ enum TaskBarSettings {
     private static let tokenUnitStyleKey = "tokenUnitStyle"
     private static let rowLayoutKey = "taskRowLayout"
     private static let threadSortModeKey = "threadSortMode"
+    private static let manualThreadOrderKey = "manualThreadOrder"
     private static let statusGroupOrderKey = "statusGroupOrder"
     private static let popoverWidthKey = "popoverWidth"
     private static let popoverHeightKey = "popoverHeight"
@@ -155,8 +158,11 @@ enum TaskBarSettings {
     private static let hoverHiddenFieldsKey = "hoverHiddenFields"
     private static let pinnedThreadsKey = "pinnedThreadIDs"
     private static let pinnedThreadsCap = 100
+    private static let manualThreadOrderCap = 400
     private static let pinnedThreadsLock = NSLock()
     private static var pinnedThreadsCache: Set<String>?
+    private static let manualThreadOrderLock = NSLock()
+    private static var manualThreadOrderCache: [String]?
 
     static let defaultHoverLayout: [TaskHoverLayoutItem] = [
         .field(.status),
@@ -407,6 +413,53 @@ enum TaskBarSettings {
         }
     }
 
+    /// A best-effort ordering of task ids. Entries are intentionally retained when a
+    /// task disappears so a resumed task returns to the place the user chose.
+    /// The bounded list is cached because the comparator can run on a background queue.
+    static var manualThreadOrder: [String] {
+        manualThreadOrderLock.lock()
+        defer { manualThreadOrderLock.unlock() }
+        if let cached = manualThreadOrderCache { return cached }
+        let stored = sanitizedManualThreadOrder(
+            UserDefaults.standard.stringArray(forKey: manualThreadOrderKey) ?? []
+        )
+        manualThreadOrderCache = stored
+        return stored
+    }
+
+    static func manualThreadRank(_ threadID: String) -> Int? {
+        manualThreadOrder.firstIndex(of: threadID)
+    }
+
+    /// Stores the newly arranged visible status group while preserving the saved order
+    /// for all other groups. Rank values are compared only within a status group.
+    static func setManualThreadOrder(_ orderedThreadIDs: [String]) {
+        manualThreadOrderLock.lock()
+        defer { manualThreadOrderLock.unlock() }
+        let requested = sanitizedManualThreadOrder(orderedThreadIDs)
+        guard !requested.isEmpty else { return }
+        let requestedSet = Set(requested)
+        let current = manualThreadOrderCache
+            ?? sanitizedManualThreadOrder(UserDefaults.standard.stringArray(forKey: manualThreadOrderKey) ?? [])
+        let next = sanitizedManualThreadOrder(current.filter { !requestedSet.contains($0) } + requested)
+        UserDefaults.standard.set(next, forKey: manualThreadOrderKey)
+        manualThreadOrderCache = next
+    }
+
+    private static func sanitizedManualThreadOrder(_ ids: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for rawID in ids {
+            let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty, seen.insert(id).inserted else { continue }
+            result.append(id)
+        }
+        if result.count > manualThreadOrderCap {
+            result.removeFirst(result.count - manualThreadOrderCap)
+        }
+        return result
+    }
+
     static func clampedPopoverSize(_ size: NSSize) -> NSSize {
         let maxSize = taskBarPopoverMaxResizableSize()
         return NSSize(
@@ -491,7 +544,7 @@ private enum TaskBarSettingsInfo: CaseIterable {
         case .layout:
             return "选“左侧”把时间 / 状态 / 平台移到左栏，行更窄、可显示更多任务。"
         case .threadSort:
-            return "只调整同一状态分组内的任务顺序；置顶任务始终保持在列表最上方。"
+            return "“手动排序”可在 Task Bar 列表中上下拖动同一状态分组的任务；置顶任务始终保持在列表最上方。"
         case .sourceLabel:
             return "显示任务来自哪个本地来源：Codex、Claude Code 与 OpenCode 都只读取你在“数据目录”页指定的本机文件。"
         case .tokenUnit:

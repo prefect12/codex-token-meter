@@ -65,6 +65,7 @@ final class TaskBarPopoverContentView: NSView {
     private let onOpenThread: (String) -> Void
     private let onDismissThread: (String) -> Void
     private let onTogglePin: (String) -> Void
+    private let manualReorderEnabled: Bool
     private let onSetSubtasksExpanded: (String, Bool) -> Void
     private let externalSelectTab: (TaskBarTab) -> Void
     private var selectedTab: TaskBarTab
@@ -100,6 +101,7 @@ final class TaskBarPopoverContentView: NSView {
         self.onOpenThread = onOpenThread
         self.onDismissThread = onDismissThread
         self.onTogglePin = onTogglePin
+        self.manualReorderEnabled = TaskBarSettings.threadSortMode == .manual
         self.onSetSubtasksExpanded = onSetSubtasksExpanded
         self.externalSelectTab = onSelectTab
         self.selectedTab = selectedTab
@@ -122,6 +124,7 @@ final class TaskBarPopoverContentView: NSView {
         taskCountHeight = 0
 
         var initialToggleHandler: ((String) -> Void)?
+        var initialManualDragHandler: ((String, TaskThreadManualDragPhase, NSPoint) -> Void)?
         let rowViews = TaskBarPopoverContentView.makeRowViews(
             allThreads: threads,
             filteredRoots: filtered,
@@ -132,9 +135,15 @@ final class TaskBarPopoverContentView: NSView {
             onOpenThread: onOpenThread,
             onDismissThread: onDismissThread,
             onTogglePin: onTogglePin,
-            onToggleSubtasks: { id in initialToggleHandler?(id) }
+            onToggleSubtasks: { id in initialToggleHandler?(id) },
+            manualReorderEnabled: manualReorderEnabled,
+            onManualReorderDrag: { id, phase, point in initialManualDragHandler?(id, phase, point) }
         )
-        rowsView = TaskBarRowsView(rowViews: rowViews)
+        rowsView = TaskBarRowsView(
+            rowViews: rowViews,
+            manualReorderEnabled: manualReorderEnabled,
+            onManualOrderCommitted: TaskBarSettings.setManualThreadOrder
+        )
         rowsContentHeight = rowsView.frame.height
         commandBar = CommandButtonBarView(
             onOpenSettings: onOpenSettings,
@@ -193,6 +202,9 @@ final class TaskBarPopoverContentView: NSView {
         initialToggleHandler = { [weak self] id in
             self?.toggleSubtasks(for: id)
         }
+        initialManualDragHandler = { [weak self] id, phase, point in
+            self?.rowsView.handleManualReorderDrag(id: id, phase: phase, windowPoint: point)
+        }
     }
 
     /// Re-filter and swap the list rows in place, keeping the surrounding chrome
@@ -219,9 +231,17 @@ final class TaskBarPopoverContentView: NSView {
             onTogglePin: onTogglePin,
             onToggleSubtasks: { [weak self] id in
                 self?.toggleSubtasks(for: id)
+            },
+            manualReorderEnabled: manualReorderEnabled,
+            onManualReorderDrag: { [weak self] id, phase, point in
+                self?.rowsView.handleManualReorderDrag(id: id, phase: phase, windowPoint: point)
             }
         )
-        let newRowsView = TaskBarRowsView(rowViews: rowViews)
+        let newRowsView = TaskBarRowsView(
+            rowViews: rowViews,
+            manualReorderEnabled: manualReorderEnabled,
+            onManualOrderCommitted: TaskBarSettings.setManualThreadOrder
+        )
         rowsView = newRowsView
         rowsContentHeight = newRowsView.frame.height
         rowsScrollView.documentView = newRowsView
@@ -258,7 +278,9 @@ final class TaskBarPopoverContentView: NSView {
         onOpenThread: @escaping (String) -> Void,
         onDismissThread: @escaping (String) -> Void,
         onTogglePin: @escaping (String) -> Void,
-        onToggleSubtasks: @escaping (String) -> Void
+        onToggleSubtasks: @escaping (String) -> Void,
+        manualReorderEnabled: Bool,
+        onManualReorderDrag: @escaping (String, TaskThreadManualDragPhase, NSPoint) -> Void
     ) -> [NSView] {
         if filteredRoots.isEmpty {
             return [EmptyStateView(message: selectedTab.emptyMessage)]
@@ -274,7 +296,9 @@ final class TaskBarPopoverContentView: NSView {
                 onOpen: onOpenThread,
                 onDismiss: onDismissThread,
                 onTogglePin: onTogglePin,
-                onToggleSubtasks: onToggleSubtasks
+                onToggleSubtasks: onToggleSubtasks,
+                manualReorderEnabled: manualReorderEnabled,
+                onManualReorderDrag: onManualReorderDrag
             )
         }
     }
