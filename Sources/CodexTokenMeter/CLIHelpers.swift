@@ -34,7 +34,8 @@ func scanReport(window: WindowOption, source: QuotaViewOption, codexScanner: Cod
         if enabled.contains(.api) {
             reports.append(mergedTokenReport([
                 codexScanner.scan(window: window, partition: .api),
-                ExternalAPIUsageStore.readReport(window: window)
+                ExternalAPIUsageStore.readReport(window: window),
+                OpenCodeTokenScanner.shared.scan(window: window)
             ]))
         }
         return mergedTokenReport(reports)
@@ -45,7 +46,8 @@ func scanReport(window: WindowOption, source: QuotaViewOption, codexScanner: Cod
     case .api:
         return mergedTokenReport([
             codexScanner.scan(window: window, partition: .api),
-            ExternalAPIUsageStore.readReport(window: window)
+            ExternalAPIUsageStore.readReport(window: window),
+            OpenCodeTokenScanner.shared.scan(window: window)
         ])
     }
 }
@@ -60,7 +62,8 @@ func scanReport(hours: Int, source: QuotaViewOption, codexScanner: CodexTokenSca
         if enabled.contains(.api) {
             reports.append(mergedTokenReport([
                 codexScanner.scan(hours: hours, partition: .api),
-                ExternalAPIUsageStore.readReport(hours: hours)
+                ExternalAPIUsageStore.readReport(hours: hours),
+                OpenCodeTokenScanner.shared.scan(hours: hours)
             ]))
         }
         return mergedTokenReport(reports)
@@ -71,7 +74,8 @@ func scanReport(hours: Int, source: QuotaViewOption, codexScanner: CodexTokenSca
     case .api:
         return mergedTokenReport([
             codexScanner.scan(hours: hours, partition: .api),
-            ExternalAPIUsageStore.readReport(hours: hours)
+            ExternalAPIUsageStore.readReport(hours: hours),
+            OpenCodeTokenScanner.shared.scan(hours: hours)
         ])
     }
 }
@@ -230,7 +234,8 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
     let apiReport = quota == .all && enabled.contains(.api)
         ? mergedTokenReport([
             scanner.scan(window: window, partition: .api),
-            ExternalAPIUsageStore.readReport(window: window)
+            ExternalAPIUsageStore.readReport(window: window),
+            OpenCodeTokenScanner.shared.scan(window: window)
         ])
         : nil
     let report = quota == .all
@@ -327,7 +332,8 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let apiDays = section == .costs ? 365 : ((section == .reasoning || section == .combinationRanking || section == .models) ? 90 : 7)
     let api = mergedTokenReport([
         scanner.scan(days: apiDays, partition: .api),
-        ExternalAPIUsageStore.readReport(days: apiDays)
+        ExternalAPIUsageStore.readReport(days: apiDays),
+        OpenCodeTokenScanner.shared.scan(days: apiDays)
     ])
     let all = mergedTokenReport([codex, claude, api])
     let codexRepoInsightReports = isModelRoutingSection

@@ -274,7 +274,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                     presetDayCount.map { self.scanner.scan(days: $0, partition: .api) }
                         ?? self.scanner.scan(from: start, to: end, partition: .api),
                     presetDayCount.map { ExternalAPIUsageStore.readReport(days: $0) }
-                        ?? ExternalAPIUsageStore.readReport(from: start, to: end)
+                        ?? ExternalAPIUsageStore.readReport(from: start, to: end),
+                    presetDayCount.map { OpenCodeTokenScanner.shared.scan(days: $0) }
+                        ?? OpenCodeTokenScanner.shared.scan(from: start, to: end)
                 ])
                 let all = mergedTokenReport([codex, claude, api])
                 DispatchQueue.main.async {
@@ -363,7 +365,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let api = reportCache[ReportCacheKey(window: window, quota: .api)]
             ?? mergedTokenReport([
                 scanner.scan(window: window, partition: .api),
-                ExternalAPIUsageStore.readReport(window: window)
+                ExternalAPIUsageStore.readReport(window: window),
+                OpenCodeTokenScanner.shared.scan(window: window)
             ])
         let reports = ModelRangeReports(codex: codex, claude: claude, api: api, all: all, cachedAt: cachedAt)
         modelRangeReportCache[key] = reports
@@ -641,7 +644,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 let claude = enabled.contains(.claude) ? self.claudeScanner.scan(window: window) : nil
                 let api = enabled.contains(.api) ? mergedTokenReport([
                     self.scanner.scan(window: window, partition: .api),
-                    ExternalAPIUsageStore.readReport(window: window)
+                    ExternalAPIUsageStore.readReport(window: window),
+                    OpenCodeTokenScanner.shared.scan(window: window)
                 ]) : nil
                 codexReport = codex
                 claudeReport = claude
@@ -975,7 +979,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             if enabled.contains(.api) {
                 reports.append(mergedTokenReport([
                     scanner.scan(window: window, partition: .api),
-                    ExternalAPIUsageStore.readReport(window: window)
+                    ExternalAPIUsageStore.readReport(window: window),
+                    OpenCodeTokenScanner.shared.scan(window: window)
                 ]))
             }
             return mergedTokenReport(reports)
@@ -986,7 +991,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         case .api:
             return mergedTokenReport([
                 scanner.scan(window: window, partition: .api),
-                ExternalAPIUsageStore.readReport(window: window)
+                ExternalAPIUsageStore.readReport(window: window),
+                OpenCodeTokenScanner.shared.scan(window: window)
             ])
         }
     }
@@ -1001,7 +1007,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             if enabled.contains(.api) {
                 reports.append(mergedTokenReport([
                     scanner.scan(days: days, partition: .api),
-                    ExternalAPIUsageStore.readReport(days: days)
+                    ExternalAPIUsageStore.readReport(days: days),
+                    OpenCodeTokenScanner.shared.scan(days: days)
                 ]))
             }
             return mergedTokenReport(reports)
@@ -1012,7 +1019,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         case .api:
             return mergedTokenReport([
                 scanner.scan(days: days, partition: .api),
-                ExternalAPIUsageStore.readReport(days: days)
+                ExternalAPIUsageStore.readReport(days: days),
+                OpenCodeTokenScanner.shared.scan(days: days)
             ])
         }
     }
@@ -1537,14 +1545,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         updateProgress?(0.44, .loadingAllUsage)
         let api = mergedTokenReport([
             scanner.scan(days: 365, partition: .api),
-            ExternalAPIUsageStore.readReport(days: 365)
+            ExternalAPIUsageStore.readReport(days: 365),
+            OpenCodeTokenScanner.shared.scan(days: 365)
         ])
         let all = mergedTokenReport([codex, claude, api])
         let modelCodex = scanner.scan(days: 90, partition: .codex)
         let modelClaude = claudeScanner.scan(days: 90)
         let modelAPI = mergedTokenReport([
             scanner.scan(days: 90, partition: .api),
-            ExternalAPIUsageStore.readReport(days: 90)
+            ExternalAPIUsageStore.readReport(days: 90),
+            OpenCodeTokenScanner.shared.scan(days: 90)
         ])
         let modelAll = mergedTokenReport([modelCodex, modelClaude, modelAPI])
         updateProgress?(0.62, .loadingRepoInsights)
