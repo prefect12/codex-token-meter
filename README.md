@@ -4,7 +4,7 @@
 
 [中文详细说明](README.zh-CN.md) · [普通用户安装教程](docs/INSTALL.zh-CN.md) · [English](README.en.md) · [下载最新版](https://github.com/prefect12/codex-token-meter/releases/latest)
 
-- **AI Token Meter**：查看 Codex / Claude Code 的本地 token 用量、缓存命中率、实时剩余额度、模型统计、仓库洞察和订阅价值估算。
+- **AI Token Meter**：查看 Codex / Claude Code 的本地 token 用量、缓存命中率、实时剩余额度、模型统计和订阅价值估算。
 - **Task Bar**：把正在运行、等待输入、已完成但未读的 Codex / Claude Code 任务，以及 Claude Desktop Home 最近对话集中到一个轻量状态栏列表里，方便快速回到任务。
 
 两者都只读取本机数据，不上传会话日志。
@@ -69,14 +69,6 @@ AI Token Meter 的状态栏面板支持 `全部 / Codex / Claude / API` 和 `24h
 </p>
 
 过去 365 天按来源（全部 / Codex / Claude / API）和模型统计的总量、输入/输出拆分、缓存命中率、API 成本，以及全年活动热力图。
-
-### 详情窗口 · 仓库洞察
-
-<p align="center">
-  <img src="docs/images/zh-details-insights.webp" alt="AI Token Meter 仓库洞察页" width="760">
-</p>
-
-Repo 会话体检：按项目和文件夹定位长会话，统计会话长度分布、上下文压缩分布和活跃天数强度，并给出「新 bug 单独窗口」这类拆分建议。支持 `使用习惯 / 使用时间` 两种视角和 `7 / 30 / 90 天` 窗口。
 
 ### 详情窗口 · 活动日历
 
@@ -154,8 +146,7 @@ Task Bar 读取：
 - **额度视图**：支持 `All / Codex / Claude / API` 来源筛选，以及 `24h / 7d / 30d` 时间窗口。
 - **剩余额度**：读取 Codex live rate limits 和 Claude statusline，可显示 5 小时、周/月剩余额度与重置时间。
 - **token 明细**：汇总 input、output、cached input、fresh input、total、cache hit rate、会话数和轮次。
-- **详情窗口**：概览、日历、仓库洞察、思考分析、模型、成本、空间和诊断均支持 API 来源。
-- **仓库洞察**：按项目定位长会话和上下文压缩压力，附会话长度/压缩分布和拆分建议。
+- **详情窗口**：概览、日历、思考分析、模型、成本、空间和诊断均支持 API 来源。
 - **API 成本**：使用 OpenRouter 公共模型目录和内置官方价格回退估算按量费用；未知模型保持未定价并降低价格覆盖率，不会默认套用其他模型价格。
 - **空间管理**：追踪 Codex / Claude 本地日志磁盘占用、近 14 天增长和清理风险构成，可导出报告。
 - **截图渲染**：`--render-dashboard` / `--render-details` 命令行渲染任意页面，`--redact` 把仓库名和目录替换为演示数据。
@@ -254,9 +245,9 @@ Task Bar：
 
 ```bash
 "./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" -appLanguage zh -numberUnitStyle chinese --render-dashboard=/tmp/ai-token-meter-release.png
-"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/zh-details-insights.png --section=insights --redact
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/zh-details-overview.png --section=overview --redact
 "./build/Task Bar.app/Contents/MacOS/TaskBar" --render-taskbar=/tmp/task-bar-release.png
-cwebp -q 90 /tmp/zh-details-insights.png -o docs/images/zh-details-insights.webp
+cwebp -q 90 /tmp/zh-details-overview.png -o docs/images/zh-details-overview.webp
 ```
 
 ## 隐私

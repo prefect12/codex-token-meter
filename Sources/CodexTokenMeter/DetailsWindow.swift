@@ -206,7 +206,7 @@ enum DetailsSection: CaseIterable {
     }
 
     var isVisibleInDetailsNavigation: Bool {
-        self != .costs && self != .combinationRanking
+        self != .costs && self != .combinationRanking && self != .insights
     }
 
     var visibleFallback: DetailsSection {
@@ -3037,7 +3037,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var sidebarNavigationGroups: [(title: String, sections: [DetailsSection])] {
         [
             (sidebarGroupTitle(chinese: "用量", traditionalChinese: "用量", english: "Usage", japanese: "使用量"), [.overview, .calendar, .models]),
-            (sidebarGroupTitle(chinese: "分析", traditionalChinese: "分析", english: "Analysis", japanese: "分析"), [.reasoning, .insights, .storage]),
+            (sidebarGroupTitle(chinese: "分析", traditionalChinese: "分析", english: "Analysis", japanese: "分析"), [.reasoning, .storage]),
             (sidebarGroupTitle(chinese: "偏好设置", traditionalChinese: "偏好設定", english: "Preferences", japanese: "環境設定"), [.modelRouting, .settings, .diagnostics, .about])
         ]
     }
