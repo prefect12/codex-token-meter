@@ -7,7 +7,9 @@ enum TaskBarBuild {
         isBetaBuild && TaskBarSettings.pageStyle == .island
     }
     static var isClassicPage: Bool {
-        isBetaBuild && TaskBarSettings.pageStyle == .classic
+        // The stable bundle must always retain the current main UI. Only the
+        // dedicated Beta bundle can opt into the experimental Island surface.
+        !isBeta
     }
     static var displayName: String { isBeta ? "Task Bar Beta" : "Task Bar" }
     static var liveWorkspaceLabel: String { isBeta ? "●  LIVE WORKSPACE · BETA" : "●  LIVE WORKSPACE" }
