@@ -330,9 +330,9 @@ extension UsageDetailsView {
                 )
             }
             contributionWeekSummaries = summaries
-            for summary in summaries.values where isContributionWeekFullySelected(summary) {
-                drawContributionWeekHighlight(summary, emphasized: true)
-            }
+            drawContributionSelectedWeekHighlights(
+                summaries.values.filter(isContributionWeekFullySelected)
+            )
             for (key, summary) in summaries {
                 let center = CGPoint(x: summary.hitRect.midX, y: startY - 11)
                 let isSelected = isContributionWeekFullySelected(summary)
@@ -500,8 +500,26 @@ extension UsageDetailsView {
         }
     }
 
-    func drawContributionWeekHighlight(_ summary: ContributionWeekSummary, emphasized: Bool) {
-        let rect = summary.hitRect.insetBy(dx: -4, dy: -4)
+    /// Adjacent selected weeks form one calendar-range outline instead of a
+    /// stack of overlapping week outlines. Non-adjacent selections remain
+    /// distinct so the selection still reflects the actual chosen weeks.
+    func drawContributionSelectedWeekHighlights(_ summaries: [ContributionWeekSummary]) {
+        let selected = summaries.sorted { $0.hitRect.minX < $1.hitRect.minX }
+        guard var group = selected.first?.hitRect else { return }
+
+        for summary in selected.dropFirst() {
+            if summary.hitRect.minX <= group.maxX + 1 {
+                group = group.union(summary.hitRect)
+            } else {
+                drawContributionWeekHighlight(group, emphasized: true)
+                group = summary.hitRect
+            }
+        }
+        drawContributionWeekHighlight(group, emphasized: true)
+    }
+
+    func drawContributionWeekHighlight(_ hitRect: NSRect, emphasized: Bool) {
+        let rect = hitRect.insetBy(dx: -4, dy: -4)
         accentTeal.withAlphaComponent(emphasized ? 0.14 : 0.08).setFill()
         NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
         accentTeal.withAlphaComponent(emphasized ? 0.70 : 0.40).setStroke()
