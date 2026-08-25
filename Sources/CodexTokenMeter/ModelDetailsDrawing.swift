@@ -6,6 +6,7 @@ struct ModelUsageHoverRow {
     let subtitle: String?
     let usage: Usage
     let shareText: String?
+    let cacheRateText: String
     let sessions: Int?
     let events: Int?
     let apiCostText: String?
@@ -70,6 +71,8 @@ extension UsageDetailsView {
         var lines: [(String, String, NSColor)] = [
             (t(.total), format(row.usage.total), NSColor.white.withAlphaComponent(0.9)),
             (t(.input), format(row.usage.input), NSColor.white.withAlphaComponent(0.78)),
+            (t(.cached), format(row.usage.cachedInput), NSColor.white.withAlphaComponent(0.78)),
+            (t(.modelSortCacheRate), row.cacheRateText, accentTeal.withAlphaComponent(0.9)),
             (t(.output), format(row.usage.output), NSColor.white.withAlphaComponent(0.78))
         ]
         if let shareText = row.shareText {
@@ -189,12 +192,13 @@ extension UsageDetailsView {
         let totalTokens = presentation.knownTokens
         drawModelShareBar(models: models, totalTokens: totalTokens, rect: NSRect(x: rect.minX + 16, y: rect.minY + 54, width: rect.width - 32, height: 8))
 
-        let showsActivity = rect.width >= 920
+        let showsActivity = rect.width >= 1_000
         let gap: CGFloat = 10
         let moneyW: CGFloat = 104
         let eventsW: CGFloat = 76
         let sessionsW: CGFloat = 68
         let outputW: CGFloat = 84
+        let cacheRateW: CGFloat = 72
         let inputW: CGFloat = 88
         let totalW: CGFloat = 88
         let shareW: CGFloat = 76
@@ -202,7 +206,8 @@ extension UsageDetailsView {
         let eventsX = moneyX - gap - eventsW
         let sessionsX = eventsX - gap - sessionsW
         let outputX = (showsActivity ? sessionsX : moneyX) - gap - outputW
-        let inputX = outputX - gap - inputW
+        let cacheRateX = outputX - gap - cacheRateW
+        let inputX = cacheRateX - gap - inputW
         let totalX = inputX - gap - totalW
         let shareX = totalX - gap - shareW
         let nameX = rect.minX + 32
@@ -215,6 +220,7 @@ extension UsageDetailsView {
         drawModelSortHeader(t(.modelSortTokens), option: .share, rect: NSRect(x: shareX, y: headerY, width: shareW, height: 14), alignment: .right, color: headerColor, font: headerFont)
         drawModelSortHeader(t(.total), option: .total, rect: NSRect(x: totalX, y: headerY, width: totalW, height: 14), alignment: .right, color: headerColor, font: headerFont)
         drawModelSortHeader(t(.input), option: .input, rect: NSRect(x: inputX, y: headerY, width: inputW, height: 14), alignment: .right, color: headerColor, font: headerFont)
+        drawModelSortHeader(t(.modelSortCacheRate), option: .cacheRate, rect: NSRect(x: cacheRateX, y: headerY, width: cacheRateW, height: 14), alignment: .right, color: headerColor, font: headerFont)
         drawModelSortHeader(t(.output), option: .output, rect: NSRect(x: outputX, y: headerY, width: outputW, height: 14), alignment: .right, color: headerColor, font: headerFont)
         if showsActivity {
             drawModelSortHeader(t(.sessions), option: .sessions, rect: NSRect(x: sessionsX, y: headerY, width: sessionsW, height: 14), alignment: .right, color: headerColor, font: headerFont)
@@ -228,6 +234,7 @@ extension UsageDetailsView {
             let color = modelShareColor(index)
             let share = totalTokens > 0 ? Double(model.usage.total) / Double(totalTokens) * 100 : 0
             let shareText = share > 0 && share < 0.1 ? "<0.1%" : String(format: "%.1f%%", share)
+            let cacheRateText = String(format: "%.1f%%", model.usage.cachePercent)
             let estimate = APICostEstimator.estimate(usage: model.usage, modelName: model.name)
             let moneyText = estimate.hasPricedUsage
                 ? compactMoney(convertCurrency(estimate.usdValue, from: .usd, to: displayCurrency), currency: displayCurrency)
@@ -240,6 +247,7 @@ extension UsageDetailsView {
                 subtitle: nil,
                 usage: model.usage,
                 shareText: shareText,
+                cacheRateText: cacheRateText,
                 sessions: model.sessions,
                 events: model.events,
                 apiCostText: estimate.hasPricedUsage ? displayAPIMoney(estimate.usdValue, source: selectedDetailsSource) : nil,
@@ -255,6 +263,7 @@ extension UsageDetailsView {
             drawRight(shareText, rect: NSRect(x: shareX, y: rowY, width: shareW, height: 18), color: NSColor.white.withAlphaComponent(0.62), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
             drawRight(compact(model.usage.total), rect: NSRect(x: totalX, y: rowY, width: totalW, height: 18), color: .white)
             drawRight(compact(model.usage.input), rect: NSRect(x: inputX, y: rowY, width: inputW, height: 18), color: NSColor.white.withAlphaComponent(0.58))
+            drawRight(cacheRateText, rect: NSRect(x: cacheRateX, y: rowY, width: cacheRateW, height: 18), color: accentTeal.withAlphaComponent(0.9), font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold))
             drawRight(compact(model.usage.output), rect: NSRect(x: outputX, y: rowY, width: outputW, height: 18), color: NSColor.white.withAlphaComponent(0.58))
             if showsActivity {
                 drawRight("\(model.sessions)", rect: NSRect(x: sessionsX, y: rowY, width: sessionsW, height: 18), color: NSColor.white.withAlphaComponent(0.52))

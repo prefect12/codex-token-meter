@@ -426,6 +426,7 @@ enum L10nKey {
     case modelNoSearchResults
     case modelSearchPlaceholder
     case modelSortCost
+    case modelSortCacheRate
     case modelSortName
     case modelSortTokens
     case modelTrustIdentificationFormat
@@ -751,6 +752,7 @@ enum L10nKey {
         case .modelNoSearchResults: return "No matching models"
         case .modelSearchPlaceholder: return "Search models"
         case .modelSortCost: return "API cost"
+        case .modelSortCacheRate: return "Cache rate"
         case .modelSortName: return "Name"
         case .modelSortTokens: return "Token share"
         case .modelTrustIdentificationFormat: return "Model labels %.1f%% · %d unknown hidden"
@@ -1035,6 +1037,7 @@ enum L10nKey {
         case .modelNoSearchResults: return "没有匹配的模型"
         case .modelSearchPlaceholder: return "搜索模型"
         case .modelSortCost: return "API 成本"
+        case .modelSortCacheRate: return "缓存率"
         case .modelSortName: return "名称"
         case .modelSortTokens: return "Token 比例"
         case .modelTrustIdentificationFormat: return "模型识别覆盖 %.1f%% · 已隐藏 %d 个未知模型"
@@ -1319,6 +1322,7 @@ enum L10nKey {
         case .modelNoSearchResults: return "一致するモデルはありません"
         case .modelSearchPlaceholder: return "モデルを検索"
         case .modelSortCost: return "API コスト"
+        case .modelSortCacheRate: return "キャッシュ率"
         case .modelSortName: return "名前"
         case .modelSortTokens: return "Token 比率"
         case .modelTrustIdentificationFormat: return "モデル識別率 %.1f%% · 不明 %d 件を非表示"

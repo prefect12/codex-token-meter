@@ -5,6 +5,7 @@ enum ModelListSortOption: String, CaseIterable, Hashable {
     case share
     case total
     case input
+    case cacheRate
     case output
     case sessions
     case events
@@ -61,6 +62,8 @@ struct ModelListPresentation {
                 comparison = compare(lhs.usage.total, rhs.usage.total)
             case .input:
                 comparison = compare(lhs.usage.input, rhs.usage.input)
+            case .cacheRate:
+                comparison = compare(lhs.usage.cachePercent, rhs.usage.cachePercent)
             case .output:
                 comparison = compare(lhs.usage.output, rhs.usage.output)
             case .sessions:
