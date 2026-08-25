@@ -1820,7 +1820,8 @@ extension UsageDetailsView {
             width: rect.width - 36,
             height: max(minimumModelHeight, rect.maxY - modelY - 18)
         )
-        let cost = planCostEstimate(
+        let showsCacheRatio = selectedContributionMonths.count == 1
+        let cost = showsCacheRatio ? nil : planCostEstimate(
             report: report,
             selectedDay: nil,
             limit: sourceCostLimit(for: snapshot),
@@ -1828,7 +1829,12 @@ extension UsageDetailsView {
             monthlyCost: AppSettings.monthlyPlanCost(for: selectedDetailsSource),
             paymentStartDay: AppSettings.paymentStartDay(for: selectedDetailsSource)
         )
-        drawSelectedDayModels(models, weeklyQuotaTotal: cost?.weeklyQuotaTotal, rect: modelRect)
+        drawSelectedDayModels(
+            models,
+            weeklyQuotaTotal: cost?.weeklyQuotaTotal,
+            showsCacheRatio: showsCacheRatio,
+            rect: modelRect
+        )
     }
 
     func weekModelBreakdown(_ summary: ContributionWeekSummary) -> [ModelUsage] {
@@ -1921,7 +1927,7 @@ extension UsageDetailsView {
         }
     }
 
-    func drawSelectedDayModels(_ models: [ModelUsage], weeklyQuotaTotal: Double? = nil, rect: NSRect) {
+    func drawSelectedDayModels(_ models: [ModelUsage], weeklyQuotaTotal: Double? = nil, showsCacheRatio: Bool = false, rect: NSRect) {
         drawText(t(.models), rect: NSRect(x: rect.minX, y: rect.minY, width: 120, height: 18), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
         guard !models.isEmpty else {
             drawText(t(.noModelLabelForDay), rect: NSRect(x: rect.minX, y: rect.minY + 24, width: rect.width, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
@@ -1961,7 +1967,7 @@ extension UsageDetailsView {
         }
         drawRight(t(.total), rect: NSRect(x: totalX, y: rect.minY, width: 82, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         if let quotaX {
-            drawRight(t(.weeklyQuotaShare), rect: NSRect(x: quotaX, y: rect.minY, width: 74, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
+            drawRight(showsCacheRatio ? t(.cacheRatio) : t(.weeklyQuotaShare), rect: NSRect(x: quotaX, y: rect.minY, width: 74, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         }
         drawRight(t(.apiEquivalent), rect: NSRect(x: costX, y: rect.minY, width: 92, height: 18), color: NSColor.white.withAlphaComponent(0.42), font: .systemFont(ofSize: 10, weight: .bold))
         for (index, model) in models.enumerated() {
@@ -1994,12 +2000,17 @@ extension UsageDetailsView {
             }
             drawRight(compact(model.usage.total), rect: NSRect(x: totalX, y: y + 1, width: 82, height: 16), color: .white)
             let quotaText: String
-            if let weeklyQuotaTotal, weeklyQuotaTotal > 0 {
+            let quotaColor: NSColor
+            if showsCacheRatio {
+                quotaText = String(format: "%.2f%%", model.usage.cachePercent)
+                quotaColor = .systemTeal
+            } else if let weeklyQuotaTotal, weeklyQuotaTotal > 0 {
                 quotaText = String(format: "%.2f%%", Double(model.usage.total) / weeklyQuotaTotal * 100)
+                quotaColor = .systemGreen
             } else {
                 quotaText = "—"
+                quotaColor = NSColor.white.withAlphaComponent(0.38)
             }
-            let quotaColor = (weeklyQuotaTotal ?? 0) > 0 ? NSColor.systemGreen : NSColor.white.withAlphaComponent(0.38)
             if let quotaX {
                 drawRight(quotaText, rect: NSRect(x: quotaX, y: y + 1, width: 74, height: 16), color: quotaColor)
             }

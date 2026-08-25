@@ -1,5 +1,26 @@
 import Cocoa
 
+struct ContributionGridCoordinate: Hashable {
+    let column: Int
+    let row: Int
+}
+
+private struct ContributionGridVertex: Hashable {
+    let column: Int
+    let row: Int
+}
+
+struct ContributionMonthCell {
+    let day: DayUsage
+    let rect: NSRect
+    let coordinate: ContributionGridCoordinate
+}
+
+struct ContributionMonthGridLayout {
+    let coordinates: [String: ContributionGridCoordinate]
+    let visualColumns: Int
+}
+
 extension UsageDetailsView {
     func drawAboutPage(content: NSRect) {
         let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 208)
@@ -221,8 +242,66 @@ extension UsageDetailsView {
     }
 
     func isContributionWeekFullySelected(_ summary: ContributionWeekSummary) -> Bool {
-        guard selectedContributionDays.count > 1, !summary.days.isEmpty else { return false }
+        guard selectedContributionMonths.isEmpty,
+              selectedContributionDays.count > 1,
+              !summary.days.isEmpty else { return false }
         return summary.days.allSatisfy { selectedContributionDays.contains($0.day) }
+    }
+
+    /// Lays out each calendar month as its own mini heatmap. The first day of
+    /// every month keeps its real weekday row, the last week ends naturally,
+    /// and one empty visual column separates neighboring months.
+    func contributionMonthGridLayout(days: [DayUsage], useCalendarGrid: Bool, fallbackColumns: Int) -> ContributionMonthGridLayout {
+        guard useCalendarGrid else {
+            let coordinates = Dictionary(uniqueKeysWithValues: days.enumerated().map { index, day in
+                (day.day, ContributionGridCoordinate(column: index % max(fallbackColumns, 1), row: index / max(fallbackColumns, 1)))
+            })
+            return ContributionMonthGridLayout(coordinates: coordinates, visualColumns: fallbackColumns)
+        }
+
+        let formatter = dayFormatter()
+        let calendar = appCalendar()
+        var orderedMonths: [String] = []
+        var daysByMonth: [String: [(day: DayUsage, date: Date)]] = [:]
+        for day in days {
+            guard let date = formatter.date(from: day.day) else { continue }
+            let month = String(day.day.prefix(7))
+            if daysByMonth[month] == nil {
+                orderedMonths.append(month)
+            }
+            daysByMonth[month, default: []].append((day, date))
+        }
+
+        var coordinates: [String: ContributionGridCoordinate] = [:]
+        var nextColumn = 0
+        for (monthIndex, month) in orderedMonths.enumerated() {
+            guard let monthDays = daysByMonth[month], !monthDays.isEmpty,
+                  let representative = monthDays.first?.date,
+                  let monthInterval = calendar.dateInterval(of: .month, for: representative),
+                  let weekInterval = calendar.dateInterval(of: .weekOfYear, for: monthInterval.start) else { continue }
+
+            let weekdayOffset = max(0, calendar.dateComponents([.day], from: weekInterval.start, to: monthInterval.start).day ?? 0)
+            let localColumns = monthDays.compactMap { entry -> Int? in
+                let dayOfMonth = calendar.component(.day, from: entry.date)
+                return (weekdayOffset + max(dayOfMonth - 1, 0)) / 7
+            }
+            guard let minimumLocalColumn = localColumns.min(),
+                  let maximumLocalColumn = localColumns.max() else { continue }
+
+            for entry in monthDays {
+                let dayOfMonth = calendar.component(.day, from: entry.date)
+                let slot = weekdayOffset + max(dayOfMonth - 1, 0)
+                coordinates[entry.day.day] = ContributionGridCoordinate(
+                    column: nextColumn + slot / 7 - minimumLocalColumn,
+                    row: slot % 7
+                )
+            }
+            nextColumn += maximumLocalColumn - minimumLocalColumn + 1
+            if monthIndex < orderedMonths.count - 1 {
+                nextColumn += 1
+            }
+        }
+        return ContributionMonthGridLayout(coordinates: coordinates, visualColumns: max(nextColumn, 1))
     }
 
     func drawContributionGrid(report: TokenReport, rect: NSRect, title: String, compact: Bool) {
@@ -241,9 +320,11 @@ extension UsageDetailsView {
         let useCalendarGrid = !compact || days.count > 90
         let enableDayHover = selectedSection == .overview && compact
         let enableWeekSelection = selectedSection == .calendar && !compact && useCalendarGrid
-        let columns = useCalendarGrid ? Int(ceil(Double(days.count) / 7.0)) : min(days.count, 15)
-        let rows = useCalendarGrid ? 7 : Int(ceil(Double(days.count) / Double(max(columns, 1))))
+        let fallbackColumns = useCalendarGrid ? Int(ceil(Double(days.count) / 7.0)) : min(days.count, 15)
+        let rows = useCalendarGrid ? 7 : Int(ceil(Double(days.count) / Double(max(fallbackColumns, 1))))
         let gap: CGFloat = useCalendarGrid ? (compact ? 2 : 3) : 6
+        let monthLayout = contributionMonthGridLayout(days: days, useCalendarGrid: useCalendarGrid, fallbackColumns: fallbackColumns)
+        let visualColumns = monthLayout.visualColumns
         let left: CGFloat = compact ? 18 : 26
         let right: CGFloat = compact ? 18 : 26
         let top: CGFloat = compact ? 42 : 58
@@ -252,20 +333,21 @@ extension UsageDetailsView {
         let availableH = max(40, rect.height - top - bottom)
         let square = min(
             compact ? 16 : 18,
-            floor(min((availableW - gap * CGFloat(max(columns - 1, 0))) / CGFloat(max(columns, 1)), (availableH - gap * CGFloat(max(rows - 1, 0))) / CGFloat(max(rows, 1))))
+            floor(min((availableW - gap * CGFloat(max(visualColumns - 1, 0))) / CGFloat(max(visualColumns, 1)), (availableH - gap * CGFloat(max(rows - 1, 0))) / CGFloat(max(rows, 1))))
         )
         let gridH = CGFloat(rows) * square + CGFloat(max(rows - 1, 0)) * gap
         let startX = rect.minX + left
         let startY = rect.minY + top
+        let gridW = CGFloat(visualColumns) * square + CGFloat(max(visualColumns - 1, 0)) * gap
         if enableWeekSelection {
             contributionGridSelectionRect = NSRect(
                 x: startX - gap / 2,
                 y: startY - 24,
-                width: CGFloat(columns) * square + CGFloat(max(columns - 1, 0)) * gap + gap,
+                width: gridW + gap,
                 height: gridH + 24 + gap / 2
             )
         }
-        var cells: [(day: DayUsage, rect: NSRect, column: Int)] = []
+        var cells: [ContributionMonthCell] = []
         var weekCells: [Int: [NSRect]] = [:]
         var weekStartDays: [Int: String] = [:]
         var weekEndDays: [Int: String] = [:]
@@ -276,12 +358,17 @@ extension UsageDetailsView {
         var weekDays: [Int: [DayUsage]] = [:]
 
         for (index, day) in days.enumerated() {
-            let col = useCalendarGrid ? index / 7 : index % columns
-            let row = useCalendarGrid ? index % 7 : index / columns
+            let fallbackCoordinate = ContributionGridCoordinate(
+                column: useCalendarGrid ? index / 7 : index % max(fallbackColumns, 1),
+                row: useCalendarGrid ? index % 7 : index / max(fallbackColumns, 1)
+            )
+            let coordinate = monthLayout.coordinates[day.day] ?? fallbackCoordinate
+            let col = coordinate.column
+            let row = coordinate.row
             let isFuture = isFutureContributionDay(day.day, formatter: formatter, calendar: calendar, today: today)
             guard !isFuture else { continue }
             let cell = NSRect(x: startX + CGFloat(col) * (square + gap), y: startY + CGFloat(row) * (square + gap), width: square, height: square)
-            cells.append((day: day, rect: cell, column: col))
+            cells.append(ContributionMonthCell(day: day, rect: cell, coordinate: coordinate))
             if enableWeekSelection || day.usage.total > 0 || day.turns > 0 {
                 contributionDayRects[day.day] = cell
                 if enableDayHover {
@@ -309,9 +396,12 @@ extension UsageDetailsView {
 
         if enableWeekSelection {
             var summaries: [String: ContributionWeekSummary] = [:]
-            for column in 0..<columns {
-                guard let rects = weekCells[column], !rects.isEmpty,
-                      (weekTotals[column] ?? 0) > 0 else { continue }
+            for column in 0..<visualColumns {
+                guard let rects = weekCells[column], !rects.isEmpty else { continue }
+                let hasUsage = (weekTotals[column] ?? 0) > 0
+                let isSelectedDebugWeek = includesEmptyContributionWeeksForDebug
+                    && (weekDays[column] ?? []).allSatisfy { selectedContributionDays.contains($0.day) }
+                guard hasUsage || isSelectedDebugWeek else { continue }
                 let key = weekStartDays[column] ?? ""
                 let unionRect = rects.dropFirst().reduce(rects[0]) { partial, cell in
                     partial.union(cell)
@@ -330,13 +420,18 @@ extension UsageDetailsView {
                 )
             }
             contributionWeekSummaries = summaries
-            drawContributionSelectedWeekHighlights(
-                summaries.values.filter(isContributionWeekFullySelected)
-            )
+            let fullySelectedWeekDays = Set(summaries.values
+                .filter { isContributionWeekFullySelected($0) }
+                .flatMap { $0.days.map(\.day) })
+            let fullySelectedWeekCells = cells.filter { fullySelectedWeekDays.contains($0.day.day) }
+            for component in contributionConnectedCellComponents(fullySelectedWeekCells) {
+                drawContributionSelectionOutline(cells: component, gap: gap)
+            }
             for (key, summary) in summaries {
                 let center = CGPoint(x: summary.hitRect.midX, y: startY - 11)
                 let isSelected = isContributionWeekFullySelected(summary)
-                let isPartiallySelected = summary.days.contains { selectedContributionDays.contains($0.day) }
+                let isPartiallySelected = selectedContributionMonths.isEmpty
+                    && summary.days.contains { selectedContributionDays.contains($0.day) }
                 let radius: CGFloat = isSelected ? 3.5 : 3
                 let dotRect = NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
                 if isSelected {
@@ -357,6 +452,8 @@ extension UsageDetailsView {
             }
             updateContributionWeekHoverOverlay()
         }
+
+        drawSelectedContributionMonthOutline(cells: cells, gap: gap)
 
         for cellData in cells {
             let day = cellData.day
@@ -396,7 +493,7 @@ extension UsageDetailsView {
 
         let labelY = min(startY + gridH + 10, rect.maxY - 38)
         let hintY = min(labelY + 18, rect.maxY - 20)
-        drawContributionMonthLabels(days: days, useCalendarGrid: useCalendarGrid, columns: columns, square: square, gap: gap, startX: startX, y: labelY, compact: compact)
+        drawContributionMonthLabels(cells: cells, y: labelY)
         drawText(t(.usageIntensityHint), rect: NSRect(x: startX, y: hintY, width: max(0, rect.maxX - startX - right), height: 16), font: .systemFont(ofSize: 11, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
         if enableDayHover,
            let hoveredContributionDay,
@@ -498,34 +595,6 @@ extension UsageDetailsView {
         default:
             return "API cost"
         }
-    }
-
-    /// Adjacent selected weeks form one calendar-range outline instead of a
-    /// stack of overlapping week outlines. Non-adjacent selections remain
-    /// distinct so the selection still reflects the actual chosen weeks.
-    func drawContributionSelectedWeekHighlights(_ summaries: [ContributionWeekSummary]) {
-        let selected = summaries.sorted { $0.hitRect.minX < $1.hitRect.minX }
-        guard var group = selected.first?.hitRect else { return }
-
-        for summary in selected.dropFirst() {
-            if summary.hitRect.minX <= group.maxX + 1 {
-                group = group.union(summary.hitRect)
-            } else {
-                drawContributionWeekHighlight(group, emphasized: true)
-                group = summary.hitRect
-            }
-        }
-        drawContributionWeekHighlight(group, emphasized: true)
-    }
-
-    func drawContributionWeekHighlight(_ hitRect: NSRect, emphasized: Bool) {
-        let rect = hitRect.insetBy(dx: -4, dy: -4)
-        accentTeal.withAlphaComponent(emphasized ? 0.14 : 0.08).setFill()
-        NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
-        accentTeal.withAlphaComponent(emphasized ? 0.70 : 0.40).setStroke()
-        let border = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7)
-        border.lineWidth = emphasized ? 1.5 : 1
-        border.stroke()
     }
 
     func contributionWeekRangeLabel(_ summary: ContributionWeekSummary) -> String {
@@ -686,41 +755,195 @@ extension UsageDetailsView {
         }
         let days = paddedContributionDays(report.byDay)
         let useCalendarGrid = !compact || days.count > 90
-        let columns = useCalendarGrid ? Int(ceil(Double(days.count) / 7.0)) : min(days.count, 15)
-        let rows = useCalendarGrid ? 7 : Int(ceil(Double(days.count) / Double(max(columns, 1))))
+        let fallbackColumns = useCalendarGrid ? Int(ceil(Double(days.count) / 7.0)) : min(days.count, 15)
+        let rows = useCalendarGrid ? 7 : Int(ceil(Double(days.count) / Double(max(fallbackColumns, 1))))
         let gap: CGFloat = useCalendarGrid ? (compact ? 2 : 3) : 6
+        let visualColumns = contributionMonthGridLayout(days: days, useCalendarGrid: useCalendarGrid, fallbackColumns: fallbackColumns).visualColumns
         let left: CGFloat = compact ? 18 : 26
         let right: CGFloat = compact ? 18 : 26
         let top: CGFloat = compact ? 42 : 58
         let availableW = max(40, width - left - right)
         let square = min(
             compact ? 16 : 18,
-            floor((availableW - gap * CGFloat(max(columns - 1, 0))) / CGFloat(max(columns, 1)))
+            floor((availableW - gap * CGFloat(max(visualColumns - 1, 0))) / CGFloat(max(visualColumns, 1)))
         )
         let gridH = CGFloat(rows) * max(6, square) + CGFloat(max(rows - 1, 0)) * gap
         let labelAndHintHeight: CGFloat = compact ? 48 : 54
         return ceil(top + gridH + labelAndHintHeight)
     }
 
-    func drawContributionMonthLabels(days: [DayUsage], useCalendarGrid: Bool, columns: Int, square: CGFloat, gap: CGFloat, startX: CGFloat, y: CGFloat, compact: Bool) {
-        var lastMonth: String?
-        var lastLabelX = -CGFloat.greatestFiniteMagnitude
-        let minimumGap: CGFloat = compact ? 42 : 50
-        let formatter = dayFormatter()
-        let calendar = appCalendar()
-        let today = calendar.startOfDay(for: Date())
-        for (index, day) in days.enumerated() {
-            guard !isFutureContributionDay(day.day, formatter: formatter, calendar: calendar, today: today) else { continue }
-            let month = String(day.day.prefix(7))
-            guard month != lastMonth else { continue }
-            lastMonth = month
-            let col = useCalendarGrid ? index / 7 : index % columns
-            let x = startX + CGFloat(col) * (square + gap)
-            guard x - lastLabelX >= minimumGap else { continue }
-            let label = contributionMonthLabel(for: day.day)
-            drawText(label, rect: NSRect(x: x, y: y, width: 44, height: 14), font: .systemFont(ofSize: 10, weight: .semibold), color: NSColor.white.withAlphaComponent(0.44))
-            lastLabelX = x
+    func drawContributionMonthLabels(cells: [ContributionMonthCell], y: CGFloat) {
+        var orderedMonths: [String] = []
+        var cellsByMonth: [String: [ContributionMonthCell]] = [:]
+        for cell in cells {
+            let month = String(cell.day.day.prefix(7))
+            if cellsByMonth[month] == nil {
+                orderedMonths.append(month)
+            }
+            cellsByMonth[month, default: []].append(cell)
+            contributionMonthDays[month, default: []].insert(cell.day.day)
         }
+        for month in orderedMonths {
+            guard let monthCells = cellsByMonth[month], let first = monthCells.first else { continue }
+            let monthRect = monthCells.dropFirst().reduce(first.rect) { partial, cell in
+                partial.union(cell.rect)
+            }
+            let label = contributionMonthLabel(for: first.day.day)
+            let labelFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
+            let textWidth = ceil((label as NSString).size(withAttributes: [.font: labelFont]).width)
+            let labelWidth = max(26, textWidth + 14)
+            let labelRect = NSRect(x: monthRect.midX - labelWidth / 2, y: y, width: labelWidth, height: 14)
+            let isSelected = selectedContributionMonths.contains(month)
+            if isSelected {
+                accentBlue.withAlphaComponent(0.88).setFill()
+                NSBezierPath(roundedRect: labelRect.insetBy(dx: -3, dy: -3), xRadius: 5, yRadius: 5).fill()
+            }
+            drawCentered(label, rect: labelRect, font: labelFont, color: isSelected ? .white : NSColor.white.withAlphaComponent(0.44))
+            contributionMonthLabelRects[month] = labelRect.insetBy(dx: -4, dy: -4)
+        }
+    }
+
+    func drawSelectedContributionMonthOutline(cells: [ContributionMonthCell], gap: CGFloat) {
+        guard !selectedContributionMonths.isEmpty else { return }
+        for month in selectedContributionMonths {
+            let selectedCells = cells.filter { String($0.day.day.prefix(7)) == month }
+            guard !selectedCells.isEmpty else { continue }
+            drawContributionSelectionOutline(cells: selectedCells, gap: gap)
+        }
+    }
+
+    func contributionConnectedCellComponents(_ cells: [ContributionMonthCell]) -> [[ContributionMonthCell]] {
+        let cellsByCoordinate = Dictionary(uniqueKeysWithValues: cells.map { ($0.coordinate, $0) })
+        var remaining = Set(cellsByCoordinate.keys)
+        var components: [[ContributionMonthCell]] = []
+        while let start = remaining.first {
+            var queue = [start]
+            var component: [ContributionMonthCell] = []
+            remaining.remove(start)
+            while !queue.isEmpty {
+                let coordinate = queue.removeLast()
+                if let cell = cellsByCoordinate[coordinate] {
+                    component.append(cell)
+                }
+                let neighbors = [
+                    ContributionGridCoordinate(column: coordinate.column - 1, row: coordinate.row),
+                    ContributionGridCoordinate(column: coordinate.column + 1, row: coordinate.row),
+                    ContributionGridCoordinate(column: coordinate.column, row: coordinate.row - 1),
+                    ContributionGridCoordinate(column: coordinate.column, row: coordinate.row + 1)
+                ]
+                for neighbor in neighbors where remaining.remove(neighbor) != nil {
+                    queue.append(neighbor)
+                }
+            }
+            if !component.isEmpty {
+                components.append(component)
+            }
+        }
+        return components
+    }
+
+    func drawContributionSelectionOutline(cells selectedCells: [ContributionMonthCell], gap: CGFloat) {
+        guard !selectedCells.isEmpty else { return }
+        let coordinates = Set(selectedCells.map(\.coordinate))
+        var nextVertex: [ContributionGridVertex: ContributionGridVertex] = [:]
+        for cell in selectedCells {
+            let column = cell.coordinate.column
+            let row = cell.coordinate.row
+            if !coordinates.contains(ContributionGridCoordinate(column: column, row: row - 1)) {
+                nextVertex[ContributionGridVertex(column: column, row: row)] = ContributionGridVertex(column: column + 1, row: row)
+            }
+            if !coordinates.contains(ContributionGridCoordinate(column: column + 1, row: row)) {
+                nextVertex[ContributionGridVertex(column: column + 1, row: row)] = ContributionGridVertex(column: column + 1, row: row + 1)
+            }
+            if !coordinates.contains(ContributionGridCoordinate(column: column, row: row + 1)) {
+                nextVertex[ContributionGridVertex(column: column + 1, row: row + 1)] = ContributionGridVertex(column: column, row: row + 1)
+            }
+            if !coordinates.contains(ContributionGridCoordinate(column: column - 1, row: row)) {
+                nextVertex[ContributionGridVertex(column: column, row: row + 1)] = ContributionGridVertex(column: column, row: row)
+            }
+        }
+
+        guard let firstVertex = nextVertex.keys.min(by: { ($0.column, $0.row) < ($1.column, $1.row) }) else { return }
+        var vertices: [ContributionGridVertex] = [firstVertex]
+        var current = firstVertex
+        repeat {
+            guard let next = nextVertex[current] else { return }
+            current = next
+            if current != firstVertex {
+                vertices.append(current)
+            }
+        } while current != firstVertex && vertices.count <= nextVertex.count + 1
+        guard vertices.count >= 4 else { return }
+
+        var simplified: [ContributionGridVertex] = []
+        for index in vertices.indices {
+            let previous = vertices[(index - 1 + vertices.count) % vertices.count]
+            let vertex = vertices[index]
+            let next = vertices[(index + 1) % vertices.count]
+            let continuesHorizontally = previous.row == vertex.row && vertex.row == next.row
+            let continuesVertically = previous.column == vertex.column && vertex.column == next.column
+            if !continuesHorizontally && !continuesVertically {
+                simplified.append(vertex)
+            }
+        }
+        guard simplified.count >= 4, let firstCell = selectedCells.first else { return }
+
+        let stepX = firstCell.rect.width + gap
+        let stepY = firstCell.rect.height + gap
+        let originX = firstCell.rect.minX - CGFloat(firstCell.coordinate.column) * stepX - gap / 2
+        let originY = firstCell.rect.minY - CGFloat(firstCell.coordinate.row) * stepY - gap / 2
+        let rawPoints = simplified.map { vertex in
+            CGPoint(
+                x: originX + CGFloat(vertex.column) * stepX,
+                y: originY + CGFloat(vertex.row) * stepY
+            )
+        }
+        let extraOutset: CGFloat = 4
+        let points = rawPoints.indices.map { index -> CGPoint in
+            let previous = rawPoints[(index - 1 + rawPoints.count) % rawPoints.count]
+            let point = rawPoints[index]
+            let next = rawPoints[(index + 1) % rawPoints.count]
+            let incomingLength = max(hypot(point.x - previous.x, point.y - previous.y), 1)
+            let outgoingLength = max(hypot(next.x - point.x, next.y - point.y), 1)
+            let incomingX = (point.x - previous.x) / incomingLength
+            let incomingY = (point.y - previous.y) / incomingLength
+            let outgoingX = (next.x - point.x) / outgoingLength
+            let outgoingY = (next.y - point.y) / outgoingLength
+            return CGPoint(
+                x: point.x + (incomingY + outgoingY) * extraOutset,
+                y: point.y - (incomingX + outgoingX) * extraOutset
+            )
+        }
+        let path = NSBezierPath()
+        for index in points.indices {
+            let previous = points[(index - 1 + points.count) % points.count]
+            let point = points[index]
+            let next = points[(index + 1) % points.count]
+            let incomingLength = hypot(point.x - previous.x, point.y - previous.y)
+            let outgoingLength = hypot(next.x - point.x, next.y - point.y)
+            let radius = min(7, incomingLength / 2, outgoingLength / 2)
+            let before = CGPoint(
+                x: point.x - (point.x - previous.x) / max(incomingLength, 1) * radius,
+                y: point.y - (point.y - previous.y) / max(incomingLength, 1) * radius
+            )
+            let after = CGPoint(
+                x: point.x + (next.x - point.x) / max(outgoingLength, 1) * radius,
+                y: point.y + (next.y - point.y) / max(outgoingLength, 1) * radius
+            )
+            if index == 0 {
+                path.move(to: before)
+            } else {
+                path.line(to: before)
+            }
+            path.curve(to: after, controlPoint1: point, controlPoint2: point)
+        }
+        path.close()
+        accentTeal.withAlphaComponent(0.14).setFill()
+        path.fill()
+        path.lineWidth = 1.5
+        path.lineJoinStyle = .round
+        accentTeal.withAlphaComponent(0.70).setStroke()
+        path.stroke()
     }
 
     func contributionMonthLabel(for day: String) -> String {

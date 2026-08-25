@@ -416,6 +416,7 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         return CGFloat(value)
     }.first
     let view = UsageDetailsView(frame: NSRect(x: 0, y: 0, width: renderWidth, height: requestedRenderHeight ?? 760))
+    view.includesEmptyContributionWeeksForDebug = arguments.contains("--include-empty-week-selection")
     let windowDays = arguments
         .compactMap { argument -> Int? in
             guard argument.hasPrefix("--insight-window=") else { return nil }
@@ -547,6 +548,22 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         })
         .first {
         view.selectCalendarWeek(startDay: weekStart)
+    }
+    if let month = arguments
+        .compactMap({ argument -> String? in
+            guard argument.hasPrefix("--select-month=") else { return nil }
+            return String(argument.dropFirst("--select-month=".count))
+        })
+        .first {
+        view.selectCalendarMonth(month)
+    }
+    if let months = arguments
+        .compactMap({ argument -> [String]? in
+            guard argument.hasPrefix("--select-months=") else { return nil }
+            return String(argument.dropFirst("--select-months=".count)).split(separator: ",").map(String.init)
+        })
+        .first {
+        view.selectCalendarMonths(months)
     }
     if let range = arguments
         .compactMap({ argument -> (String, String)? in

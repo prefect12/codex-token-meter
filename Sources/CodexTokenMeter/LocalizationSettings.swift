@@ -332,6 +332,7 @@ enum L10nKey {
     case cacheHit
     case cacheHitDescription
     case cached
+    case cacheRatio
     case claudeStatuslineRequired
     case staleData
     case staleDataFormat
@@ -613,6 +614,7 @@ enum L10nKey {
         case .cacheHit: return "Cache Hit"
         case .cacheHitDescription: return "Cached input divided by total input for the selected window."
         case .cached: return "Cached"
+        case .cacheRatio: return "Cache ratio"
         case .claudeStatuslineRequired: return "Needs statusline"
         case .staleData: return "Stale"
         case .staleDataFormat: return "Stale · %@ ago"
@@ -861,7 +863,7 @@ enum L10nKey {
         case .updated: return "Updated"
         case .used: return "Used"
         case .usageDetails: return "Usage Details"
-        case .usageIntensityHint: return "Click a day or week; hold Command to multi-select; drag to marquee-select"
+        case .usageIntensityHint: return "Click a day, week, or month label; hold Command to multi-select; drag to marquee-select"
         case .usageRateHint: return "This week used value divided by this week budget. Current week prefers live weekly quota usedPercent."
         case .usageWindow: return "Usage window"
         case .visibleWeekShare: return "7d share"
@@ -896,6 +898,7 @@ enum L10nKey {
         case .cacheHit: return "缓存命中"
         case .cacheHitDescription: return "选定时间范围内，缓存输入占总输入的比例。"
         case .cached: return "缓存"
+        case .cacheRatio: return "缓存比例"
         case .claudeStatuslineRequired: return "需 statusline"
         case .staleData: return "已过期"
         case .staleDataFormat: return "数据过期 · %@前"
@@ -1144,7 +1147,7 @@ enum L10nKey {
         case .updated: return "已更新"
         case .used: return "已用"
         case .usageDetails: return "用量详情"
-        case .usageIntensityHint: return "点击日期或周圆点；按住 Command 可多选，拖动可圈选"
+        case .usageIntensityHint: return "点击日期、周圆点或月份标签；按住 Command 可多选，拖动可圈选"
         case .usageRateHint: return "本周已用金额除以本周预算；当前周优先使用实时周额度 usedPercent。"
         case .usageWindow: return "用量窗口"
         case .visibleWeekShare: return "占7天用量"
@@ -1179,6 +1182,7 @@ enum L10nKey {
         case .cacheHit: return "キャッシュ率"
         case .cacheHitDescription: return "選択した期間の総入力に対するキャッシュ入力の割合。"
         case .cached: return "キャッシュ"
+        case .cacheRatio: return "キャッシュ比率"
         case .claudeStatuslineRequired: return "statusline 必要"
         case .staleData: return "期限切れ"
         case .staleDataFormat: return "%@前のデータ"
@@ -1427,7 +1431,7 @@ enum L10nKey {
         case .updated: return "更新"
         case .used: return "使用済み"
         case .usageDetails: return "使用量詳細"
-        case .usageIntensityHint: return "日付または週をクリック。Commandを押しながら複数選択、ドラッグで囲んで選択"
+        case .usageIntensityHint: return "日付、週、または月ラベルをクリック。Commandを押しながら複数選択、ドラッグで囲んで選択"
         case .usageRateHint: return "今週の使用額を今週の予算で割った値です。現在週はリアルタイム週制限の usedPercent を優先します。"
         case .usageWindow: return "使用量ウィンドウ"
         case .visibleWeekShare: return "7日内比率"
