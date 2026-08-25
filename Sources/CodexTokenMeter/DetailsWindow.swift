@@ -776,6 +776,10 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var hoveredContributionDay: String?
     var contributionWeekSummaries: [String: ContributionWeekSummary] = [:]
     var contributionWeekDotRects: [String: NSRect] = [:]
+    var includesEmptyContributionWeeksForDebug = false
+    var contributionMonthLabelRects: [String: NSRect] = [:]
+    var contributionMonthDays: [String: Set<String>] = [:]
+    var selectedContributionMonths: Set<String> = []
     var hoveredContributionWeekKey: String?
     let contributionWeekHoverOverlay = ContributionWeekHoverOverlayView(frame: .zero)
     var selectedContributionDays: Set<String> = []
@@ -2343,6 +2347,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             needsLayout = true
             return
         }
+        for (month, rect) in contributionMonthLabelRects where rect.insetBy(dx: -5, dy: -4).contains(point) {
+            guard let days = contributionMonthDays[month], !days.isEmpty else { continue }
+            selectContributionMonth(
+                month,
+                days: days,
+                extending: event.modifierFlags.contains(.command)
+            )
+            return
+        }
         for (weekStart, rect) in contributionWeekDotRects where rect.insetBy(dx: -3, dy: -3).contains(point) {
             guard let summary = contributionWeekSummaries[weekStart] else { continue }
             let extendsSelection = event.modifierFlags.contains(.command)
@@ -2465,6 +2478,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     func applyContributionSelection(_ days: Set<String>, updateLayout: Bool = true) {
         let normalized = Set(days)
+        selectedContributionMonths.removeAll()
         guard normalized != contributionSelectionDays() else {
             needsDisplay = true
             return
@@ -2480,6 +2494,30 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             selectedContributionDays = normalized
         }
         calendarSelectionDidChange(updateLayout: updateLayout)
+    }
+
+    func selectContributionMonth(_ month: String, days: Set<String>, extending: Bool = false) {
+        let normalized = Set(days)
+        guard !normalized.isEmpty else { return }
+        if extending {
+            if selectedContributionMonths.contains(month) {
+                selectedContributionMonths.remove(month)
+                selectedContributionDays.subtract(normalized)
+            } else {
+                selectedContributionMonths.insert(month)
+                selectedContributionDays.formUnion(normalized)
+            }
+        } else {
+            selectedContributionMonths = [month]
+            selectedContributionDays = normalized
+        }
+        selectedDay = selectedContributionDays.sorted().first
+        if let first = selectedContributionDays.min(), let last = selectedContributionDays.max() {
+            contributionSelectionAnchor = (first, last)
+        } else {
+            contributionSelectionAnchor = nil
+        }
+        calendarSelectionDidChange()
     }
 
     func toggleContributionSelection(_ days: Set<String>) {
@@ -2510,8 +2548,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let retained = selectedContributionDays.intersection(available)
         if retained.count > 1 {
             selectedContributionDays = retained
+            if !selectedContributionMonths.isEmpty {
+                let retainedMonths = Set(retained.map { String($0.prefix(7)) })
+                selectedContributionMonths.formIntersection(retainedMonths)
+            }
             return
         }
+        selectedContributionMonths.removeAll()
         selectedContributionDays.removeAll()
         selectedDay = preferredSelectedDay(in: report, fallback: retained.first ?? fallback)
         contributionSelectionAnchor = selectedDay.map { ($0, $0) }
@@ -2535,6 +2578,25 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         guard let summary = contributionWeekColumns(in: report).first(where: { $0.startDay == startDay }) else { return }
         applyContributionSelection(Set(summary.days.map(\.day)))
         contributionSelectionAnchor = (summary.startDay, summary.endDay)
+    }
+
+    /// Debug hook for deterministic month-selection screenshots.
+    func selectCalendarMonth(_ month: String) {
+        guard let snapshot else { return }
+        let days = Set(paddedContributionDays(calendarReport(for: snapshot).byDay)
+            .map(\.day)
+            .filter { String($0.prefix(7)) == month })
+        selectContributionMonth(month, days: days)
+    }
+
+    /// Debug hook for deterministic Command-style multi-month screenshots.
+    func selectCalendarMonths(_ months: [String]) {
+        guard let snapshot else { return }
+        let allDays = paddedContributionDays(calendarReport(for: snapshot).byDay).map(\.day)
+        for (index, month) in months.enumerated() {
+            let days = Set(allDays.filter { String($0.prefix(7)) == month })
+            selectContributionMonth(month, days: days, extending: index > 0)
+        }
     }
 
     /// Debug hook for deterministic model-list search and sort screenshots.
@@ -2776,6 +2838,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionDaySummaries.removeAll()
         contributionWeekSummaries.removeAll()
         contributionWeekDotRects.removeAll()
+        contributionMonthLabelRects.removeAll()
+        contributionMonthDays.removeAll()
         contributionGridSelectionRect = nil
         resetCreditHitAreas.removeAll()
         resetCreditTooltipRows.removeAll()
