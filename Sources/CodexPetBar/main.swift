@@ -114,8 +114,8 @@ private func testPlanParser() {
 }
 
 private func testTaskLaunchRouting() {
-    guard codexThreadLaunchTarget(source: "vscode") == .visualStudioCode,
-          codexThreadLaunchTarget(source: " VSCode ") == .visualStudioCode,
+    guard codexThreadLaunchTarget(source: "vscode") == .codexDesktop,
+          codexThreadLaunchTarget(source: " VSCode ") == .codexDesktop,
           codexThreadLaunchTarget(source: "desktop") == .codexDesktop,
           codexThreadLaunchTarget(source: nil) == .codexDesktop,
           sourceLabel(mockTaskBarThreads().first { $0.source == "vscode" }
@@ -123,7 +123,7 @@ private func testTaskLaunchRouting() {
         fputs("task launch routing self-test failed\n", stderr)
         exit(1)
     }
-    print("task launch routing self-test passed: VS Code launch hints display as Codex")
+    print("task launch routing self-test passed: Codex tasks always open in Codex Desktop")
 }
 
 private func mockTaskBarThreads() -> [CodexThreadItem] {
