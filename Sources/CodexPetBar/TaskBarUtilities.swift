@@ -449,10 +449,11 @@ func isCodexAPIThread(_ item: CodexThreadItem) -> Bool {
     item.source.contains("codex-api")
 }
 
-func codexThreadLaunchTarget(source: String?) -> TaskLaunchTarget {
-    source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "vscode"
-        ? .visualStudioCode
-        : .codexDesktop
+func codexThreadLaunchTarget(source _: String?) -> TaskLaunchTarget {
+    // `vscode` in Codex's local state database describes an internal client
+    // hint. These task IDs belong to Codex Desktop, which is the only target
+    // Task Bar should use when a user opens a Codex task.
+    .codexDesktop
 }
 
 func isVSCodeThread(_ item: CodexThreadItem) -> Bool {
