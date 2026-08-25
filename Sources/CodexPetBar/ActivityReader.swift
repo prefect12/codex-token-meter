@@ -396,6 +396,7 @@ private struct ThreadStateMetadata {
     let rolloutPath: String?
     let agentNickname: String?
     let agentPath: String?
+    let launchTarget: TaskLaunchTarget
 }
 
 private struct RolloutHierarchyMetadata {
@@ -640,7 +641,8 @@ final class CodexActivityReader {
                     parentThreadID: existing.parentThreadID,
                     agentNickname: existing.agentNickname,
                     agentPath: existing.agentPath,
-                    plan: summary.plan ?? existing.plan
+                    plan: summary.plan ?? existing.plan,
+                    launchTarget: existing.launchTarget
                 )
                 continue
             }
@@ -671,7 +673,8 @@ final class CodexActivityReader {
                 parentThreadID: nil,
                 agentNickname: nil,
                 agentPath: nil,
-                plan: summary.plan
+                plan: summary.plan,
+                launchTarget: .codexDesktop
             )
         }
 
@@ -727,7 +730,8 @@ final class CodexActivityReader {
             parentThreadID: item.parentThreadID ?? hierarchy?.parentThreadID,
             agentNickname: item.agentNickname ?? metadata.agentNickname ?? hierarchy?.agentNickname,
             agentPath: item.agentPath ?? metadata.agentPath ?? hierarchy?.agentPath,
-            plan: item.plan
+            plan: item.plan,
+            launchTarget: metadata.launchTarget
         )
     }
 
@@ -772,7 +776,8 @@ final class CodexActivityReader {
             parentThreadID: item.parentThreadID,
             agentNickname: item.agentNickname,
             agentPath: item.agentPath,
-            plan: summary.plan ?? item.plan
+            plan: summary.plan ?? item.plan,
+            launchTarget: item.launchTarget
         )
     }
 
@@ -935,7 +940,8 @@ final class CodexActivityReader {
                         ?? string(nestedValue(in: dict["source"], keys: ["agentNickname", "agent_nickname"])),
                     agentPath: string(dict["agentPath"] ?? dict["agent_path"])
                         ?? string(nestedValue(in: dict["source"], keys: ["agentPath", "agent_path"])),
-                    plan: nil
+                    plan: nil,
+                    launchTarget: .codexDesktop
                 ))
         }
         return AppServerThreadSnapshot(items: items.limitedForTaskBar(limit: limit), externalReadAtByID: externalReadAtByID)
@@ -1306,7 +1312,7 @@ final class CodexActivityReader {
         }
         let ids = threadIDs.map(sqlStringLiteral).joined(separator: ",")
         let sql = """
-        select id, title, preview, cwd, tokens_used, model, thread_source,
+        select id, title, preview, cwd, tokens_used, model, thread_source, source,
                agent_nickname, agent_path, rollout_path,
                coalesce(nullif(updated_at_ms, 0), updated_at * 1000) as updated_ms
         from threads
@@ -1355,7 +1361,8 @@ final class CodexActivityReader {
                         },
                         agentNickname: string(row["agent_nickname"]),
                         agentPath: string(row["agent_path"]),
-                        plan: nil
+                        plan: nil,
+                        launchTarget: codexThreadLaunchTarget(source: string(row["source"]))
                     )
                 }
             }
@@ -1375,7 +1382,7 @@ final class CodexActivityReader {
             return cached.metadata
         }
         let sql = """
-        select id, substr(title, 1, 1024) as title, cwd, tokens_used, model, rollout_path, thread_source,
+        select id, substr(title, 1, 1024) as title, cwd, tokens_used, model, rollout_path, thread_source, source,
                agent_nickname, agent_path,
                coalesce(nullif(updated_at_ms, 0), updated_at * 1000) as updated_ms
         from threads
@@ -1398,7 +1405,8 @@ final class CodexActivityReader {
                     threadKind: codexThreadKind(string(row["thread_source"])),
                     rolloutPath: string(row["rollout_path"]),
                     agentNickname: string(row["agent_nickname"]),
-                    agentPath: string(row["agent_path"])
+                    agentPath: string(row["agent_path"]),
+                    launchTarget: codexThreadLaunchTarget(source: string(row["source"]))
                 )
             }
         }
@@ -1792,7 +1800,8 @@ final class CodexActivityReader {
             parentThreadID: nil,
             agentNickname: nil,
             agentPath: nil,
-            plan: nil
+            plan: nil,
+            launchTarget: .codexDesktop
         )
     }
 

@@ -179,7 +179,8 @@ final class ClaudeHomeActivityReader {
             parentThreadID: nil,
             agentNickname: nil,
             agentPath: nil,
-            plan: nil
+            plan: nil,
+            launchTarget: .codexDesktop
         )
     }
 }
