@@ -469,7 +469,11 @@ func sourceLabel(_ item: CodexThreadItem) -> String {
         return "Claude"
     }
     if isVSCodeThread(item) {
-        return "VS Code"
+        // `vscode` is a Codex state-store launch hint, not a separate AI
+        // product. Present the conversation as Codex while retaining that hint
+        // internally so opening older threads continues to use the compatible
+        // client.
+        return "Codex"
     }
     if isCodexAPIThread(item) {
         return "Codex API"
@@ -485,7 +489,7 @@ func sourceColor(_ item: CodexThreadItem) -> NSColor {
         return NSColor(calibratedRed: 0.91, green: 0.48, blue: 0.28, alpha: 1)
     }
     if isVSCodeThread(item) {
-        return NSColor(calibratedRed: 0.0, green: 0.48, blue: 0.84, alpha: 1)
+        return NSColor(calibratedRed: 0.45, green: 0.58, blue: 1.0, alpha: 1)
     }
     if isCodexAPIThread(item) {
         return NSColor(calibratedRed: 0.36, green: 0.78, blue: 0.88, alpha: 1)

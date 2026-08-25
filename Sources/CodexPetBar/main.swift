@@ -117,11 +117,13 @@ private func testTaskLaunchRouting() {
     guard codexThreadLaunchTarget(source: "vscode") == .visualStudioCode,
           codexThreadLaunchTarget(source: " VSCode ") == .visualStudioCode,
           codexThreadLaunchTarget(source: "desktop") == .codexDesktop,
-          codexThreadLaunchTarget(source: nil) == .codexDesktop else {
+          codexThreadLaunchTarget(source: nil) == .codexDesktop,
+          sourceLabel(mockTaskBarThreads().first { $0.source == "vscode" }
+              ?? mockTaskBarThreads()[0]) == "Codex" else {
         fputs("task launch routing self-test failed\n", stderr)
         exit(1)
     }
-    print("task launch routing self-test passed: VS Code threads avoid Codex Desktop resume")
+    print("task launch routing self-test passed: VS Code launch hints display as Codex")
 }
 
 private func mockTaskBarThreads() -> [CodexThreadItem] {
@@ -136,7 +138,8 @@ private func mockTaskBarThreads() -> [CodexThreadItem] {
         parentID: String? = nil,
         nickname: String? = nil,
         agentPath: String? = nil,
-        plan: TaskPlan? = nil
+        plan: TaskPlan? = nil,
+        launchTarget: TaskLaunchTarget = .codexDesktop
     ) -> CodexThreadItem {
         CodexThreadItem(
             id: id,
@@ -160,7 +163,7 @@ private func mockTaskBarThreads() -> [CodexThreadItem] {
             agentNickname: nickname,
             agentPath: agentPath,
             plan: plan,
-            launchTarget: .codexDesktop
+            launchTarget: launchTarget
         )
     }
     let demoPlan = TaskPlan(
@@ -174,7 +177,7 @@ private func mockTaskBarThreads() -> [CodexThreadItem] {
         ]
     )
     return [
-        item(id: "codex:1", title: "这是怎么回事", preview: "已通过 PR 合并到 `main`。", status: .unread, ago: 75, source: "codex"),
+        item(id: "codex:1", title: "这是怎么回事", preview: "已通过 PR 合并到 `main`。", status: .unread, ago: 75, source: "vscode", launchTarget: .visualStudioCode),
         item(id: "codex:poster", title: "我在川西形成我之前做了个地图，你找找那…", preview: "我会用 `generate-trip-map` 增加独立的“一键最短路径”按钮。", status: .running, ago: 482, source: "codex", plan: demoPlan),
         item(id: "codex:claude-home", title: "挖掘 Task Bar 支持 Claude Home 对话", preview: "候选验证通过：双 App 构建、周统计解析、实时额度。", status: .running, ago: 230, source: "codex", plan: demoPlan),
         item(id: "codex:campaign", title: "实现这个需求", preview: "测试 Mongo 查询正在等待集群响应；不会修改任何数据。", status: .running, ago: 888, source: "codex"),
