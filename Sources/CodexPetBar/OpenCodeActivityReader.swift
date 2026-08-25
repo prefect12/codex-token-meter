@@ -162,7 +162,8 @@ final class OpenCodeActivityReader {
                 parentThreadID: parentID,
                 agentNickname: nil,
                 agentPath: nil,
-                plan: nil
+                plan: nil,
+                launchTarget: .codexDesktop
             ))
         }
         return items

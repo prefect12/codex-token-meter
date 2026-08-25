@@ -113,6 +113,17 @@ private func testPlanParser() {
     print("plan parser self-test passed: \(plan.displayedStepNumber)/\(plan.steps.count), custom tool and restart recovery passed")
 }
 
+private func testTaskLaunchRouting() {
+    guard codexThreadLaunchTarget(source: "vscode") == .visualStudioCode,
+          codexThreadLaunchTarget(source: " VSCode ") == .visualStudioCode,
+          codexThreadLaunchTarget(source: "desktop") == .codexDesktop,
+          codexThreadLaunchTarget(source: nil) == .codexDesktop else {
+        fputs("task launch routing self-test failed\n", stderr)
+        exit(1)
+    }
+    print("task launch routing self-test passed: VS Code threads avoid Codex Desktop resume")
+}
+
 private func mockTaskBarThreads() -> [CodexThreadItem] {
     func item(
         id: String,
@@ -148,7 +159,8 @@ private func mockTaskBarThreads() -> [CodexThreadItem] {
             parentThreadID: parentID,
             agentNickname: nickname,
             agentPath: agentPath,
-            plan: plan
+            plan: plan,
+            launchTarget: .codexDesktop
         )
     }
     let demoPlan = TaskPlan(
@@ -340,6 +352,8 @@ private func renderTaskBarSettings(to path: String) {
 
 if CommandLine.arguments.contains("--self-test-plan-parser") {
     testPlanParser()
+} else if CommandLine.arguments.contains("--self-test-task-routing") {
+    testTaskLaunchRouting()
 } else if CommandLine.arguments.contains("--print") {
     printThreads()
 } else if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--render-taskbar=") }) {

@@ -13,6 +13,14 @@ enum CodexThreadKind: String {
     case automation
 }
 
+/// A local Codex rollout can have originated in a different client. Keep the
+/// launch target separate from the display/source label so Task Bar never asks
+/// Codex Desktop to resume a conversation it cannot own.
+enum TaskLaunchTarget: Equatable {
+    case codexDesktop
+    case visualStudioCode
+}
+
 enum TaskPlanStepStatus: String {
     case pending
     case inProgress = "in_progress"
@@ -76,6 +84,7 @@ struct CodexThreadItem {
     let agentNickname: String?
     let agentPath: String?
     let plan: TaskPlan?
+    let launchTarget: TaskLaunchTarget
 
     var isSubtask: Bool {
         threadKind == .subtask

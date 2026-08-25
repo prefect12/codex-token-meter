@@ -449,6 +449,16 @@ func isCodexAPIThread(_ item: CodexThreadItem) -> Bool {
     item.source.contains("codex-api")
 }
 
+func codexThreadLaunchTarget(source: String?) -> TaskLaunchTarget {
+    source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "vscode"
+        ? .visualStudioCode
+        : .codexDesktop
+}
+
+func isVSCodeThread(_ item: CodexThreadItem) -> Bool {
+    item.launchTarget == .visualStudioCode
+}
+
 func isOpenCodeThread(_ item: CodexThreadItem) -> Bool {
     item.source == "opencode"
         || item.id.hasPrefix("opencode:")
@@ -457,6 +467,9 @@ func isOpenCodeThread(_ item: CodexThreadItem) -> Bool {
 func sourceLabel(_ item: CodexThreadItem) -> String {
     if isClaudeThread(item) {
         return "Claude"
+    }
+    if isVSCodeThread(item) {
+        return "VS Code"
     }
     if isCodexAPIThread(item) {
         return "Codex API"
@@ -470,6 +483,9 @@ func sourceLabel(_ item: CodexThreadItem) -> String {
 func sourceColor(_ item: CodexThreadItem) -> NSColor {
     if isClaudeThread(item) {
         return NSColor(calibratedRed: 0.91, green: 0.48, blue: 0.28, alpha: 1)
+    }
+    if isVSCodeThread(item) {
+        return NSColor(calibratedRed: 0.0, green: 0.48, blue: 0.84, alpha: 1)
     }
     if isCodexAPIThread(item) {
         return NSColor(calibratedRed: 0.36, green: 0.78, blue: 0.88, alpha: 1)

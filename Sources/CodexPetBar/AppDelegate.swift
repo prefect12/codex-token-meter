@@ -337,6 +337,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        if let selectedItem, isVSCodeThread(selectedItem) {
+            openVSCode(for: selectedItem)
+            return
+        }
+
         if let selectedItem, isOpenCodeThread(selectedItem) {
             openOpenCodeSession(selectedItem)
             return
@@ -351,6 +356,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         openCodexThread(id: id)
+    }
+
+    /// VS Code-originated Codex threads use a paginated local history that
+    /// Codex Desktop cannot resume through `codex://threads/<id>`. VS Code has
+    /// no documented per-thread deep link, so open the owning workspace there
+    /// instead of sending the thread to a client that will fail to restore it.
+    private func openVSCode(for item: CodexThreadItem) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        guard let appURL = visualStudioCodeAppURL() else {
+            if let cwd = item.cwd,
+               FileManager.default.fileExists(atPath: cwd) {
+                NSWorkspace.shared.open(URL(fileURLWithPath: cwd, isDirectory: true))
+            }
+            return
+        }
+        if let cwd = item.cwd,
+           FileManager.default.fileExists(atPath: cwd) {
+            NSWorkspace.shared.open(
+                [URL(fileURLWithPath: cwd, isDirectory: true)],
+                withApplicationAt: appURL,
+                configuration: configuration
+            ) { _, error in
+                if error != nil {
+                    NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, _ in }
+                }
+            }
+            return
+        }
+        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, _ in }
+    }
+
+    private func visualStudioCodeAppURL() -> URL? {
+        let candidates = [
+            URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true),
+            URL(fileURLWithPath: "\(NSHomeDirectory())/Applications/Visual Studio Code.app", isDirectory: true)
+        ]
+        if let installed = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            return installed
+        }
+        guard let registeredURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode"),
+              FileManager.default.fileExists(atPath: registeredURL.path) else {
+            return nil
+        }
+        return registeredURL
     }
 
     /// Both Codex and the local Codex API app can register `codex:`. A Task Bar
