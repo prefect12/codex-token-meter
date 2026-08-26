@@ -1855,7 +1855,7 @@ extension UsageDetailsView {
         return byName.values.sorted { $0.usage.total > $1.usage.total }
     }
 
-    func weekSourceSplit(snapshot: DetailsSnapshot, summary: ContributionWeekSummary) -> (codex: Int64, claude: Int64)? {
+    func weekSourceSplit(snapshot: DetailsSnapshot, summary: ContributionWeekSummary) -> (codex: Int64, claude: Int64, api: Int64)? {
         let visible = Set(QuotaViewOption.visiblePlatformCases)
         guard selectedDetailsSource == .all, visible.contains(.codex), visible.contains(.claude) else { return nil }
         let selectedDays = Set(summary.days.map(\.day))
@@ -1865,26 +1865,32 @@ extension UsageDetailsView {
         let claude = snapshot.claude.byDay
             .filter { selectedDays.contains($0.day) }
             .reduce(Int64(0)) { $0 + $1.usage.total }
+        let api = visible.contains(.api)
+            ? snapshot.api.byDay
+                .filter { selectedDays.contains($0.day) }
+                .reduce(Int64(0)) { $0 + $1.usage.total }
+            : 0
         guard codex + claude > 0 else { return nil }
-        return (codex, claude)
+        return (codex, claude, api)
     }
 
     var daySourceSplitPanelExtent: CGFloat { 216 }
 
-    func daySourceSplit(snapshot: DetailsSnapshot, day: DayUsage) -> (codex: Int64, claude: Int64)? {
+    func daySourceSplit(snapshot: DetailsSnapshot, day: DayUsage) -> (codex: Int64, claude: Int64, api: Int64)? {
         let visible = Set(QuotaViewOption.visiblePlatformCases)
         guard selectedDetailsSource == .all, visible.contains(.codex), visible.contains(.claude) else { return nil }
         let codex = snapshot.codex.byDay.first { $0.day == day.day }?.usage.total ?? 0
         let claude = snapshot.claude.byDay.first { $0.day == day.day }?.usage.total ?? 0
+        let api = visible.contains(.api) ? (snapshot.api.byDay.first { $0.day == day.day }?.usage.total ?? 0) : 0
         guard codex + claude > 0 else { return nil }
-        return (codex, claude)
+        return (codex, claude, api)
     }
 
-    func drawDaySourceSplit(_ split: (codex: Int64, claude: Int64), rect: NSRect) {
+    func drawDaySourceSplit(_ split: (codex: Int64, claude: Int64, api: Int64), rect: NSRect) {
         let codexColor = NSColor(calibratedRed: 0.45, green: 0.50, blue: 1.00, alpha: 1.0)
         let claudeColor = NSColor(calibratedRed: 0.898, green: 0.420, blue: 0.278, alpha: 1.0)
-        let total = Double(split.codex + split.claude)
-        let codexShare = CGFloat(Double(split.codex) / total)
+        let apiColor = NSColor.systemTeal
+        let total = Double(split.codex + split.claude + split.api)
 
         drawText(t(.sourceSplit), rect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: 16), font: .systemFont(ofSize: 11, weight: .semibold), color: NSColor.white.withAlphaComponent(0.46))
 
@@ -1894,29 +1900,35 @@ extension UsageDetailsView {
         let center = NSPoint(x: ringRect.midX, y: ringRect.midY)
         let radius = ringSize / 2 - lineWidth / 2
 
-        if codexShare >= 1 || codexShare <= 0 {
+        var rows: [(name: String, value: Int64, share: CGFloat, color: NSColor)] = [
+            ("Codex", split.codex, CGFloat(Double(split.codex) / total), codexColor),
+            ("Claude", split.claude, CGFloat(Double(split.claude) / total), claudeColor)
+        ]
+        if split.api > 0 {
+            rows.append(("API", split.api, CGFloat(Double(split.api) / total), apiColor))
+        }
+
+        if let onlyRow = rows.first(where: { $0.share >= 1 }) {
             let path = NSBezierPath(ovalIn: ringRect.insetBy(dx: lineWidth / 2, dy: lineWidth / 2))
             path.lineWidth = lineWidth
-            (codexShare >= 1 ? codexColor : claudeColor).setStroke()
+            onlyRow.color.setStroke()
             path.stroke()
         } else {
             let start: CGFloat = -90
-            let boundary = start + 360 * codexShare
-            for (from, to, color) in [(start, boundary, codexColor), (boundary, start + 360, claudeColor)] {
+            var from = start
+            for row in rows where row.share > 0 {
+                let to = from + 360 * row.share
                 let path = NSBezierPath()
                 path.appendArc(withCenter: center, radius: radius, startAngle: from, endAngle: to, clockwise: false)
                 path.lineWidth = lineWidth
-                color.setStroke()
+                row.color.setStroke()
                 path.stroke()
+                from = to
             }
         }
 
         let legendX = ringRect.maxX + 14
         let legendW = max(0, rect.maxX - legendX)
-        let rows: [(name: String, value: Int64, share: CGFloat, color: NSColor)] = [
-            ("Codex", split.codex, codexShare, codexColor),
-            ("Claude", split.claude, 1 - codexShare, claudeColor)
-        ]
         for (index, row) in rows.enumerated() {
             let y = ringRect.minY + 8 + CGFloat(index) * 28
             row.color.setFill()
