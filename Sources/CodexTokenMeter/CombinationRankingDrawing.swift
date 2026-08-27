@@ -11,7 +11,7 @@ private struct CombinationRankingRow {
     let medianTokens: Int64
     let p90Tokens: Int64
 
-    var key: UsageDetailsView.ReasoningCellKey { .init(model: model, effort: effort) }
+    var key: UsageDetailsView.ReasoningCellKey { .init(model: model, effort: effort, platform: platform) }
     var averageTokensPerTask: Int64 { tasks > 0 ? usage.total / Int64(tasks) : 0 }
     var freshInput: Int64 { max(0, usage.input - usage.cachedInput) }
     var visibleOutput: Int64 { max(0, usage.output - usage.reasoningOutput) }
