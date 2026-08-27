@@ -467,6 +467,17 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     struct ReasoningCellKey: Hashable {
         let model: String
         let effort: String
+        // Combination-ranking rows may contain the same model and effort from
+        // different sources (for example, Codex and API). Keep those rows
+        // independently selectable while preserving the existing keys used by
+        // the reasoning matrix.
+        let platform: String?
+
+        init(model: String, effort: String, platform: String? = nil) {
+            self.model = model
+            self.effort = effort
+            self.platform = platform
+        }
     }
 
     enum CombinationRankingMetric: CaseIterable {
