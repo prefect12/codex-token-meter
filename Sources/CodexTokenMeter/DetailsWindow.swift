@@ -46,6 +46,10 @@ struct DetailsLoadingProgress {
 }
 
 final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
+    // The project-configuration page is a two-column inspector. Below this
+    // width, keeping its controls at their readable size is preferable to
+    // compressing them into each other; NSScrollView exposes the overflow.
+    private let modelRoutingMinimumDocumentWidth: CGFloat = 1_180
     let detailsView = UsageDetailsView(frame: NSRect(x: 0, y: 0, width: 900, height: 660))
     private let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 900, height: 660))
     private var hasPresentedWindow = false
@@ -63,9 +67,10 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
+        scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
+        scrollView.horizontalScrollElasticity = .allowed
         detailsView.canDrawConcurrently = false
         // Keep the long, custom-drawn details page in a compositor-backed layer.
         // Without this, every newly exposed strip during scrolling reruns the
@@ -178,7 +183,11 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func updateDocumentLayout() {
-        let visibleWidth = max(860, scrollView.contentSize.width)
+        let viewportWidth = scrollView.contentSize.width
+        let minimumDocumentWidth = detailsView.selectedSection == .modelRouting
+            ? modelRoutingMinimumDocumentWidth
+            : CGFloat(860)
+        let visibleWidth = max(minimumDocumentWidth, viewportWidth)
         let visibleHeight = max(640, scrollView.contentSize.height)
         let targetHeight = max(visibleHeight, detailsView.preferredDocumentHeight(for: visibleWidth))
         detailsView.frame = NSRect(x: 0, y: 0, width: visibleWidth, height: targetHeight)
