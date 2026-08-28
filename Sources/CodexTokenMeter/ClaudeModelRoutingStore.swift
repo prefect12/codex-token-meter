@@ -87,6 +87,9 @@ final class ClaudeModelRoutingStore {
                 project: project,
                 model: mergedValue(rootSelections.map(\.model)),
                 reasoningEffort: mergedValue(rootSelections.map(\.reasoningEffort)),
+                contextWindow: .inherited,
+                autoCompactTokenLimit: .inherited,
+                planModeReasoningEffort: .inherited,
                 blocksGlobalInheritance: hasSharedProjectOverride
             )
         }

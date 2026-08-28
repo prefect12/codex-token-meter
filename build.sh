@@ -38,4 +38,17 @@ cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$ROOT/Resources/LogoHeader.png" "$APP/Contents/Resources/LogoHeader.png"
 cp "$ROOT/Resources/StatusIconTemplate.png" "$APP/Contents/Resources/StatusIconTemplate.png"
 
+# TCC associates protected-folder grants with the app's signing requirement.
+# An unsigned development bundle receives a fresh ad-hoc CDHash after every
+# Swift build, so macOS asks for Documents access again. Use the same local
+# development identity as install.sh when it is available. Other contributors
+# can still build without it, but get an explicit warning instead of a false
+# expectation that the grant will persist.
+SIGNING_IDENTITY="${AI_TOKEN_METER_SIGNING_IDENTITY:-AudioWhisperDev}"
+if security find-identity -v -p codesigning 2>/dev/null | grep -Fq "\"$SIGNING_IDENTITY\""; then
+  codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP"
+else
+  echo "warning: no stable signing identity '$SIGNING_IDENTITY'; macOS may request protected-folder access after each rebuild" >&2
+fi
+
 echo "$APP"
