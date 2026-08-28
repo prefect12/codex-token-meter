@@ -46,6 +46,10 @@ struct DetailsLoadingProgress {
 }
 
 final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
+    // The project-configuration page is a two-column inspector. Below this
+    // width, keeping its controls at their readable size is preferable to
+    // compressing them into each other; NSScrollView exposes the overflow.
+    private let modelRoutingMinimumDocumentWidth: CGFloat = 1_180
     let detailsView = UsageDetailsView(frame: NSRect(x: 0, y: 0, width: 900, height: 660))
     private let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 900, height: 660))
     private var hasPresentedWindow = false
@@ -63,9 +67,10 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
+        scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
+        scrollView.horizontalScrollElasticity = .allowed
         detailsView.canDrawConcurrently = false
         // Keep the long, custom-drawn details page in a compositor-backed layer.
         // Without this, every newly exposed strip during scrolling reruns the
@@ -178,7 +183,11 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func updateDocumentLayout() {
-        let visibleWidth = max(860, scrollView.contentSize.width)
+        let viewportWidth = scrollView.contentSize.width
+        let minimumDocumentWidth = detailsView.selectedSection == .modelRouting
+            ? modelRoutingMinimumDocumentWidth
+            : CGFloat(860)
+        let visibleWidth = max(minimumDocumentWidth, viewportWidth)
         let visibleHeight = max(640, scrollView.contentSize.height)
         let targetHeight = max(visibleHeight, detailsView.preferredDocumentHeight(for: visibleWidth))
         detailsView.frame = NSRect(x: 0, y: 0, width: visibleWidth, height: targetHeight)
@@ -224,8 +233,8 @@ enum DetailsSection: CaseIterable {
         case .combinationRanking: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "思考分析" : "Reasoning"
         case .models: return t(.models)
         case .modelRouting:
-            if AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese { return "默认模型" }
-            return AppLanguage.current == .japanese ? "モデル既定値" : "Model Defaults"
+            if AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese { return "项目配置" }
+            return AppLanguage.current == .japanese ? "プロジェクト設定" : "Project Configuration"
         case .calendar: return t(.calendar)
         case .costs: return t(.costs)
         case .storage: return AppLanguage.current.storageCopy.sidebarTitle
@@ -244,11 +253,11 @@ enum DetailsSection: CaseIterable {
         case .models: return t(.modelsSubtitle)
         case .modelRouting:
             if AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese {
-                return "设置全局与每个项目的默认模型和思考强度"
+                return "为每个项目管理运行策略、上下文压缩与 Plan 默认值"
             }
             return AppLanguage.current == .japanese
-                ? "グローバルと各プロジェクトの既定モデルと思考強度"
-                : "Set the default model and reasoning effort globally and per project"
+                ? "プロジェクトごとの実行戦略、コンテキスト圧縮、Plan 既定値を管理"
+                : "Manage per-project run strategy, context compaction, and Plan defaults"
         case .calendar: return t(.calendarSubtitle)
         case .costs: return t(.costsSubtitle)
         case .storage: return AppLanguage.current.storageCopy.headerSubtitle
@@ -1581,7 +1590,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             let tableHeight = snapshot.map { modelListPresentation(for: $0).tableHeight } ?? 132
             targetHeight = 324 + quotaRowsPreferredHeight() + tableHeight
         case .modelRouting:
-            targetHeight = 524 + CGFloat(max(1, modelRoutingControls.visibleProjects.count)) * 72
+            targetHeight = 610 + CGFloat(max(1, modelRoutingControls.visibleProjects.count)) * 82
         case .calendar:
             let gridHeight: CGFloat = normalizedWidth >= 1200 ? 246 : 232
             let detailHeight = selectedCalendarRangeSummary() != nil
@@ -2162,6 +2171,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         if selectedSection == .models {
             for (option, rect) in modelSortColumnRects where rect.contains(point) {
                 modelControls.toggleSort(option)
+                return
+            }
+        }
+        if selectedSection == .modelRouting {
+            let layout = modelRoutingPageLayout(
+                in: sectionContent(for: .modelRouting, in: bounds, sidebarWidth: detailsSidebarWidth)
+            )
+            for (id, rect) in layout.projectRows where rect.contains(point) {
+                modelRoutingControls.selectProject(id: id)
                 return
             }
         }

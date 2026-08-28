@@ -11,6 +11,20 @@ struct CodexModelOption: Equatable {
 struct CodexConfigSelection: Codable, Equatable {
     var model: String?
     var reasoningEffort: String?
+    var contextWindow: Int?
+    var autoCompactTokenLimit: Int?
+    var planModeReasoningEffort: String? = nil
+}
+
+/// Configuration that Token Meter can surface for a project configuration
+/// preview, but does not yet write per-project. Codex currently exposes these
+/// values from the global config in the local installation; keeping this
+/// separate from `CodexConfigSelection` prevents the model-routing saver and
+/// protection watcher from claiming ownership of keys it does not manage.
+struct CodexRuntimeDefaults: Equatable {
+    let contextWindow: Int?
+    let autoCompactTokenLimit: Int?
+    let planModeReasoningEffort: String?
 }
 
 struct CodexProtectedRoutingState: Codable, Equatable {
@@ -51,14 +65,21 @@ struct CodexProjectRoutingSnapshot: Equatable {
     let project: CodexSavedProject
     let model: CodexProjectConfigValue
     let reasoningEffort: CodexProjectConfigValue
+    let contextWindow: CodexProjectConfigValue
+    let autoCompactTokenLimit: CodexProjectConfigValue
+    let planModeReasoningEffort: CodexProjectConfigValue
     var blocksGlobalInheritance = false
 
     var hasMixedValues: Bool {
         model == .mixed || reasoningEffort == .mixed
+            || contextWindow == .mixed || autoCompactTokenLimit == .mixed
+            || planModeReasoningEffort == .mixed
     }
 
     var inheritsEverything: Bool {
         model == .inherited && reasoningEffort == .inherited
+            && contextWindow == .inherited && autoCompactTokenLimit == .inherited
+            && planModeReasoningEffort == .inherited
     }
 }
 
@@ -156,7 +177,10 @@ final class CodexModelRoutingStore {
             return CodexProjectRoutingSnapshot(
                 project: project,
                 model: mergedValue(rootSelections.map(\.model)),
-                reasoningEffort: mergedValue(rootSelections.map(\.reasoningEffort))
+                reasoningEffort: mergedValue(rootSelections.map(\.reasoningEffort)),
+                contextWindow: mergedIntegerValue(rootSelections.map(\.contextWindow)),
+                autoCompactTokenLimit: mergedIntegerValue(rootSelections.map(\.autoCompactTokenLimit)),
+                planModeReasoningEffort: mergedValue(rootSelections.map(\.planModeReasoningEffort))
             )
         }
         return CodexModelRoutingSnapshot(global: global, models: models, projects: projects)
@@ -215,22 +239,41 @@ final class CodexModelRoutingStore {
         return changed
     }
 
-    func writeGlobal(model: String, reasoningEffort: String) throws {
-        try writeSelection(
-            CodexConfigSelection(model: model, reasoningEffort: reasoningEffort),
-            at: globalConfigURL
+    func writeGlobal(_ selection: CodexConfigSelection) throws {
+        try writeSelection(selection, at: globalConfigURL)
+    }
+
+    func writePlanModeReasoningEffort(_ effort: String) throws {
+        let source: String
+        if fileManager.fileExists(atPath: globalConfigURL.path) {
+            let data = try Data(contentsOf: globalConfigURL)
+            guard let existing = String(data: data, encoding: .utf8) else {
+                throw CodexModelRoutingStoreError.invalidUTF8(globalConfigURL.path)
+            }
+            source = existing
+        } else {
+            source = ""
+            try fileManager.createDirectory(
+                at: globalConfigURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        }
+        let selection = (try? readSelection(at: globalConfigURL)) ?? CodexConfigSelection()
+        let updated = Self.updatedTOML(
+            source,
+            selection: selection,
+            extraTopLevelStrings: ["plan_mode_reasoning_effort": effort]
         )
+        try Data(updated.utf8).write(to: globalConfigURL, options: .atomic)
     }
 
     func writeProject(
         id: String,
-        model: String?,
-        reasoningEffort: String?
+        selection: CodexConfigSelection
     ) throws {
         guard let project = loadProjects().first(where: { $0.id == id }) else {
             throw CodexModelRoutingStoreError.missingProject(id)
         }
-        let selection = CodexConfigSelection(model: model, reasoningEffort: reasoningEffort)
         for rootPath in project.rootPaths {
             try writeSelection(selection, at: projectConfigURL(rootPath: rootPath))
         }
@@ -246,7 +289,26 @@ final class CodexModelRoutingStore {
         }
         return CodexConfigSelection(
             model: Self.topLevelStringValue(for: "model", in: source),
-            reasoningEffort: Self.topLevelStringValue(for: "model_reasoning_effort", in: source)
+            reasoningEffort: Self.topLevelStringValue(for: "model_reasoning_effort", in: source),
+            contextWindow: Self.topLevelIntegerValue(for: "model_context_window", in: source),
+            autoCompactTokenLimit: Self.topLevelIntegerValue(for: "model_auto_compact_token_limit", in: source),
+            planModeReasoningEffort: Self.topLevelStringValue(for: "plan_mode_reasoning_effort", in: source)
+        )
+    }
+
+    func loadRuntimeDefaults() -> CodexRuntimeDefaults {
+        guard let data = try? Data(contentsOf: globalConfigURL),
+              let source = String(data: data, encoding: .utf8) else {
+            return CodexRuntimeDefaults(
+                contextWindow: nil,
+                autoCompactTokenLimit: nil,
+                planModeReasoningEffort: nil
+            )
+        }
+        return CodexRuntimeDefaults(
+            contextWindow: Self.topLevelIntegerValue(for: "model_context_window", in: source),
+            autoCompactTokenLimit: Self.topLevelIntegerValue(for: "model_auto_compact_token_limit", in: source),
+            planModeReasoningEffort: Self.topLevelStringValue(for: "plan_mode_reasoning_effort", in: source)
         )
     }
 
@@ -336,7 +398,11 @@ final class CodexModelRoutingStore {
             .appendingPathComponent("config.toml")
     }
 
-    static func updatedTOML(_ source: String, selection: CodexConfigSelection) -> String {
+    static func updatedTOML(
+        _ source: String,
+        selection: CodexConfigSelection,
+        extraTopLevelStrings: [String: String?] = [:]
+    ) -> String {
         var lines = source.components(separatedBy: "\n")
         if lines.isEmpty {
             lines = [""]
@@ -368,8 +434,33 @@ final class CodexModelRoutingStore {
             lines.insert("\(key) = \"\(tomlEscaped(value))\"", at: insertionIndex)
         }
 
+        func updateInteger(key: String, value: Int?) {
+            let boundary = topLevelBoundary()
+            if let index = lines[..<boundary].firstIndex(where: { isAssignment($0, key: key) }) {
+                if let value {
+                    lines[index] = "\(key) = \(value)"
+                } else {
+                    lines.remove(at: index)
+                }
+                return
+            }
+            guard let value else { return }
+            var insertionIndex = topLevelBoundary()
+            while insertionIndex > 0,
+                  lines[insertionIndex - 1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                insertionIndex -= 1
+            }
+            lines.insert("\(key) = \(value)", at: insertionIndex)
+        }
+
         update(key: "model", value: selection.model)
         update(key: "model_reasoning_effort", value: selection.reasoningEffort)
+        updateInteger(key: "model_context_window", value: selection.contextWindow)
+        updateInteger(key: "model_auto_compact_token_limit", value: selection.autoCompactTokenLimit)
+        update(key: "plan_mode_reasoning_effort", value: selection.planModeReasoningEffort)
+        for (key, value) in extraTopLevelStrings {
+            update(key: key, value: value)
+        }
 
         var result = lines.joined(separator: "\n")
         if !result.hasSuffix("\n") {
@@ -410,15 +501,37 @@ final class CodexModelRoutingStore {
         return nil
     }
 
+    static func topLevelIntegerValue(for key: String, in source: String) -> Int? {
+        for line in source.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("[") {
+                break
+            }
+            guard isAssignment(line, key: key),
+                  let equals = line.firstIndex(of: "=") else {
+                continue
+            }
+            let raw = line[line.index(after: equals)...]
+                .split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+                .first?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return Int(raw)
+        }
+        return nil
+    }
+
     private static let fallbackReasoningEfforts = ["low", "medium", "high", "xhigh", "max", "ultra"]
 
-    /// Writes only the two model-routing keys at an already resolved project
+    /// Writes only the project-configuration keys at an already resolved project
     /// config URL. The protection controller uses this for a task-scoped
     /// override; callers must restore the captured selection afterwards.
     func writeSelection(_ selection: CodexConfigSelection, at url: URL) throws {
         if !fileManager.fileExists(atPath: url.path),
            selection.model == nil,
-           selection.reasoningEffort == nil {
+           selection.reasoningEffort == nil,
+           selection.contextWindow == nil,
+           selection.autoCompactTokenLimit == nil,
+           selection.planModeReasoningEffort == nil {
             return
         }
         let source: String
@@ -445,6 +558,14 @@ final class CodexModelRoutingStore {
             return .mixed
         }
         return first.map(CodexProjectConfigValue.value) ?? .inherited
+    }
+
+    private func mergedIntegerValue(_ values: [Int?]) -> CodexProjectConfigValue {
+        guard let first = values.first else { return .inherited }
+        if values.dropFirst().contains(where: { $0 != first }) {
+            return .mixed
+        }
+        return first.map { .value(String($0)) } ?? .inherited
     }
 
     private static func isAssignment(_ line: String, key: String) -> Bool {
