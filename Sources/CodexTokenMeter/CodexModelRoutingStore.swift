@@ -16,17 +16,6 @@ struct CodexConfigSelection: Codable, Equatable {
     var planModeReasoningEffort: String? = nil
 }
 
-/// Configuration that Token Meter can surface for a project configuration
-/// preview, but does not yet write per-project. Codex currently exposes these
-/// values from the global config in the local installation; keeping this
-/// separate from `CodexConfigSelection` prevents the model-routing saver and
-/// protection watcher from claiming ownership of keys it does not manage.
-struct CodexRuntimeDefaults: Equatable {
-    let contextWindow: Int?
-    let autoCompactTokenLimit: Int?
-    let planModeReasoningEffort: String?
-}
-
 struct CodexProtectedRoutingState: Codable, Equatable {
     static let currentVersion = 1
 
@@ -243,30 +232,6 @@ final class CodexModelRoutingStore {
         try writeSelection(selection, at: globalConfigURL)
     }
 
-    func writePlanModeReasoningEffort(_ effort: String) throws {
-        let source: String
-        if fileManager.fileExists(atPath: globalConfigURL.path) {
-            let data = try Data(contentsOf: globalConfigURL)
-            guard let existing = String(data: data, encoding: .utf8) else {
-                throw CodexModelRoutingStoreError.invalidUTF8(globalConfigURL.path)
-            }
-            source = existing
-        } else {
-            source = ""
-            try fileManager.createDirectory(
-                at: globalConfigURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-        }
-        let selection = (try? readSelection(at: globalConfigURL)) ?? CodexConfigSelection()
-        let updated = Self.updatedTOML(
-            source,
-            selection: selection,
-            extraTopLevelStrings: ["plan_mode_reasoning_effort": effort]
-        )
-        try Data(updated.utf8).write(to: globalConfigURL, options: .atomic)
-    }
-
     func writeProject(
         id: String,
         selection: CodexConfigSelection
@@ -290,22 +255,6 @@ final class CodexModelRoutingStore {
         return CodexConfigSelection(
             model: Self.topLevelStringValue(for: "model", in: source),
             reasoningEffort: Self.topLevelStringValue(for: "model_reasoning_effort", in: source),
-            contextWindow: Self.topLevelIntegerValue(for: "model_context_window", in: source),
-            autoCompactTokenLimit: Self.topLevelIntegerValue(for: "model_auto_compact_token_limit", in: source),
-            planModeReasoningEffort: Self.topLevelStringValue(for: "plan_mode_reasoning_effort", in: source)
-        )
-    }
-
-    func loadRuntimeDefaults() -> CodexRuntimeDefaults {
-        guard let data = try? Data(contentsOf: globalConfigURL),
-              let source = String(data: data, encoding: .utf8) else {
-            return CodexRuntimeDefaults(
-                contextWindow: nil,
-                autoCompactTokenLimit: nil,
-                planModeReasoningEffort: nil
-            )
-        }
-        return CodexRuntimeDefaults(
             contextWindow: Self.topLevelIntegerValue(for: "model_context_window", in: source),
             autoCompactTokenLimit: Self.topLevelIntegerValue(for: "model_auto_compact_token_limit", in: source),
             planModeReasoningEffort: Self.topLevelStringValue(for: "plan_mode_reasoning_effort", in: source)

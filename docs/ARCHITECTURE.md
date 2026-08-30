@@ -29,7 +29,7 @@ The split is intentionally conservative: code moved by section, with behavior pr
 - `Sources/CodexTokenMeter/DetailsDrawingPrimitives.swift`: shared AppKit panels, buttons, text alignment, donut paths, and contribution intensity colors.
 - `Sources/CodexTokenMeter/ModelDetailsSupport.swift`: model-page filtering, sorting, unknown-label suppression, table-height calculation, and model/pricing coverage metrics. Keep these data transformations separate from AppKit drawing.
 - `Sources/CodexTokenMeter/ModelDetailsDrawing.swift`: model-page source rows, full model table, share bar, data-trust panel, and hover tooltip drawing. It extends `UsageDetailsView` and uses only the module-internal drawing primitives and state explicitly exposed by `DetailsWindow.swift`.
-- `Sources/CodexTokenMeter/CodexModelRoutingStore.swift`: read/write support for Codex global and trusted-project model defaults. It discovers Codex Desktop projects, reads the local model catalog, and updates only top-level `model` and `model_reasoning_effort` keys while preserving unrelated TOML content.
+- `Sources/CodexTokenMeter/CodexModelRoutingStore.swift`: read/write support for Codex global and trusted-project defaults. It discovers Codex Desktop projects, reads the local model catalog, and updates only top-level `model`, `model_reasoning_effort`, `model_context_window`, `model_auto_compact_token_limit`, and `plan_mode_reasoning_effort` keys while preserving unrelated TOML content. Codex has no separate `plan_mode_model` key: Plan always uses the selected run-strategy model.
 - `Sources/CodexTokenMeter/CodexModelRoutingProtection.swift`: optional Token Meter authority state for Codex defaults. When enabled, it persists the model-routing keys selected in Token Meter and runs an app-lifetime config watcher that restores only those keys after an external rewrite, even before the details window is opened; unrelated Codex configuration remains untouched.
 - `Sources/CodexTokenMeter/ClaudeModelRoutingStore.swift`: read/write support for Claude Code user defaults and private project overrides. It preserves unrelated JSON settings, updates only `model` and `effortLevel`, and writes project overrides to `.claude/settings.local.json` so shared repository configuration is not changed.
 - `Sources/CodexTokenMeter/ModelRoutingDetailsDrawing.swift`: the native global/project default-model page, including search, inherited/overridden filtering, inline model and reasoning controls, and effective inheritance state.
@@ -109,7 +109,9 @@ TOML and JSON settings are retained.
 
 The optional **Protect Codex defaults** setting stores a separate Token Meter
 baseline in application preferences. Token Meter edits replace that baseline.
-External rewrites restore only `model` and `model_reasoning_effort`; newly
+External rewrites restore only Token Meter's managed routing keys (`model`,
+`model_reasoning_effort`, `model_context_window`,
+`model_auto_compact_token_limit`, and `plan_mode_reasoning_effort`); newly
 discovered projects inherit the protected global defaults until the user creates
 an explicit project override from Token Meter.
 

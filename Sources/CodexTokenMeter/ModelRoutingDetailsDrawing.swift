@@ -2,6 +2,7 @@ import Cocoa
 
 private let modelRoutingMixedValue = "__mixed__"
 private let modelRoutingNotApplicableValue = "__not_applicable__"
+private let modelRoutingBuiltInPlanDefaultValue = "__built_in_plan_default__"
 
 private final class SearchTextFieldCell: NSTextFieldCell {
     private func centeredRect(for bounds: NSRect) -> NSRect {
@@ -142,7 +143,7 @@ private func modelRoutingGlobalColumns(in row: NSRect) -> ModelRoutingGlobalColu
         x: row.minX + horizontalInset,
         y: row.minY + 64,
         width: strategyWidth,
-        height: 84
+        height: 126
     )
     let context = NSRect(
         x: strategy.maxX + columnGap,
@@ -269,11 +270,21 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
 
     enum Field: Equatable {
         case model
-        case planModeModel
         case effort
         case contextWindow
         case autoCompactTokenLimit
         case planModeReasoningEffort
+    }
+
+    private enum ProjectSection: CaseIterable {
+        case runStrategy
+        case contextAndCompaction
+        case planMode
+    }
+
+    private struct SectionInheritanceBinding {
+        let projectID: String
+        let section: ProjectSection
     }
 
     enum ProjectFilter: Int {
@@ -302,17 +313,14 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     private var configWatcher: CodexConfigWatcher?
     private weak var host: UsageDetailsView?
     private var bindings: [ObjectIdentifier: Binding] = [:]
-    private var inheritanceBindings: [ObjectIdentifier: String] = [:]
-    // This is intentionally display-only. Toggling the list checkbox must never
-    // replace a project's stored model, effort, context, or Plan configuration.
-    private var visuallyFollowingSystemProjectIDs = Set<String>()
+    private var sectionInheritanceBindings: [ObjectIdentifier: SectionInheritanceBinding] = [:]
     private var draftSelections: [Scope: CodexConfigSelection] = [:]
     private var modelPopups: [Scope: NSPopUpButton] = [:]
     private var effortPopups: [Scope: NSPopUpButton] = [:]
     private var contextPopups: [Scope: NSPopUpButton] = [:]
     private var compressionSliders: [Scope: NSSlider] = [:]
     private var compressionPercentageFields: [Scope: NSTextField] = [:]
-    private var inheritanceCheckboxes: [String: NSButton] = [:]
+    private var sectionInheritanceCheckboxes: [ProjectSection: NSButton] = [:]
     private let searchField = NSTextField()
     private let searchIconView = NSImageView()
     private let filterControl = NSSegmentedControl(
@@ -324,8 +332,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     private let codexPlatformButton = NSButton(title: "Codex", target: nil, action: nil)
     private let claudePlatformButton = NSButton(title: "Claude", target: nil, action: nil)
     private let protectionSwitch = NSSwitch(frame: .zero)
-    private var planModeModelPopup: NSPopUpButton?
-    private var planModeEffortPopup: NSPopUpButton?
+    private var planModeEffortPopups: [Scope: NSPopUpButton] = [:]
     private let refreshButton = NSButton(title: "", target: nil, action: nil)
     private let discardButton = NSButton(title: "", target: nil, action: nil)
     private let saveButton = NSButton(title: "", target: nil, action: nil)
@@ -467,16 +474,15 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         return projects.first
     }
 
-    var runtimeDefaults: CodexRuntimeDefaults {
-        codexStore.loadRuntimeDefaults()
-    }
-
     func effectivePlanModeReasoningEffort(for project: CodexProjectRoutingSnapshot) -> String {
         let selection = displayedProjectSelection(project)
-        let model = selection.model ?? effectiveGlobalModel()
         return selection.planModeReasoningEffort
-            ?? displayedGlobalSelection.planModeReasoningEffort
-            ?? preferredEffort(for: model)
+            ?? effectiveGlobalPlanModeReasoningEffort()
+    }
+
+    private func effectiveGlobalPlanModeReasoningEffort() -> String {
+        displayedGlobalSelection.planModeReasoningEffort
+            ?? preferredEffort(for: effectiveGlobalModel())
     }
 
     func compressionPercent(for project: CodexProjectRoutingSnapshot) -> Int {
@@ -537,6 +543,36 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             planModeReasoningEffort: current.planModeReasoningEffort
         )
         return context
+    }
+
+    private func isProjectSectionInherited(
+        _ section: ProjectSection,
+        for project: CodexProjectRoutingSnapshot
+    ) -> Bool {
+        let selection = displayedProjectSelection(project)
+        switch section {
+        case .runStrategy:
+            return selection.model == nil && selection.reasoningEffort == nil
+        case .contextAndCompaction:
+            return selection.contextWindow == nil && selection.autoCompactTokenLimit == nil
+        case .planMode:
+            return selection.planModeReasoningEffort == nil
+        }
+    }
+
+    private func hasMixedValues(
+        in section: ProjectSection,
+        for project: CodexProjectRoutingSnapshot
+    ) -> Bool {
+        guard draftSelections[.project(project.project.id)] == nil else { return false }
+        switch section {
+        case .runStrategy:
+            return project.model == .mixed || project.reasoningEffort == .mixed
+        case .contextAndCompaction:
+            return project.contextWindow == .mixed || project.autoCompactTokenLimit == .mixed
+        case .planMode:
+            return project.planModeReasoningEffort == .mixed
+        }
     }
 
     func selectProject(id: String) {
@@ -638,20 +674,6 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         saveButton.setAccessibilityLabel(
             localized(chinese: "保存配置", english: "Save configuration", japanese: "設定を保存")
         )
-
-        let planModelPopup = makePopup()
-        planModelPopup.setAccessibilityLabel(
-            localized(chinese: "Plan 默认模型", english: "Plan model", japanese: "Plan 既定モデル")
-        )
-        self.planModeModelPopup = planModelPopup
-        host.addSubview(planModelPopup)
-
-        let planEffortPopup = makePopup()
-        planEffortPopup.setAccessibilityLabel(
-            localized(chinese: "Plan 思考强度", english: "Plan reasoning effort", japanese: "プラン思考強度")
-        )
-        planModeEffortPopup = planEffortPopup
-        host.addSubview(planEffortPopup)
 
         rebuildPopups()
     }
@@ -791,11 +813,12 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         for field in compressionPercentageFields.values {
             field.isHidden = true
         }
-        for checkbox in inheritanceCheckboxes.values {
+        for checkbox in sectionInheritanceCheckboxes.values {
             checkbox.isHidden = true
         }
-        planModeModelPopup?.isHidden = true
-        planModeEffortPopup?.isHidden = true
+        for popup in planModeEffortPopups.values {
+            popup.isHidden = true
+        }
         guard visible, let layout else { return }
 
         let platformRects = modelRoutingPlatformRects(in: content)
@@ -858,17 +881,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         layoutGlobalPopups(in: layout.globalRect)
         if let project = selectedProject {
             layoutSelectedProjectControls(project: project, layout: layout)
-        }
-        for project in visibleProjects {
-            guard let row = layout.projectRows[project.project.id],
-                  let checkbox = inheritanceCheckboxes[project.project.id] else { continue }
-            checkbox.frame = NSRect(
-                x: row.maxX - 140,
-                y: row.minY + 45,
-                width: 128,
-                height: 24
-            )
-            checkbox.isHidden = false
+            layoutSectionInheritanceCheckboxes(project: project, layout: layout)
         }
     }
 
@@ -886,7 +899,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     func followsSystemConfiguration(_ project: CodexProjectRoutingSnapshot) -> Bool {
-        visuallyFollowingSystemProjectIDs.contains(project.project.id)
+        project.inheritsEverything
     }
 
     func modelOption(slug: String?) -> CodexModelOption? {
@@ -1115,13 +1128,51 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         invalidateLayout()
     }
 
-    @objc private func inheritanceChanged(_ sender: NSButton) {
-        guard let id = inheritanceBindings[ObjectIdentifier(sender)] else { return }
-        if sender.state == .on {
-            visuallyFollowingSystemProjectIDs.insert(id)
-        } else {
-            visuallyFollowingSystemProjectIDs.remove(id)
+    @objc private func sectionInheritanceChanged(_ sender: NSButton) {
+        guard let binding = sectionInheritanceBindings[ObjectIdentifier(sender)],
+              let project = snapshot.projects.first(where: { $0.project.id == binding.projectID }) else {
+            return
         }
+        let scope = Scope.project(binding.projectID)
+        let current = displayedProjectSelection(project)
+        var updated = current
+        if sender.state == .on {
+            switch binding.section {
+            case .runStrategy:
+                updated.model = nil
+                updated.reasoningEffort = nil
+            case .contextAndCompaction:
+                updated.contextWindow = nil
+                updated.autoCompactTokenLimit = nil
+            case .planMode:
+                updated.planModeReasoningEffort = nil
+            }
+        } else {
+            switch binding.section {
+            case .runStrategy:
+                updated.model = current.model ?? effectiveGlobalModel()
+                updated.reasoningEffort = current.reasoningEffort ?? effectiveGlobalEffort()
+            case .contextAndCompaction:
+                let context = current.contextWindow
+                    ?? displayedGlobalSelection.contextWindow
+                    ?? 258_400
+                updated.contextWindow = context
+                updated.autoCompactTokenLimit = current.autoCompactTokenLimit
+                    ?? displayedGlobalSelection.autoCompactTokenLimit
+                    ?? context * 85 / 100
+            case .planMode:
+                updated.planModeReasoningEffort = current.planModeReasoningEffort
+                    ?? effectiveGlobalPlanModeReasoningEffort()
+            }
+        }
+        draftSelections[scope] = updated
+        statusMessage = localized(
+            chinese: "有未保存的修改",
+            english: "Unsaved changes",
+            japanese: "未保存の変更があります"
+        )
+        statusIsError = false
+        rebuildPopups()
         invalidateLayout()
     }
 
@@ -1189,7 +1240,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         }
         let value = selectedValue(in: sender)
         switch field {
-        case .model, .planModeModel:
+        case .model:
             model = value
             let supported = modelOption(slug: model)?.supportedReasoningEfforts ?? []
             if supported.isEmpty {
@@ -1207,7 +1258,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         case .autoCompactTokenLimit:
             autoCompactTokenLimit = Int(value)
         case .planModeReasoningEffort:
-            planModeReasoningEffort = value
+            planModeReasoningEffort = value == modelRoutingBuiltInPlanDefaultValue ? nil : value
         }
         guard !model.isEmpty else {
             throw CodexModelRoutingStoreError.missingGlobalDefault("model")
@@ -1229,22 +1280,15 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             throw CodexModelRoutingStoreError.missingProject(id)
         }
         let current = displayedProjectSelection(project)
-        if field == .planModeModel {
-            return CodexConfigSelection(
-                model: selectedValue(in: sender),
-                reasoningEffort: current.reasoningEffort,
-                contextWindow: current.contextWindow,
-                autoCompactTokenLimit: current.autoCompactTokenLimit,
-                planModeReasoningEffort: current.planModeReasoningEffort
-            )
-        }
         if field == .planModeReasoningEffort {
             return CodexConfigSelection(
                 model: current.model,
                 reasoningEffort: current.reasoningEffort,
                 contextWindow: current.contextWindow,
                 autoCompactTokenLimit: current.autoCompactTokenLimit,
-                planModeReasoningEffort: selectedValue(in: sender)
+                planModeReasoningEffort: selectedValue(in: sender) == modelRoutingBuiltInPlanDefaultValue
+                    ? nil
+                    : selectedValue(in: sender)
             )
         }
         var model = current.model ?? effectiveGlobalModel()
@@ -1277,8 +1321,6 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             autoCompactTokenLimit = Int(value)
         case .planModeReasoningEffort:
             break
-        case .planModeModel:
-            break
         }
         return CodexConfigSelection(
             model: model,
@@ -1305,48 +1347,37 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         for field in compressionPercentageFields.values {
             field.removeFromSuperview()
         }
-        for checkbox in inheritanceCheckboxes.values {
+        for checkbox in sectionInheritanceCheckboxes.values {
             checkbox.removeFromSuperview()
         }
+        for popup in planModeEffortPopups.values {
+            popup.removeFromSuperview()
+        }
         bindings.removeAll()
-        inheritanceBindings.removeAll()
+        sectionInheritanceBindings.removeAll()
         modelPopups.removeAll()
         effortPopups.removeAll()
         contextPopups.removeAll()
         compressionSliders.removeAll()
         compressionPercentageFields.removeAll()
-        inheritanceCheckboxes.removeAll()
+        sectionInheritanceCheckboxes.removeAll()
+        planModeEffortPopups.removeAll()
 
         installPopups(scope: .global, project: nil)
         for project in snapshot.projects {
             installPopups(scope: .project(project.project.id), project: project)
         }
         if selectedPlatform == .codex,
-           let project = selectedProject {
-            let selection = displayedProjectSelection(project)
-            let selectedPlanModel = selection.model.map(CodexProjectConfigValue.value) ?? .inherited
-            let hasDraft = draftSelections[.project(project.project.id)] != nil
-            let canEditPlan = hasDraft || !project.hasMixedValues
-            if let planModeModelPopup {
-                bindings[ObjectIdentifier(planModeModelPopup)] = Binding(
-                    scope: .project(project.project.id),
-                    field: .planModeModel
+           let project = selectedProject,
+           let host {
+            for section in ProjectSection.allCases {
+                let checkbox = makeSectionInheritanceCheckbox(project: project, section: section)
+                sectionInheritanceCheckboxes[section] = checkbox
+                sectionInheritanceBindings[ObjectIdentifier(checkbox)] = SectionInheritanceBinding(
+                    projectID: project.project.id,
+                    section: section
                 )
-                configureModelPopup(planModeModelPopup, selected: selectedPlanModel)
-                planModeModelPopup.setAccessibilityLabel(
-                    localized(chinese: "Plan 默认模型", english: "Plan model", japanese: "Plan 既定モデル")
-                )
-                planModeModelPopup.isEnabled = canEditPlan
-                planModeModelPopup.alphaValue = canEditPlan ? 1 : 0.52
-            }
-            if let planModeEffortPopup {
-                bindings[ObjectIdentifier(planModeEffortPopup)] = Binding(
-                scope: .project(project.project.id),
-                field: .planModeReasoningEffort
-                )
-                configurePlanModeEffortPopup(planModeEffortPopup, project: project)
-                planModeEffortPopup.isEnabled = canEditPlan
-                planModeEffortPopup.alphaValue = canEditPlan ? 1 : 0.52
+                host.addSubview(checkbox)
             }
         }
         host?.needsLayout = true
@@ -1362,6 +1393,16 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         bindings[ObjectIdentifier(effortPopup)] = Binding(scope: scope, field: .effort)
         host.addSubview(modelPopup)
         host.addSubview(effortPopup)
+
+        if selectedPlatform == .codex {
+            let planEffortPopup = makePopup()
+            planModeEffortPopups[scope] = planEffortPopup
+            bindings[ObjectIdentifier(planEffortPopup)] = Binding(
+                scope: scope,
+                field: .planModeReasoningEffort
+            )
+            host.addSubview(planEffortPopup)
+        }
 
         let supportsContextControls = project != nil || (scope == .global && selectedPlatform == .codex)
         if supportsContextControls {
@@ -1421,27 +1462,27 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
                 compressionPercentageFields[scope],
                 percent: compressionPercent(for: project)
             )
-            let checkbox = makeInheritanceCheckbox(project: project)
-            inheritanceCheckboxes[project.project.id] = checkbox
-            inheritanceBindings[ObjectIdentifier(checkbox)] = project.project.id
-            host.addSubview(checkbox)
-
-            let hasDraft = draftSelections[scope] != nil
-            let controlsEnabled = hasDraft
-                ? selectedModel != .inherited
-                : !project.inheritsEverything && !project.hasMixedValues
-            modelPopup.isEnabled = controlsEnabled
-            effortPopup.isEnabled = controlsEnabled && modelSupportsEffort(
+            let strategyEnabled = !isProjectSectionInherited(.runStrategy, for: project)
+                && !hasMixedValues(in: .runStrategy, for: project)
+            let contextEnabled = !isProjectSectionInherited(.contextAndCompaction, for: project)
+                && !hasMixedValues(in: .contextAndCompaction, for: project)
+            let planEnabled = !isProjectSectionInherited(.planMode, for: project)
+                && !hasMixedValues(in: .planMode, for: project)
+            modelPopup.isEnabled = strategyEnabled
+            effortPopup.isEnabled = strategyEnabled && modelSupportsEffort(
                 selectedModel.explicitValue ?? effectiveGlobalModel()
             )
-            contextPopups[scope]?.isEnabled = controlsEnabled && selectedPlatform == .codex
-            compressionSliders[scope]?.isEnabled = controlsEnabled && selectedPlatform == .codex
-            compressionPercentageFields[scope]?.isEnabled = controlsEnabled && selectedPlatform == .codex
-            modelPopup.alphaValue = controlsEnabled ? 1 : 0.52
+            contextPopups[scope]?.isEnabled = contextEnabled && selectedPlatform == .codex
+            compressionSliders[scope]?.isEnabled = contextEnabled && selectedPlatform == .codex
+            compressionPercentageFields[scope]?.isEnabled = contextEnabled && selectedPlatform == .codex
+            planModeEffortPopups[scope]?.isEnabled = planEnabled && selectedPlatform == .codex
+            configurePlanModeEffortPopup(planModeEffortPopups[scope], scope: scope, project: project)
+            modelPopup.alphaValue = strategyEnabled ? 1 : 0.52
             effortPopup.alphaValue = effortPopup.isEnabled ? 1 : 0.52
             contextPopups[scope]?.alphaValue = contextPopups[scope]?.isEnabled == true ? 1 : 0.52
             compressionSliders[scope]?.alphaValue = compressionSliders[scope]?.isEnabled == true ? 1 : 0.52
             compressionPercentageFields[scope]?.alphaValue = compressionPercentageFields[scope]?.isEnabled == true ? 1 : 0.52
+            planModeEffortPopups[scope]?.alphaValue = planModeEffortPopups[scope]?.isEnabled == true ? 1 : 0.52
         } else {
             effortPopup.isEnabled = modelSupportsEffort(
                 snapshot.global.model ?? effectiveGlobalModel()
@@ -1465,6 +1506,8 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
                 compressionSliders[scope]?.isEnabled = true
                 compressionPercentageFields[scope]?.isEnabled = true
             }
+            configurePlanModeEffortPopup(planModeEffortPopups[scope], scope: scope, project: nil)
+            planModeEffortPopups[scope]?.isEnabled = true
         }
     }
 
@@ -1485,41 +1528,67 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         return popup
     }
 
-    private func makeInheritanceCheckbox(project: CodexProjectRoutingSnapshot) -> NSButton {
+    private func makeSectionInheritanceCheckbox(
+        project: CodexProjectRoutingSnapshot,
+        section: ProjectSection
+    ) -> NSButton {
         let checkbox = NSButton(
             checkboxWithTitle: localized(
-                chinese: "跟随系统配置",
-                english: "Follow system settings",
-                japanese: "システム設定に従う"
+                chinese: "跟随全局默认",
+                english: "Follow global default",
+                japanese: "グローバル既定値に従う"
             ),
             target: self,
-            action: #selector(inheritanceChanged(_:))
+            action: #selector(sectionInheritanceChanged(_:))
         )
         checkbox.controlSize = .small
         checkbox.font = .systemFont(ofSize: 10, weight: .medium)
         checkbox.appearance = NSAppearance(named: .darkAqua)
-        let followsSystem = followsSystemConfiguration(project)
-        checkbox.state = followsSystem ? .on : .off
-        checkbox.toolTip = followsSystem
+        let followsGlobal = isProjectSectionInherited(section, for: project)
+        checkbox.state = followsGlobal ? .on : .off
+        checkbox.toolTip = followsGlobal
             ? localized(
-                chinese: "已移至列表底部显示；项目设置保持不变，取消勾选即可还原。",
-                english: "Shown at the bottom of the list. Project settings stay unchanged; uncheck to restore.",
-                japanese: "リスト下部に表示されています。プロジェクト設定は変更されず、チェックを外すと元に戻ります。"
+                chinese: "此分区使用全局默认值；取消勾选可复制当前默认值并单独修改。",
+                english: "This section uses the global default. Uncheck to copy that value and customize it.",
+                japanese: "このセクションはグローバル既定値を使用します。チェックを外すと現在の既定値をコピーして個別に変更できます。"
             )
             : localized(
-                chinese: "勾选后仅改变列表显示，不会修改项目设置。",
-                english: "Checking only changes the list display and does not modify project settings.",
-                japanese: "チェックはリスト表示だけを変更し、プロジェクト設定は変更しません。"
+                chinese: "此分区使用项目自定义值；勾选后会移除该分区的项目覆盖。",
+                english: "This section has a project override. Checking removes only this section's override.",
+                japanese: "このセクションはプロジェクト上書きを使用中です。チェックするとこのセクションの上書きだけを削除します。"
             )
         checkbox.setAccessibilityLabel(
             localized(
-                chinese: "\(project.project.name) 跟随系统配置列表状态",
-                english: "\(project.project.name) follow system settings list state",
-                japanese: "\(project.project.name) のシステム設定に従うリスト状態"
+                chinese: "\(project.project.name) 此分区跟随全局默认",
+                english: "\(project.project.name) section follows global default",
+                japanese: "\(project.project.name) のこのセクションはグローバル既定値に従う"
             )
         )
         checkbox.isHidden = true
         return checkbox
+    }
+
+    private func layoutSectionInheritanceCheckboxes(
+        project: CodexProjectRoutingSnapshot,
+        layout: ModelRoutingPageLayout
+    ) {
+        guard selectedPlatform == .codex else { return }
+        let panels: [(ProjectSection, NSRect)] = [
+            (.runStrategy, layout.runStrategyRect),
+            (.contextAndCompaction, layout.contextRect),
+            (.planMode, layout.planRect),
+        ]
+        for (section, panel) in panels {
+            guard let checkbox = sectionInheritanceCheckboxes[section] else { continue }
+            checkbox.frame = NSRect(
+                x: panel.maxX - 145,
+                y: panel.minY + 12,
+                width: 129,
+                height: 24
+            )
+            checkbox.state = isProjectSectionInherited(section, for: project) ? .on : .off
+            checkbox.isHidden = false
+        }
     }
 
     private func configureModelPopup(
@@ -1640,25 +1709,67 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     private func configurePlanModeEffortPopup(
-        _ popup: NSPopUpButton,
-        project: CodexProjectRoutingSnapshot
+        _ popup: NSPopUpButton?,
+        scope: Scope,
+        project: CodexProjectRoutingSnapshot?
     ) {
+        guard let popup else { return }
         popup.removeAllItems()
-        let model = displayedProjectSelection(project).model ?? effectiveGlobalModel()
+        let model: String
+        let selected: String?
+        if let project {
+            model = displayedProjectSelection(project).model ?? effectiveGlobalModel()
+            selected = displayedProjectSelection(project).planModeReasoningEffort
+            if selected == nil, displayedGlobalSelection.planModeReasoningEffort == nil {
+                addItem(
+                    to: popup,
+                    title: localized(
+                        chinese: "Codex 内置 Plan 默认（不单独设置）",
+                        english: "Codex built-in Plan default",
+                        japanese: "Codex 内蔵の Plan 既定値"
+                    ),
+                    value: modelRoutingBuiltInPlanDefaultValue
+                )
+            }
+        } else {
+            model = effectiveGlobalModel()
+            selected = displayedGlobalSelection.planModeReasoningEffort
+            addItem(
+                to: popup,
+                title: localized(
+                    chinese: "Codex 内置 Plan 默认（不单独设置）",
+                    english: "Codex built-in Plan default",
+                    japanese: "Codex 内蔵の Plan 既定値"
+                ),
+                value: modelRoutingBuiltInPlanDefaultValue
+            )
+        }
         var efforts = modelOption(slug: model)?.supportedReasoningEfforts ?? fallbackEfforts
-        let selected = effectivePlanModeReasoningEffort(for: project)
-        if !efforts.contains(selected) {
+        if let selected, !efforts.contains(selected) {
             efforts.append(selected)
         }
         for effort in efforts {
             addItem(to: popup, title: effort, value: effort)
         }
-        select(value: selected, in: popup)
-        popup.toolTip = localized(
-            chinese: "写入此项目的 .codex/config.toml；新建 Plan 后生效",
-            english: "Writes this project's .codex/config.toml; applies to new Plans",
-            japanese: "このプロジェクトの .codex/config.toml に保存し、新しいプランから有効です"
+        let effective = selected
+            ?? (displayedGlobalSelection.planModeReasoningEffort == nil
+                ? modelRoutingBuiltInPlanDefaultValue
+                : effectiveGlobalPlanModeReasoningEffort())
+        select(value: effective, in: popup)
+        popup.setAccessibilityLabel(
+            localized(chinese: "Plan 思考强度", english: "Plan reasoning effort", japanese: "プラン思考強度")
         )
+        popup.toolTip = project == nil
+            ? localized(
+                chinese: "设置所有未覆盖项目的 Plan 思考强度；Plan 使用运行策略模型。",
+                english: "Sets Plan reasoning effort for projects without an override. Plan uses the run-strategy model.",
+                japanese: "未上書きプロジェクトの Plan 思考強度を設定します。Plan は実行戦略モデルを使用します。"
+            )
+            : localized(
+                chinese: "写入此项目的 .codex/config.toml；新建 Plan 后生效。",
+                english: "Writes this project's .codex/config.toml; applies to new Plans.",
+                japanese: "このプロジェクトの .codex/config.toml に保存し、新しいプランから有効です。"
+            )
     }
 
     private func configureContextPopup(_ popup: NSPopUpButton?, selected: CodexProjectConfigValue) {
@@ -1777,6 +1888,14 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             contextPopups[.global]?.isHidden = false
             compressionSliders[.global]?.isHidden = false
             compressionPercentageFields[.global]?.isHidden = false
+            let planPopupY = columns.strategy.minY + 84
+            planModeEffortPopups[.global]?.frame = NSRect(
+                x: strategyControlX,
+                y: planPopupY,
+                width: strategyControlWidth,
+                height: 34
+            )
+            planModeEffortPopups[.global]?.isHidden = false
             return
         }
 
@@ -1791,6 +1910,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         effortPopups[.global]?.frame = NSRect(x: effortX, y: y, width: effortWidth, height: 36)
         modelPopups[.global]?.isHidden = false
         effortPopups[.global]?.isHidden = false
+        planModeEffortPopups[.global]?.isHidden = true
     }
 
     private func layoutSelectedProjectControls(project: CodexProjectRoutingSnapshot, layout: ModelRoutingPageLayout) {
@@ -1811,20 +1931,13 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         contextPopups[scope]?.isHidden = false
         compressionSliders[scope]?.isHidden = false
         compressionPercentageFields[scope]?.isHidden = false
-        planModeModelPopup?.frame = NSRect(
+        planModeEffortPopups[scope]?.frame = NSRect(
             x: controlX,
-            y: layout.planRect.minY + 55,
+            y: layout.planRect.minY + 61,
             width: controlWidth,
             height: 34
         )
-        planModeModelPopup?.isHidden = selectedPlatform != .codex
-        planModeEffortPopup?.frame = NSRect(
-            x: controlX,
-            y: layout.planRect.minY + 97,
-            width: controlWidth,
-            height: 34
-        )
-        planModeEffortPopup?.isHidden = selectedPlatform != .codex
+        planModeEffortPopups[scope]?.isHidden = selectedPlatform != .codex
     }
 
     private func preferredEffort(for model: String) -> String {
@@ -1886,7 +1999,7 @@ extension UsageDetailsView {
             x: content.minX,
             y: content.minY + 58,
             width: content.width,
-            height: modelRoutingControls.selectedPlatform == .codex ? 170 : 96
+            height: modelRoutingControls.selectedPlatform == .codex ? 212 : 96
         )
         let toolbarRect = NSRect(x: content.minX, y: globalRect.maxY + 18, width: min(332, content.width * 0.37), height: 34)
         let projects = modelRoutingControls.visibleProjects
@@ -2005,6 +2118,12 @@ extension UsageDetailsView {
             drawText(
                 modelRoutingLocalized(chinese: "思考强度", english: "Effort", japanese: "思考強度"),
                 rect: NSRect(x: columns.strategy.minX, y: columns.strategy.minY + 50, width: 96, height: 18),
+                font: labelFont,
+                color: labelColor
+            )
+            drawText(
+                modelRoutingLocalized(chinese: "Plan 思考强度", english: "Plan effort", japanese: "Plan 思考強度"),
+                rect: NSRect(x: columns.strategy.minX, y: columns.strategy.minY + 92, width: 96, height: 18),
                 font: labelFont,
                 color: labelColor
             )
@@ -2173,8 +2292,8 @@ extension UsageDetailsView {
             title: modelRoutingLocalized(chinese: "Plan 模式", english: "Plan mode", japanese: "プランモード"),
             rect: layout.planRect
         )
-        drawText(modelRoutingLocalized(chinese: "Plan 默认模型", english: "Plan model", japanese: "Plan 既定モデル"), rect: NSRect(x: layout.planRect.minX + 16, y: layout.planRect.minY + 61, width: 132, height: 18), font: .systemFont(ofSize: 11.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62))
-        drawText(modelRoutingLocalized(chinese: "Plan 思考强度", english: "Plan effort", japanese: "Plan 思考強度"), rect: NSRect(x: layout.planRect.minX + 16, y: layout.planRect.minY + 103, width: 132, height: 18), font: .systemFont(ofSize: 11.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62))
+        drawText(modelRoutingLocalized(chinese: "Plan 思考强度", english: "Plan effort", japanese: "Plan 思考強度"), rect: NSRect(x: layout.planRect.minX + 16, y: layout.planRect.minY + 61, width: 132, height: 18), font: .systemFont(ofSize: 11.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62))
+        drawText(modelRoutingLocalized(chinese: "Plan 使用运行策略模型", english: "Plan uses the run-strategy model", japanese: "Plan は実行戦略モデルを使用"), rect: NSRect(x: layout.planRect.minX + 16, y: layout.planRect.minY + 108, width: layout.planRect.width - 32, height: 16), font: .systemFont(ofSize: 10.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
     }
 
     private func drawInspectorSection(title: String, rect: NSRect) {
@@ -2184,7 +2303,7 @@ extension UsageDetailsView {
         let border = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
         border.lineWidth = 1
         border.stroke()
-        drawText(title, rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: rect.width - 32, height: 20), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
+        drawText(title, rect: NSRect(x: rect.minX + 16, y: rect.minY + 14, width: rect.width - 176, height: 20), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
         NSColor.white.withAlphaComponent(0.09).setStroke()
         let divider = NSBezierPath()
         divider.move(to: NSPoint(x: rect.minX + 16, y: rect.minY + 45))
