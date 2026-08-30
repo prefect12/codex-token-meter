@@ -25,6 +25,12 @@
 - All source, behavior, or UI changes must use this sequence: a focused branch → PR → merged `main` → fetch `origin/main` → build and install from that exact merged revision. Do not install an unmerged working-tree build as the delivered app.
 - Before calling a change complete, verify the PR merge, confirm local `HEAD` equals `origin/main`, then run the relevant checks and validate the installed `/Applications/AI Token Meter.app` surface.
 
+## AI Token Meter Test Loop
+
+- The user has granted standing authorization for the current local AI Token Meter test loop. After an AI Token Meter bug or UI fix passes `./build.sh` and its relevant render or interaction checks, automatically preserve the current `/Applications/AI Token Meter.app` at a timestamped `.pretest-*` path, install the new test build at the original path, launch it, and verify the running path, executable hash, build metadata, strict code signature, and installed UI surface. Do not wait for a separate “install test build” command on each iteration.
+- This is a recoverable pre-merge test exception, not delivery proof. Label the installed bundle as an unmerged test build, restore the backup if replacement or validation fails, and never treat it as a release.
+- The standing authorization does not cover Task Bar, commits, pushes, pull requests, merges, tags, releases, or any production/deployment action. Those still require separate explicit authorization.
+
 ## Data Safety
 
 - The app reads local Codex logs from `~/.codex` and optional `CODEX_HOME` roots. Do not commit, paste, or store user rollout logs.

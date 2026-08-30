@@ -16,17 +16,6 @@ struct CodexConfigSelection: Codable, Equatable {
     var planModeReasoningEffort: String? = nil
 }
 
-/// Configuration that Token Meter can surface for a project configuration
-/// preview, but does not yet write per-project. Codex currently exposes these
-/// values from the global config in the local installation; keeping this
-/// separate from `CodexConfigSelection` prevents the model-routing saver and
-/// protection watcher from claiming ownership of keys it does not manage.
-struct CodexRuntimeDefaults: Equatable {
-    let contextWindow: Int?
-    let autoCompactTokenLimit: Int?
-    let planModeReasoningEffort: String?
-}
-
 struct CodexProtectedRoutingState: Codable, Equatable {
     static let currentVersion = 1
 
@@ -170,7 +159,16 @@ final class CodexModelRoutingStore {
     func loadSnapshot() -> CodexModelRoutingSnapshot {
         let models = loadModels()
         let global = (try? readSelection(at: globalConfigURL)) ?? CodexConfigSelection()
-        let projects = loadProjects().map { project in
+        let savedProjects = loadProjects()
+        for project in savedProjects {
+            for rootPath in project.rootPaths {
+                _ = try? createProjectConfigIfMissing(
+                    rootPath: rootPath,
+                    inheriting: global
+                )
+            }
+        }
+        let projects = savedProjects.map { project in
             let rootSelections = project.rootPaths.map {
                 (try? readSelection(at: projectConfigURL(rootPath: $0))) ?? CodexConfigSelection()
             }
@@ -227,9 +225,11 @@ final class CodexModelRoutingStore {
         for project in loadProjects() {
             for rootPath in project.rootPaths {
                 let url = projectConfigURL(rootPath: rootPath).standardizedFileURL
-                // Projects discovered after protection was enabled inherit the
-                // protected global default until configured from Token Meter.
-                let desired = state.selectionsByPath[url.path] ?? CodexConfigSelection()
+                // A project discovered after protection was enabled starts with
+                // its own copy of the protected global defaults.
+                let desired = state.selectionsByPath[url.path]
+                    ?? state.selectionsByPath[globalPath]
+                    ?? CodexConfigSelection()
                 if try readSelection(at: url) != desired {
                     try writeSelection(desired, at: url)
                     changed = true
@@ -241,30 +241,6 @@ final class CodexModelRoutingStore {
 
     func writeGlobal(_ selection: CodexConfigSelection) throws {
         try writeSelection(selection, at: globalConfigURL)
-    }
-
-    func writePlanModeReasoningEffort(_ effort: String) throws {
-        let source: String
-        if fileManager.fileExists(atPath: globalConfigURL.path) {
-            let data = try Data(contentsOf: globalConfigURL)
-            guard let existing = String(data: data, encoding: .utf8) else {
-                throw CodexModelRoutingStoreError.invalidUTF8(globalConfigURL.path)
-            }
-            source = existing
-        } else {
-            source = ""
-            try fileManager.createDirectory(
-                at: globalConfigURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-        }
-        let selection = (try? readSelection(at: globalConfigURL)) ?? CodexConfigSelection()
-        let updated = Self.updatedTOML(
-            source,
-            selection: selection,
-            extraTopLevelStrings: ["plan_mode_reasoning_effort": effort]
-        )
-        try Data(updated.utf8).write(to: globalConfigURL, options: .atomic)
     }
 
     func writeProject(
@@ -290,22 +266,6 @@ final class CodexModelRoutingStore {
         return CodexConfigSelection(
             model: Self.topLevelStringValue(for: "model", in: source),
             reasoningEffort: Self.topLevelStringValue(for: "model_reasoning_effort", in: source),
-            contextWindow: Self.topLevelIntegerValue(for: "model_context_window", in: source),
-            autoCompactTokenLimit: Self.topLevelIntegerValue(for: "model_auto_compact_token_limit", in: source),
-            planModeReasoningEffort: Self.topLevelStringValue(for: "plan_mode_reasoning_effort", in: source)
-        )
-    }
-
-    func loadRuntimeDefaults() -> CodexRuntimeDefaults {
-        guard let data = try? Data(contentsOf: globalConfigURL),
-              let source = String(data: data, encoding: .utf8) else {
-            return CodexRuntimeDefaults(
-                contextWindow: nil,
-                autoCompactTokenLimit: nil,
-                planModeReasoningEffort: nil
-            )
-        }
-        return CodexRuntimeDefaults(
             contextWindow: Self.topLevelIntegerValue(for: "model_context_window", in: source),
             autoCompactTokenLimit: Self.topLevelIntegerValue(for: "model_auto_compact_token_limit", in: source),
             planModeReasoningEffort: Self.topLevelStringValue(for: "plan_mode_reasoning_effort", in: source)
@@ -396,6 +356,29 @@ final class CodexModelRoutingStore {
         URL(fileURLWithPath: rootPath, isDirectory: true)
             .appendingPathComponent(".codex", isDirectory: true)
             .appendingPathComponent("config.toml")
+    }
+
+    /// Creates a project's local configuration once, copying the current
+    /// global defaults. Existing files are never replaced, including an empty
+    /// file left behind after the user explicitly switches back to inheritance.
+    @discardableResult
+    func createProjectConfigIfMissing(
+        rootPath: String,
+        inheriting selection: CodexConfigSelection
+    ) throws -> Bool {
+        let url = projectConfigURL(rootPath: rootPath)
+        guard !fileManager.fileExists(atPath: url.path) else { return false }
+        try fileManager.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let contents = Self.updatedTOML("", selection: selection)
+        do {
+            try Data(contents.utf8).write(to: url, options: .withoutOverwriting)
+            return true
+        } catch let error as CocoaError where error.code == .fileWriteFileExists {
+            return false
+        }
     }
 
     static func updatedTOML(

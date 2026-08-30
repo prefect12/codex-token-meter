@@ -4,6 +4,7 @@ import Foundation
 struct ModelRoutingStoreTests {
     static func main() throws {
         try testTopLevelTOMLUpdatePreservesOtherContent()
+        try testMissingProjectConfigCopiesGlobalDefaultsOnce()
         try testProjectGroupWritesEveryRoot()
         try testProtectedDefaultsRestoreOnlyRoutingKeys()
         try testProtectionPreferenceLifecycle()
@@ -17,6 +18,77 @@ struct ModelRoutingStoreTests {
         try testClaudeProtectedDefaultsRestoreOnlyPrivateRoutingKeys()
         try testClaudeAppLifetimeProtectionRestoresExternalRewrite()
         print("ModelRoutingStoreTests passed")
+    }
+
+    private static func testMissingProjectConfigCopiesGlobalDefaultsOnce() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-new-project-config-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let codexHome = temporaryRoot.appendingPathComponent("home", isDirectory: true)
+        let projectRoot = temporaryRoot.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+
+        let store = CodexModelRoutingStore(codexHomeURL: codexHome)
+        let global = CodexConfigSelection(
+            model: "gpt-5.6-luna",
+            reasoningEffort: "high",
+            contextWindow: 1_000_000,
+            autoCompactTokenLimit: 600_000,
+            planModeReasoningEffort: "medium"
+        )
+        try store.writeGlobal(global)
+        try writeProjectState(
+            ["new-project": ("New Project", [projectRoot.path])],
+            to: store.globalStateURL
+        )
+
+        let projectConfig = store.projectConfigURL(rootPath: projectRoot.path)
+        try require(
+            !FileManager.default.fileExists(atPath: projectConfig.path),
+            "the project config should start missing"
+        )
+        let initialSnapshot = store.loadSnapshot()
+        try require(
+            FileManager.default.fileExists(atPath: projectConfig.path),
+            "discovering a project should create its local config"
+        )
+        let initialSelection = try store.readSelection(at: projectConfig)
+        try require(
+            initialSelection == global,
+            "a new project config should copy every supported global default"
+        )
+        try require(
+            !initialSnapshot.projects[0].inheritsEverything,
+            "the copied defaults should be an explicit project configuration"
+        )
+
+        let custom = CodexConfigSelection(
+            model: "gpt-5.6-sol",
+            reasoningEffort: "medium",
+            contextWindow: 512_000,
+            autoCompactTokenLimit: 307_200,
+            planModeReasoningEffort: "low"
+        )
+        try store.writeProject(id: "new-project", selection: custom)
+        _ = store.loadSnapshot()
+        let refreshedSelection = try store.readSelection(at: projectConfig)
+        try require(
+            refreshedSelection == custom,
+            "refreshing projects must not replace an existing config"
+        )
+
+        try store.writeProject(id: "new-project", selection: CodexConfigSelection())
+        let inheritedSnapshot = store.loadSnapshot()
+        try require(
+            FileManager.default.fileExists(atPath: projectConfig.path),
+            "following global should retain the project config document"
+        )
+        try require(
+            inheritedSnapshot.projects[0].inheritsEverything,
+            "an existing empty config must remain inherited after refresh"
+        )
     }
 
     private static func testTopLevelTOMLUpdatePreservesOtherContent() throws {
@@ -85,8 +157,11 @@ struct ModelRoutingStoreTests {
         )
 
         let store = CodexModelRoutingStore(codexHomeURL: codexHome)
-        try store.writeGlobal(model: "gpt-5.6-terra", reasoningEffort: "medium")
-        try store.writeProject(id: "local-test", model: "gpt-5.6-sol", reasoningEffort: "high")
+        try store.writeGlobal(CodexConfigSelection(model: "gpt-5.6-terra", reasoningEffort: "medium"))
+        try store.writeProject(
+            id: "local-test",
+            selection: CodexConfigSelection(model: "gpt-5.6-sol", reasoningEffort: "high")
+        )
 
         let global = try store.readSelection(at: codexHome.appendingPathComponent("config.toml"))
         try require(global == CodexConfigSelection(model: "gpt-5.6-terra", reasoningEffort: "medium"), "global defaults should be written")
@@ -107,11 +182,14 @@ struct ModelRoutingStoreTests {
         let mixedSnapshot = store.loadSnapshot()
         try require(mixedSnapshot.projects[0].hasMixedValues, "different root settings should produce a mixed project state")
 
-        try store.writeProject(id: "local-test", model: nil, reasoningEffort: nil)
+        try store.writeProject(id: "local-test", selection: CodexConfigSelection())
         let inheritedSnapshot = store.loadSnapshot()
         try require(inheritedSnapshot.projects[0].inheritsEverything, "following global should clear every root override")
 
-        try store.writeProject(id: "local-test", model: "gpt-5.6-terra", reasoningEffort: "medium")
+        try store.writeProject(
+            id: "local-test",
+            selection: CodexConfigSelection(model: "gpt-5.6-terra", reasoningEffort: "medium")
+        )
         let projectSnapshot = store.loadSnapshot()
         try require(!projectSnapshot.projects[0].inheritsEverything, "turning off inheritance should create project settings")
         try require(projectSnapshot.projects[0].model == .value("gpt-5.6-terra"), "project model should copy the global value")
@@ -209,8 +287,9 @@ struct ModelRoutingStoreTests {
         )
         let restoredSecondSelection = try store.readSelection(at: secondConfig)
         try require(
-            restoredSecondSelection == CodexConfigSelection(),
-            "projects discovered later should inherit the protected global defaults"
+            restoredSecondSelection
+                == CodexConfigSelection(model: "gpt-5.6-luna", reasoningEffort: "high"),
+            "projects discovered later should copy the protected global defaults"
         )
         let restoredSecond = try String(contentsOf: secondConfig, encoding: .utf8)
         try require(
