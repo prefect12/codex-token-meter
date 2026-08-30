@@ -3,6 +3,9 @@ import Cocoa
 private let modelRoutingMixedValue = "__mixed__"
 private let modelRoutingNotApplicableValue = "__not_applicable__"
 private let modelRoutingBuiltInPlanDefaultValue = "__built_in_plan_default__"
+private let modelRoutingContextWindowMinimum = 128_000
+private let modelRoutingContextWindowMaximum = 1_000_000
+private let modelRoutingContextWindowStep = 1_000
 
 private final class SearchTextFieldCell: NSTextFieldCell {
     private func centeredRect(for bounds: NSRect) -> NSRect {
@@ -33,15 +36,42 @@ private final class SearchTextFieldCell: NSTextFieldCell {
     }
 }
 
-private final class CompressionPercentageTextFieldCell: NSTextFieldCell {
+private final class RoutingValueTextFieldCell: NSTextFieldCell {
+    var fixedSuffix = ""
+
+    private var suffixAttributes: [NSAttributedString.Key: Any] {
+        [
+            .font: font ?? NSFont.monospacedDigitSystemFont(ofSize: 11.5, weight: .bold),
+            .foregroundColor: textColor ?? NSColor.white.withAlphaComponent(0.92),
+        ]
+    }
+
+    private func suffixSize() -> NSSize {
+        guard !fixedSuffix.isEmpty else { return .zero }
+        return (fixedSuffix as NSString).size(withAttributes: suffixAttributes)
+    }
+
     private func centeredRect(for bounds: NSRect) -> NSRect {
         let horizontalPadding: CGFloat = 12
+        let suffixGap: CGFloat = fixedSuffix == "K" ? 1 : 0
+        let reservedSuffixWidth = ceil(suffixSize().width) + suffixGap
         let measuredHeight = ceil(cellSize.height)
         return NSRect(
             x: bounds.minX + horizontalPadding,
             y: bounds.midY - measuredHeight / 2,
-            width: max(0, bounds.width - horizontalPadding * 2),
+            width: max(0, bounds.width - horizontalPadding * 2 - reservedSuffixWidth),
             height: min(bounds.height, measuredHeight)
+        )
+    }
+
+    private func suffixRect(for bounds: NSRect) -> NSRect {
+        let horizontalPadding: CGFloat = 12
+        let size = suffixSize()
+        return NSRect(
+            x: bounds.maxX - horizontalPadding - ceil(size.width),
+            y: bounds.midY - ceil(size.height) / 2,
+            width: ceil(size.width),
+            height: ceil(size.height)
         )
     }
 
@@ -55,6 +85,9 @@ private final class CompressionPercentageTextFieldCell: NSTextFieldCell {
         // drawInterior() asks drawingRect(forBounds:) for its text geometry, so
         // pass the full cell frame here to avoid applying the horizontal inset twice.
         super.drawInterior(withFrame: cellFrame, in: controlView)
+        if !fixedSuffix.isEmpty {
+            (fixedSuffix as NSString).draw(in: suffixRect(for: cellFrame), withAttributes: suffixAttributes)
+        }
     }
 
     override func titleRect(forBounds rect: NSRect) -> NSRect {
@@ -88,7 +121,8 @@ private struct ModelRoutingColumns {
 
 private struct ModelRoutingContextControlsLayout {
     let infoWidth: CGFloat
-    let popupRect: NSRect
+    let contextSliderRect: NSRect
+    let contextValueRect: NSRect
     let sliderRect: NSRect
     let percentageRect: NSRect
     let tokenLimitRect: NSRect
@@ -107,6 +141,8 @@ private func modelRoutingContextControlsLayout(in panel: NSRect) -> ModelRouting
     )
     let controlX = panel.minX + horizontalInset + infoWidth + gap
     let controlWidth = max(0, panel.maxX - horizontalInset - controlX)
+    let contextValueWidth = min(126, max(108, controlWidth * 0.28))
+    let contextSliderWidth = max(0, controlWidth - contextValueWidth - 8)
     let percentageWidth = min(92, max(78, controlWidth * 0.20))
     // The threshold number is derived information, rather than a second input.
     // Reserve enough room to name its unit at normal widths, while allowing the
@@ -122,7 +158,8 @@ private func modelRoutingContextControlsLayout(in panel: NSRect) -> ModelRouting
 
     return ModelRoutingContextControlsLayout(
         infoWidth: infoWidth,
-        popupRect: NSRect(x: controlX, y: panel.minY + 55, width: controlWidth, height: 34),
+        contextSliderRect: NSRect(x: controlX, y: panel.minY + 55, width: contextSliderWidth, height: 34),
+        contextValueRect: NSRect(x: controlX + contextSliderWidth + 8, y: panel.minY + 55, width: contextValueWidth, height: 34),
         sliderRect: NSRect(x: controlX, y: panel.minY + 95, width: sliderWidth, height: 34),
         percentageRect: NSRect(x: controlX + sliderWidth + 8, y: panel.minY + 95, width: percentageWidth, height: 34),
         tokenLimitRect: NSRect(x: controlX + sliderWidth + percentageWidth + 16, y: panel.minY + 95, width: tokenLimitWidth, height: 34)
@@ -159,13 +196,16 @@ private func modelRoutingGlobalContextControlsLayout(in column: NSRect) -> Model
     let gap: CGFloat = 12
     let controlX = column.minX + infoWidth + gap
     let controlWidth = max(0, column.maxX - controlX)
+    let contextValueWidth = min(126, max(108, controlWidth * 0.28))
+    let contextSliderWidth = max(0, controlWidth - contextValueWidth - 8)
     let percentageWidth = min(92, max(78, controlWidth * 0.20))
     let tokenLimitWidth = min(204, max(156, controlWidth - percentageWidth - 16 - 110))
     let sliderWidth = max(0, controlWidth - percentageWidth - tokenLimitWidth - 16)
 
     return ModelRoutingContextControlsLayout(
         infoWidth: infoWidth,
-        popupRect: NSRect(x: controlX, y: column.minY, width: controlWidth, height: 34),
+        contextSliderRect: NSRect(x: controlX, y: column.minY, width: contextSliderWidth, height: 34),
+        contextValueRect: NSRect(x: controlX + contextSliderWidth + 8, y: column.minY, width: contextValueWidth, height: 34),
         sliderRect: NSRect(x: controlX, y: column.minY + 42, width: sliderWidth, height: 34),
         percentageRect: NSRect(x: controlX + sliderWidth + 8, y: column.minY + 42, width: percentageWidth, height: 34),
         tokenLimitRect: NSRect(x: controlX + sliderWidth + percentageWidth + 16, y: column.minY + 42, width: tokenLimitWidth, height: 34)
@@ -317,7 +357,8 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     private var draftSelections: [Scope: CodexConfigSelection] = [:]
     private var modelPopups: [Scope: NSPopUpButton] = [:]
     private var effortPopups: [Scope: NSPopUpButton] = [:]
-    private var contextPopups: [Scope: NSPopUpButton] = [:]
+    private var contextSliders: [Scope: NSSlider] = [:]
+    private var contextValueFields: [Scope: NSTextField] = [:]
     private var compressionSliders: [Scope: NSSlider] = [:]
     private var compressionPercentageFields: [Scope: NSTextField] = [:]
     private var sectionInheritanceCheckboxes: [ProjectSection: NSButton] = [:]
@@ -516,7 +557,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         return max(1, min(99, Int((Double(limit) / Double(max(context, 1)) * 100).rounded())))
     }
 
-    private func compressionSelection(for scope: Scope) -> CodexConfigSelection? {
+    private func selection(for scope: Scope) -> CodexConfigSelection? {
         switch scope {
         case .global:
             return displayedGlobalSelection
@@ -527,22 +568,52 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     private func updateCompressionDraft(scope: Scope, percent: Int) -> Int? {
-        guard let current = compressionSelection(for: scope) else { return nil }
+        guard let current = selection(for: scope) else { return nil }
         let context: Int
+        let model: String?
+        let reasoningEffort: String?
         switch scope {
         case .global:
             context = current.contextWindow ?? 258_400
+            model = current.model ?? effectiveGlobalModel()
+            reasoningEffort = current.reasoningEffort ?? effectiveGlobalEffort()
         case .project:
             context = current.contextWindow ?? displayedGlobalSelection.contextWindow ?? 258_400
+            model = current.model
+            reasoningEffort = current.reasoningEffort
         }
         draftSelections[scope] = CodexConfigSelection(
-            model: current.model ?? effectiveGlobalModel(),
-            reasoningEffort: current.reasoningEffort ?? effectiveGlobalEffort(),
+            model: model,
+            reasoningEffort: reasoningEffort,
             contextWindow: context,
             autoCompactTokenLimit: context * percent / 100,
             planModeReasoningEffort: current.planModeReasoningEffort
         )
         return context
+    }
+
+    private func updateContextDraft(scope: Scope, context: Int) -> CodexConfigSelection? {
+        guard let current = selection(for: scope) else { return nil }
+        let percent = compressionPercent(for: current)
+        let model: String?
+        let reasoningEffort: String?
+        switch scope {
+        case .global:
+            model = current.model ?? effectiveGlobalModel()
+            reasoningEffort = current.reasoningEffort ?? effectiveGlobalEffort()
+        case .project:
+            model = current.model
+            reasoningEffort = current.reasoningEffort
+        }
+        let updated = CodexConfigSelection(
+            model: model,
+            reasoningEffort: reasoningEffort,
+            contextWindow: context,
+            autoCompactTokenLimit: context * percent / 100,
+            planModeReasoningEffort: current.planModeReasoningEffort
+        )
+        draftSelections[scope] = updated
+        return updated
     }
 
     private func isProjectSectionInherited(
@@ -774,7 +845,9 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             ?? effectiveGlobalModel()
         draftSelections[.project(project.project.id)] = CodexConfigSelection(
             model: model,
-            reasoningEffort: preferredEffort(for: model)
+            reasoningEffort: preferredEffort(for: model),
+            contextWindow: 512_000,
+            autoCompactTokenLimit: 307_200
         )
         statusMessage = localized(
             chinese: "有未保存的修改",
@@ -804,8 +877,11 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         for popup in effortPopups.values {
             popup.isHidden = true
         }
-        for popup in contextPopups.values {
-            popup.isHidden = true
+        for slider in contextSliders.values {
+            slider.isHidden = true
+        }
+        for field in contextValueFields.values {
+            field.isHidden = true
         }
         for slider in compressionSliders.values {
             slider.isHidden = true
@@ -1084,6 +1160,64 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         invalidateLayout()
     }
 
+    @objc private func contextSliderChanged(_ sender: NSSlider) {
+        guard let binding = bindings[ObjectIdentifier(sender)] else { return }
+        let rounded = Int((sender.doubleValue / Double(modelRoutingContextWindowStep)).rounded())
+            * modelRoutingContextWindowStep
+        let context = max(modelRoutingContextWindowMinimum, min(modelRoutingContextWindowMaximum, rounded))
+        sender.integerValue = context
+        guard let updated = updateContextDraft(scope: binding.scope, context: context) else { return }
+        statusMessage = localized(chinese: "有未保存的修改", english: "Unsaved changes", japanese: "未保存の変更があります")
+        statusIsError = false
+        configureContextValueField(contextValueFields[binding.scope], value: context)
+        configureContextSlider(sender, value: context)
+        configureCompressionSlider(
+            compressionSliders[binding.scope],
+            context: .value(String(context)),
+            selected: updated.autoCompactTokenLimit.map { .value(String($0)) } ?? .inherited
+        )
+        configureCompressionPercentageField(
+            compressionPercentageFields[binding.scope],
+            percent: compressionPercent(for: updated)
+        )
+        invalidateLayout()
+    }
+
+    @objc private func contextValueChanged(_ sender: NSTextField) {
+        guard let binding = bindings[ObjectIdentifier(sender)] else { return }
+        guard let context = parseContextTokenCount(sender.stringValue),
+              (modelRoutingContextWindowMinimum...modelRoutingContextWindowMaximum).contains(context) else {
+            statusMessage = localized(
+                chinese: "请输入 128 到 1000，单位固定为 K",
+                english: "Enter 128 to 1000; the K unit is fixed",
+                japanese: "128 から 1000 を入力してください。単位 K は固定です"
+            )
+            statusIsError = true
+            let current = selection(for: binding.scope)?.contextWindow
+                ?? displayedGlobalSelection.contextWindow
+                ?? 258_400
+            configureContextValueField(sender, value: current)
+            invalidateLayout()
+            return
+        }
+
+        guard let updated = updateContextDraft(scope: binding.scope, context: context) else { return }
+        statusMessage = localized(chinese: "有未保存的修改", english: "Unsaved changes", japanese: "未保存の変更があります")
+        statusIsError = false
+        configureContextValueField(sender, value: context)
+        configureContextSlider(contextSliders[binding.scope], value: context)
+        configureCompressionSlider(
+            compressionSliders[binding.scope],
+            context: .value(String(context)),
+            selected: updated.autoCompactTokenLimit.map { .value(String($0)) } ?? .inherited
+        )
+        configureCompressionPercentageField(
+            compressionPercentageFields[binding.scope],
+            percent: compressionPercent(for: updated)
+        )
+        invalidateLayout()
+    }
+
     @objc private func compressionSliderChanged(_ sender: NSSlider) {
         guard let binding = bindings[ObjectIdentifier(sender)] else { return }
         let percent = max(5, min(95, Int((Double(sender.integerValue) / 5).rounded()) * 5))
@@ -1110,7 +1244,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             statusIsError = true
             configureCompressionPercentageField(
                 sender,
-                percent: compressionSelection(for: binding.scope).map(compressionPercent(for:)) ?? 85
+                percent: selection(for: binding.scope).map(compressionPercent(for:)) ?? 85
             )
             invalidateLayout()
             return
@@ -1338,8 +1472,11 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         for popup in effortPopups.values {
             popup.removeFromSuperview()
         }
-        for popup in contextPopups.values {
-            popup.removeFromSuperview()
+        for slider in contextSliders.values {
+            slider.removeFromSuperview()
+        }
+        for field in contextValueFields.values {
+            field.removeFromSuperview()
         }
         for slider in compressionSliders.values {
             slider.removeFromSuperview()
@@ -1357,7 +1494,8 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         sectionInheritanceBindings.removeAll()
         modelPopups.removeAll()
         effortPopups.removeAll()
-        contextPopups.removeAll()
+        contextSliders.removeAll()
+        contextValueFields.removeAll()
         compressionSliders.removeAll()
         compressionPercentageFields.removeAll()
         sectionInheritanceCheckboxes.removeAll()
@@ -1406,16 +1544,20 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
 
         let supportsContextControls = project != nil || (scope == .global && selectedPlatform == .codex)
         if supportsContextControls {
-            let contextPopup = makePopup()
+            let contextSlider = makeContextSlider()
+            let contextValueField = makeContextValueField()
             let compressionSlider = makeCompressionSlider()
             let compressionPercentageField = makeCompressionPercentageField()
-            contextPopups[scope] = contextPopup
+            contextSliders[scope] = contextSlider
+            contextValueFields[scope] = contextValueField
             compressionSliders[scope] = compressionSlider
             compressionPercentageFields[scope] = compressionPercentageField
-            bindings[ObjectIdentifier(contextPopup)] = Binding(scope: scope, field: .contextWindow)
+            bindings[ObjectIdentifier(contextSlider)] = Binding(scope: scope, field: .contextWindow)
+            bindings[ObjectIdentifier(contextValueField)] = Binding(scope: scope, field: .contextWindow)
             bindings[ObjectIdentifier(compressionSlider)] = Binding(scope: scope, field: .autoCompactTokenLimit)
             bindings[ObjectIdentifier(compressionPercentageField)] = Binding(scope: scope, field: .autoCompactTokenLimit)
-            host.addSubview(contextPopup)
+            host.addSubview(contextSlider)
+            host.addSubview(contextValueField)
             host.addSubview(compressionSlider)
             host.addSubview(compressionPercentageField)
         }
@@ -1452,7 +1594,8 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
                 selectedContext = project.contextWindow
                 selectedCompression = project.autoCompactTokenLimit
             }
-            configureContextPopup(contextPopups[scope], selected: selectedContext)
+            configureContextSlider(contextSliders[scope], selected: selectedContext)
+            configureContextValueField(contextValueFields[scope], selected: selectedContext)
             configureCompressionSlider(
                 compressionSliders[scope],
                 context: selectedContext,
@@ -1472,14 +1615,16 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             effortPopup.isEnabled = strategyEnabled && modelSupportsEffort(
                 selectedModel.explicitValue ?? effectiveGlobalModel()
             )
-            contextPopups[scope]?.isEnabled = contextEnabled && selectedPlatform == .codex
+            contextSliders[scope]?.isEnabled = contextEnabled && selectedPlatform == .codex
+            contextValueFields[scope]?.isEnabled = contextEnabled && selectedPlatform == .codex
             compressionSliders[scope]?.isEnabled = contextEnabled && selectedPlatform == .codex
             compressionPercentageFields[scope]?.isEnabled = contextEnabled && selectedPlatform == .codex
             planModeEffortPopups[scope]?.isEnabled = planEnabled && selectedPlatform == .codex
             configurePlanModeEffortPopup(planModeEffortPopups[scope], scope: scope, project: project)
             modelPopup.alphaValue = strategyEnabled ? 1 : 0.52
             effortPopup.alphaValue = effortPopup.isEnabled ? 1 : 0.52
-            contextPopups[scope]?.alphaValue = contextPopups[scope]?.isEnabled == true ? 1 : 0.52
+            contextSliders[scope]?.alphaValue = contextSliders[scope]?.isEnabled == true ? 1 : 0.52
+            contextValueFields[scope]?.alphaValue = contextValueFields[scope]?.isEnabled == true ? 1 : 0.52
             compressionSliders[scope]?.alphaValue = compressionSliders[scope]?.isEnabled == true ? 1 : 0.52
             compressionPercentageFields[scope]?.alphaValue = compressionPercentageFields[scope]?.isEnabled == true ? 1 : 0.52
             planModeEffortPopups[scope]?.alphaValue = planModeEffortPopups[scope]?.isEnabled == true ? 1 : 0.52
@@ -1492,7 +1637,8 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
                 let globalSelection = displayedGlobalSelection
                 let selectedContext = globalSelection.contextWindow.map { CodexProjectConfigValue.value(String($0)) } ?? .inherited
                 let selectedCompression = globalSelection.autoCompactTokenLimit.map { CodexProjectConfigValue.value(String($0)) } ?? .inherited
-                configureContextPopup(contextPopups[scope], selected: selectedContext)
+                configureContextSlider(contextSliders[scope], selected: selectedContext)
+                configureContextValueField(contextValueFields[scope], selected: selectedContext)
                 configureCompressionSlider(
                     compressionSliders[scope],
                     context: selectedContext,
@@ -1502,7 +1648,8 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
                     compressionPercentageFields[scope],
                     percent: globalCompressionPercent()
                 )
-                contextPopups[scope]?.isEnabled = true
+                contextSliders[scope]?.isEnabled = true
+                contextValueFields[scope]?.isEnabled = true
                 compressionSliders[scope]?.isEnabled = true
                 compressionPercentageFields[scope]?.isEnabled = true
             }
@@ -1724,9 +1871,9 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
                 addItem(
                     to: popup,
                     title: localized(
-                        chinese: "Codex 内置 Plan 默认（不单独设置）",
-                        english: "Codex built-in Plan default",
-                        japanese: "Codex 内蔵の Plan 既定値"
+                        chinese: "Codex 内置默认",
+                        english: "Codex built-in default",
+                        japanese: "Codex 内蔵既定値"
                     ),
                     value: modelRoutingBuiltInPlanDefaultValue
                 )
@@ -1737,9 +1884,9 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             addItem(
                 to: popup,
                 title: localized(
-                    chinese: "Codex 内置 Plan 默认（不单独设置）",
-                    english: "Codex built-in Plan default",
-                    japanese: "Codex 内蔵の Plan 既定値"
+                    chinese: "Codex 内置默认",
+                    english: "Codex built-in default",
+                    japanese: "Codex 内蔵既定値"
                 ),
                 value: modelRoutingBuiltInPlanDefaultValue
             )
@@ -1761,9 +1908,9 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         )
         popup.toolTip = project == nil
             ? localized(
-                chinese: "设置所有未覆盖项目的 Plan 思考强度；Plan 使用运行策略模型。",
-                english: "Sets Plan reasoning effort for projects without an override. Plan uses the run-strategy model.",
-                japanese: "未上書きプロジェクトの Plan 思考強度を設定します。Plan は実行戦略モデルを使用します。"
+                chinese: "设置所有未覆盖项目的 Plan 思考强度。",
+                english: "Sets Plan reasoning effort for projects without an override.",
+                japanese: "未上書きプロジェクトの Plan 思考強度を設定します。"
             )
             : localized(
                 chinese: "写入此项目的 .codex/config.toml；新建 Plan 后生效。",
@@ -1772,19 +1919,107 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             )
     }
 
-    private func configureContextPopup(_ popup: NSPopUpButton?, selected: CodexProjectConfigValue) {
-        guard let popup else { return }
-        popup.removeAllItems()
-        let values = [128_000, 258_400, 512_000, 1_000_000]
-        for value in values {
-            addItem(to: popup, title: compactContextTokenCount(value), value: String(value))
+    private func contextValue(for selected: CodexProjectConfigValue) -> Int {
+        Int(selected.explicitValue ?? "")
+            ?? displayedGlobalSelection.contextWindow
+            ?? 258_400
+    }
+
+    private func configureContextSlider(_ slider: NSSlider?, selected: CodexProjectConfigValue) {
+        configureContextSlider(slider, value: contextValue(for: selected))
+    }
+
+    private func configureContextSlider(_ slider: NSSlider?, value: Int) {
+        guard let slider else { return }
+        slider.integerValue = max(
+            modelRoutingContextWindowMinimum,
+            min(modelRoutingContextWindowMaximum, value)
+        )
+        slider.toolTip = compactContextTokenCount(value)
+    }
+
+    private func configureContextValueField(_ field: NSTextField?, selected: CodexProjectConfigValue) {
+        configureContextValueField(field, value: contextValue(for: selected))
+    }
+
+    private func configureContextValueField(_ field: NSTextField?, value: Int) {
+        field?.stringValue = compactContextNumber(value)
+    }
+
+    private func makeContextSlider() -> NSSlider {
+        let slider = NSSlider(
+            value: 258_400,
+            minValue: Double(modelRoutingContextWindowMinimum),
+            maxValue: Double(modelRoutingContextWindowMaximum),
+            target: self,
+            action: #selector(contextSliderChanged(_:))
+        )
+        slider.numberOfTickMarks = 0
+        slider.allowsTickMarkValuesOnly = false
+        slider.isContinuous = true
+        slider.controlSize = .small
+        slider.appearance = NSAppearance(named: .darkAqua)
+        slider.isHidden = true
+        slider.setAccessibilityLabel(
+            localized(chinese: "有效上下文窗口", english: "Context window", japanese: "コンテキストウィンドウ")
+        )
+        return slider
+    }
+
+    private func makeContextValueField() -> NSTextField {
+        let field = NSTextField()
+        let cell = RoutingValueTextFieldCell(textCell: "")
+        cell.fixedSuffix = "K"
+        field.cell = cell
+        field.isEditable = true
+        field.isSelectable = true
+        field.isEnabled = true
+        field.usesSingleLineMode = true
+        field.lineBreakMode = .byClipping
+        field.cell?.sendsActionOnEndEditing = true
+        field.alignment = .right
+        field.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .bold)
+        field.textColor = NSColor.white.withAlphaComponent(0.92)
+        field.backgroundColor = .clear
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .default
+        field.appearance = NSAppearance(named: .darkAqua)
+        field.target = self
+        field.action = #selector(contextValueChanged(_:))
+        field.toolTip = localized(
+            chinese: "输入 128–1000，单位固定为 K",
+            english: "Enter 128–1000; the K unit is fixed",
+            japanese: "128〜1000 を入力します。単位 K は固定です"
+        )
+        field.setAccessibilityLabel(
+            localized(chinese: "有效上下文窗口", english: "Context window", japanese: "コンテキストウィンドウ")
+        )
+        field.isHidden = true
+        return field
+    }
+
+    private func parseContextTokenCount(_ rawValue: String) -> Int? {
+        var normalized = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+            .replacingOccurrences(of: ",", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
+        let multiplier: Double
+        if normalized.hasSuffix("K") {
+            multiplier = 1_000
+            normalized.removeLast()
+        } else if normalized.hasSuffix("M") {
+            multiplier = 1_000_000
+            normalized.removeLast()
+        } else {
+            guard let numeric = Double(normalized), numeric.isFinite, numeric > 0 else { return nil }
+            multiplier = numeric <= 1_000 ? 1_000 : 1
         }
-        let explicit = selected.explicitValue ?? displayedGlobalSelection.contextWindow.map(String.init)
-        if let explicit, !values.contains(Int(explicit) ?? -1) {
-            addItem(to: popup, title: compactContextTokenCount(Int(explicit) ?? 0), value: explicit)
-        }
-        select(value: explicit ?? String(values[1]), in: popup)
-        popup.setAccessibilityLabel(localized(chinese: "有效上下文窗口", english: "Context window", japanese: "コンテキストウィンドウ"))
+        guard let numeric = Double(normalized), numeric.isFinite, numeric > 0 else { return nil }
+        return Int((numeric * multiplier).rounded())
     }
 
     private func configureCompressionSlider(
@@ -1819,22 +2054,30 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
 
     private func makeCompressionPercentageField() -> NSTextField {
         let field = NSTextField()
-        field.cell = CompressionPercentageTextFieldCell(textCell: "")
-        field.alignment = .center
+        let cell = RoutingValueTextFieldCell(textCell: "")
+        cell.fixedSuffix = "%"
+        field.cell = cell
+        field.isEditable = true
+        field.isSelectable = true
+        field.isEnabled = true
+        field.usesSingleLineMode = true
+        field.lineBreakMode = .byClipping
+        field.cell?.sendsActionOnEndEditing = true
+        field.alignment = .right
         field.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .bold)
         field.textColor = NSColor.white.withAlphaComponent(0.92)
         field.backgroundColor = .clear
         field.isBordered = false
         field.isBezeled = false
         field.drawsBackground = false
-        field.focusRingType = .none
+        field.focusRingType = .default
         field.appearance = NSAppearance(named: .darkAqua)
         field.target = self
         field.action = #selector(compressionPercentageChanged(_:))
         field.toolTip = localized(
-            chinese: "可输入任意整数百分比（1–99）",
-            english: "Enter any whole percentage from 1 to 99",
-            japanese: "1 から 99 までの任意の整数パーセントを入力できます"
+            chinese: "输入 1–99，百分号固定不可编辑",
+            english: "Enter 1–99; the percent sign is fixed",
+            japanese: "1〜99 を入力します。% 記号は固定です"
         )
         field.setAccessibilityLabel(localized(chinese: "自动压缩阈值百分比", english: "Auto-compaction percentage", japanese: "自動圧縮しきい値の割合"))
         field.isHidden = true
@@ -1842,7 +2085,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     private func configureCompressionPercentageField(_ field: NSTextField?, percent: Int) {
-        field?.stringValue = "\(percent)%"
+        field?.stringValue = "\(percent)"
     }
 
     private func formattedTokenCount(_ value: Int) -> String {
@@ -1853,11 +2096,15 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     private func compactContextTokenCount(_ value: Int) -> String {
+        "\(compactContextNumber(value))K"
+    }
+
+    private func compactContextNumber(_ value: Int) -> String {
         let valueInThousands = Double(value) / 1_000
         let formatted = valueInThousands.rounded() == valueInThousands
             ? String(Int(valueInThousands))
             : String(format: "%.1f", valueInThousands)
-        return "\(formatted)K"
+        return formatted
     }
 
     private func layoutGlobalPopups(in row: NSRect) {
@@ -1882,10 +2129,12 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             effortPopups[.global]?.isHidden = false
 
             let contextLayout = modelRoutingGlobalContextControlsLayout(in: columns.context)
-            contextPopups[.global]?.frame = contextLayout.popupRect
+            contextSliders[.global]?.frame = contextLayout.contextSliderRect
+            contextValueFields[.global]?.frame = contextLayout.contextValueRect
             compressionSliders[.global]?.frame = contextLayout.sliderRect
             compressionPercentageFields[.global]?.frame = contextLayout.percentageRect
-            contextPopups[.global]?.isHidden = false
+            contextSliders[.global]?.isHidden = false
+            contextValueFields[.global]?.isHidden = false
             compressionSliders[.global]?.isHidden = false
             compressionPercentageFields[.global]?.isHidden = false
             let planPopupY = columns.strategy.minY + 84
@@ -1925,10 +2174,12 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         effortPopups[scope]?.isHidden = false
         let contextPanel = layout.contextRect
         let contextLayout = modelRoutingContextControlsLayout(in: contextPanel)
-        contextPopups[scope]?.frame = contextLayout.popupRect
+        contextSliders[scope]?.frame = contextLayout.contextSliderRect
+        contextValueFields[scope]?.frame = contextLayout.contextValueRect
         compressionSliders[scope]?.frame = contextLayout.sliderRect
         compressionPercentageFields[scope]?.frame = contextLayout.percentageRect
-        contextPopups[scope]?.isHidden = false
+        contextSliders[scope]?.isHidden = false
+        contextValueFields[scope]?.isHidden = false
         compressionSliders[scope]?.isHidden = false
         compressionPercentageFields[scope]?.isHidden = false
         planModeEffortPopups[scope]?.frame = NSRect(
@@ -2023,7 +2274,7 @@ extension UsageDetailsView {
         let panelWidth = inspectorRect.width - 28
         let runStrategyRect = NSRect(x: panelX, y: inspectorRect.minY + 54, width: panelWidth, height: 158)
         let contextRect = NSRect(x: panelX, y: runStrategyRect.maxY + 14, width: panelWidth, height: 150)
-        let planRect = NSRect(x: panelX, y: contextRect.maxY + 14, width: panelWidth, height: 150)
+        let planRect = NSRect(x: panelX, y: contextRect.maxY + 14, width: panelWidth, height: 112)
         var rows: [String: NSRect] = [:]
         var y = projectListRect.minY + 48
         for project in projects {
@@ -2293,7 +2544,6 @@ extension UsageDetailsView {
             rect: layout.planRect
         )
         drawText(modelRoutingLocalized(chinese: "Plan 思考强度", english: "Plan effort", japanese: "Plan 思考強度"), rect: NSRect(x: layout.planRect.minX + 16, y: layout.planRect.minY + 61, width: 132, height: 18), font: .systemFont(ofSize: 11.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62))
-        drawText(modelRoutingLocalized(chinese: "Plan 使用运行策略模型", english: "Plan uses the run-strategy model", japanese: "Plan は実行戦略モデルを使用"), rect: NSRect(x: layout.planRect.minX + 16, y: layout.planRect.minY + 108, width: layout.planRect.width - 32, height: 16), font: .systemFont(ofSize: 10.5, weight: .medium), color: NSColor.white.withAlphaComponent(0.42))
     }
 
     private func drawInspectorSection(title: String, rect: NSRect) {

@@ -104,6 +104,9 @@ $CODEX_HOME/archived_sessions
 The default-model page reads `~/.codex/config.toml`, `~/.codex/models_cache.json`,
 Codex Desktop's local project registry, and Claude Code's `~/.claude/settings.json`.
 Codex project overrides are written to each project root's `.codex/config.toml`.
+When a saved Codex project is discovered without that file, Token Meter creates
+it once with a copy of the current global defaults. Existing files are never
+replaced, so explicitly returning a project to inheritance remains stable.
 Claude project overrides are written to `.claude/settings.local.json`; unrelated
 TOML and JSON settings are retained.
 
@@ -112,8 +115,7 @@ baseline in application preferences. Token Meter edits replace that baseline.
 External rewrites restore only Token Meter's managed routing keys (`model`,
 `model_reasoning_effort`, `model_context_window`,
 `model_auto_compact_token_limit`, and `plan_mode_reasoning_effort`); newly
-discovered projects inherit the protected global defaults until the user creates
-an explicit project override from Token Meter.
+discovered projects start with their own copy of the protected global defaults.
 
 `storage-snapshot-cache.json` stores the last local disk-usage snapshot, including category roots and per-project paths. Those local paths are the essential content of a disk-usage report, so this cache intentionally keeps them; it must never contain log file contents.
 

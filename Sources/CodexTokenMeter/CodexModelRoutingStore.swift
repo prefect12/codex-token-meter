@@ -159,7 +159,16 @@ final class CodexModelRoutingStore {
     func loadSnapshot() -> CodexModelRoutingSnapshot {
         let models = loadModels()
         let global = (try? readSelection(at: globalConfigURL)) ?? CodexConfigSelection()
-        let projects = loadProjects().map { project in
+        let savedProjects = loadProjects()
+        for project in savedProjects {
+            for rootPath in project.rootPaths {
+                _ = try? createProjectConfigIfMissing(
+                    rootPath: rootPath,
+                    inheriting: global
+                )
+            }
+        }
+        let projects = savedProjects.map { project in
             let rootSelections = project.rootPaths.map {
                 (try? readSelection(at: projectConfigURL(rootPath: $0))) ?? CodexConfigSelection()
             }
@@ -216,9 +225,11 @@ final class CodexModelRoutingStore {
         for project in loadProjects() {
             for rootPath in project.rootPaths {
                 let url = projectConfigURL(rootPath: rootPath).standardizedFileURL
-                // Projects discovered after protection was enabled inherit the
-                // protected global default until configured from Token Meter.
-                let desired = state.selectionsByPath[url.path] ?? CodexConfigSelection()
+                // A project discovered after protection was enabled starts with
+                // its own copy of the protected global defaults.
+                let desired = state.selectionsByPath[url.path]
+                    ?? state.selectionsByPath[globalPath]
+                    ?? CodexConfigSelection()
                 if try readSelection(at: url) != desired {
                     try writeSelection(desired, at: url)
                     changed = true
@@ -345,6 +356,29 @@ final class CodexModelRoutingStore {
         URL(fileURLWithPath: rootPath, isDirectory: true)
             .appendingPathComponent(".codex", isDirectory: true)
             .appendingPathComponent("config.toml")
+    }
+
+    /// Creates a project's local configuration once, copying the current
+    /// global defaults. Existing files are never replaced, including an empty
+    /// file left behind after the user explicitly switches back to inheritance.
+    @discardableResult
+    func createProjectConfigIfMissing(
+        rootPath: String,
+        inheriting selection: CodexConfigSelection
+    ) throws -> Bool {
+        let url = projectConfigURL(rootPath: rootPath)
+        guard !fileManager.fileExists(atPath: url.path) else { return false }
+        try fileManager.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let contents = Self.updatedTOML("", selection: selection)
+        do {
+            try Data(contents.utf8).write(to: url, options: .withoutOverwriting)
+            return true
+        } catch let error as CocoaError where error.code == .fileWriteFileExists {
+            return false
+        }
     }
 
     static func updatedTOML(
