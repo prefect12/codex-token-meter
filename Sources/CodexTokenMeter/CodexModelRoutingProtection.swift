@@ -230,12 +230,17 @@ final class CodexModelRoutingProtectionController {
         let urls = [routingStore.globalConfigURL] + snapshot.projects.flatMap { project in
             project.project.rootPaths.map(routingStore.projectConfigURL(rootPath:))
         }
-        return Dictionary(uniqueKeysWithValues: urls.compactMap { url in
+        var modificationDates: [String: Date] = [:]
+        for url in urls {
             guard let date = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate]
                 as? Date else {
-                return nil
+                continue
             }
-            return (url.standardizedFileURL.path, date)
-        })
+            // Codex can associate one workspace root with more than one saved
+            // project. Treat that shared config as one watched input instead of
+            // trapping while constructing a dictionary with duplicate keys.
+            modificationDates[url.standardizedFileURL.path] = date
+        }
+        return modificationDates
     }
 }

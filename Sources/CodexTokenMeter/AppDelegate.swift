@@ -88,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        LoginItemManager.repairEnabledRegistrationIfNeeded()
         ClaudeOAuthUsageRefresher.disableKeychainInteraction()
         localFormatter.locale = Locale(identifier: "en_US_POSIX")
         localFormatter.timeZone = appTimeZone()
