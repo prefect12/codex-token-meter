@@ -1,5 +1,40 @@
 import Cocoa
 
+struct CombinationRankingSelection: Equatable {
+    let models: Set<String>
+    let effortsByModel: [String: Set<String>]
+}
+
+final class CombinationRankingSelectionPreferences {
+    static let modelsKey = "combinationRankingSelectedModels"
+    static let effortsKey = "combinationRankingSelectedEffortsByModel"
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func load() -> CombinationRankingSelection? {
+        guard defaults.object(forKey: Self.modelsKey) != nil else { return nil }
+        let models = Set(defaults.stringArray(forKey: Self.modelsKey) ?? [])
+        let rawEfforts = defaults.dictionary(forKey: Self.effortsKey) ?? [:]
+        let efforts = rawEfforts.reduce(into: [String: Set<String>]()) { result, entry in
+            guard let values = entry.value as? [String] else { return }
+            result[entry.key] = Set(values)
+        }
+        return CombinationRankingSelection(models: models, effortsByModel: efforts)
+    }
+
+    func save(_ selection: CombinationRankingSelection) {
+        defaults.set(selection.models.sorted(), forKey: Self.modelsKey)
+        defaults.set(
+            selection.effortsByModel.mapValues { $0.sorted() },
+            forKey: Self.effortsKey
+        )
+    }
+}
+
 private struct CombinationRankingRow {
     let model: String
     let platform: String
@@ -36,29 +71,23 @@ extension UsageDetailsView {
             selectedCombinationRankingCell = nil
             return
         }
+        restoreCombinationRankingSelectionIfNeeded()
         let rows = combinationRankingRows(snapshot: snapshot)
         let models = combinationRankingAvailableModels(rows)
         selectedCombinationRankingModels.formIntersection(Set(models))
         if selectedCombinationRankingModels.isEmpty {
-            let preferredModels = ["gpt-5.6-sol", "gpt-5.6-terra"].compactMap { preferred in
-                models.first { $0.caseInsensitiveCompare(preferred) == .orderedSame }
+            let openAI56SubscriptionModels = models.filter { model in
+                let normalized = model.lowercased()
+                let isOpenAI56 = normalized == "gpt-5.6" || normalized.hasPrefix("gpt-5.6-")
+                return isOpenAI56 && rows.contains {
+                    $0.platform == "Codex" && $0.model.caseInsensitiveCompare(model) == .orderedSame
+                }
             }
-            let unavailableModels = rows
-                .filter { $0.effort == "unavailable" }
-                .sorted { $0.usage.total > $1.usage.total }
-                .map(\.model)
-            var defaults: [String] = []
-            for model in unavailableModels where !defaults.contains(where: { $0.caseInsensitiveCompare(model) == .orderedSame }) {
-                defaults.append(model)
+            if !openAI56SubscriptionModels.isEmpty {
+                selectedCombinationRankingModels = Set(openAI56SubscriptionModels)
+            } else if let highestUsageModel = combinationRankingHighestUsageModel(rows) {
+                selectedCombinationRankingModels = [highestUsageModel]
             }
-            if let highestUsageModel = combinationRankingHighestUsageModel(rows),
-               !defaults.contains(where: { $0.caseInsensitiveCompare(highestUsageModel) == .orderedSame }) {
-                defaults.append(highestUsageModel)
-            }
-            defaults.append(contentsOf: preferredModels.filter { candidate in
-                !defaults.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
-            })
-            selectedCombinationRankingModels = Set(defaults.prefix(3))
         }
         if activeCombinationRankingModel == nil || !models.contains(activeCombinationRankingModel ?? "") {
             activeCombinationRankingModel = selectedCombinationRankingModels.sorted().first ?? models.first
@@ -78,6 +107,23 @@ extension UsageDetailsView {
         let visible = combinationRankingVisibleRows(rows)
         if let selectedCombinationRankingCell, visible.contains(where: { $0.key == selectedCombinationRankingCell }) { return }
         selectedCombinationRankingCell = visible.first(where: { $0.effort == "xhigh" })?.key ?? visible.first?.key
+    }
+
+    func restoreCombinationRankingSelectionIfNeeded() {
+        guard !didRestoreCombinationRankingSelection else { return }
+        didRestoreCombinationRankingSelection = true
+        guard let saved = combinationRankingSelectionPreferences.load() else { return }
+        selectedCombinationRankingModels = saved.models
+        selectedCombinationRankingEffortsByModel = saved.effortsByModel
+    }
+
+    func persistCombinationRankingSelection() {
+        combinationRankingSelectionPreferences.save(
+            CombinationRankingSelection(
+                models: selectedCombinationRankingModels,
+                effortsByModel: selectedCombinationRankingEffortsByModel
+            )
+        )
     }
 
     func drawCombinationRankingPage(snapshot: DetailsSnapshot, content: NSRect) {

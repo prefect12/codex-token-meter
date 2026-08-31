@@ -746,6 +746,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var selectedCombinationRankingMetric: CombinationRankingMetric = .averageTokens
     var selectedCombinationRankingModels = Set<String>()
     var selectedCombinationRankingEffortsByModel: [String: Set<String>] = [:]
+    let combinationRankingSelectionPreferences = CombinationRankingSelectionPreferences()
+    var didRestoreCombinationRankingSelection = false
     var activeCombinationRankingModel: String?
     var selectedCombinationRankingCell: ReasoningCellKey?
     var combinationRankingMetricRects: [CombinationRankingMetric: NSRect] = [:]
@@ -2242,6 +2244,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                         }
                     }
                     normalizeCombinationRankingSelection(snapshot: snapshot)
+                    persistCombinationRankingSelection()
                     needsDisplay = true
                     return
                 }
@@ -2256,6 +2259,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                     }
                     selectedCombinationRankingEffortsByModel[model] = efforts
                     normalizeCombinationRankingSelection(snapshot: snapshot)
+                    persistCombinationRankingSelection()
                     needsDisplay = true
                     return
                 }
