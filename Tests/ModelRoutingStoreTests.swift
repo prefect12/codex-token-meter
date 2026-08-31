@@ -10,6 +10,7 @@ struct ModelRoutingStoreTests {
         try testProtectionPreferenceLifecycle()
         try testActiveProjectResolverUsesRecentMatchingTask()
         try testAppLifetimeProtectionRestoresExternalRewrite()
+        try testTokenMeterGlobalSaveDoesNotRewriteProject()
         try testAppLifetimeProtectionKeepsConversationOverrideBriefly()
         try testClaudeJSONUpdatePreservesOtherSettings()
         try testClaudeModelCatalogMatchesCurrentSelector()
@@ -508,6 +509,97 @@ struct ModelRoutingStoreTests {
             restoredProjectSelection
                 == CodexConfigSelection(model: "gpt-5.6-terra", reasoningEffort: "high"),
             "the selected project should return to its captured default"
+        )
+    }
+
+    private static func testTokenMeterGlobalSaveDoesNotRewriteProject() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-global-save-isolation-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        let store = CodexModelRoutingStore(codexHomeURL: temporaryRoot)
+        let projectRoot = temporaryRoot.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+
+        let originalGlobal = CodexConfigSelection(
+            model: "gpt-5.6-luna",
+            reasoningEffort: "high",
+            contextWindow: 1_000_000,
+            autoCompactTokenLimit: 600_000
+        )
+        let originalProject = CodexConfigSelection(
+            model: "gpt-5.6-sol",
+            reasoningEffort: "medium",
+            contextWindow: 512_000,
+            autoCompactTokenLimit: 358_400
+        )
+        try store.writeGlobal(originalGlobal)
+        let projectConfigURL = store.projectConfigURL(rootPath: projectRoot.path)
+        try store.writeSelection(originalProject, at: projectConfigURL)
+        try writeProjectState(
+            ["project": ("Project", [projectRoot.path])],
+            to: store.globalStateURL
+        )
+
+        let suiteName = "ModelRoutingGlobalSaveIsolationTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw NSError(
+                domain: "ModelRoutingStoreTests",
+                code: 9,
+                userInfo: [NSLocalizedDescriptionKey: "could not create global-save defaults"]
+            )
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = CodexModelRoutingProtectionPreferences(defaults: defaults)
+        preferences.enable(capturing: store.captureProtectedRoutingState())
+        let watcherReady = DispatchSemaphore(value: 0)
+        let controller = CodexModelRoutingProtectionController(
+            routingStore: store,
+            preferences: preferences,
+            callbackQueue: DispatchQueue(label: "ModelRoutingGlobalSaveIsolationTests.callback"),
+            conversationOverrideGraceInterval: 1,
+            temporaryOverrideTargetProvider: { _ in projectConfigURL },
+            onWatcherReady: {
+                watcherReady.signal()
+            }
+        )
+        defer { withExtendedLifetime(controller) {} }
+        guard watcherReady.wait(timeout: .now() + 2) == .success else {
+            throw NSError(
+                domain: "ModelRoutingStoreTests",
+                code: 10,
+                userInfo: [NSLocalizedDescriptionKey: "global-save watcher did not become ready"]
+            )
+        }
+
+        let updatedGlobal = CodexConfigSelection(
+            model: "gpt-5.6-terra",
+            reasoningEffort: "max",
+            contextWindow: 768_000,
+            autoCompactTokenLimit: 460_800
+        )
+        preferences.expectTokenMeterGlobalWrite(updatedGlobal)
+        try store.writeGlobal(updatedGlobal)
+        preferences.updateProtectedState(store.captureProtectedRoutingState())
+
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline,
+              defaults.data(forKey: CodexModelRoutingProtectionPreferences.expectedGlobalWriteKey) != nil {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        try require(
+            defaults.data(forKey: CodexModelRoutingProtectionPreferences.expectedGlobalWriteKey) == nil,
+            "the app-lifetime watcher should consume the Token Meter save marker"
+        )
+        let savedGlobal = try store.readSelection(at: store.globalConfigURL)
+        try require(
+            savedGlobal == updatedGlobal,
+            "a Token Meter global save should update the global config"
+        )
+        let savedProject = try store.readSelection(at: projectConfigURL)
+        try require(
+            savedProject == originalProject,
+            "a Token Meter global save must not rewrite an existing project config"
         )
     }
 

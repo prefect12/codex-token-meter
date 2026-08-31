@@ -1031,7 +1031,13 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             guard let reasoningEffort = selection.reasoningEffort, !reasoningEffort.isEmpty else {
                 throw CodexModelRoutingStoreError.missingGlobalDefault("model_reasoning_effort")
             }
-            try codexStore.writeGlobal(selection)
+            protectionPreferences.expectTokenMeterGlobalWrite(selection)
+            do {
+                try codexStore.writeGlobal(selection)
+            } catch {
+                protectionPreferences.discardExpectedTokenMeterGlobalWrite()
+                throw error
+            }
         case .claude:
             try claudeStore.writeGlobal(model: selection.model ?? "", reasoningEffort: selection.reasoningEffort)
         }
