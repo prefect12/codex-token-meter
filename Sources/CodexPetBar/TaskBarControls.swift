@@ -307,7 +307,7 @@ final class TaskBarTabsView: NSView {
     private var iconViews: [NSImageView] = []
     private var labelViews: [NSTextField] = []
 
-    init(tabs: [TaskBarTab], selected: TaskBarTab, onSelect: @escaping (TaskBarTab) -> Void) {
+    init(tabs: [TaskBarTab], selected: TaskBarTab, allTaskCount: Int, onSelect: @escaping (TaskBarTab) -> Void) {
         self.tabs = tabs
         self.selectedIndex = tabs.firstIndex(of: selected) ?? 0
         self.onSelect = onSelect
@@ -332,10 +332,12 @@ final class TaskBarTabsView: NSView {
             addSubview(icon)
             iconViews.append(icon)
 
-            let label = NSTextField(labelWithString: tab.title)
+            let labelText = tab == .all ? "\(tab.title) \(allTaskCount)" : tab.title
+            let label = NSTextField(labelWithString: labelText)
             label.font = .systemFont(ofSize: 11.5, weight: isSelected ? .semibold : .medium)
             label.textColor = isSelected ? .white : NSColor(calibratedWhite: 0.6, alpha: 1)
             label.lineBreakMode = .byClipping
+            label.setAccessibilityLabel(tab == .all ? "All, \(allTaskCount) tasks" : tab.title)
             addSubview(label)
             labelViews.append(label)
         }
