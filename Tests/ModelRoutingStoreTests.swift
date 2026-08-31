@@ -9,6 +9,7 @@ struct ModelRoutingStoreTests {
         try testProtectedDefaultsRestoreOnlyRoutingKeys()
         try testProtectionPreferenceLifecycle()
         try testActiveProjectResolverUsesRecentMatchingTask()
+        try testProtectionHandlesDuplicateProjectRoots()
         try testAppLifetimeProtectionRestoresExternalRewrite()
         try testTokenMeterGlobalSaveDoesNotRewriteProject()
         try testAppLifetimeProtectionKeepsConversationOverrideBriefly()
@@ -415,6 +416,48 @@ struct ModelRoutingStoreTests {
         try require(
             source.contains("personality = \"friendly\""),
             "app-lifetime protection should preserve unrelated external changes"
+        )
+    }
+
+    private static func testProtectionHandlesDuplicateProjectRoots() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-duplicate-project-root-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        let codexHome = temporaryRoot.appendingPathComponent("home", isDirectory: true)
+        let sharedProjectRoot = temporaryRoot.appendingPathComponent("shared-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sharedProjectRoot, withIntermediateDirectories: true)
+
+        let store = CodexModelRoutingStore(codexHomeURL: codexHome)
+        try store.writeGlobal(CodexConfigSelection(model: "gpt-5.6-luna", reasoningEffort: "high"))
+        try writeProjectState(
+            [
+                "first-project": ("First Project", [sharedProjectRoot.path]),
+                "second-project": ("Second Project", [sharedProjectRoot.path]),
+            ],
+            to: store.globalStateURL
+        )
+
+        let suiteName = "DuplicateProjectRootProtectionTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw NSError(
+                domain: "ModelRoutingStoreTests",
+                code: 11,
+                userInfo: [NSLocalizedDescriptionKey: "could not create duplicate-root defaults"]
+            )
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let watcherReady = DispatchSemaphore(value: 0)
+        let controller = CodexModelRoutingProtectionController(
+            routingStore: store,
+            preferences: CodexModelRoutingProtectionPreferences(defaults: defaults),
+            callbackQueue: DispatchQueue(label: "DuplicateProjectRootProtectionTests.callback"),
+            onWatcherReady: { watcherReady.signal() }
+        )
+        defer { withExtendedLifetime(controller) {} }
+        try require(
+            watcherReady.wait(timeout: .now() + 2) == .success,
+            "duplicate project roots should not prevent the protection watcher from starting"
         )
     }
 

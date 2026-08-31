@@ -2249,6 +2249,8 @@ enum AppSettings {
 }
 
 enum LoginItemManager {
+    private static let registeredBundlePathKey = "loginItemRegisteredBundlePath"
+
     static var isEnabled: Bool {
         if #available(macOS 13.0, *) {
             return SMAppService.mainApp.status == .enabled
@@ -2264,10 +2266,17 @@ enum LoginItemManager {
                     if SMAppService.mainApp.status != .enabled {
                         try SMAppService.mainApp.register()
                     }
+                    if SMAppService.mainApp.status == .enabled {
+                        UserDefaults.standard.set(
+                            Bundle.main.bundleURL.standardizedFileURL.path,
+                            forKey: registeredBundlePathKey
+                        )
+                    }
                 } else {
                     if SMAppService.mainApp.status == .enabled {
                         try SMAppService.mainApp.unregister()
                     }
+                    UserDefaults.standard.removeObject(forKey: registeredBundlePathKey)
                 }
             } catch {
                 NSLog("AI Token Meter login item update failed: \(error.localizedDescription)")
@@ -2275,6 +2284,28 @@ enum LoginItemManager {
             return SMAppService.mainApp.status == .enabled
         }
         return false
+    }
+
+    /// Refreshes an enabled login item after the app moves between a build
+    /// directory and /Applications. macOS otherwise keeps launching the stale
+    /// bundle URL that originally registered the service.
+    static func repairEnabledRegistrationIfNeeded() {
+        if #available(macOS 13.0, *) {
+            guard SMAppService.mainApp.status == .enabled else { return }
+            let currentPath = Bundle.main.bundleURL.standardizedFileURL.path
+            guard UserDefaults.standard.string(forKey: registeredBundlePathKey) != currentPath else {
+                return
+            }
+            do {
+                try SMAppService.mainApp.unregister()
+                try SMAppService.mainApp.register()
+                if SMAppService.mainApp.status == .enabled {
+                    UserDefaults.standard.set(currentPath, forKey: registeredBundlePathKey)
+                }
+            } catch {
+                NSLog("AI Token Meter login item repair failed: \(error.localizedDescription)")
+            }
+        }
     }
 }
 
