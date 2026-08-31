@@ -116,6 +116,8 @@ External rewrites restore only Token Meter's managed routing keys (`model`,
 `model_reasoning_effort`, `model_context_window`,
 `model_auto_compact_token_limit`, and `plan_mode_reasoning_effort`); newly
 discovered projects start with their own copy of the protected global defaults.
+Token Meter marks its own global saves so the protection watcher never treats
+them as Codex conversation overrides or mirrors them into an existing project.
 
 `storage-snapshot-cache.json` stores the last local disk-usage snapshot, including category roots and per-project paths. Those local paths are the essential content of a disk-usage report, so this cache intentionally keeps them; it must never contain log file contents.
 

@@ -3,6 +3,12 @@ import Foundation
 final class CodexModelRoutingProtectionPreferences {
     static let enabledKey = "codexDefaultsProtectionEnabled"
     static let protectedStateKey = "codexProtectedRoutingState"
+    static let expectedGlobalWriteKey = "codexExpectedTokenMeterGlobalWrite"
+
+    private struct ExpectedGlobalWrite: Codable {
+        let selection: CodexConfigSelection
+        let expiresAt: Date
+    }
 
     private let defaults: UserDefaults
 
@@ -22,11 +28,41 @@ final class CodexModelRoutingProtectionPreferences {
     func disable() {
         defaults.set(false, forKey: Self.enabledKey)
         defaults.removeObject(forKey: Self.protectedStateKey)
+        defaults.removeObject(forKey: Self.expectedGlobalWriteKey)
     }
 
     func updateProtectedState(_ state: CodexProtectedRoutingState) {
         guard isEnabled else { return }
         save(state)
+    }
+
+    /// Marks a synchronous global write initiated by Token Meter itself. The
+    /// app-lifetime watcher consumes this once so it does not mistake the save
+    /// for a Codex conversation override and mirror it into a project file.
+    func expectTokenMeterGlobalWrite(_ selection: CodexConfigSelection) {
+        guard isEnabled else { return }
+        let expected = ExpectedGlobalWrite(
+            selection: selection,
+            expiresAt: Date().addingTimeInterval(10)
+        )
+        guard let data = try? JSONEncoder().encode(expected) else { return }
+        defaults.set(data, forKey: Self.expectedGlobalWriteKey)
+    }
+
+    func consumeExpectedTokenMeterGlobalWrite(
+        matching selection: CodexConfigSelection,
+        now: Date = Date()
+    ) -> Bool {
+        guard let data = defaults.data(forKey: Self.expectedGlobalWriteKey),
+              let expected = try? JSONDecoder().decode(ExpectedGlobalWrite.self, from: data) else {
+            return false
+        }
+        defaults.removeObject(forKey: Self.expectedGlobalWriteKey)
+        return expected.expiresAt >= now && expected.selection == selection
+    }
+
+    func discardExpectedTokenMeterGlobalWrite() {
+        defaults.removeObject(forKey: Self.expectedGlobalWriteKey)
     }
 
     func protectedState() -> CodexProtectedRoutingState? {
@@ -116,6 +152,11 @@ final class CodexModelRoutingProtectionController {
         // targets stay current, but they must not extend a task override beyond
         // the promised grace period.
         guard routingConfigWasRewritten else { return }
+
+        if globalConfigWasRewritten,
+           preferences.consumeExpectedTokenMeterGlobalWrite(matching: globalSelection) {
+            return
+        }
 
         if globalConfigWasRewritten,
            applyTaskScopedOverrideIfNeeded(selection: globalSelection) {
