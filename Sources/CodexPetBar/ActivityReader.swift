@@ -941,7 +941,10 @@ final class CodexActivityReader {
                     agentPath: string(dict["agentPath"] ?? dict["agent_path"])
                         ?? string(nestedValue(in: dict["source"], keys: ["agentPath", "agent_path"])),
                     plan: nil,
-                    launchTarget: .codexDesktop
+                    launchTarget: codexThreadLaunchTarget(
+                        source: nil,
+                        historyMode: string(dict["historyMode"] ?? dict["history_mode"])
+                    )
                 ))
         }
         return AppServerThreadSnapshot(items: items.limitedForTaskBar(limit: limit), externalReadAtByID: externalReadAtByID)
@@ -1312,7 +1315,7 @@ final class CodexActivityReader {
         }
         let ids = threadIDs.map(sqlStringLiteral).joined(separator: ",")
         let sql = """
-        select id, title, preview, cwd, tokens_used, model, thread_source, source,
+        select id, title, preview, cwd, tokens_used, model, thread_source, source, history_mode,
                agent_nickname, agent_path, rollout_path,
                coalesce(nullif(updated_at_ms, 0), updated_at * 1000) as updated_ms
         from threads
@@ -1362,7 +1365,10 @@ final class CodexActivityReader {
                         agentNickname: string(row["agent_nickname"]),
                         agentPath: string(row["agent_path"]),
                         plan: nil,
-                        launchTarget: codexThreadLaunchTarget(source: string(row["source"]))
+                        launchTarget: codexThreadLaunchTarget(
+                            source: string(row["source"]),
+                            historyMode: string(row["history_mode"])
+                        )
                     )
                 }
             }
@@ -1382,7 +1388,7 @@ final class CodexActivityReader {
             return cached.metadata
         }
         let sql = """
-        select id, substr(title, 1, 1024) as title, cwd, tokens_used, model, rollout_path, thread_source, source,
+        select id, substr(title, 1, 1024) as title, cwd, tokens_used, model, rollout_path, thread_source, source, history_mode,
                agent_nickname, agent_path,
                coalesce(nullif(updated_at_ms, 0), updated_at * 1000) as updated_ms
         from threads
@@ -1406,7 +1412,10 @@ final class CodexActivityReader {
                     rolloutPath: string(row["rollout_path"]),
                     agentNickname: string(row["agent_nickname"]),
                     agentPath: string(row["agent_path"]),
-                    launchTarget: codexThreadLaunchTarget(source: string(row["source"]))
+                    launchTarget: codexThreadLaunchTarget(
+                        source: string(row["source"]),
+                        historyMode: string(row["history_mode"])
+                    )
                 )
             }
         }

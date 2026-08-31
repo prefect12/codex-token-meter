@@ -13,11 +13,11 @@ enum CodexThreadKind: String {
     case automation
 }
 
-/// A local Codex rollout can have originated in a different client. Keep the
-/// launch target separate from the display/source label so Task Bar never asks
-/// Codex Desktop to resume a conversation it cannot own.
+/// Keep the launch target separate from the display/source label so Task Bar
+/// can avoid deep links that the destination cannot restore.
 enum TaskLaunchTarget: Equatable {
     case codexDesktop
+    case codexDesktopActivationOnly
     case visualStudioCode
 }
 

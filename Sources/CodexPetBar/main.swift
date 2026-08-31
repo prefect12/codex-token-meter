@@ -114,7 +114,10 @@ private func testPlanParser() {
 }
 
 private func testTaskLaunchRouting() {
-    guard codexThreadLaunchTarget(source: "vscode") == .codexDesktop,
+    guard codexThreadLaunchTarget(source: "vscode", historyMode: "paginated") == .codexDesktopActivationOnly,
+          codexThreadLaunchTarget(source: "vscode", historyMode: " PAGINATED ") == .codexDesktopActivationOnly,
+          codexThreadLaunchTarget(source: "vscode", historyMode: "legacy") == .codexDesktop,
+          codexThreadLaunchTarget(source: "vscode") == .codexDesktop,
           codexThreadLaunchTarget(source: " VSCode ") == .codexDesktop,
           codexThreadLaunchTarget(source: "desktop") == .codexDesktop,
           codexThreadLaunchTarget(source: nil) == .codexDesktop,
@@ -123,7 +126,7 @@ private func testTaskLaunchRouting() {
         fputs("task launch routing self-test failed\n", stderr)
         exit(1)
     }
-    print("task launch routing self-test passed: Codex tasks always open in Codex Desktop")
+    print("task launch routing self-test passed: paginated tasks activate Codex; legacy tasks deep-link")
 }
 
 private func mockTaskBarThreads() -> [CodexThreadItem] {
