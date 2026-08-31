@@ -108,16 +108,23 @@ final class TaskBarPopoverContentView: NSView {
         let parentIDs = Set(threads.compactMap { $0.isSubtask ? $0.parentThreadID : nil })
         self.expandedThreadIDs = parentIDs.subtracting(collapsedThreadIDs)
 
+        let primaryThreads = threads.primaryThreads
+        let total = primaryThreads.count
+
         headerView = PanelHeaderView(
             runningCount: runningCount,
             waitingCount: waitingCount,
             unreadCount: unreadCount
         )
-        tabsView = TaskBarTabsView(tabs: TaskBarTab.allCases, selected: selectedTab, onSelect: { _ in })
+        tabsView = TaskBarTabsView(
+            tabs: TaskBarTab.allCases,
+            selected: selectedTab,
+            allTaskCount: total,
+            onSelect: { _ in }
+        )
 
-        let total = runningCount + waitingCount + unreadCount
         totalCount = total
-        let filtered = threads.primaryThreads.filter { selectedTab.matches($0.status) }
+        let filtered = primaryThreads.filter { selectedTab.matches($0.status) }
         taskCountView = TaskCountView(shown: filtered.count, total: total)
         // "N of M tasks" footer removed: uninformative next to the header chips.
         taskCountView.isHidden = true
