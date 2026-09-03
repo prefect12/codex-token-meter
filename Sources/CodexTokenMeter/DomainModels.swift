@@ -607,6 +607,22 @@ enum APICostEstimator {
     }
 }
 
+// MARK: - Machine attribution
+
+/// Codex usage grouped by the machine whose rollout logs produced it. `localName` marks this Mac;
+/// any other name is a folder under `~/.codex/remote/<name>/` holding logs synced from elsewhere.
+struct MachineUsage: Codable {
+    static let localName = "local"
+
+    let name: String
+    var usage: Usage
+    var sessions: Int
+    var events: Int
+    var turns: Int
+
+    var isLocal: Bool { name == Self.localName }
+}
+
 struct TokenReport: Codable {
     var usage = Usage()
     var sessions = 0
@@ -618,6 +634,45 @@ struct TokenReport: Codable {
     var modelBreakdown: [ModelUsage] = []
     var limitNames: Set<String> = []
     var scannedAt = Date()
+    var machineBreakdown: [MachineUsage] = []
+}
+
+extension TokenReport {
+    private enum CodingKeys: String, CodingKey {
+        case usage, sessions, events, turns, byDay, byHour, topSessions, modelBreakdown, limitNames, scannedAt, machineBreakdown
+    }
+
+    // Cached reports written before machine attribution existed have no `machineBreakdown`;
+    // decode it as optional so an old cache file still loads instead of being thrown away.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        usage = try container.decodeIfPresent(Usage.self, forKey: .usage) ?? Usage()
+        sessions = try container.decodeIfPresent(Int.self, forKey: .sessions) ?? 0
+        events = try container.decodeIfPresent(Int.self, forKey: .events) ?? 0
+        turns = try container.decodeIfPresent(Int.self, forKey: .turns) ?? 0
+        byDay = try container.decodeIfPresent([DayUsage].self, forKey: .byDay) ?? []
+        byHour = try container.decodeIfPresent([HourUsage].self, forKey: .byHour) ?? []
+        topSessions = try container.decodeIfPresent([SessionUsage].self, forKey: .topSessions) ?? []
+        modelBreakdown = try container.decodeIfPresent([ModelUsage].self, forKey: .modelBreakdown) ?? []
+        limitNames = try container.decodeIfPresent(Set<String>.self, forKey: .limitNames) ?? []
+        scannedAt = try container.decodeIfPresent(Date.self, forKey: .scannedAt) ?? Date()
+        machineBreakdown = try container.decodeIfPresent([MachineUsage].self, forKey: .machineBreakdown) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(usage, forKey: .usage)
+        try container.encode(sessions, forKey: .sessions)
+        try container.encode(events, forKey: .events)
+        try container.encode(turns, forKey: .turns)
+        try container.encode(byDay, forKey: .byDay)
+        try container.encode(byHour, forKey: .byHour)
+        try container.encode(topSessions, forKey: .topSessions)
+        try container.encode(modelBreakdown, forKey: .modelBreakdown)
+        try container.encode(limitNames, forKey: .limitNames)
+        try container.encode(scannedAt, forKey: .scannedAt)
+        try container.encode(machineBreakdown, forKey: .machineBreakdown)
+    }
 }
 
 // MARK: - Cross-device usage reporting

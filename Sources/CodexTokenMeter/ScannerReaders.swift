@@ -477,6 +477,7 @@ final class CodexTokenScanner {
 
     private let rootURLs: [URL]
     private let apiRootURLs: [URL]
+    private let remoteMachineRoots: [(name: String, url: URL)]
     private let cacheDirectory: URL
     private let jsonEncoder = JSONEncoder()
     private let jsonDecoder = JSONDecoder()
@@ -554,9 +555,10 @@ final class CodexTokenScanner {
         self.init(rootURLs: [rootURL], apiRootURLs: [])
     }
 
-    init(rootURLs: [URL], apiRootURLs: [URL] = AppSettings.apiUsageLogFolderURLs) {
+    init(rootURLs: [URL], apiRootURLs: [URL] = AppSettings.apiUsageLogFolderURLs, remoteMachineRoots: [(name: String, url: URL)] = AppSettings.remoteMachineLogRoots) {
         self.rootURLs = Self.uniqueRootURLs(rootURLs)
         self.apiRootURLs = Self.uniqueRootURLs(apiRootURLs)
+        self.remoteMachineRoots = remoteMachineRoots.map { (name: $0.name, url: $0.url.standardizedFileURL) }
         let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         self.cacheDirectory = applicationSupport
@@ -814,6 +816,7 @@ final class CodexTokenScanner {
         var modelEvents: [String: Int] = [:]
         var modelSessions: [String: Int] = [:]
         var sessions: [SessionUsage] = []
+        var machineBuckets: [String: MachineUsage] = [:]
 
         for fileURL in rolloutFiles(modifiedSince: start) {
             let file = cachedFile(fileURL)
@@ -893,6 +896,7 @@ final class CodexTokenScanner {
                 report.events += events.count
                 report.turns += turns.count
                 report.usage.add(sessionUsage)
+                accumulateMachine(&machineBuckets, fileURL: fileURL, usage: sessionUsage, events: events.count, turns: turns.count)
                 sessions.append(SessionUsage(path: fileURL.path, lastEvent: lastEvent, turns: turns.count, usage: sessionUsage))
                 for day in sessionDays {
                     daySessions[day, default: 0] += 1
@@ -949,6 +953,7 @@ final class CodexTokenScanner {
             ModelUsage(name: name, usage: usage, turns: modelTurns[name] ?? 0, events: modelEvents[name] ?? 0, sessions: modelSessions[name] ?? 0)
         }
         .sorted { $0.usage.total > $1.usage.total }
+        report.machineBreakdown = Self.sortedMachineBreakdown(machineBuckets)
         return report
     }
 
@@ -970,6 +975,7 @@ final class CodexTokenScanner {
         var modelEvents: [String: Int] = [:]
         var modelSessions: [String: Int] = [:]
         var sessions: [SessionUsage] = []
+        var machineBuckets: [String: MachineUsage] = [:]
 
         for fileURL in rolloutFiles(modifiedSince: start) {
             let file = cachedFile(fileURL)
@@ -1045,12 +1051,14 @@ final class CodexTokenScanner {
             guard sessionUsage.total > 0 || sessionUsage.input > 0 || sessionUsage.output > 0 || sessionTurns > 0 else {
                 continue
             }
-            report.sessions += 1
-            report.events += isUnfilteredScan ? file.days
+            let sessionEvents = isUnfilteredScan ? file.days
                 .filter { $0.day >= startDay && $0.day <= endDay }
                 .reduce(0) { $0 + $1.models.reduce(0) { $0 + $1.events } } : sessionTurns
+            report.sessions += 1
+            report.events += sessionEvents
             report.turns += sessionTurns
             report.usage.add(sessionUsage)
+            accumulateMachine(&machineBuckets, fileURL: fileURL, usage: sessionUsage, events: sessionEvents, turns: sessionTurns)
             sessions.append(SessionUsage(path: fileURL.path, lastEvent: hasLastEvent ? lastEvent : now, turns: sessionTurns, usage: sessionUsage))
             for model in sessionModels {
                 modelSessions[model, default: 0] += 1
@@ -1099,6 +1107,7 @@ final class CodexTokenScanner {
             ModelUsage(name: name, usage: usage, turns: modelTurns[name] ?? 0, events: modelEvents[name] ?? 0, sessions: modelSessions[name] ?? 0)
         }
         .sorted { $0.usage.total > $1.usage.total }
+        report.machineBreakdown = Self.sortedMachineBreakdown(machineBuckets)
         return report
     }
 
@@ -1188,6 +1197,36 @@ final class CodexTokenScanner {
             let rootPath = (root.path as NSString).standardizingPath
             return filePath == rootPath || filePath.hasPrefix(rootPath + "/")
         }
+    }
+
+    /// Machine label for a rollout that lives under a synced remote root; nil means this Mac.
+    func machineName(for fileURL: URL) -> String? {
+        let filePath = (fileURL.path as NSString).standardizingPath
+        for root in remoteMachineRoots {
+            let rootPath = (root.url.path as NSString).standardizingPath
+            if filePath == rootPath || filePath.hasPrefix(rootPath + "/") {
+                return root.name
+            }
+        }
+        return nil
+    }
+
+    static func sortedMachineBreakdown(_ buckets: [String: MachineUsage]) -> [MachineUsage] {
+        buckets.values.sorted { lhs, rhs in
+            if lhs.isLocal != rhs.isLocal { return lhs.isLocal }
+            if lhs.usage.total != rhs.usage.total { return lhs.usage.total > rhs.usage.total }
+            return lhs.name < rhs.name
+        }
+    }
+
+    private func accumulateMachine(_ buckets: inout [String: MachineUsage], fileURL: URL, usage: Usage, events: Int, turns: Int) {
+        let machine = machineName(for: fileURL) ?? MachineUsage.localName
+        var bucket = buckets[machine] ?? MachineUsage(name: machine, usage: Usage(), sessions: 0, events: 0, turns: 0)
+        bucket.usage.add(usage)
+        bucket.sessions += 1
+        bucket.events += events
+        bucket.turns += turns
+        buckets[machine] = bucket
     }
 
     private func rolloutFiles(in rootURL: URL, modifiedSince start: Date) -> [URL] {
