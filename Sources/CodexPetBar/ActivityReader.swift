@@ -834,8 +834,14 @@ final class CodexActivityReader {
             #"{"id":2,"method":"thread/loaded/list"}"#,
             #"{"id":3,"method":"thread/list","params":{"limit":\#(max(20, limit))}}"#
         ]
-        if let data = (messages.joined(separator: "\n") + "\n").data(using: .utf8) {
-            input.fileHandleForWriting.write(data)
+        if let data = (messages.joined(separator: "\n") + "\n").data(using: .utf8),
+           !TaskBarProcessRunner.write(data, toPipe: input.fileHandleForWriting) {
+            try? input.fileHandleForWriting.close()
+            if process.isRunning {
+                process.terminate()
+            }
+            output.fileHandleForReading.readabilityHandler = nil
+            return AppServerThreadSnapshot()
         }
 
         try? input.fileHandleForWriting.close()

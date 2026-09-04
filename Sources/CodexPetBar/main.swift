@@ -129,6 +129,21 @@ private func testTaskLaunchRouting() {
     print("task launch routing self-test passed: paginated tasks activate Codex; legacy tasks deep-link")
 }
 
+private func testClosedPipeWrite() {
+    let pipe = Pipe()
+    try? pipe.fileHandleForReading.close()
+    let writeSucceeded = TaskBarProcessRunner.write(
+        Data("closed pipe".utf8),
+        toPipe: pipe.fileHandleForWriting
+    )
+    try? pipe.fileHandleForWriting.close()
+    guard !writeSucceeded else {
+        fputs("closed pipe self-test failed: write unexpectedly succeeded\n", stderr)
+        exit(1)
+    }
+    print("closed pipe self-test passed: EPIPE handled without SIGPIPE termination")
+}
+
 private func mockTaskBarThreads() -> [CodexThreadItem] {
     func item(
         id: String,
@@ -360,6 +375,8 @@ if CommandLine.arguments.contains("--self-test-plan-parser") {
     testPlanParser()
 } else if CommandLine.arguments.contains("--self-test-task-routing") {
     testTaskLaunchRouting()
+} else if CommandLine.arguments.contains("--self-test-closed-pipe") {
+    testClosedPipeWrite()
 } else if CommandLine.arguments.contains("--print") {
     printThreads()
 } else if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--render-taskbar=") }) {
