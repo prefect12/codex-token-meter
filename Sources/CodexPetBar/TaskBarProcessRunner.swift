@@ -9,6 +9,21 @@ import Foundation
 /// dispatch worker. Redirecting stdout to an unlinked temporary file also avoids
 /// pipe-capacity deadlocks for larger SQLite results.
 enum TaskBarProcessRunner {
+    /// Writes to a child-process pipe without allowing a closed reader to send
+    /// SIGPIPE to the Task Bar process. Darwin reports the closed pipe as EPIPE,
+    /// which FileHandle's throwing API turns into a normal failure here.
+    static func write(_ data: Data, toPipe handle: FileHandle) -> Bool {
+        guard Darwin.fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1) == 0 else {
+            return false
+        }
+        do {
+            try handle.write(contentsOf: data)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     static func run(
         executableURL: URL,
         arguments: [String],
