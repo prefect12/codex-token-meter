@@ -76,15 +76,16 @@ extension UsageDetailsView {
         let models = combinationRankingAvailableModels(rows)
         selectedCombinationRankingModels.formIntersection(Set(models))
         if selectedCombinationRankingModels.isEmpty {
-            let openAI56SubscriptionModels = models.filter { model in
+            let currentSubscriptionModels = models.filter { model in
                 let normalized = model.lowercased()
                 let isOpenAI56 = normalized == "gpt-5.6" || normalized.hasPrefix("gpt-5.6-")
-                return isOpenAI56 && rows.contains {
+                let isAstra = normalized == "gpt-6-astra" || normalized == "gpt-6-astra-wm"
+                return (isOpenAI56 || isAstra) && rows.contains {
                     $0.platform == "Codex" && $0.model.caseInsensitiveCompare(model) == .orderedSame
                 }
             }
-            if !openAI56SubscriptionModels.isEmpty {
-                selectedCombinationRankingModels = Set(openAI56SubscriptionModels)
+            if !currentSubscriptionModels.isEmpty {
+                selectedCombinationRankingModels = Set(currentSubscriptionModels)
             } else if let highestUsageModel = combinationRankingHighestUsageModel(rows) {
                 selectedCombinationRankingModels = [highestUsageModel]
             }
