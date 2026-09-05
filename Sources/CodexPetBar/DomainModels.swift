@@ -11,6 +11,7 @@ enum CodexThreadKind: String {
     case root
     case subtask
     case automation
+    case internalApproval
 }
 
 /// Keep the launch target separate from the display/source label so Task Bar
@@ -105,7 +106,11 @@ struct CodexThreadItem {
         )
     }
 
-    var isInternalApprovalSubtask: Bool {
+    var isInternalApprovalThread: Bool {
+        if threadKind == .internalApproval
+            || model?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex-auto-review" {
+            return true
+        }
         guard isSubtask,
               agentNickname == nil,
               agentPath == nil,

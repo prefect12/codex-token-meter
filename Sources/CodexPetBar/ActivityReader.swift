@@ -991,14 +991,6 @@ final class CodexActivityReader {
         return nil
     }
 
-    private func codexThreadKind(_ raw: String?) -> CodexThreadKind {
-        switch raw?.lowercased() {
-        case "subagent", "subtask": return .subtask
-        case "automation": return .automation
-        default: return .root
-        }
-    }
-
     private func isAppServerReadThrough(externalReadAt: Date?, lastActivity: Date) -> Bool {
         guard let externalReadAt else { return false }
         return externalReadAt.timeIntervalSince1970 + 60 >= lastActivity.timeIntervalSince1970
