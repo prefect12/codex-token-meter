@@ -121,12 +121,45 @@ private func testTaskLaunchRouting() {
           codexThreadLaunchTarget(source: " VSCode ") == .codexDesktop,
           codexThreadLaunchTarget(source: "desktop") == .codexDesktop,
           codexThreadLaunchTarget(source: nil) == .codexDesktop,
+          codexThreadKind("guardian_review") == .internalApproval,
+          codexThreadKind(" GUARDIAN_REVIEW ") == .internalApproval,
+          codexThreadKind("subagent") == .subtask,
+          codexThreadKind(nil) == .root,
           sourceLabel(mockTaskBarThreads().first { $0.source == "vscode" }
               ?? mockTaskBarThreads()[0]) == "Codex" else {
         fputs("task launch routing self-test failed\n", stderr)
         exit(1)
     }
-    print("task launch routing self-test passed: paginated tasks activate Codex; legacy tasks deep-link")
+    // Reproduce the visible-row failure, including metadata-only running reviews
+    // and the older model-only form. Ordinary tasks may legitimately return JSON.
+    func fixture(_ id: String, kind: CodexThreadKind, model: String? = nil,
+                 preview: String? = nil, parentID: String? = nil) -> CodexThreadItem {
+        CodexThreadItem(
+            id: id, title: id, preview: preview, cwd: nil,
+            lastActivity: Date(), startedAt: nil, externalReadAt: nil,
+            status: .running, turns: 1, compressionCount: nil, source: "logs",
+            isExplicitUnread: false, codexUpdatedAt: nil, tokensUsed: nil,
+            tokenBreakdown: TokenBreakdown(), model: model, threadKind: kind,
+            parentThreadID: parentID, agentNickname: nil, agentPath: nil,
+            plan: nil, launchTarget: .codexDesktop
+        )
+    }
+    let approvalJSON = #"{"outcome":"allow"}"#
+    let fixtures = [
+        fixture("guardian", kind: codexThreadKind("guardian_review")),
+        fixture("model-only", kind: .root, model: "codex-auto-review"),
+        fixture("parent", kind: .root, preview: approvalJSON),
+        fixture("child", kind: .subtask, parentID: "parent"),
+        fixture("old-approval", kind: .subtask, preview: approvalJSON, parentID: "parent")
+    ]
+    let visible = fixtures.limitedForTaskBar(limit: 1)
+    guard fixtures.primaryThreads.map(\.id) == ["parent"],
+          Set(visible.map(\.id)) == Set(["parent", "child"]),
+          visible.subtasks(parentID: "parent").map(\.id) == ["child"] else {
+        fputs("internal approval visibility self-test failed\n", stderr)
+        exit(1)
+    }
+    print("task launch routing self-test passed: internal approvals hidden; ordinary roots and children preserved; paginated tasks activate Codex; legacy tasks deep-link")
 }
 
 private func testClosedPipeWrite() {

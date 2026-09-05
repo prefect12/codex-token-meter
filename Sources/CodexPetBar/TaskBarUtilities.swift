@@ -195,14 +195,14 @@ private func threadSortTimestamp(_ item: CodexThreadItem, mode: TaskThreadSortMo
 
 extension Array where Element == CodexThreadItem {
     var primaryThreads: [CodexThreadItem] {
-        filter { !$0.isSubtask }
+        filter { !$0.isSubtask && !$0.isInternalApprovalThread }
     }
 
     func subtasks(parentID: String) -> [CodexThreadItem] {
         let parent = first { !$0.isSubtask && $0.id == parentID }
         return filter {
             $0.isSubtask
-                && !$0.isInternalApprovalSubtask
+                && !$0.isInternalApprovalThread
                 && $0.parentThreadID == parentID
                 && isSubtaskFromCurrentRun($0, parent: parent)
         }
@@ -240,7 +240,7 @@ extension Array where Element == CodexThreadItem {
         let retainedRootIDs = Set(retainedRoots.map(\.id))
         return filter { item in
             if item.isSubtask {
-                guard !item.isInternalApprovalSubtask else { return false }
+                guard !item.isInternalApprovalThread else { return false }
                 guard let parentID = item.parentThreadID else { return false }
                 guard retainedRootIDs.contains(parentID) else { return false }
                 let parent = retainedRoots.first { $0.id == parentID }
@@ -447,6 +447,15 @@ func isClaudeThread(_ item: CodexThreadItem) -> Bool {
 
 func isCodexAPIThread(_ item: CodexThreadItem) -> Bool {
     item.source.contains("codex-api")
+}
+
+func codexThreadKind(_ raw: String?) -> CodexThreadKind {
+    switch raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "subagent", "subtask": return .subtask
+    case "automation": return .automation
+    case "guardian_review": return .internalApproval
+    default: return .root
+    }
 }
 
 func codexThreadLaunchTarget(source _: String?, historyMode: String? = nil) -> TaskLaunchTarget {
