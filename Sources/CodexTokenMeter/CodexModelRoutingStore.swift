@@ -329,9 +329,16 @@ final class CodexModelRoutingStore {
         }
         return [
             CodexModelOption(
+                slug: "gpt-6-astra",
+                displayName: "GPT-6-Astra",
+                description: "Most capable model for complex reasoning and coding.",
+                defaultReasoningEffort: "medium",
+                supportedReasoningEfforts: Self.fallbackReasoningEfforts
+            ),
+            CodexModelOption(
                 slug: "gpt-5.6-sol",
                 displayName: "GPT-5.6-Sol",
-                description: "Latest frontier agentic coding model.",
+                description: "Agentic coding model for professional work.",
                 defaultReasoningEffort: "medium",
                 supportedReasoningEfforts: Self.fallbackReasoningEfforts
             ),

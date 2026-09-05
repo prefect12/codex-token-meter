@@ -7,6 +7,7 @@ struct APIUsageTests {
         try testScannerSeparatesSameModelByProvider()
         try testOpenRouterPricingCatalog()
         try testDeepSeekPrices()
+        try testAstraPricingAndFallback()
         try testUnknownModelsRemainUnpriced()
         try testImportCanonicalizationAndWindowFiltering()
         try testVisibleSourceSelectorOptions()
@@ -85,6 +86,28 @@ struct APIUsageTests {
         let estimate = APICostEstimator.estimate(report: report)
         try require(estimate.usdValue == 0, "unknown models must not inherit a default price")
         try require(estimate.coveragePercent == 0, "unknown models must reduce price coverage")
+    }
+
+    private static func testAstraPricingAndFallback() throws {
+        // Use the Work alias to exercise built-in prices without a live catalog.
+        let usage = Usage(input: 300_000, cachedInput: 100_000, cacheCreationInput: 100_000, output: 100_000, reasoningOutput: 50_000, total: 400_000)
+        let estimate = APICostEstimator.estimate(usage: usage, modelName: "gpt-6-astra-wm")
+        try require(abs(estimate.usdValue - 7.35) < 0.000_000_1, "Astra must price fresh/cache-read/cache-write/output separately without double-counting reasoning")
+        try require(estimate.coveragePercent == 100, "Astra tokens should be priced")
+        for name in ["GPT-6 Astra", "gpt-6-astra", "openai/gpt-6-astra"] {
+            try require(APICostEstimator.estimate(usage: usage, modelName: name).coveragePercent == 100, "Astra alias should be priced: \(name)")
+        }
+        try require(APICostEstimator.estimate(usage: usage, modelName: "gpt-6-unknown").coveragePercent == 0, "Unknown GPT-6 models must not inherit Astra prices")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("astra-catalog-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let store = CodexModelRoutingStore(codexHomeURL: root)
+        try require(store.loadModels().first?.slug == "gpt-6-astra", "Offline model list should offer Astra")
+        let fixture = """
+        {"models":[{"slug":"gpt-6-astra","display_name":"GPT-6-Astra","visibility":"list","supported_reasoning_levels":[{"effort":"high","description":"High"},{"effort":"ultra","description":"Ultra"}]}]}
+        """
+        try Data(fixture.utf8).write(to: root.appendingPathComponent("models_cache.json"))
+        try require(store.loadModels().first?.supportedReasoningEfforts == ["high", "ultra"], "Live Codex catalog must remain authoritative")
     }
 
     private static func testImportCanonicalizationAndWindowFiltering() throws {

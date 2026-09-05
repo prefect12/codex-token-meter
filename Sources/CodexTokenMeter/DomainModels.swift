@@ -538,7 +538,13 @@ enum APICostEstimator {
         if let catalogRate = OpenRouterPricingCatalog.shared.rate(for: modelName) {
             return catalogRate
         }
-        let name = modelName.lowercased()
+        let name = modelName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // Standard API-equivalent rates, not subscription charges. Aggregate
+        // usage cannot reconstruct per-request long-context or Fast surcharges.
+        // https://developers.openai.com/api/docs/models/gpt-6-astra
+        if ["gpt-6-astra", "gpt-6 astra", "gpt-6-astra-wm", "openai/gpt-6-astra"].contains(name) {
+            return APIModelRate(inputPerMillionUSD: 10, cachedInputPerMillionUSD: 1, outputPerMillionUSD: 50, cacheCreationInputPerMillionUSD: 12.5)
+        }
         if name.contains("deepseek-v4-pro") {
             return APIModelRate(inputPerMillionUSD: 0.435, cachedInputPerMillionUSD: 0.003625, outputPerMillionUSD: 0.87)
         }
