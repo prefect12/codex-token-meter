@@ -808,8 +808,37 @@ extension UsageDetailsView {
         for month in selectedContributionMonths {
             let selectedCells = cells.filter { String($0.day.day.prefix(7)) == month }
             guard !selectedCells.isEmpty else { continue }
-            drawContributionSelectionOutline(cells: selectedCells, gap: gap)
+            let components = contributionConnectedCellComponents(selectedCells)
+            if components.count == 1, let component = components.first {
+                drawContributionSelectionOutline(cells: component, gap: gap)
+            } else {
+                drawConnectedContributionSelectionOutline(components: components, gap: gap)
+            }
         }
+    }
+
+    func drawConnectedContributionSelectionOutline(
+        components: [[ContributionMonthCell]],
+        gap: CGFloat
+    ) {
+        let outerPath = NSBezierPath()
+        let innerPath = NSBezierPath()
+        for component in components {
+            if let path = contributionSelectionOutlinePath(cells: component, gap: gap, extraOutset: 4) {
+                outerPath.append(path)
+            }
+            if let path = contributionSelectionOutlinePath(cells: component, gap: gap, extraOutset: 2.5) {
+                innerPath.append(path)
+            }
+        }
+        guard !outerPath.isEmpty, !innerPath.isEmpty else { return }
+
+        accentTeal.withAlphaComponent(0.70).setFill()
+        outerPath.fill()
+        panelSurfaceColor.withAlphaComponent(1).setFill()
+        innerPath.fill()
+        accentTeal.withAlphaComponent(0.14).setFill()
+        innerPath.fill()
     }
 
     func contributionConnectedCellComponents(_ cells: [ContributionMonthCell]) -> [[ContributionMonthCell]] {
@@ -842,8 +871,30 @@ extension UsageDetailsView {
         return components
     }
 
-    func drawContributionSelectionOutline(cells selectedCells: [ContributionMonthCell], gap: CGFloat) {
-        guard !selectedCells.isEmpty else { return }
+    func drawContributionSelectionOutline(
+        cells selectedCells: [ContributionMonthCell],
+        gap: CGFloat,
+        extraOutset: CGFloat = 4
+    ) {
+        guard let path = contributionSelectionOutlinePath(
+            cells: selectedCells,
+            gap: gap,
+            extraOutset: extraOutset
+        ) else { return }
+        accentTeal.withAlphaComponent(0.14).setFill()
+        path.fill()
+        path.lineWidth = 1.5
+        path.lineJoinStyle = .round
+        accentTeal.withAlphaComponent(0.70).setStroke()
+        path.stroke()
+    }
+
+    func contributionSelectionOutlinePath(
+        cells selectedCells: [ContributionMonthCell],
+        gap: CGFloat,
+        extraOutset: CGFloat
+    ) -> NSBezierPath? {
+        guard !selectedCells.isEmpty else { return nil }
         let coordinates = Set(selectedCells.map(\.coordinate))
         var nextVertex: [ContributionGridVertex: ContributionGridVertex] = [:]
         for cell in selectedCells {
@@ -863,17 +914,17 @@ extension UsageDetailsView {
             }
         }
 
-        guard let firstVertex = nextVertex.keys.min(by: { ($0.column, $0.row) < ($1.column, $1.row) }) else { return }
+        guard let firstVertex = nextVertex.keys.min(by: { ($0.column, $0.row) < ($1.column, $1.row) }) else { return nil }
         var vertices: [ContributionGridVertex] = [firstVertex]
         var current = firstVertex
         repeat {
-            guard let next = nextVertex[current] else { return }
+            guard let next = nextVertex[current] else { return nil }
             current = next
             if current != firstVertex {
                 vertices.append(current)
             }
         } while current != firstVertex && vertices.count <= nextVertex.count + 1
-        guard vertices.count >= 4 else { return }
+        guard vertices.count >= 4 else { return nil }
 
         var simplified: [ContributionGridVertex] = []
         for index in vertices.indices {
@@ -886,7 +937,7 @@ extension UsageDetailsView {
                 simplified.append(vertex)
             }
         }
-        guard simplified.count >= 4, let firstCell = selectedCells.first else { return }
+        guard simplified.count >= 4, let firstCell = selectedCells.first else { return nil }
 
         let stepX = firstCell.rect.width + gap
         let stepY = firstCell.rect.height + gap
@@ -898,7 +949,6 @@ extension UsageDetailsView {
                 y: originY + CGFloat(vertex.row) * stepY
             )
         }
-        let extraOutset: CGFloat = 4
         let points = rawPoints.indices.map { index -> CGPoint in
             let previous = rawPoints[(index - 1 + rawPoints.count) % rawPoints.count]
             let point = rawPoints[index]
@@ -938,12 +988,7 @@ extension UsageDetailsView {
             path.curve(to: after, controlPoint1: point, controlPoint2: point)
         }
         path.close()
-        accentTeal.withAlphaComponent(0.14).setFill()
-        path.fill()
-        path.lineWidth = 1.5
-        path.lineJoinStyle = .round
-        accentTeal.withAlphaComponent(0.70).setStroke()
-        path.stroke()
+        return path
     }
 
     func contributionMonthLabel(for day: String) -> String {
