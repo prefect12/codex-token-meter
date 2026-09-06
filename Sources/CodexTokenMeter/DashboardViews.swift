@@ -1037,7 +1037,13 @@ final class PlatformQuotaRingsOverviewView: NSView {
     private var hoverRegions: [(rect: NSRect, tooltip: String)] = []
 
     var preferredHeight: CGFloat {
-        208 + CGFloat(QuotaViewOption.visiblePlatformCases.count) * 46
+        208 + CGFloat(QuotaViewOption.visiblePlatformCases.count) * 46 + CGFloat(remoteMachineRows.count) * 34
+    }
+
+    /// Codex usage synced from other machines; drawn as indented sub-rows under the Codex row.
+    private var remoteMachineRows: [MachineUsage] {
+        guard QuotaViewOption.visiblePlatformCases.contains(.codex) else { return [] }
+        return (codexReport?.machineBreakdown ?? []).filter { !$0.isLocal }
     }
 
     override var isFlipped: Bool { true }
@@ -1244,14 +1250,20 @@ final class PlatformQuotaRingsOverviewView: NSView {
         }
         drawSeparator(y: table.minY + 32, in: table, alpha: 0.10)
         let sources = QuotaViewOption.visiblePlatformCases
+        var y = table.minY + 40
         for (index, source) in sources.enumerated() {
-            let y = table.minY + 40 + CGFloat(index) * 46
             if index > 0 {
                 drawSeparator(y: y - 8, in: table, alpha: 0.07)
             }
             switch source {
             case .codex:
                 drawTableRow(table: table, y: y, title: "Codex", target: .codex, limit: codex, report: codexReport)
+                y += 46
+                for machine in remoteMachineRows {
+                    drawMachineRow(table: table, y: y, machine: machine)
+                    y += 34
+                }
+                continue
             case .claude:
                 drawTableRow(table: table, y: y, title: "Claude", target: .claude, limit: claude, report: claudeReport)
             case .api:
@@ -1259,7 +1271,30 @@ final class PlatformQuotaRingsOverviewView: NSView {
             case .all:
                 break
             }
+            y += 46
         }
+    }
+
+    private func drawMachineRow(table: NSRect, y: CGFloat, machine: MachineUsage) {
+        let color = platformBrandColor(.codex).withAlphaComponent(0.85)
+        hoverRegions.append((
+            rect: NSRect(x: table.minX, y: y - 6, width: table.width, height: 32),
+            tooltip: machineTooltip(machine)
+        ))
+        drawText("↳ \(machine.name)", rect: NSRect(x: table.minX + 22, y: y + 1, width: 74, height: 18), font: .systemFont(ofSize: 11, weight: .semibold), color: color, alignment: .left)
+        drawText("--", rect: NSRect(x: table.minX + 102, y: y + 1, width: 58, height: 18), font: .monospacedDigitSystemFont(ofSize: 11.5, weight: .bold), color: NSColor.white.withAlphaComponent(0.35), alignment: .left)
+        drawText("\(compactDashboardMetric(machine.usage.input)) / \(compactDashboardMetric(machine.usage.output))", rect: NSRect(x: table.minX + 178, y: y + 1, width: 104, height: 18), font: .monospacedDigitSystemFont(ofSize: 11, weight: .bold), color: NSColor.white.withAlphaComponent(0.82), alignment: .left)
+        NSColor.systemTeal.setFill()
+        NSBezierPath(ovalIn: NSRect(x: table.minX + 292, y: y + 6, width: 8, height: 8)).fill()
+        drawText(t(.remoteMachineSynced), rect: NSRect(x: table.minX + 306, y: y + 1, width: 66, height: 18), font: .systemFont(ofSize: 10.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.85), alignment: .left)
+    }
+
+    private func machineTooltip(_ machine: MachineUsage) -> String {
+        [
+            "Codex · \(machine.name)",
+            "\(formatFull(machine.usage.total)) tokens · \(machine.sessions) sessions · \(machine.turns) turns",
+            "~/.codex/remote/\(machine.name)/sessions"
+        ].joined(separator: "\n")
     }
 
     private func drawTableRow(table: NSRect, y: CGFloat, title: String, target: QuotaViewOption, limit: LiveRateLimit?, report: TokenReport?) {
@@ -1459,6 +1494,12 @@ final class PlatformQuotaRingsOverviewView: NSView {
         lines.append("\(t(.fresh)) \(formatFull(report.usage.freshInput))")
         if estimate.hasPricedUsage {
             lines.append("\(t(.apiEquivalent)) \(displayAPIMoney(estimate.usdValue))")
+        }
+        if target == .codex, report.machineBreakdown.count > 1 {
+            for machine in report.machineBreakdown {
+                let name = machine.isLocal ? t(.remoteMachineLocal) : machine.name
+                lines.append("\(name) \(compactDashboardMetric(machine.usage.total))")
+            }
         }
         return lines.joined(separator: "\n")
     }

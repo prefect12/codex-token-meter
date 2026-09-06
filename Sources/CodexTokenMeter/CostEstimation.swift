@@ -620,6 +620,7 @@ func mergedTokenReport(_ reports: [TokenReport], scannedAt: Date = Date()) -> To
     var hourBuckets: [Date: HourUsage] = [:]
     var modelBuckets: [String: ModelUsage] = [:]
     var sessions: [SessionUsage] = []
+    var machineBuckets: [String: MachineUsage] = [:]
 
     for report in reports {
         merged.usage.add(report.usage)
@@ -646,6 +647,15 @@ func mergedTokenReport(_ reports: [TokenReport], scannedAt: Date = Date()) -> To
             hourBuckets[hour.hour] = existing
         }
 
+        for machine in report.machineBreakdown {
+            var existing = machineBuckets[machine.name] ?? MachineUsage(name: machine.name, usage: Usage(), sessions: 0, events: 0, turns: 0)
+            existing.usage.add(machine.usage)
+            existing.sessions += machine.sessions
+            existing.events += machine.events
+            existing.turns += machine.turns
+            machineBuckets[machine.name] = existing
+        }
+
         for model in report.modelBreakdown {
             var existing = modelBuckets[model.name] ?? ModelUsage(name: model.name, usage: Usage(), events: 0, sessions: 0)
             existing.usage.add(model.usage)
@@ -660,6 +670,7 @@ func mergedTokenReport(_ reports: [TokenReport], scannedAt: Date = Date()) -> To
     merged.byHour = hourBuckets.values.sorted { $0.hour < $1.hour }
     merged.modelBreakdown = modelBuckets.values.sorted { $0.usage.total > $1.usage.total }
     merged.topSessions = sessions.sorted { $0.usage.total > $1.usage.total }.prefix(8).map { $0 }
+    merged.machineBreakdown = CodexTokenScanner.sortedMachineBreakdown(machineBuckets)
     return merged
 }
 
