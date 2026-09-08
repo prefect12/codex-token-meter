@@ -350,6 +350,9 @@ func tooltipRow(for field: TaskHoverField, item: CodexThreadItem) -> ThreadToolt
         guard !item.tokenBreakdown.hasDetailedCounters,
               let total = item.tokenBreakdown.displayTotal else { return nil }
         return ThreadTooltipRow("Token 消耗", compactTokenCount(total))
+    case .cost:
+        guard let value = TaskCostEstimator.usdValue(for: item) else { return nil }
+        return ThreadTooltipRow("API 等价成本", TaskCostEstimator.displayUSD(value))
     case .turns:
         guard item.turns > 0 else { return nil }
         return ThreadTooltipRow("对话轮次", "\(item.turns)")
