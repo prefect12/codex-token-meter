@@ -12,6 +12,7 @@ SWIFT_SOURCES=()
 while IFS= read -r source; do
   SWIFT_SOURCES+=("$source")
 done < <(find "$ROOT/Sources/CodexPetBar" -name '*.swift' -print | sort)
+SWIFT_SOURCES+=("$ROOT/Sources/CodexTokenMeter/BuiltInAPIModelRates.swift")
 
 rm -rf "$APP" "$OLD_APP" "$OLDER_APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

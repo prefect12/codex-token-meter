@@ -84,6 +84,7 @@ enum TaskHoverField: String, CaseIterable, Hashable {
     case output
     case cacheRate
     case tokenTotal
+    case cost
     case turns
     case compression
     case model
@@ -98,6 +99,7 @@ enum TaskHoverField: String, CaseIterable, Hashable {
         case .output: return "输出"
         case .cacheRate: return "缓存率"
         case .tokenTotal: return "Token 消耗"
+        case .cost: return "成本"
         case .turns: return "对话轮次"
         case .compression: return "压缩次数"
         case .model: return "模型"
@@ -171,6 +173,7 @@ enum TaskBarSettings {
         .field(.output),
         .field(.cacheRate),
         .field(.tokenTotal),
+        .field(.cost),
         .separator("conversation"),
         .field(.turns),
         .field(.compression),
@@ -359,6 +362,11 @@ enum TaskBarSettings {
                     seenFields.insert(field)
                     sanitized.append(.field(field))
                 }
+            }
+            if !seenFields.contains(.cost) {
+                let insertionIndex = sanitized.firstIndex(of: .field(.tokenTotal)).map { $0 + 1 } ?? sanitized.endIndex
+                sanitized.insert(.field(.cost), at: insertionIndex)
+                seenFields.insert(.cost)
             }
             for field in TaskHoverField.allCases where !seenFields.contains(field) {
                 sanitized.append(.field(field))
@@ -674,6 +682,12 @@ final class TaskBarSettingsView: NSView, NSTextFieldDelegate {
             )
         }
         try pngData.write(to: URL(fileURLWithPath: path))
+    }
+
+    func writeHoverPreview(to path: String) throws {
+        selectedSection = .hover
+        needsDisplay = true
+        try writePreview(to: path)
     }
 
     private static func makeDirectoryField() -> NSTextField {

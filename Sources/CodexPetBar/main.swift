@@ -177,6 +177,29 @@ private func testClosedPipeWrite() {
     print("closed pipe self-test passed: EPIPE handled without SIGPIPE termination")
 }
 
+private func testHoverCost() {
+    let item = CodexThreadItem(
+        id: "cost-fixture", title: "cost-fixture", preview: nil, cwd: nil,
+        lastActivity: Date(), startedAt: nil, externalReadAt: nil,
+        status: .unread, turns: 1, compressionCount: nil, source: "codex",
+        isExplicitUnread: false, codexUpdatedAt: nil, tokensUsed: 2_000_000,
+        tokenBreakdown: TokenBreakdown(
+            input: 1_500_000, cachedInput: 500_000, output: 500_000,
+            reasoningOutput: 100_000, total: 2_000_000, hasDetailedCounters: true
+        ),
+        model: "gpt-5.6-luna", threadKind: .root, parentThreadID: nil,
+        agentNickname: nil, agentPath: nil, plan: nil, launchTarget: .codexDesktop
+    )
+    guard let value = TaskCostEstimator.usdValue(for: item),
+          abs(value - 4.05) < 0.000_001,
+          TaskCostEstimator.displayUSD(value) == "USD 4.05",
+          tooltipRow(for: .cost, item: item)?.value == "USD 4.05" else {
+        fputs("hover cost self-test failed\n", stderr)
+        exit(1)
+    }
+    print("hover cost self-test passed: cached input and output priced as API equivalent")
+}
+
 private func mockTaskBarThreads() -> [CodexThreadItem] {
     func item(
         id: String,
@@ -206,8 +229,15 @@ private func mockTaskBarThreads() -> [CodexThreadItem] {
             source: source,
             isExplicitUnread: status == .unread,
             codexUpdatedAt: nil,
-            tokensUsed: 128_000,
-            tokenBreakdown: TokenBreakdown(),
+            tokensUsed: 1_100_000,
+            tokenBreakdown: TokenBreakdown(
+                input: 1_000_000,
+                cachedInput: 600_000,
+                output: 100_000,
+                reasoningOutput: 20_000,
+                total: 1_100_000,
+                hasDetailedCounters: true
+            ),
             model: "gpt-5-codex",
             threadKind: kind,
             parentThreadID: parentID,
@@ -404,12 +434,43 @@ private func renderTaskBarSettings(to path: String) {
     }
 }
 
+private func renderTaskBarHoverSettings(to path: String) {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    let settings = TaskBarSettingsView(onSettingsChanged: {})
+    do {
+        try settings.writeHoverPreview(to: path)
+        print("wrote \(path) (\(Int(settings.bounds.width))x\(Int(settings.bounds.height)))")
+    } catch {
+        fputs("hover settings render failed: \(error)\n", stderr)
+        exit(1)
+    }
+}
+
+private func renderTaskBarTooltip(to path: String) {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    guard let item = mockTaskBarThreads().first else {
+        fputs("tooltip render failed: no fixture\n", stderr)
+        exit(1)
+    }
+    do {
+        try writeThreadTooltipPreview(for: item, to: path)
+        print("wrote \(path)")
+    } catch {
+        fputs("tooltip render failed: \(error)\n", stderr)
+        exit(1)
+    }
+}
+
 if CommandLine.arguments.contains("--self-test-plan-parser") {
     testPlanParser()
 } else if CommandLine.arguments.contains("--self-test-task-routing") {
     testTaskLaunchRouting()
 } else if CommandLine.arguments.contains("--self-test-closed-pipe") {
     testClosedPipeWrite()
+} else if CommandLine.arguments.contains("--self-test-hover-cost") {
+    testHoverCost()
 } else if CommandLine.arguments.contains("--print") {
     printThreads()
 } else if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--render-taskbar=") }) {
@@ -426,6 +487,10 @@ if CommandLine.arguments.contains("--self-test-plan-parser") {
     )
 } else if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--render-taskbar-settings=") }) {
     renderTaskBarSettings(to: String(arg.dropFirst("--render-taskbar-settings=".count)))
+} else if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--render-taskbar-hover-settings=") }) {
+    renderTaskBarHoverSettings(to: String(arg.dropFirst("--render-taskbar-hover-settings=".count)))
+} else if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--render-taskbar-tooltip=") }) {
+    renderTaskBarTooltip(to: String(arg.dropFirst("--render-taskbar-tooltip=".count)))
 } else {
     let app = NSApplication.shared
     let delegate = AppDelegate()

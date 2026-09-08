@@ -1533,6 +1533,20 @@ private final class ThreadTooltipView: NSView {
     }
 }
 
+func writeThreadTooltipPreview(for item: CodexThreadItem, to path: String) throws {
+    let view = ThreadTooltipView()
+    view.rows = tooltipRows(for: item)
+    view.frame = NSRect(origin: .zero, size: view.preferredSize)
+    guard let image = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+        throw NSError(domain: "ThreadTooltipView", code: 1)
+    }
+    view.cacheDisplay(in: view.bounds, to: image)
+    guard let data = image.representation(using: .png, properties: [:]) else {
+        throw NSError(domain: "ThreadTooltipView", code: 2)
+    }
+    try data.write(to: URL(fileURLWithPath: path))
+}
+
 final class MenuSeparatorView: NSView {
     init(inset: CGFloat = 16) {
         self.inset = inset
