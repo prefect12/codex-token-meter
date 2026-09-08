@@ -458,13 +458,12 @@ func codexThreadKind(_ raw: String?) -> CodexThreadKind {
     }
 }
 
-func codexThreadLaunchTarget(source _: String?, historyMode: String? = nil) -> TaskLaunchTarget {
-    if historyMode?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "paginated" {
-        return .codexDesktopActivationOnly
-    }
+func codexThreadLaunchTarget(source _: String?, historyMode _: String? = nil) -> TaskLaunchTarget {
     // `vscode` in Codex's local state database describes an internal client
     // hint. These task IDs belong to Codex Desktop, which is the only target
-    // Task Bar should use when a user opens a Codex task.
+    // Task Bar should use when a user opens a Codex task. Current Codex builds
+    // accept paginated task IDs through their registered thread route as well,
+    // so preserving the ID is what lets the app select the requested task.
     return .codexDesktop
 }
 
