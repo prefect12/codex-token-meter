@@ -18,7 +18,6 @@ enum CodexThreadKind: String {
 /// can avoid deep links that the destination cannot restore.
 enum TaskLaunchTarget: Equatable {
     case codexDesktop
-    case codexDesktopActivationOnly
     case visualStudioCode
 }
 

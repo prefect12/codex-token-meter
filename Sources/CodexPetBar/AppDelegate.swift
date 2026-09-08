@@ -342,11 +342,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        if selectedItem?.launchTarget == .codexDesktopActivationOnly {
-            activateCodexDesktop()
-            return
-        }
-
         if let selectedItem, isOpenCodeThread(selectedItem) {
             openOpenCodeSession(selectedItem)
             return
@@ -437,19 +432,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return nil
         }
         return registeredURL
-    }
-
-    /// Codex's registered `codex://threads/<id>` route still resumes through the
-    /// legacy `list_turns` path. Current paginated-history tasks reject that
-    /// request, even though selecting the same row inside Codex works. Until
-    /// Codex exposes a compatible external route, foreground the app without
-    /// sending a deep link so Task Bar never replaces the current surface with
-    /// a failed-resume page.
-    private func activateCodexDesktop() {
-        guard let appURL = codexDesktopAppURL() else { return }
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, _ in }
     }
 
     /// OpenChamber 1.20 has no session-ID deep link. The correct fallback is its

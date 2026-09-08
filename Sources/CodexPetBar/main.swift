@@ -114,8 +114,8 @@ private func testPlanParser() {
 }
 
 private func testTaskLaunchRouting() {
-    guard codexThreadLaunchTarget(source: "vscode", historyMode: "paginated") == .codexDesktopActivationOnly,
-          codexThreadLaunchTarget(source: "vscode", historyMode: " PAGINATED ") == .codexDesktopActivationOnly,
+    guard codexThreadLaunchTarget(source: "vscode", historyMode: "paginated") == .codexDesktop,
+          codexThreadLaunchTarget(source: "vscode", historyMode: " PAGINATED ") == .codexDesktop,
           codexThreadLaunchTarget(source: "vscode", historyMode: "legacy") == .codexDesktop,
           codexThreadLaunchTarget(source: "vscode") == .codexDesktop,
           codexThreadLaunchTarget(source: " VSCode ") == .codexDesktop,
@@ -159,7 +159,7 @@ private func testTaskLaunchRouting() {
         fputs("internal approval visibility self-test failed\n", stderr)
         exit(1)
     }
-    print("task launch routing self-test passed: internal approvals hidden; ordinary roots and children preserved; paginated tasks activate Codex; legacy tasks deep-link")
+    print("task launch routing self-test passed: internal approvals hidden; ordinary roots and children preserved; paginated and legacy tasks deep-link to Codex")
 }
 
 private func testClosedPipeWrite() {
