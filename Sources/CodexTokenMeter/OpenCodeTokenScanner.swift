@@ -188,6 +188,9 @@ final class OpenCodeTokenScanner {
         var dayModelSessions: [String: [String: Int]] = [:]
         var hourBuckets: [Date: Usage] = [:]
         var hourTurns: [Date: Int] = [:]
+        var hourModelBuckets: [Date: [String: Usage]] = [:]
+        var hourModelEvents: [Date: [String: Int]] = [:]
+        var hourModelSessionIDs: [Date: [String: Set<String>]] = [:]
         var modelBuckets: [String: Usage] = [:]
         var modelTurns: [String: Int] = [:]
         var modelEvents: [String: Int] = [:]
@@ -257,6 +260,13 @@ final class OpenCodeTokenScanner {
             var hourUsage = hourBuckets[hour] ?? Usage()
             hourUsage.add(event.usage)
             hourBuckets[hour] = hourUsage
+            var hourModels = hourModelBuckets[hour] ?? [:]
+            var hourModelUsage = hourModels[event.model] ?? Usage()
+            hourModelUsage.add(event.usage)
+            hourModels[event.model] = hourModelUsage
+            hourModelBuckets[hour] = hourModels
+            hourModelEvents[hour, default: [:]][event.model, default: 0] += 1
+            hourModelSessionIDs[hour, default: [:]][event.model, default: []].insert(event.sessionKey)
         }
 
         // Attribute session prompts to the model when a session clearly ran on
@@ -325,7 +335,13 @@ final class OpenCodeTokenScanner {
             .sorted { $0.day < $1.day }
         let hours = Set(hourBuckets.keys).union(hourTurns.keys)
         report.byHour = hours
-            .map { HourUsage(hour: $0, usage: hourBuckets[$0] ?? Usage(), turns: hourTurns[$0] ?? 0) }
+            .map { hour in
+                let models = (hourModelBuckets[hour] ?? [:]).map { name, usage in
+                    ModelUsage(name: name, usage: usage, events: hourModelEvents[hour]?[name] ?? 0, sessions: hourModelSessionIDs[hour]?[name]?.count ?? 0)
+                }
+                .sorted { $0.usage.total > $1.usage.total }
+                return HourUsage(hour: hour, usage: hourBuckets[hour] ?? Usage(), turns: hourTurns[hour] ?? 0, modelBreakdown: models)
+            }
             .sorted { $0.hour < $1.hour }
         report.modelBreakdown = modelBuckets.map { name, usage in
             ModelUsage(name: name, usage: usage, turns: modelTurns[name] ?? 0, events: modelEvents[name] ?? 0, sessions: modelSessions[name] ?? 0)

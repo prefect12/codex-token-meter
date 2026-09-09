@@ -117,3 +117,102 @@ No actionable P0, P1, or P2 differences remain.
 - P3: run a manual VoiceOver announcement pass in the installed application.
 
 final result: passed
+
+# Hourly Legend Spacing QA
+
+## Source and implementation
+
+- Source visual truth: `/var/folders/hm/pmxxw3v90wl7nql88zsgljym0000gn/T/codex-clipboard-c435b54d-fbfc-4377-a2bf-5e4abd94a02f.png`, showing the reported cramped spacing.
+- Before render: `/tmp/ai-token-meter-hourly-spacing-before.png`.
+- Implementation screenshot: `/tmp/ai-token-meter-hourly-spacing-after.png`.
+- Focused normalized comparison: `/tmp/ai-token-meter-hourly-spacing-comparison.png`.
+- Full render viewport: 1280 x 760 points at 2x density; 2560 x 1520 pixels.
+- Focused comparison: two equal 2138 x 190 pixel crops stacked into one 2138 x 380 pixel artifact.
+- State: Chinese dark appearance, Hours page, current 24-hour range.
+
+## Full-view and focused comparison evidence
+
+- The legend moved down 12 points while the title and date/filter/range controls stayed fixed.
+- The visible gap between the control row and model legend is now deliberate rather than nearly touching.
+- The plot moved down by the same amount and became 12 points shorter, preserving its bottom edge, axis labels, hint, card height, and summary placement.
+- No horizontal alignment, control sizing, or interaction target changed.
+
+## Required fidelity surfaces
+
+- Fonts and typography: unchanged system family, weights, sizes, and truncation behavior.
+- Spacing and layout rhythm: the reported vertical crowding is resolved; the top rows now read as distinct control and legend groups.
+- Colors and visual tokens: unchanged dark panel, semantic model colors, and selected control colors.
+- Image quality and asset fidelity: no raster or generated assets are used in this native AppKit surface; SF Symbols and native drawing remain unchanged.
+- Copy and content: all labels and model names remain unchanged.
+
+## Findings and comparison history
+
+- Before: P2 spacing issue between the toolbar controls and legend.
+- Fix: moved the legend and plot origin down 12 points while keeping the plot bottom fixed.
+- After: no actionable P0, P1, or P2 differences remain for the requested spacing change.
+
+final result: passed
+
+---
+
+# Hourly Date Popover QA
+
+## Source and implementation
+
+- Source visual truth: `/Users/kadewu/.codex/generated_images/01a08254-218d-7822-a75d-73a7e083987f/exec-d4555a6d-105a-4f14-bbf6-9c904fd4c9cf.png`
+- Deterministic component render: `/tmp/ai-token-meter-hourly-calendar-v2.png`
+- Installed application surface: `/tmp/ai-token-meter-hourly-calendar-installed-window.png`
+- Focused normalized comparison: `/tmp/ai-token-meter-hourly-calendar-comparison-v2.png`
+- Full-view comparison: `/tmp/ai-token-meter-hourly-calendar-full-comparison.png`
+- Source pixels: 1363 x 1154.
+- Component pixels: 608 x 540 for a 304 x 270 point AppKit view at 2x density.
+- Installed capture pixels: 3248 x 2008, including the 1512 x 892 point details window, popover, shadow, and capture padding at 2x density.
+- State: Chinese dark appearance, September 2026, September 3 selected, September 9 current/maximum date, later dates disabled.
+
+## Full-view comparison evidence
+
+- The installed popover remains anchored to the hourly date button and stays inside the chart card.
+- The surrounding hourly toolbar, source filters, 24h/48h selector, chart, summary, and model table retain their existing hierarchy and behavior.
+- The source mock is a cropped concept view while the installed evidence shows the full details window, so pixel judgments for the surrounding chart are intentionally limited to structure and unchanged placement.
+
+## Focused comparison evidence
+
+- The focused comparison places the source calendar and deterministic AppKit render in the same 608 x 540 pixel frame.
+- Typography uses the system family with matching semibold month hierarchy and compact numeric labels.
+- Spacing matches the selected direction: 16-point side insets, full-width seven-column grid, one divider, compact 31-point row rhythm, and no unused right-side region.
+- Colors follow the existing app tokens: dark navy surface, white primary text, restrained secondary text, system blue selection, cyan current-day outline, and dim disabled dates.
+- Icons use SF Symbols for month navigation; there are no raster placeholders or invented decorative assets.
+- Copy is localized as `2026年9月` and `日 一 二 三 四 五 六`.
+
+## Findings
+
+No actionable P0, P1, or P2 differences remain.
+
+- The mock keeps the next-month arrow visually enabled, but the implementation disables it because September 9 is the maximum selectable date. This is an intentional product constraint, not design drift.
+- The standalone component render omits the popover shell shadow and pointer; the installed AppKit surface supplies both.
+- P3: the mock's month title is fractionally heavier. The installed system semibold weight is retained for consistency with the rest of AI Token Meter.
+
+## Interaction and accessibility checks
+
+- Opening the date button exposes one popover, a localized month title, two month-navigation buttons, and 42 date buttons in the accessibility tree.
+- Every date button exposes a full localized date label; unavailable future dates are disabled.
+- Selecting September 8 closes the popover, changes the date button to `09/08`, and loads the corresponding historical 48-hour report.
+- Switching to August updates the title to `2026年8月` and enables forward-month navigation.
+- Selecting August 31 closes the popover and changes the date button to `08/31`.
+- Activating `今天` restores the default `现在` state and disables next-day/today actions again.
+- A manual VoiceOver announcement pass was not performed.
+
+## Comparison history
+
+### Iteration 1
+
+- P2: current-day treatment rendered as a rounded square instead of the source's circular outline.
+- P2: disabled future dates were too faint to scan.
+
+### Iteration 2
+
+- Changed the current-day outline to a 28-point circle.
+- Raised disabled-date contrast while preserving the unavailable state.
+- Rebuilt, rerendered, and repeated the same normalized comparison; both P2 findings are resolved.
+
+final result: passed

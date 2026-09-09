@@ -809,6 +809,10 @@ final class CodexTokenScanner {
         var dayModelSessions: [String: [String: Int]] = [:]
         var hourBuckets: [Date: Usage] = [:]
         var hourTurns: [Date: Int] = [:]
+        var hourModelBuckets: [Date: [String: Usage]] = [:]
+        var hourModelTurns: [Date: [String: Int]] = [:]
+        var hourModelEvents: [Date: [String: Int]] = [:]
+        var hourModelSessions: [Date: [String: Int]] = [:]
         var modelBuckets: [String: Usage] = [:]
         var modelTurns: [String: Int] = [:]
         var modelEvents: [String: Int] = [:]
@@ -838,6 +842,7 @@ final class CodexTokenScanner {
             var lastEvent = file.events.last?.timestamp ?? now
             var sessionModels = Set<String>()
             var sessionDayModels: [String: Set<String>] = [:]
+            var sessionHourModels: [Date: Set<String>] = [:]
             for event in events {
                 sessionUsage.add(event.usage)
                 lastEvent = event.timestamp
@@ -871,10 +876,18 @@ final class CodexTokenScanner {
                 var hourUsage = hourBuckets[hour] ?? Usage()
                 hourUsage.add(event.usage)
                 hourBuckets[hour] = hourUsage
+                var hourModels = hourModelBuckets[hour] ?? [:]
+                var hourModelUsage = hourModels[modelName] ?? Usage()
+                hourModelUsage.add(event.usage)
+                hourModels[modelName] = hourModelUsage
+                hourModelBuckets[hour] = hourModels
+                hourModelEvents[hour, default: [:]][modelName, default: 0] += 1
+                sessionHourModels[hour, default: []].insert(modelName)
             }
 
             for turn in turns {
                 let day = dayFormatter.string(from: turn)
+                let hour = calendar.dateInterval(of: .hour, for: turn)?.start ?? turn
                 sessionDays.insert(day)
                 dayTurns[day, default: 0] += 1
                 if let modelSource = attributedTurns[turn] {
@@ -883,8 +896,8 @@ final class CodexTokenScanner {
                     var turnsForDay = dayModelTurns[day] ?? [:]
                     turnsForDay[modelName, default: 0] += 1
                     dayModelTurns[day] = turnsForDay
+                    hourModelTurns[hour, default: [:]][modelName, default: 0] += 1
                 }
-                let hour = calendar.dateInterval(of: .hour, for: turn)?.start ?? turn
                 hourTurns[hour, default: 0] += 1
             }
 
@@ -906,6 +919,11 @@ final class CodexTokenScanner {
                         sessionsForDay[model, default: 0] += 1
                     }
                     dayModelSessions[day] = sessionsForDay
+                }
+                for (hour, models) in sessionHourModels {
+                    for model in models {
+                        hourModelSessions[hour, default: [:]][model, default: 0] += 1
+                    }
                 }
             }
         }
@@ -942,7 +960,19 @@ final class CodexTokenScanner {
             .sorted { $0.day < $1.day }
         let hours = Set(hourBuckets.keys).union(hourTurns.keys)
         report.byHour = hours
-            .map { HourUsage(hour: $0, usage: hourBuckets[$0] ?? Usage(), turns: hourTurns[$0] ?? 0) }
+            .map { hour in
+                let models = (hourModelBuckets[hour] ?? [:]).map { name, usage in
+                    ModelUsage(
+                        name: name,
+                        usage: usage,
+                        turns: hourModelTurns[hour]?[name] ?? 0,
+                        events: hourModelEvents[hour]?[name] ?? 0,
+                        sessions: hourModelSessions[hour]?[name] ?? 0
+                    )
+                }
+                .sorted { $0.usage.total > $1.usage.total }
+                return HourUsage(hour: hour, usage: hourBuckets[hour] ?? Usage(), turns: hourTurns[hour] ?? 0, modelBreakdown: models)
+            }
             .sorted { $0.hour < $1.hour }
         report.topSessions = sessions.sorted { $0.usage.total > $1.usage.total }.prefix(8).map { $0 }
         report.modelBreakdown = modelBuckets.map { name, usage in

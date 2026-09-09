@@ -10,6 +10,10 @@ struct DetailsSnapshot: Codable {
     var codex: TokenReport
     var claude: TokenReport
     var api: TokenReport = TokenReport()
+    var recentAll: TokenReport = TokenReport()
+    var recentCodex: TokenReport = TokenReport()
+    var recentClaude: TokenReport = TokenReport()
+    var recentAPI: TokenReport = TokenReport()
     var modelAll: TokenReport? = nil
     var modelCodex: TokenReport? = nil
     var modelClaude: TokenReport? = nil
@@ -32,6 +36,22 @@ struct DetailsSnapshot: Codable {
     var costReferenceReport: TokenReport?
     var accountUsage: AccountUsageSnapshot? = nil
     var resetCredits: RateLimitResetCreditsSnapshot? = nil
+}
+
+struct HourlyRangeReports {
+    var all: TokenReport
+    var codex: TokenReport
+    var claude: TokenReport
+    var api: TokenReport
+
+    func report(for source: QuotaViewOption) -> TokenReport {
+        switch source {
+        case .all: return all
+        case .codex: return codex
+        case .claude: return claude
+        case .api: return api
+        }
+    }
 }
 
 struct DetailsLoadingProgress {
@@ -199,6 +219,7 @@ final class UsageDetailsWindowController: NSWindowController, NSWindowDelegate {
 enum DetailsSection: CaseIterable {
     case overview
     case calendar
+    case hours
     case models
     case reasoning
     case combinationRanking
@@ -232,6 +253,8 @@ enum DetailsSection: CaseIterable {
         case .reasoning: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "思考分析" : "Reasoning"
         case .combinationRanking: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "思考分析" : "Reasoning"
         case .models: return t(.models)
+        case .hours:
+            return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "小时" : (AppLanguage.current == .japanese ? "時間" : "Hours")
         case .modelRouting:
             if AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese { return "项目配置" }
             return AppLanguage.current == .japanese ? "プロジェクト設定" : "Project Configuration"
@@ -251,6 +274,10 @@ enum DetailsSection: CaseIterable {
         case .reasoning: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "比较模型在不同思考强度下的 Token 与成本" : "Compare Token usage and cost across reasoning efforts"
         case .combinationRanking: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "实际使用的模型 × 思考强度组合表现" : "Actual model × reasoning-effort performance"
         case .models: return t(.modelsSubtitle)
+        case .hours:
+            return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese
+                ? "过去 24 小时每小时 Token 用量与模型构成"
+                : (AppLanguage.current == .japanese ? "過去24時間の時間別Token使用量とモデル構成" : "Hourly Token usage and model mix over the last 24 hours")
         case .modelRouting:
             if AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese {
                 return "为每个项目管理运行策略、上下文压缩与 Plan 默认值"
@@ -724,6 +751,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 normalizeCalendarSelection(in: report, fallback: selectedDay)
                 normalizeSelectedInsight(for: insightReport(for: snapshot))
             }
+            updateHourlyDateControls()
             onPreferredHeightChanged?()
             updateResetCreditCountdownTimer()
             needsDisplay = true
@@ -811,6 +839,22 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var contributionDragStartPoint: CGPoint?
     var contributionDragBaseDays: Set<String> = []
     var contributionMarqueeRect: NSRect?
+    var calendarHourRects: [Date: NSRect] = [:]
+    var calendarHourBarRects: [Date: NSRect] = [:]
+    var selectedCalendarHours: Set<Date> = []
+    var selectedHourlyRangeHours = 24
+    var selectedHourlyDate: Date?
+    var hourlyRangeReports: HourlyRangeReports?
+    var hourlyRangeStart: Date?
+    var hourlyRangeEnd: Date?
+    var isHourlyDateLoading = false
+    var hourlyRangeRects: [Int: NSRect] = [:]
+    var hidesEmptyCalendarHours = false
+    var hideEmptyCalendarHoursRect: NSRect?
+    var calendarHourSelectionRect: NSRect?
+    var calendarHourDragStartPoint: CGPoint?
+    var calendarHourDragBase: Set<Date> = []
+    var calendarHourMarqueeRect: NSRect?
     var costHistoryBarRects: [Int: NSRect] = [:]
     var costHistoryRows: [CostPeriodRow] = []
     var costOverviewInfoRects: [CostOverviewInfo: NSRect] = [:]
@@ -842,6 +886,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
     }
     var onReasoningDateRangeChanged: ((Date, Date) -> Void)?
+    var onHourlyDateRangeChanged: ((Date, Date) -> Void)?
     let modelRoutingControls = ModelRoutingControls()
     var hoveredCostOverviewInfo: CostOverviewInfo?
     var isHoveringDayQuotaShareInfo = false
@@ -877,6 +922,13 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     let showCombinedFableSwitch = NSSwitch(frame: .zero)
     let quotaWarningsSwitch = NSSwitch(frame: .zero)
     let profileAPITotalsSwitch = NSSwitch(frame: .zero)
+    let hideEmptyCalendarHoursSwitch = NSSwitch(frame: .zero)
+    let hourlyPreviousDayButton = NSButton(frame: .zero)
+    let hourlyDateButton = NSButton(frame: .zero)
+    let hourlyNextDayButton = NSButton(frame: .zero)
+    let hourlyTodayButton = NSButton(frame: .zero)
+    let hourlyDatePopover = NSPopover()
+    let hourlyDatePopoverController = HourlyDatePopoverController()
     let visibleCodexSourceSwitch = NSSwitch(frame: .zero)
     let visibleClaudeSourceSwitch = NSSwitch(frame: .zero)
     let visibleAPISourceSwitch = NSSwitch(frame: .zero)
@@ -1057,7 +1109,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             : QuotaViewOption.visibleSelectorOptions
         guard options.count > 1 else { return false }
         switch selectedSection {
-        case .overview, .models, .calendar, .costs, .reasoning, .combinationRanking, .diagnostics, .storage:
+        case .overview, .models, .calendar, .hours, .costs, .reasoning, .combinationRanking, .diagnostics, .storage:
             return true
         case .insights, .modelRouting, .settings, .about:
             return false
@@ -1172,6 +1224,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionWeekHoverOverlay.frame = bounds
         layoutCostControls()
         layoutSettingsControls()
+        layoutHourlyControls()
         layoutStorageControls()
         layoutModelControls()
         let reasoningContent = sectionContent(
@@ -1272,6 +1325,61 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         profileAPITotalsSwitch.action = #selector(profileAPITotalsChanged)
         addSubview(profileAPITotalsSwitch)
 
+        hideEmptyCalendarHoursSwitch.controlSize = .small
+        hideEmptyCalendarHoursSwitch.isHidden = true
+        hideEmptyCalendarHoursSwitch.target = self
+        hideEmptyCalendarHoursSwitch.action = #selector(hideEmptyCalendarHoursChanged)
+        addSubview(hideEmptyCalendarHoursSwitch)
+
+        for (button, symbol, action) in [
+            (hourlyPreviousDayButton, "chevron.left", #selector(hourlyPreviousDayPressed)),
+            (hourlyNextDayButton, "chevron.right", #selector(hourlyNextDayPressed)),
+            (hourlyTodayButton, "clock.arrow.circlepath", #selector(hourlyTodayPressed))
+        ] {
+            button.isBordered = false
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            button.imagePosition = .imageOnly
+            button.contentTintColor = NSColor.white.withAlphaComponent(0.78)
+            button.wantsLayer = true
+            button.layer?.cornerRadius = 7
+            button.layer?.borderWidth = 1
+            button.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
+            button.layer?.backgroundColor = inputSurfaceColor.cgColor
+            button.target = self
+            button.action = action
+            button.isHidden = true
+            addSubview(button)
+        }
+        hourlyTodayButton.image = nil
+        hourlyTodayButton.imagePosition = .noImage
+        hourlyTodayButton.font = .systemFont(ofSize: 10.5, weight: .semibold)
+
+        hourlyDateButton.isBordered = false
+        hourlyDateButton.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+        hourlyDateButton.image = NSImage(systemSymbolName: "calendar", accessibilityDescription: nil)
+        hourlyDateButton.imagePosition = .imageLeading
+        hourlyDateButton.imageHugsTitle = true
+        hourlyDateButton.contentTintColor = NSColor.white.withAlphaComponent(0.86)
+        hourlyDateButton.wantsLayer = true
+        hourlyDateButton.layer?.cornerRadius = 7
+        hourlyDateButton.layer?.borderWidth = 1
+        hourlyDateButton.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        hourlyDateButton.layer?.backgroundColor = inputSurfaceColor.cgColor
+        hourlyDateButton.target = self
+        hourlyDateButton.action = #selector(showHourlyDatePopover)
+        hourlyDateButton.isHidden = true
+        addSubview(hourlyDateButton)
+
+        hourlyDatePopover.behavior = .transient
+        hourlyDatePopover.animates = true
+        hourlyDatePopover.appearance = NSAppearance(named: .darkAqua)
+        hourlyDatePopover.contentSize = NSSize(width: 304, height: 270)
+        hourlyDatePopover.contentViewController = hourlyDatePopoverController
+        hourlyDatePopoverController.onSelectDate = { [weak self] date in
+            self?.setHourlySelectedDate(date)
+            self?.hourlyDatePopover.performClose(nil)
+        }
+
         for sourceSwitch in [visibleCodexSourceSwitch, visibleClaudeSourceSwitch, visibleAPISourceSwitch] {
             sourceSwitch.controlSize = .small
             sourceSwitch.isHidden = true
@@ -1312,6 +1420,26 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         showCombinedFableSwitch.setAccessibilityLabel(t(.showCombinedFable))
         quotaWarningsSwitch.setAccessibilityLabel(t(.quotaWarnings))
         profileAPITotalsSwitch.setAccessibilityLabel(t(.profileAPITotals))
+        hideEmptyCalendarHoursSwitch.setAccessibilityLabel(
+            hourlyLocalized(
+                "隐藏空白小时",
+                traditionalChinese: "隱藏空白小時",
+                japanese: "空白時間を隠す",
+                english: "Hide empty hours"
+            )
+        )
+        hourlyPreviousDayButton.setAccessibilityLabel(
+            hourlyLocalized("前一天", traditionalChinese: "前一天", japanese: "前日", english: "Previous day")
+        )
+        hourlyDateButton.setAccessibilityLabel(
+            hourlyLocalized("选择日期", traditionalChinese: "選擇日期", japanese: "日付を選択", english: "Choose date")
+        )
+        hourlyNextDayButton.setAccessibilityLabel(
+            hourlyLocalized("后一天", traditionalChinese: "後一天", japanese: "翌日", english: "Next day")
+        )
+        hourlyTodayButton.setAccessibilityLabel(
+            hourlyLocalized("回到今天", traditionalChinese: "回到今天", japanese: "今日に戻る", english: "Return to today")
+        )
         visibleCodexSourceSwitch.setAccessibilityLabel("\(t(.visibleUsageSources)): Codex")
         visibleClaudeSourceSwitch.setAccessibilityLabel("\(t(.visibleUsageSources)): Claude")
         visibleAPISourceSwitch.setAccessibilityLabel("\(t(.visibleUsageSources)): API")
@@ -1409,6 +1537,62 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         costYearPopup.isHidden = true
         showHistoricalEmptyWeeksSwitch.isHidden = true
         showHistoricalEmptyWeeksToggleRect = nil
+    }
+
+    func layoutHourlyControls() {
+        let visible = selectedSection == .hours && snapshot != nil
+        hideEmptyCalendarHoursSwitch.isHidden = !visible
+        for button in [hourlyPreviousDayButton, hourlyDateButton, hourlyNextDayButton, hourlyTodayButton] {
+            button.isHidden = !visible
+        }
+        guard visible else {
+            hourlyDatePopover.performClose(nil)
+            return
+        }
+
+        let content = sectionContent(for: .hours, in: bounds, sidebarWidth: detailsSidebarWidth)
+        let chartRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 350)
+        let controlY = chartRect.minY + 13
+        hourlyPreviousDayButton.frame = NSRect(x: chartRect.maxX - 522, y: controlY, width: 28, height: 28)
+        hourlyDateButton.frame = NSRect(x: chartRect.maxX - 486, y: controlY, width: 102, height: 28)
+        hourlyNextDayButton.frame = NSRect(x: chartRect.maxX - 376, y: controlY, width: 28, height: 28)
+        hourlyTodayButton.frame = NSRect(x: chartRect.maxX - 340, y: controlY, width: 50, height: 28)
+        hideEmptyCalendarHoursSwitch.frame = NSRect(
+            x: chartRect.maxX - 178,
+            y: chartRect.minY + 15,
+            width: 40,
+            height: 24
+        )
+        hideEmptyCalendarHoursSwitch.state = hidesEmptyCalendarHours ? .on : .off
+        updateHourlyDateControls()
+    }
+
+    func updateHourlyDateControls() {
+        let calendar = appCalendar()
+        let today = calendar.startOfDay(for: Date())
+        let displayedDate = selectedHourlyDate ?? today
+        hourlyTodayButton.title = hourlyLocalized("今天", traditionalChinese: "今天", japanese: "今日", english: "Today")
+        hourlyDateButton.title = selectedHourlyDate == nil
+            ? hourlyLocalized("现在", traditionalChinese: "現在", japanese: "現在", english: "Now")
+            : hourlySelectedDateText(displayedDate, format: "MM/dd")
+        hourlyDateButton.toolTip = hourlySelectedDateText(displayedDate)
+
+        let hasHistoricalSelection = selectedHourlyDate != nil
+        hourlyNextDayButton.isEnabled = hasHistoricalSelection
+        hourlyTodayButton.isEnabled = hasHistoricalSelection
+        hourlyNextDayButton.alphaValue = hasHistoricalSelection ? 1 : 0.42
+        hourlyTodayButton.alphaValue = hasHistoricalSelection ? 1 : 0.42
+        hourlyTodayButton.layer?.backgroundColor = hasHistoricalSelection
+            ? inputSurfaceColor.cgColor
+            : accentBlue.withAlphaComponent(0.82).cgColor
+
+        if let snapshot, let earliest = earliestHourlyDate(in: snapshot) {
+            hourlyPreviousDayButton.isEnabled = displayedDate > earliest
+            hourlyPreviousDayButton.alphaValue = displayedDate > earliest ? 1 : 0.42
+        } else {
+            hourlyPreviousDayButton.isEnabled = true
+            hourlyPreviousDayButton.alphaValue = 1
+        }
     }
 
     func layoutSettingsControls() {
@@ -1599,6 +1783,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 ? selectedWeekPanelPreferredHeight(contentWidth: contentWidth)
                 : selectedDayPanelPreferredHeight(contentWidth: contentWidth)
             targetHeight = 174 + gridHeight + detailHeight
+        case .hours:
+            let modelRows = max(1, snapshot.map { hourlyDisplayedSummary(snapshot: $0).modelBreakdown.count } ?? 1)
+            targetHeight = max(760, 548 + CGFloat(modelRows) * 22)
         case .costs:
             if selectedDetailsSource == .api {
                 targetHeight = 780
@@ -2380,6 +2567,39 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             needsLayout = true
             return
         }
+        if selectedSection == .hours {
+            for (hours, rect) in hourlyRangeRects where rect.contains(point) {
+                selectHourlyRange(hours)
+                return
+            }
+            if hideEmptyCalendarHoursRect?.contains(point) == true {
+                setHourlyEmptyBucketsHidden(!hidesEmptyCalendarHours)
+                return
+            }
+            for (hour, rect) in calendarHourBarRects where rect.insetBy(dx: -2, dy: -3).contains(point) {
+                beginCalendarHourDrag(at: point, extending: event.modifierFlags.contains(.command))
+                if event.modifierFlags.contains(.command) {
+                    if selectedCalendarHours.contains(hour) {
+                        selectedCalendarHours.remove(hour)
+                    } else {
+                        selectedCalendarHours.insert(hour)
+                    }
+                } else if selectedCalendarHours == Set([hour]) {
+                    selectedCalendarHours.removeAll()
+                } else {
+                    selectedCalendarHours = [hour]
+                }
+                calendarHourSelectionDidChange()
+                return
+            }
+            if calendarHourSelectionRect?.contains(point) == true {
+                beginCalendarHourDrag(at: point, extending: false)
+                resetCalendarHourSelection()
+                return
+            }
+            resetCalendarHourSelection()
+            return
+        }
         for (month, rect) in contributionMonthLabelRects where rect.insetBy(dx: -5, dy: -4).contains(point) {
             guard let days = contributionMonthDays[month], !days.isEmpty else { continue }
             selectContributionMonth(
@@ -2434,6 +2654,24 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let start = calendarHourDragStartPoint {
+            let point = convert(event.locationInWindow, from: nil)
+            guard hypot(point.x - start.x, point.y - start.y) >= 3 else { return }
+            let marquee = NSRect(
+                x: min(start.x, point.x),
+                y: min(start.y, point.y),
+                width: max(1, abs(point.x - start.x)),
+                height: max(1, abs(point.y - start.y))
+            )
+            calendarHourMarqueeRect = marquee
+            var selected = calendarHourDragBase
+            selected.formUnion(calendarHourRects.compactMap { hour, rect in
+                marquee.intersects(rect.insetBy(dx: -1, dy: 0)) ? hour : nil
+            })
+            selectedCalendarHours = selected
+            needsDisplay = true
+            return
+        }
         guard let mode = contributionDragMode,
               let start = contributionDragStartPoint else {
             super.mouseDragged(with: event)
@@ -2471,6 +2709,18 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     override func mouseUp(with event: NSEvent) {
+        if calendarHourDragStartPoint != nil {
+            let completedMarqueeSelection = calendarHourMarqueeRect != nil
+            calendarHourDragStartPoint = nil
+            calendarHourDragBase.removeAll()
+            calendarHourMarqueeRect = nil
+            if completedMarqueeSelection {
+                calendarHourSelectionDidChange()
+            } else {
+                needsDisplay = true
+            }
+            return
+        }
         if contributionDragMode != nil {
             let completedMarqueeSelection = contributionMarqueeRect != nil
             if completedMarqueeSelection {
@@ -2500,6 +2750,23 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionMarqueeRect = nil
         hoveredContributionWeekKey = nil
         contributionWeekHoverOverlay.hide()
+    }
+
+    func beginCalendarHourDrag(at point: CGPoint, extending: Bool) {
+        calendarHourDragStartPoint = point
+        calendarHourDragBase = extending ? selectedCalendarHours : []
+        calendarHourMarqueeRect = nil
+    }
+
+    func resetCalendarHourSelection() {
+        selectedCalendarHours.removeAll()
+        calendarHourSelectionDidChange()
+    }
+
+    func calendarHourSelectionDidChange() {
+        onPreferredHeightChanged?()
+        needsLayout = true
+        needsDisplay = true
     }
 
     func contributionSelectionDays() -> Set<String> {
@@ -2653,6 +2920,99 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionSelectionAnchor = (startDay, startDay)
     }
 
+    /// Debug hook for deterministic recent-hour selection screenshots.
+    func selectCalendarHourOffsets(_ offsets: [Int]) {
+        guard let snapshot else { return }
+        let hours = continuousCalendarHours(snapshot: snapshot)
+        selectedCalendarHours = Set(offsets.compactMap { hours.indices.contains($0) ? hours[$0].hour : nil })
+        calendarHourSelectionDidChange()
+    }
+
+    func selectHourlyRange(_ hours: Int) {
+        guard hours == 24 || hours == 48, selectedHourlyRangeHours != hours else { return }
+        selectedHourlyRangeHours = hours
+        selectedCalendarHours.removeAll()
+        calendarHourDragStartPoint = nil
+        calendarHourDragBase.removeAll()
+        calendarHourMarqueeRect = nil
+        requestHourlyDateRangeIfNeeded()
+        calendarHourSelectionDidChange()
+    }
+
+    func setHourlySelectedDate(_ date: Date?) {
+        let calendar = appCalendar()
+        let today = calendar.startOfDay(for: Date())
+        let normalized = date.map { min(calendar.startOfDay(for: $0), today) }
+        let selection = normalized.flatMap { calendar.isDate($0, inSameDayAs: today) ? nil : $0 }
+        guard selectedHourlyDate != selection else { return }
+        selectedHourlyDate = selection
+        selectedCalendarHours.removeAll()
+        calendarHourDragStartPoint = nil
+        calendarHourDragBase.removeAll()
+        calendarHourMarqueeRect = nil
+        hourlyDatePopover.performClose(nil)
+        if selection == nil {
+            hourlyRangeReports = nil
+            hourlyRangeStart = nil
+            hourlyRangeEnd = nil
+            isHourlyDateLoading = false
+        } else {
+            requestHourlyDateRangeIfNeeded()
+        }
+        calendarHourSelectionDidChange()
+        updateHourlyDateControls()
+    }
+
+    func requestHourlyDateRangeIfNeeded(force: Bool = false) {
+        guard selectedHourlyDate != nil, let (start, end) = selectedHourlyRequestRange() else { return }
+        if !force,
+           hourlyRangeReports != nil,
+           hourlyRangeStart == start,
+           hourlyRangeEnd == end {
+            return
+        }
+        hourlyRangeReports = nil
+        hourlyRangeStart = start
+        hourlyRangeEnd = end
+        isHourlyDateLoading = true
+        onHourlyDateRangeChanged?(start, end)
+        onPreferredHeightChanged?()
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    func selectedHourlyRequestRange() -> (Date, Date)? {
+        guard let selectedHourlyDate else { return nil }
+        let calendar = appCalendar()
+        let endDay = calendar.startOfDay(for: selectedHourlyDate)
+        let precedingDays = selectedHourlyRangeHours == 48 ? 1 : 0
+        let start = calendar.date(byAdding: .day, value: -precedingDays, to: endDay) ?? endDay
+        let end = calendar.date(byAdding: .day, value: 1, to: endDay)?.addingTimeInterval(-0.001) ?? endDay
+        return (start, end)
+    }
+
+    func applyHourlyRangeReports(_ reports: HourlyRangeReports, from start: Date, to end: Date) {
+        guard let expected = selectedHourlyRequestRange(), expected.0 == start, expected.1 == end else { return }
+        hourlyRangeReports = reports
+        hourlyRangeStart = start
+        hourlyRangeEnd = end
+        isHourlyDateLoading = false
+        onPreferredHeightChanged?()
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    func setHourlyEmptyBucketsHidden(_ hidden: Bool) {
+        hideEmptyCalendarHoursSwitch.state = hidden ? .on : .off
+        guard hidesEmptyCalendarHours != hidden else { return }
+        hidesEmptyCalendarHours = hidden
+        selectedCalendarHours.removeAll()
+        calendarHourDragStartPoint = nil
+        calendarHourDragBase.removeAll()
+        calendarHourMarqueeRect = nil
+        calendarHourSelectionDidChange()
+    }
+
     func preferredSelectedDay(in report: TokenReport, fallback: String?) -> String? {
         let days = paddedContributionDays(report.byDay)
         if let fallback,
@@ -2766,6 +3126,40 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         needsLayout = true
     }
 
+    @objc private func hideEmptyCalendarHoursChanged() {
+        setHourlyEmptyBucketsHidden(hideEmptyCalendarHoursSwitch.state == .on)
+    }
+
+    @objc private func hourlyPreviousDayPressed() {
+        let calendar = appCalendar()
+        let anchor = selectedHourlyDate ?? calendar.startOfDay(for: Date())
+        guard let previous = calendar.date(byAdding: .day, value: -1, to: anchor) else { return }
+        setHourlySelectedDate(previous)
+    }
+
+    @objc private func hourlyNextDayPressed() {
+        guard let selectedHourlyDate else { return }
+        let calendar = appCalendar()
+        guard let next = calendar.date(byAdding: .day, value: 1, to: selectedHourlyDate) else { return }
+        setHourlySelectedDate(next)
+    }
+
+    @objc private func hourlyTodayPressed() {
+        setHourlySelectedDate(nil)
+    }
+
+    @objc private func showHourlyDatePopover() {
+        guard let snapshot else { return }
+        let calendar = appCalendar()
+        let today = calendar.startOfDay(for: Date())
+        hourlyDatePopoverController.configure(
+            date: selectedHourlyDate ?? today,
+            minimumDate: earliestHourlyDate(in: snapshot),
+            maximumDate: today
+        )
+        hourlyDatePopover.show(relativeTo: hourlyDateButton.bounds, of: hourlyDateButton, preferredEdge: .maxY)
+    }
+
     @objc private func visibleUsageSourcesChanged() {
         var sources = Set<QuotaViewOption>()
         if visibleCodexSourceSwitch.state == .on { sources.insert(.codex) }
@@ -2874,6 +3268,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         contributionMonthLabelRects.removeAll()
         contributionMonthDays.removeAll()
         contributionGridSelectionRect = nil
+        calendarHourRects.removeAll(keepingCapacity: true)
+        calendarHourBarRects.removeAll(keepingCapacity: true)
+        hourlyRangeRects.removeAll(keepingCapacity: true)
+        hideEmptyCalendarHoursRect = nil
+        calendarHourSelectionRect = nil
         resetCreditHitAreas.removeAll()
         resetCreditTooltipRows.removeAll()
         weeklyQuotaHitAreas.removeAll()
@@ -2972,6 +3371,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawModelRoutingPage(content: content)
         case .calendar:
             drawCalendarPage(snapshot: snapshot, content: content)
+        case .hours:
+            drawHourlyPage(snapshot: snapshot, content: content)
         case .costs:
             drawQuotaCyclesPage(snapshot: snapshot, content: content)
         case .settings:
@@ -3044,6 +3445,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         }
         if selectedSection == .insights, selectedInsightDetailMode == .reasoningDepth {
             return localizedReasoningDepthPageSubtitle
+        }
+        if selectedSection == .hours {
+            return hourlyWindowSubtitle()
         }
         return selectedSection.subtitle
     }
@@ -3147,7 +3551,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     var sidebarNavigationGroups: [(title: String, sections: [DetailsSection])] {
         [
-            (sidebarGroupTitle(chinese: "用量", traditionalChinese: "用量", english: "Usage", japanese: "使用量"), [.overview, .calendar, .models]),
+            (sidebarGroupTitle(chinese: "用量", traditionalChinese: "用量", english: "Usage", japanese: "使用量"), [.overview, .hours, .calendar, .models]),
             (sidebarGroupTitle(chinese: "分析", traditionalChinese: "分析", english: "Analysis", japanese: "分析"), [.reasoning, .storage]),
             (sidebarGroupTitle(chinese: "偏好设置", traditionalChinese: "偏好設定", english: "Preferences", japanese: "環境設定"), [.modelRouting, .settings, .diagnostics, .about])
         ]
@@ -3166,6 +3570,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         switch section {
         case .overview: return "square.grid.2x2"
         case .calendar: return "calendar"
+        case .hours: return "chart.bar.xaxis"
         case .insights: return "waveform.path.ecg"
         case .reasoning: return "chart.line.uptrend.xyaxis"
         case .combinationRanking: return "chart.bar.xaxis.ascending"

@@ -3,8 +3,8 @@ import Foundation
 // MARK: - Details Snapshot Cache
 
 enum DetailsSnapshotCacheStore {
-    // Version 10 partitions provider-attributed API usage out of Codex.
-    private static let version = 10
+    // Version 12 expands the hourly page snapshot from 24 to 48 hours.
+    private static let version = 12
 
     private struct Payload: Codable {
         let version: Int
@@ -62,6 +62,10 @@ enum DetailsSnapshotCacheStore {
             codex: sanitized(snapshot.codex),
             claude: sanitized(snapshot.claude),
             api: sanitized(snapshot.api),
+            recentAll: sanitized(snapshot.recentAll),
+            recentCodex: sanitized(snapshot.recentCodex),
+            recentClaude: sanitized(snapshot.recentClaude),
+            recentAPI: sanitized(snapshot.recentAPI),
             modelAll: snapshot.modelAll.map(sanitized),
             modelCodex: snapshot.modelCodex.map(sanitized),
             modelClaude: snapshot.modelClaude.map(sanitized),

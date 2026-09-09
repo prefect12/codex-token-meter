@@ -643,6 +643,7 @@ func mergedTokenReport(_ reports: [TokenReport], scannedAt: Date = Date()) -> To
             var existing = hourBuckets[hour.hour] ?? HourUsage(hour: hour.hour, usage: Usage(), turns: 0)
             existing.usage.add(hour.usage)
             existing.turns += hour.turns
+            existing.modelBreakdown = mergedModelBreakdown(existing.modelBreakdown + hour.modelBreakdown)
             hourBuckets[hour.hour] = existing
         }
 

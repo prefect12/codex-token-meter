@@ -98,6 +98,7 @@ func requestedDetailsSection(from arguments: [String]) -> DetailsSection {
     switch rawSection {
     case "overview": return .overview
     case "calendar": return .calendar
+    case "hours", "hourly": return .hours
     case "insights": return .insights
     case "reasoning", "reasoning-depth", "reasoning_depth": return .reasoning
     case "ranking", "combination-ranking", "combination_ranking": return .combinationRanking
@@ -222,6 +223,30 @@ func writePNG(of view: NSView, to url: URL) throws {
     try data.write(to: url, options: [.atomic])
 }
 
+func renderHourlyCalendarSnapshot(arguments: [String]) throws -> URL {
+    let outputURL = arguments
+        .compactMap { argument -> URL? in
+            guard argument.hasPrefix("--render-hourly-calendar=") else { return nil }
+            return URL(fileURLWithPath: String(argument.dropFirst("--render-hourly-calendar=".count)))
+        }
+        .first ?? URL(fileURLWithPath: "/tmp/ai-token-meter-hourly-calendar.png")
+    let formatter = DateFormatter()
+    formatter.calendar = appCalendar()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = appTimeZone()
+    formatter.dateFormat = "yyyy-MM-dd"
+    guard let selected = formatter.date(from: "2026-09-03"),
+          let earliest = formatter.date(from: "2025-09-15"),
+          let latest = formatter.date(from: "2026-09-09") else {
+        throw NSError(domain: "CodexTokenMeter", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to build deterministic calendar dates"])
+    }
+    let calendarView = HourlyCalendarView(frame: NSRect(x: 0, y: 0, width: 304, height: 270))
+    calendarView.configure(date: selected, minimumDate: earliest, maximumDate: latest)
+    calendarView.layoutSubtreeIfNeeded()
+    try writePNG(of: calendarView, to: outputURL)
+    return outputURL
+}
+
 func renderDashboardSnapshot(arguments: [String]) throws -> URL {
     let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
     let claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
@@ -336,6 +361,14 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         OpenCodeTokenScanner.shared.scan(days: apiDays)
     ])
     let all = mergedTokenReport([codex, claude, api])
+    let recentCodex = canRenderWithoutUsage ? TokenReport() : scanner.scan(hours: 48, partition: .codex)
+    let recentClaude = canRenderWithoutUsage ? TokenReport() : claudeScanner.scan(hours: 48)
+    let recentAPI = canRenderWithoutUsage ? TokenReport() : mergedTokenReport([
+        scanner.scan(hours: 48, partition: .api),
+        ExternalAPIUsageStore.readReport(hours: 48),
+        OpenCodeTokenScanner.shared.scan(hours: 48)
+    ])
+    let recentAll = mergedTokenReport([recentCodex, recentClaude, recentAPI])
     let codexRepoInsightReports = isModelRoutingSection
         ? [:]
         : scanner.scanRepoInsights(windows: [7, 30, 90], partition: .codex)
@@ -376,6 +409,10 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         codex: codex,
         claude: claude,
         api: api,
+        recentAll: recentAll,
+        recentCodex: recentCodex,
+        recentClaude: recentClaude,
+        recentAPI: recentAPI,
         modelAll: all,
         modelCodex: codex,
         modelClaude: claude,
@@ -575,6 +612,62 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         })
         .first {
         view.selectCalendarRange(startDay: range.0, endDay: range.1)
+    }
+    if section == .hours {
+        view.onHourlyDateRangeChanged = { start, end in
+            let rangeCodex = scanner.scan(from: start, to: end, partition: .codex)
+            let rangeClaude = claudeScanner.scan(from: start, to: end)
+            let rangeAPI = mergedTokenReport([
+                scanner.scan(from: start, to: end, partition: .api),
+                ExternalAPIUsageStore.readReport(from: start, to: end),
+                OpenCodeTokenScanner.shared.scan(from: start, to: end)
+            ])
+            let visibleSources = Set(AppSettings.visibleUsageSources)
+            let rangeAll = mergedTokenReport([
+                visibleSources.contains(.codex) ? rangeCodex : TokenReport(scannedAt: end),
+                visibleSources.contains(.claude) ? rangeClaude : TokenReport(scannedAt: end),
+                visibleSources.contains(.api) ? rangeAPI : TokenReport(scannedAt: end)
+            ])
+            view.applyHourlyRangeReports(
+                HourlyRangeReports(all: rangeAll, codex: rangeCodex, claude: rangeClaude, api: rangeAPI),
+                from: start,
+                to: end
+            )
+        }
+    }
+    if let hourRange = arguments
+        .compactMap({ argument -> Int? in
+            guard argument.hasPrefix("--hour-range=") else { return nil }
+            return Int(argument.dropFirst("--hour-range=".count))
+        })
+        .first {
+        view.selectHourlyRange(hourRange)
+    }
+    if let hourDate = arguments
+        .compactMap({ argument -> Date? in
+            guard argument.hasPrefix("--hour-date=") else { return nil }
+            let formatter = DateFormatter()
+            formatter.calendar = appCalendar()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = appTimeZone()
+            formatter.dateFormat = "yyyy-MM-dd"
+            return formatter.date(from: String(argument.dropFirst("--hour-date=".count)))
+        })
+        .first {
+        view.setHourlySelectedDate(hourDate)
+    }
+    if arguments.contains("--hide-empty-hours") {
+        view.setHourlyEmptyBucketsHidden(true)
+    }
+    if let hourOffsets = arguments
+        .compactMap({ argument -> [Int]? in
+            guard argument.hasPrefix("--select-hours=") else { return nil }
+            return String(argument.dropFirst("--select-hours=".count))
+                .split(separator: ",")
+                .compactMap { Int($0) }
+        })
+        .first {
+        view.selectCalendarHourOffsets(hourOffsets)
     }
     if section == .storage {
         let storage = StorageScanner.scan()

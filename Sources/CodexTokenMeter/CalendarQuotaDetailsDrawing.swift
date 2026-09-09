@@ -1939,8 +1939,8 @@ extension UsageDetailsView {
         }
     }
 
-    func drawSelectedDayModels(_ models: [ModelUsage], weeklyQuotaTotal: Double? = nil, showsCacheRatio: Bool = false, rect: NSRect) {
-        drawText(t(.models), rect: NSRect(x: rect.minX, y: rect.minY, width: 120, height: 18), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
+    func drawSelectedDayModels(_ models: [ModelUsage], weeklyQuotaTotal: Double? = nil, showsCacheRatio: Bool = false, showsSessions: Bool = true, title: String? = nil, rect: NSRect) {
+        drawText(title ?? t(.models), rect: NSRect(x: rect.minX, y: rect.minY, width: max(120, rect.width * 0.42), height: 18), font: .systemFont(ofSize: 13, weight: .bold), color: .white)
         guard !models.isEmpty else {
             drawText(t(.noModelLabelForDay), rect: NSRect(x: rect.minX, y: rect.minY + 24, width: rect.width, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.46))
             return
@@ -2004,7 +2004,7 @@ extension UsageDetailsView {
             if let turnsX {
                 drawRight(format(Int64(model.turns)), rect: NSRect(x: turnsX, y: y + 1, width: 56, height: 16), color: NSColor.white.withAlphaComponent(0.70))
             }
-            drawRight(format(Int64(model.sessions)), rect: NSRect(x: sessionsX, y: y + 1, width: 56, height: 16), color: NSColor.white.withAlphaComponent(0.70))
+            drawRight(showsSessions ? format(Int64(model.sessions)) : "—", rect: NSRect(x: sessionsX, y: y + 1, width: 56, height: 16), color: NSColor.white.withAlphaComponent(showsSessions ? 0.70 : 0.38))
             drawRight(format(Int64(model.events)), rect: NSRect(x: eventsX, y: y + 1, width: 70, height: 16), color: NSColor.systemOrange)
             if let inputX, let outputX {
                 drawRight(compact(model.usage.input), rect: NSRect(x: inputX, y: y + 1, width: 80, height: 16), color: .systemGreen)
