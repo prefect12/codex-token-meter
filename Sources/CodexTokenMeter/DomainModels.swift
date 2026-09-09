@@ -153,6 +153,29 @@ struct HourUsage: Codable {
     let hour: Date
     var usage: Usage
     var turns: Int
+    var modelBreakdown: [ModelUsage] = []
+
+    init(hour: Date, usage: Usage, turns: Int, modelBreakdown: [ModelUsage] = []) {
+        self.hour = hour
+        self.usage = usage
+        self.turns = turns
+        self.modelBreakdown = modelBreakdown
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case hour
+        case usage
+        case turns
+        case modelBreakdown
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        hour = try container.decode(Date.self, forKey: .hour)
+        usage = try container.decode(Usage.self, forKey: .usage)
+        turns = try container.decode(Int.self, forKey: .turns)
+        modelBreakdown = try container.decodeIfPresent([ModelUsage].self, forKey: .modelBreakdown) ?? []
+    }
 }
 
 struct SessionUsage: Codable {
@@ -349,7 +372,9 @@ enum ExternalAPIUsageStore {
                 report.events += day.events
             }
         }
-        report.modelBreakdown = mergedModels(selectedDays.flatMap(\.modelBreakdown))
+        report.modelBreakdown = !selectedHours.isEmpty
+            ? mergedModels(selectedHours.flatMap(\.modelBreakdown))
+            : mergedModels(selectedDays.flatMap(\.modelBreakdown))
         if report.modelBreakdown.isEmpty,
            selectedDays.count == source.byDay.count,
            !source.modelBreakdown.isEmpty {
@@ -380,10 +405,14 @@ enum ExternalAPIUsageStore {
     private static func hour(_ object: [String: Any]) -> HourUsage? {
         guard let value = object["hour"] ?? object["timestamp"] ?? object["start_time"],
               let parsed = date(value) else { return nil }
+        let models = mergedModels(
+            (object["models"] as? [[String: Any]] ?? object["model_breakdown"] as? [[String: Any]] ?? []).compactMap(model)
+        )
         return HourUsage(
             hour: parsed,
             usage: usage(object["usage"] as? [String: Any] ?? object),
-            turns: int(object["turns"] ?? object["requests"]) ?? 0
+            turns: int(object["turns"] ?? object["requests"]) ?? 0,
+            modelBreakdown: models
         )
     }
 

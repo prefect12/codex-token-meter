@@ -335,6 +335,17 @@ if CommandLine.arguments.contains("--render-dashboard") || CommandLine.arguments
     exit(0)
 }
 
+if CommandLine.arguments.contains("--render-hourly-calendar") || CommandLine.arguments.contains(where: { $0.hasPrefix("--render-hourly-calendar=") }) {
+    do {
+        let url = try renderHourlyCalendarSnapshot(arguments: CommandLine.arguments)
+        print(url.path)
+    } catch {
+        fputs("Failed to render hourly calendar: \(error)\n", stderr)
+        exit(1)
+    }
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--render-details") || CommandLine.arguments.contains(where: { $0.hasPrefix("--render-details=") }) {
     do {
         let url = try renderDetailsSnapshot(arguments: CommandLine.arguments)

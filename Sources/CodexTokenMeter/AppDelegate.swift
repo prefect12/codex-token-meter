@@ -16,6 +16,12 @@ private struct ModelRangeCacheKey: Hashable {
     let endDay: Date
 }
 
+private struct HourlyRangeCacheKey: Hashable {
+    let startDay: Date
+    let endDay: Date
+    let visibleSources: String
+}
+
 private struct ModelRangeReports {
     let codex: TokenReport
     let claude: TokenReport
@@ -68,6 +74,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var modelRangeLoadGeneration = 0
     private var modelRangeRefreshWorkItem: DispatchWorkItem?
     private var modelRangeReportCache: [ModelRangeCacheKey: ModelRangeReports] = [:]
+    private var hourlyRangeLoadGeneration = 0
+    private var hourlyRangeRefreshWorkItem: DispatchWorkItem?
+    private var hourlyRangeReportCache: [HourlyRangeCacheKey: (reports: HourlyRangeReports, cachedAt: Date)] = [:]
     private let refreshInterval: TimeInterval = 300
     private let popoverRefreshMaxAge: TimeInterval = 60
     private let liveRefreshInterval: TimeInterval = 60
@@ -180,6 +189,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         detailsController.detailsView.onReasoningDateRangeChanged = { [weak self] start, end in
             self?.refreshReasoningDateRange(from: start, to: end)
         }
+        detailsController.detailsView.onHourlyDateRangeChanged = { [weak self] start, end in
+            self?.refreshHourlyDateRange(from: start, to: end)
+        }
         applyLanguage()
         QuotaWarningManager.shared.requestAuthorization()
 
@@ -246,6 +258,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self.detailsController.detailsView.storageSnapshot = snapshot
             }
         }
+    }
+
+    private func refreshHourlyDateRange(from start: Date, to end: Date) {
+        hourlyRangeRefreshWorkItem?.cancel()
+        hourlyRangeLoadGeneration += 1
+        let generation = hourlyRangeLoadGeneration
+        let key = hourlyRangeCacheKey(from: start, to: end)
+        if let cached = hourlyRangeReportCache[key] {
+            detailsController.detailsView.applyHourlyRangeReports(cached.reports, from: start, to: end)
+            if Date().timeIntervalSince(cached.cachedAt) <= 30 * 60 {
+                return
+            }
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.hourlyRangeLoadGeneration == generation else { return }
+            self.scanQueue.async {
+                let codex = self.scanner.scan(from: start, to: end, partition: .codex)
+                let claude = self.claudeScanner.scan(from: start, to: end)
+                let api = mergedTokenReport([
+                    self.scanner.scan(from: start, to: end, partition: .api),
+                    ExternalAPIUsageStore.readReport(from: start, to: end),
+                    OpenCodeTokenScanner.shared.scan(from: start, to: end)
+                ])
+                let visibleSources = Set(AppSettings.visibleUsageSources)
+                let all = mergedTokenReport([
+                    visibleSources.contains(.codex) ? codex : TokenReport(scannedAt: end),
+                    visibleSources.contains(.claude) ? claude : TokenReport(scannedAt: end),
+                    visibleSources.contains(.api) ? api : TokenReport(scannedAt: end)
+                ])
+                let reports = HourlyRangeReports(all: all, codex: codex, claude: claude, api: api)
+                DispatchQueue.main.async {
+                    guard self.hourlyRangeLoadGeneration == generation else { return }
+                    self.hourlyRangeReportCache[key] = (reports, Date())
+                    if self.hourlyRangeReportCache.count > 32,
+                       let oldest = self.hourlyRangeReportCache.min(by: { $0.value.cachedAt < $1.value.cachedAt })?.key {
+                        self.hourlyRangeReportCache.removeValue(forKey: oldest)
+                    }
+                    self.detailsController.detailsView.applyHourlyRangeReports(reports, from: start, to: end)
+                }
+            }
+        }
+        hourlyRangeRefreshWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: workItem)
+    }
+
+    private func hourlyRangeCacheKey(from start: Date, to end: Date) -> HourlyRangeCacheKey {
+        let visibleSources = AppSettings.visibleUsageSources
+            .map(\.rawValue)
+            .sorted()
+            .joined(separator: ",")
+        return HourlyRangeCacheKey(startDay: start, endDay: end, visibleSources: visibleSources)
     }
 
     private func refreshModelDateRange(from start: Date, to end: Date) {
@@ -1366,7 +1430,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         reportCache = reportCache.filter { $0.key.quota != .all }
         modelRangeReportCache.removeAll()
+        hourlyRangeReportCache.removeAll()
         detailsController.detailsView.normalizeVisibleSourceSelection()
+        detailsController.detailsView.requestHourlyDateRangeIfNeeded(force: true)
         detailsController.detailsView.needsDisplay = true
         detailsController.detailsView.needsLayout = true
         showCachedOrLoadingState()
@@ -1407,6 +1473,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func reloadScannerFromSettings() {
         scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
         reportCache.removeAll()
+        hourlyRangeReportCache.removeAll()
         activeScans.removeAll()
         liveCostReferenceCacheLock.lock()
         liveCostReferenceCache = nil
@@ -1586,6 +1653,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             OpenCodeTokenScanner.shared.scan(days: 365)
         ])
         let all = mergedTokenReport([codex, claude, api])
+        let recentCodex = scanner.scan(hours: 48, partition: .codex)
+        let recentClaude = claudeScanner.scan(hours: 48)
+        let recentAPI = mergedTokenReport([
+            scanner.scan(hours: 48, partition: .api),
+            ExternalAPIUsageStore.readReport(hours: 48),
+            OpenCodeTokenScanner.shared.scan(hours: 48)
+        ])
+        let recentAll = mergedTokenReport([recentCodex, recentClaude, recentAPI])
         let modelCodex = scanner.scan(days: 90, partition: .codex)
         let modelClaude = claudeScanner.scan(days: 90)
         let modelAPI = mergedTokenReport([
@@ -1636,6 +1711,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             codex: codex,
             claude: claude,
             api: api,
+            recentAll: recentAll,
+            recentCodex: recentCodex,
+            recentClaude: recentClaude,
+            recentAPI: recentAPI,
             modelAll: modelAll,
             modelCodex: modelCodex,
             modelClaude: modelClaude,
