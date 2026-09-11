@@ -249,6 +249,17 @@ if CommandLine.arguments.contains("--print") {
         "sessions": report.sessions,
         "events": report.events,
         "turns": report.turns,
+        "machines": report.machineBreakdown.map { machine -> [String: Any] in
+            [
+                "name": machine.name,
+                "sessions": machine.sessions,
+                "events": machine.events,
+                "turns": machine.turns,
+                "input": machine.usage.input,
+                "output": machine.usage.output,
+                "total": machine.usage.total
+            ]
+        },
         "input": report.usage.input,
         "cached_input": report.usage.cachedInput,
         "cache_creation_input": report.usage.cacheCreationInput,

@@ -405,6 +405,8 @@ enum L10nKey {
     case liveLimitUnavailable
     case logFolder
     case logFolderHint
+    case remoteMachineLocal
+    case remoteMachineSynced
     case logFolderChoose
     case logFolderDefault
     case logFolderOpen
@@ -730,7 +732,9 @@ enum L10nKey {
         case .liveQuota: return "Live quota"
         case .liveLimitUnavailable: return "Live limit unavailable"
         case .logFolder: return "Log Folder"
-        case .logFolderHint: return "Default scans sessions and archived_sessions; added folders extend the scan roots."
+        case .logFolderHint: return "Default scans sessions and archived_sessions; added folders extend the scan roots. Logs synced into ~/.codex/remote/<machine>/sessions are scanned too and listed under that machine name."
+        case .remoteMachineLocal: return "This Mac"
+        case .remoteMachineSynced: return "Synced"
         case .logFolderChoose: return "Add..."
         case .logFolderDefault: return "Default"
         case .logFolderOpen: return "Finder"
@@ -1015,7 +1019,9 @@ enum L10nKey {
         case .liveQuota: return "实时额度"
         case .liveLimitUnavailable: return "实时限额不可用"
         case .logFolder: return "日志目录"
-        case .logFolderHint: return "默认扫描 sessions 和 archived_sessions；添加的目录会扩展扫描范围，可一次选择多个。"
+        case .logFolderHint: return "默认扫描 sessions 和 archived_sessions；添加的目录会扩展扫描范围，可一次选择多个。同步到 ~/.codex/remote/<机器名>/sessions 的日志也会扫描，并按机器名单独列出。"
+        case .remoteMachineLocal: return "本机"
+        case .remoteMachineSynced: return "已同步"
         case .logFolderChoose: return "添加..."
         case .logFolderDefault: return "默认"
         case .logFolderOpen: return "Finder"
@@ -1300,7 +1306,9 @@ enum L10nKey {
         case .liveQuota: return "リアルタイム制限"
         case .liveLimitUnavailable: return "リアルタイム制限を取得できません"
         case .logFolder: return "ログフォルダ"
-        case .logFolderHint: return "既定では sessions と archived_sessions をスキャンし、追加したフォルダでスキャン範囲を拡張します。複数選択できます。"
+        case .logFolderHint: return "既定では sessions と archived_sessions をスキャンし、追加したフォルダでスキャン範囲を拡張します。複数選択できます。~/.codex/remote/<マシン名>/sessions に同期したログもスキャンし、マシン名ごとに表示します。"
+        case .remoteMachineLocal: return "このMac"
+        case .remoteMachineSynced: return "同期済み"
         case .logFolderChoose: return "追加..."
         case .logFolderDefault: return "既定"
         case .logFolderOpen: return "Finder"
@@ -1599,6 +1607,35 @@ enum AppSettings {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex-api", isDirectory: true)
     }
 
+    /// Rollout logs synced from other machines live under `~/.codex/remote/<machine>/sessions`
+    /// (and `archived_sessions`). The folder name is the machine label shown in the dashboard.
+    static var remoteMachineRootURL: URL {
+        defaultCodexHomeURL.appendingPathComponent("remote", isDirectory: true)
+    }
+
+    static var remoteMachineLogRoots: [(name: String, url: URL)] {
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: remoteMachineRootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        var roots: [(name: String, url: URL)] = []
+        for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            guard (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+            let name = entry.lastPathComponent
+            for child in ["sessions", "archived_sessions"] {
+                let url = entry.appendingPathComponent(child, isDirectory: true)
+                if fileManager.fileExists(atPath: url.path) {
+                    roots.append((name: name, url: url))
+                }
+            }
+        }
+        return roots
+    }
+
     static var defaultClaudeHomeURL: URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude", isDirectory: true)
     }
@@ -1667,6 +1704,7 @@ enum AppSettings {
             roots.append(codexHome.appendingPathComponent("sessions", isDirectory: true))
             roots.append(codexHome.appendingPathComponent("archived_sessions", isDirectory: true))
         }
+        roots.append(contentsOf: remoteMachineLogRoots.map(\.url))
         roots.append(contentsOf: customLogFolderURLs)
         return uniqueDirectoryURLs(roots)
     }
