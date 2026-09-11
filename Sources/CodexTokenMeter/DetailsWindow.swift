@@ -637,6 +637,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         didSet {
             normalizeVisibleSourceSelection()
             if let snapshot {
+                hourlyLastRefreshedAt = snapshot.recentAll.scannedAt
                 let report = calendarReport(for: snapshot)
                 normalizeCalendarSelection(in: report, fallback: selectedDay)
                 normalizeSelectedInsight(for: insightReport(for: snapshot))
@@ -848,6 +849,15 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     var hourlyRangeStart: Date?
     var hourlyRangeEnd: Date?
     var isHourlyDateLoading = false
+    var isHourlyRefreshLoading = false {
+        didSet {
+            updateHourlyRefreshControl()
+            needsDisplay = true
+        }
+    }
+    var hourlyLastRefreshedAt: Date? {
+        didSet { updateHourlyRefreshControl() }
+    }
     var hourlyRangeRects: [Int: NSRect] = [:]
     var hidesEmptyCalendarHours = false
     var hideEmptyCalendarHoursRect: NSRect?
@@ -887,6 +897,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
     var onReasoningDateRangeChanged: ((Date, Date) -> Void)?
     var onHourlyDateRangeChanged: ((Date, Date) -> Void)?
+    var onHourlyRefreshRequested: (() -> Void)?
     let modelRoutingControls = ModelRoutingControls()
     var hoveredCostOverviewInfo: CostOverviewInfo?
     var isHoveringDayQuotaShareInfo = false
@@ -927,6 +938,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     let hourlyDateButton = NSButton(frame: .zero)
     let hourlyNextDayButton = NSButton(frame: .zero)
     let hourlyTodayButton = NSButton(frame: .zero)
+    let hourlyRefreshButton = NSButton(frame: .zero)
+    let hourlyRefreshIndicator = NSProgressIndicator(frame: .zero)
     let hourlyDatePopover = NSPopover()
     let hourlyDatePopoverController = HourlyDatePopoverController()
     let visibleCodexSourceSwitch = NSSwitch(frame: .zero)
@@ -1370,6 +1383,28 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hourlyDateButton.isHidden = true
         addSubview(hourlyDateButton)
 
+        hourlyRefreshButton.isBordered = false
+        hourlyRefreshButton.font = .monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold)
+        hourlyRefreshButton.imagePosition = .imageLeading
+        hourlyRefreshButton.imageHugsTitle = true
+        hourlyRefreshButton.contentTintColor = NSColor.white.withAlphaComponent(0.82)
+        hourlyRefreshButton.wantsLayer = true
+        hourlyRefreshButton.layer?.cornerRadius = 7
+        hourlyRefreshButton.layer?.borderWidth = 1
+        hourlyRefreshButton.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        hourlyRefreshButton.layer?.backgroundColor = inputSurfaceColor.cgColor
+        hourlyRefreshButton.target = self
+        hourlyRefreshButton.action = #selector(hourlyRefreshPressed)
+        hourlyRefreshButton.isHidden = true
+        addSubview(hourlyRefreshButton)
+
+        hourlyRefreshIndicator.style = .spinning
+        hourlyRefreshIndicator.controlSize = .small
+        hourlyRefreshIndicator.isIndeterminate = true
+        hourlyRefreshIndicator.isDisplayedWhenStopped = false
+        hourlyRefreshIndicator.isHidden = true
+        addSubview(hourlyRefreshIndicator)
+
         hourlyDatePopover.behavior = .transient
         hourlyDatePopover.animates = true
         hourlyDatePopover.appearance = NSAppearance(named: .darkAqua)
@@ -1439,6 +1474,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         )
         hourlyTodayButton.setAccessibilityLabel(
             hourlyLocalized("回到今天", traditionalChinese: "回到今天", japanese: "今日に戻る", english: "Return to today")
+        )
+        hourlyRefreshButton.setAccessibilityLabel(
+            hourlyLocalized("刷新小时数据", traditionalChinese: "重新整理小時數據", japanese: "時間別データを更新", english: "Refresh hourly data")
         )
         visibleCodexSourceSwitch.setAccessibilityLabel("\(t(.visibleUsageSources)): Codex")
         visibleClaudeSourceSwitch.setAccessibilityLabel("\(t(.visibleUsageSources)): Claude")
@@ -1542,10 +1580,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     func layoutHourlyControls() {
         let visible = selectedSection == .hours && snapshot != nil
         hideEmptyCalendarHoursSwitch.isHidden = !visible
-        for button in [hourlyPreviousDayButton, hourlyDateButton, hourlyNextDayButton, hourlyTodayButton] {
+        for button in [hourlyPreviousDayButton, hourlyDateButton, hourlyNextDayButton, hourlyTodayButton, hourlyRefreshButton] {
             button.isHidden = !visible
         }
+        hourlyRefreshIndicator.isHidden = !visible || !isHourlyRefreshLoading
         guard visible else {
+            hourlyRefreshIndicator.stopAnimation(nil)
             hourlyDatePopover.performClose(nil)
             return
         }
@@ -1553,6 +1593,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         let content = sectionContent(for: .hours, in: bounds, sidebarWidth: detailsSidebarWidth)
         let chartRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 350)
         let controlY = chartRect.minY + 13
+        hourlyRefreshButton.frame = NSRect(x: chartRect.maxX - 646, y: controlY, width: 116, height: 28)
+        hourlyRefreshIndicator.frame = NSRect(x: hourlyRefreshButton.frame.minX + 8, y: controlY + 7, width: 14, height: 14)
         hourlyPreviousDayButton.frame = NSRect(x: chartRect.maxX - 522, y: controlY, width: 28, height: 28)
         hourlyDateButton.frame = NSRect(x: chartRect.maxX - 486, y: controlY, width: 102, height: 28)
         hourlyNextDayButton.frame = NSRect(x: chartRect.maxX - 376, y: controlY, width: 28, height: 28)
@@ -1565,6 +1607,75 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         )
         hideEmptyCalendarHoursSwitch.state = hidesEmptyCalendarHours ? .on : .off
         updateHourlyDateControls()
+        updateHourlyRefreshControl()
+    }
+
+    func updateHourlyRefreshControl() {
+        guard hourlyRefreshButton.superview != nil else { return }
+        if isHourlyRefreshLoading {
+            hourlyRefreshButton.image = nil
+            hourlyRefreshButton.title = hourlyLocalized("刷新中…", traditionalChinese: "重新整理中…", japanese: "更新中…", english: "Refreshing…")
+            hourlyRefreshButton.isEnabled = false
+            hourlyRefreshButton.alphaValue = 0.78
+            hourlyRefreshIndicator.isHidden = hourlyRefreshButton.isHidden
+            hourlyRefreshIndicator.startAnimation(nil)
+            hourlyRefreshButton.toolTip = hourlyRefreshButton.title
+            return
+        }
+
+        hourlyRefreshIndicator.stopAnimation(nil)
+        hourlyRefreshIndicator.isHidden = true
+        hourlyRefreshButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+        hourlyRefreshButton.isEnabled = true
+        hourlyRefreshButton.alphaValue = 1
+        let timeText = hourlyLastRefreshedAt.map(hourlyRefreshTimeText) ?? "--:--"
+        hourlyRefreshButton.title = hourlyLocalized(
+            "刷新 · \(timeText)",
+            traditionalChinese: "重新整理 · \(timeText)",
+            japanese: "更新 · \(timeText)",
+            english: "Refresh · \(timeText)"
+        )
+        if let refreshedAt = hourlyLastRefreshedAt {
+            let formatter = DateFormatter()
+            formatter.calendar = appCalendar()
+            switch AppLanguage.current {
+            case .chinese: formatter.locale = Locale(identifier: "zh_Hans_CN")
+            case .traditionalChinese: formatter.locale = Locale(identifier: "zh_Hant_TW")
+            case .japanese: formatter.locale = Locale(identifier: "ja_JP")
+            default: formatter.locale = Locale(identifier: "en_US")
+            }
+            formatter.timeZone = appTimeZone()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .medium
+            hourlyRefreshButton.toolTip = hourlyLocalized(
+                "上次更新：\(formatter.string(from: refreshedAt))",
+                traditionalChinese: "上次更新：\(formatter.string(from: refreshedAt))",
+                japanese: "最終更新：\(formatter.string(from: refreshedAt))",
+                english: "Last updated: \(formatter.string(from: refreshedAt))"
+            )
+        }
+    }
+
+    func hourlyRefreshTimeText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = appCalendar()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = appTimeZone()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    func beginHourlyRefresh() {
+        isHourlyRefreshLoading = true
+    }
+
+    func finishHourlyRefresh(at date: Date) {
+        hourlyLastRefreshedAt = date
+        isHourlyRefreshLoading = false
+    }
+
+    func cancelHourlyRefresh() {
+        isHourlyRefreshLoading = false
     }
 
     func updateHourlyDateControls() {
@@ -2975,6 +3086,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hourlyRangeStart = start
         hourlyRangeEnd = end
         isHourlyDateLoading = true
+        beginHourlyRefresh()
         onHourlyDateRangeChanged?(start, end)
         onPreferredHeightChanged?()
         needsDisplay = true
@@ -2997,6 +3109,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         hourlyRangeStart = start
         hourlyRangeEnd = end
         isHourlyDateLoading = false
+        finishHourlyRefresh(at: reports.all.scannedAt)
         onPreferredHeightChanged?()
         needsDisplay = true
         needsLayout = true
@@ -3146,6 +3259,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     @objc private func hourlyTodayPressed() {
         setHourlySelectedDate(nil)
+    }
+
+    @objc private func hourlyRefreshPressed() {
+        guard !isHourlyRefreshLoading else { return }
+        beginHourlyRefresh()
+        onHourlyRefreshRequested?()
     }
 
     @objc private func showHourlyDatePopover() {

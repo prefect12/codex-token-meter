@@ -535,7 +535,7 @@ extension UsageDetailsView {
         let rangeSummary = aggregateCalendarHours(allHours)
         let chartRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 350)
         drawPanel(chartRect)
-        let dateControlsMinX = chartRect.maxX - 522
+        let dateControlsMinX = chartRect.maxX - 646
         let hideEmptyRect = NSRect(x: chartRect.maxX - 282, y: chartRect.minY + 15, width: 100, height: 24)
         drawText(
             hourlyLocalized("每小时 Token 活动", traditionalChinese: "每小時 Token 活動", japanese: "時間別Tokenアクティビティ", english: "Hourly Token activity"),
