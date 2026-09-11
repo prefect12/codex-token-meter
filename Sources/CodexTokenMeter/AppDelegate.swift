@@ -67,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var activeScans: Set<ReportCacheKey> = []
     private var liveRefreshInFlight = false
     private var detailsSnapshotPrewarmInFlight = false
+    private var visibleHourlyRefreshInFlight = false
     private var statusSpinnerTimer: Timer?
     private var statusSpinnerFrame = 0
     private var statusIsLoading = false
@@ -192,6 +193,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         detailsController.detailsView.onHourlyDateRangeChanged = { [weak self] start, end in
             self?.refreshHourlyDateRange(from: start, to: end)
         }
+        detailsController.detailsView.onHourlyRefreshRequested = { [weak self] in
+            self?.refreshHourlyDetailsNow()
+        }
         applyLanguage()
         QuotaWarningManager.shared.requestAuthorization()
 
@@ -260,12 +264,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    private func refreshHourlyDateRange(from start: Date, to end: Date) {
+    private func refreshHourlyDateRange(from start: Date, to end: Date, force: Bool = false) {
         hourlyRangeRefreshWorkItem?.cancel()
         hourlyRangeLoadGeneration += 1
         let generation = hourlyRangeLoadGeneration
         let key = hourlyRangeCacheKey(from: start, to: end)
-        if let cached = hourlyRangeReportCache[key] {
+        if !force, let cached = hourlyRangeReportCache[key] {
             detailsController.detailsView.applyHourlyRangeReports(cached.reports, from: start, to: end)
             if Date().timeIntervalSince(cached.cachedAt) <= 30 * 60 {
                 return
@@ -809,7 +813,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                     self.dashboardController.dashboardView.update(self.latestState)
                 }
                 self.prewarmAllWindows()
+                self.refreshVisibleHourlyDetails()
                 self.prewarmDetailsSnapshot()
+            }
+        }
+    }
+
+    private func refreshHourlyDetailsNow() {
+        let view = detailsController.detailsView
+        if let range = view.selectedHourlyRequestRange() {
+            hourlyRangeReportCache.removeValue(forKey: hourlyRangeCacheKey(from: range.0, to: range.1))
+            refreshHourlyDateRange(from: range.0, to: range.1, force: true)
+        } else {
+            refreshVisibleHourlyDetails(showLoading: true)
+        }
+    }
+
+    /// Keeps the open current-hour page fresh without rebuilding the heavier
+    /// 365-day details snapshot. Manual refresh and the five-minute dashboard
+    /// cycle deliberately share this path so the visible status is truthful.
+    private func refreshVisibleHourlyDetails(showLoading: Bool = false) {
+        let view = detailsController.detailsView
+        guard detailsController.window?.isVisible == true,
+              view.selectedSection == .hours,
+              view.selectedHourlyDate == nil,
+              view.snapshot != nil else {
+            if showLoading { view.finishHourlyRefresh(at: Date()) }
+            return
+        }
+        if showLoading {
+            view.beginHourlyRefresh()
+        }
+        guard !visibleHourlyRefreshInFlight else { return }
+        visibleHourlyRefreshInFlight = true
+        scanQueue.async { [weak self] in
+            guard let self else { return }
+            let recentCodex = self.scanner.scan(hours: 48, partition: .codex)
+            let recentClaude = self.claudeScanner.scan(hours: 48)
+            let recentAPI = mergedTokenReport([
+                self.scanner.scan(hours: 48, partition: .api),
+                ExternalAPIUsageStore.readReport(hours: 48),
+                OpenCodeTokenScanner.shared.scan(hours: 48)
+            ])
+            let visibleSources = Set(AppSettings.visibleUsageSources)
+            let recentAll = mergedTokenReport([
+                visibleSources.contains(.codex) ? recentCodex : TokenReport(scannedAt: recentCodex.scannedAt),
+                visibleSources.contains(.claude) ? recentClaude : TokenReport(scannedAt: recentClaude.scannedAt),
+                visibleSources.contains(.api) ? recentAPI : TokenReport(scannedAt: recentAPI.scannedAt)
+            ])
+            DispatchQueue.main.async {
+                self.visibleHourlyRefreshInFlight = false
+                let completedAt = recentAll.scannedAt
+                guard self.detailsController.window?.isVisible == true,
+                      view.selectedSection == .hours,
+                      view.selectedHourlyDate == nil,
+                      var snapshot = view.snapshot else {
+                    if view.selectedHourlyDate == nil {
+                        view.cancelHourlyRefresh()
+                    }
+                    return
+                }
+                snapshot.recentAll = recentAll
+                snapshot.recentCodex = recentCodex
+                snapshot.recentClaude = recentClaude
+                snapshot.recentAPI = recentAPI
+                self.detailsController.update(snapshot: snapshot)
+                view.finishHourlyRefresh(at: completedAt)
             }
         }
     }

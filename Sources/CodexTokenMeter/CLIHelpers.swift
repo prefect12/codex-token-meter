@@ -659,6 +659,9 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     if arguments.contains("--hide-empty-hours") {
         view.setHourlyEmptyBucketsHidden(true)
     }
+    if section == .hours, arguments.contains("--hourly-refreshing") {
+        view.beginHourlyRefresh()
+    }
     if let hourOffsets = arguments
         .compactMap({ argument -> [Int]? in
             guard argument.hasPrefix("--select-hours=") else { return nil }
