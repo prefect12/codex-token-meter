@@ -1592,16 +1592,25 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
         let content = sectionContent(for: .hours, in: bounds, sidebarWidth: detailsSidebarWidth)
         let chartRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 350)
-        let controlY = chartRect.minY + 13
-        hourlyRefreshButton.frame = NSRect(x: chartRect.maxX - 646, y: controlY, width: 116, height: 28)
-        hourlyRefreshIndicator.frame = NSRect(x: hourlyRefreshButton.frame.minX + 8, y: controlY + 7, width: 14, height: 14)
-        hourlyPreviousDayButton.frame = NSRect(x: chartRect.maxX - 522, y: controlY, width: 28, height: 28)
-        hourlyDateButton.frame = NSRect(x: chartRect.maxX - 486, y: controlY, width: 102, height: 28)
-        hourlyNextDayButton.frame = NSRect(x: chartRect.maxX - 376, y: controlY, width: 28, height: 28)
-        hourlyTodayButton.frame = NSRect(x: chartRect.maxX - 340, y: controlY, width: 50, height: 28)
+        let usesCompactHeader = chartRect.width < 760
+        let primaryControlY = chartRect.minY + 13
+        let secondaryControlY = chartRect.minY + 51
+        let dateControlY = primaryControlY
+        let refreshControlY = usesCompactHeader ? secondaryControlY : primaryControlY
+        let refreshX = usesCompactHeader ? chartRect.minX + 18 : chartRect.maxX - 646
+        let previousDayX = usesCompactHeader ? chartRect.maxX - 250 : chartRect.maxX - 522
+        let dateX = usesCompactHeader ? chartRect.maxX - 214 : chartRect.maxX - 486
+        let nextDayX = usesCompactHeader ? chartRect.maxX - 104 : chartRect.maxX - 376
+        let todayX = usesCompactHeader ? chartRect.maxX - 68 : chartRect.maxX - 340
+        hourlyRefreshButton.frame = NSRect(x: refreshX, y: refreshControlY, width: 116, height: 28)
+        hourlyRefreshIndicator.frame = NSRect(x: hourlyRefreshButton.frame.minX + 8, y: refreshControlY + 7, width: 14, height: 14)
+        hourlyPreviousDayButton.frame = NSRect(x: previousDayX, y: dateControlY, width: 28, height: 28)
+        hourlyDateButton.frame = NSRect(x: dateX, y: dateControlY, width: 102, height: 28)
+        hourlyNextDayButton.frame = NSRect(x: nextDayX, y: dateControlY, width: 28, height: 28)
+        hourlyTodayButton.frame = NSRect(x: todayX, y: dateControlY, width: 50, height: 28)
         hideEmptyCalendarHoursSwitch.frame = NSRect(
             x: chartRect.maxX - 178,
-            y: chartRect.minY + 15,
+            y: chartRect.minY + (usesCompactHeader ? 53 : 15),
             width: 40,
             height: 24
         )

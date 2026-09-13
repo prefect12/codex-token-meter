@@ -535,8 +535,14 @@ extension UsageDetailsView {
         let rangeSummary = aggregateCalendarHours(allHours)
         let chartRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 350)
         drawPanel(chartRect)
-        let dateControlsMinX = chartRect.maxX - 646
-        let hideEmptyRect = NSRect(x: chartRect.maxX - 282, y: chartRect.minY + 15, width: 100, height: 24)
+        let usesCompactHeader = chartRect.width < 760
+        let dateControlsMinX = usesCompactHeader ? chartRect.maxX - 250 : chartRect.maxX - 646
+        let hideEmptyRect = NSRect(
+            x: chartRect.maxX - 282,
+            y: chartRect.minY + (usesCompactHeader ? 53 : 15),
+            width: 100,
+            height: 24
+        )
         drawText(
             hourlyLocalized("每小时 Token 活动", traditionalChinese: "每小時 Token 活動", japanese: "時間別Tokenアクティビティ", english: "Hourly Token activity"),
             rect: NSRect(x: chartRect.minX + 18, y: chartRect.minY + 16, width: max(110, dateControlsMinX - chartRect.minX - 30), height: 22),
@@ -544,15 +550,26 @@ extension UsageDetailsView {
             color: .white
         )
         drawHideEmptyCalendarHoursButton(rect: hideEmptyRect)
-        drawHourlyRangeSelector(rect: NSRect(x: chartRect.maxX - 134, y: chartRect.minY + 13, width: 116, height: 28))
+        drawHourlyRangeSelector(rect: NSRect(
+            x: chartRect.maxX - 134,
+            y: chartRect.minY + (usesCompactHeader ? 51 : 13),
+            width: 116,
+            height: 28
+        ))
 
         let modelOrder = rangeSummary.modelBreakdown.map(\.name)
         let colorByModel = Dictionary(uniqueKeysWithValues: modelOrder.enumerated().map { index, name in
             (name, hourlyModelColors[index % hourlyModelColors.count])
         })
-        drawHourlyLegend(models: Array(modelOrder.prefix(8)), colors: colorByModel, rect: NSRect(x: chartRect.minX + 18, y: chartRect.minY + 56, width: chartRect.width - 36, height: 22))
+        let legendY = chartRect.minY + (usesCompactHeader ? 92 : 56)
+        drawHourlyLegend(models: Array(modelOrder.prefix(8)), colors: colorByModel, rect: NSRect(x: chartRect.minX + 18, y: legendY, width: chartRect.width - 36, height: 22))
 
-        let plot = NSRect(x: chartRect.minX + 72, y: chartRect.minY + 90, width: chartRect.width - 96, height: 202)
+        let plot = NSRect(
+            x: chartRect.minX + 72,
+            y: chartRect.minY + (usesCompactHeader ? 126 : 90),
+            width: chartRect.width - 96,
+            height: usesCompactHeader ? 166 : 202
+        )
         let maxTotal = max(hours.map { $0.usage.total }.max() ?? 1, 1)
         let baseline = plot.maxY
         for step in 0...4 {
