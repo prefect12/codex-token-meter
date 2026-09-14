@@ -5,18 +5,46 @@ extension UsageDetailsView {
         let sourceRect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 268)
         drawPanel(sourceRect)
         drawText(t(.sourceHealth), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 14, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
-        drawDiagnosticRows(sourceDiagnostics(snapshot: snapshot), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 48, width: sourceRect.width - 32, height: sourceRect.height - 64))
+        drawDiagnosticRows(usesDemoData ? demoSourceDiagnostics(snapshot: snapshot) : sourceDiagnostics(snapshot: snapshot), rect: NSRect(x: sourceRect.minX + 16, y: sourceRect.minY + 48, width: sourceRect.width - 32, height: sourceRect.height - 64))
 
         let apiRect = NSRect(x: content.minX, y: sourceRect.maxY + 16, width: content.width, height: 124)
         drawPanel(apiRect)
         drawText(t(.externalAPICost), rect: NSRect(x: apiRect.minX + 16, y: apiRect.minY + 14, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
         drawText(t(.externalAPICostHint), rect: NSRect(x: apiRect.minX + 16, y: apiRect.minY + 40, width: apiRect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.52))
-        drawDiagnosticRows(apiDiagnostics(), rect: NSRect(x: apiRect.minX + 16, y: apiRect.minY + 66, width: apiRect.width - 32, height: 44))
+        drawDiagnosticRows(usesDemoData ? demoAPIDiagnostics() : apiDiagnostics(), rect: NSRect(x: apiRect.minX + 16, y: apiRect.minY + 66, width: apiRect.width - 32, height: 44))
 
         let toolsRect = NSRect(x: content.minX, y: apiRect.maxY + 16, width: content.width, height: 168)
         drawPanel(toolsRect)
         drawText(t(.otherTools), rect: NSRect(x: toolsRect.minX + 16, y: toolsRect.minY + 14, width: 220, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
-        drawDiagnosticRows(otherToolDiagnostics(), rect: NSRect(x: toolsRect.minX + 16, y: toolsRect.minY + 48, width: toolsRect.width - 32, height: toolsRect.height - 64))
+        drawDiagnosticRows(usesDemoData ? demoToolDiagnostics() : otherToolDiagnostics(), rect: NSRect(x: toolsRect.minX + 16, y: toolsRect.minY + 48, width: toolsRect.width - 32, height: toolsRect.height - 64))
+    }
+
+    private func demoSourceDiagnostics(snapshot: DetailsSnapshot) -> [(String, String, NSColor)] {
+        let report = sourceReport(for: snapshot, source: .all)
+        return [
+            (t(.sourceHealth), "Codex + Claude + API", accentTeal),
+            (t(.cacheHit), String(format: "%.0f%%", report.usage.cachePercent), accentTeal),
+            (t(.models), "7", accentTeal),
+            (t(.sessions), "84", accentTeal),
+            (t(.turns), "326", accentTeal),
+        ]
+    }
+
+    private func demoAPIDiagnostics() -> [(String, String, NSColor)] {
+        [
+            ("api-usage.json", "US$12.40 · 18.6M tokens", accentTeal),
+            ("Path", "~/demo/api-usage.json", NSColor.white.withAlphaComponent(0.62)),
+        ]
+    }
+
+    private func demoToolDiagnostics() -> [(String, String, NSColor)] {
+        [
+            ("Codex", t(.tracked), accentTeal),
+            ("Claude Code", t(.tracked), accentTeal),
+            ("Cursor", t(.detectedNotTracked), accentAmber),
+            ("OpenCode", t(.detectedNotTracked), accentAmber),
+            ("Gemini CLI", t(.fileMissing), NSColor.white.withAlphaComponent(0.36)),
+        ]
     }
 
     private func drawDiagnosticRows(_ rows: [(String, String, NSColor)], rect: NSRect) {

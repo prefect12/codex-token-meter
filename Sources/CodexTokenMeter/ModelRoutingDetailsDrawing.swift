@@ -390,6 +390,12 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         self.claudeStore = claudeStore
         self.protectionPreferences = protectionPreferences
         self.claudeProtectionPreferences = claudeProtectionPreferences
+        if CommandLine.arguments.contains("--demo-data") {
+            selectedPlatform = .codex
+            snapshot = DemoSnapshotFactory.modelRoutingSnapshot()
+            super.init()
+            return
+        }
         if protectionPreferences.isEnabled {
             if let protected = protectionPreferences.protectedState() {
                 _ = try? codexStore.restoreProtectedRoutingState(protected)
@@ -513,6 +519,20 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             return project
         }
         return projects.first
+    }
+
+    func configureDemoSnapshot(_ demoSnapshot: CodexModelRoutingSnapshot) {
+        configWatcher = nil
+        selectedPlatform = .codex
+        snapshot = demoSnapshot
+        draftSelections = [.global: demoSnapshot.global]
+        selectedProjectID = demoSnapshot.projects.first?.project.id
+        query = ""
+        projectFilter = .all
+        statusMessage = nil
+        statusIsError = false
+        rebuildPopups()
+        invalidateLayout()
     }
 
     func effectivePlanModeReasoningEffort(for project: CodexProjectRoutingSnapshot) -> String {
