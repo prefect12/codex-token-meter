@@ -103,11 +103,22 @@ struct APIUsageTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let store = CodexModelRoutingStore(codexHomeURL: root)
         try require(store.loadModels().first?.slug == "gpt-6-astra", "Offline model list should offer Astra")
+
+        let staleFixture = """
+        {"models":[{"slug":"gpt-5.6-sol","display_name":"GPT-5.6-Sol","visibility":"list","priority":4,"supported_reasoning_levels":[{"effort":"medium","description":"Medium"}]}]}
+        """
+        try Data(staleFixture.utf8).write(to: root.appendingPathComponent("models_cache.json"))
+        let staleModels = store.loadModels()
+        try require(staleModels.map(\.slug) == ["gpt-6-astra", "gpt-5.6-sol"], "A stale non-empty Codex catalog should still offer Astra once")
+        try require(staleModels[1].supportedReasoningEfforts == ["medium"], "Cached metadata should remain authoritative for cached models")
+
         let fixture = """
         {"models":[{"slug":"gpt-6-astra","display_name":"GPT-6-Astra","visibility":"list","supported_reasoning_levels":[{"effort":"high","description":"High"},{"effort":"ultra","description":"Ultra"}]}]}
         """
         try Data(fixture.utf8).write(to: root.appendingPathComponent("models_cache.json"))
-        try require(store.loadModels().first?.supportedReasoningEfforts == ["high", "ultra"], "Live Codex catalog must remain authoritative")
+        let liveModels = store.loadModels()
+        try require(liveModels.count == 1, "A live Astra entry must not be duplicated")
+        try require(liveModels.first?.supportedReasoningEfforts == ["high", "ultra"], "Live Codex catalog must remain authoritative")
     }
 
     private static func testImportCanonicalizationAndWindowFiltering() throws {

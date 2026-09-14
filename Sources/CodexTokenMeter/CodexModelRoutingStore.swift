@@ -324,17 +324,18 @@ final class CodexModelRoutingStore {
                     )
                 }
             if !visible.isEmpty {
-                return visible
+                // Codex's local catalog can lag behind newly enabled models. Keep
+                // its metadata authoritative for every model it contains, while
+                // ensuring the current flagship remains selectable when an older
+                // non-empty cache omits it entirely.
+                if visible.contains(where: { $0.slug == "gpt-6-astra" }) {
+                    return visible
+                }
+                return [Self.astraFallbackModel] + visible
             }
         }
         return [
-            CodexModelOption(
-                slug: "gpt-6-astra",
-                displayName: "GPT-6-Astra",
-                description: "Most capable model for complex reasoning and coding.",
-                defaultReasoningEffort: "medium",
-                supportedReasoningEfforts: Self.fallbackReasoningEfforts
-            ),
+            Self.astraFallbackModel,
             CodexModelOption(
                 slug: "gpt-5.6-sol",
                 displayName: "GPT-5.6-Sol",
@@ -511,6 +512,14 @@ final class CodexModelRoutingStore {
     }
 
     private static let fallbackReasoningEfforts = ["low", "medium", "high", "xhigh", "max", "ultra"]
+
+    private static let astraFallbackModel = CodexModelOption(
+        slug: "gpt-6-astra",
+        displayName: "GPT-6-Astra",
+        description: "Most capable model for complex reasoning and coding.",
+        defaultReasoningEffort: "medium",
+        supportedReasoningEfforts: fallbackReasoningEfforts
+    )
 
     /// Writes only the project-configuration keys at an already resolved project
     /// config URL. The protection controller uses this for a task-scoped
