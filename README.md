@@ -1,169 +1,266 @@
-# AI Token Meter + Task Bar：macOS 上的 Codex 与 Claude Code 用量监控工具
+# AI Token Meter + Task Bar
 
-两个免费、开源、原生的 macOS 状态栏工具，面向 OpenAI Codex / Codex CLI 和 Anthropic Claude Code 工作流。AI Token Meter 是 Codex 与 Claude Code 的 token 用量、5 小时/每周额度、重置时间、缓存命中率和成本追踪器；Task Bar 用来集中查看正在运行、等待回复和已完成未读的 AI 编程任务。
+两个免费、开源、原生的 macOS 菜单栏工具，用来观察 Codex、Claude Code、OpenCode / OpenChamber 的本地用量与任务状态。
 
-[中文详细说明](README.zh-CN.md) · [普通用户安装教程](docs/INSTALL.zh-CN.md) · [English](README.en.md) · [下载最新版](https://github.com/prefect12/codex-token-meter/releases/latest)
+- **AI Token Meter**：汇总 token、缓存、模型、额度周期、API 等价成本和本地磁盘占用。
+- **Task Bar**：集中显示正在运行、等待输入、已完成未读的 AI 编程任务，并快速回到原任务。
 
-- **AI Token Meter**：查看 Codex / Claude Code 的本地 token 用量、缓存命中率、实时剩余额度、模型统计和订阅价值估算。
-- **Task Bar**：把正在运行、等待输入、已完成但未读的 Codex / Claude Code 任务，以及 Claude Desktop Home 最近对话集中到一个轻量状态栏列表里，方便快速回到任务。
+应用只读取本机日志、数据库和已有登录状态，不上传会话内容，也不需要把 API Key 交给应用。
 
-两者都只读取本机数据，不上传会话日志。
+[普通用户安装教程](docs/INSTALL.zh-CN.md) · [中文详细说明](README.zh-CN.md) · [English](README.en.md) · [下载最新版](https://github.com/prefect12/codex-token-meter/releases/latest)
 
-适合正在搜索 **Codex token usage tracker**、**Claude Code usage monitor**、**Codex quota meter**、**Claude Code token counter**、AI coding agent task monitor 或 macOS menu bar token tracker 的用户。
+## 应用一览
 
-## 下载
+| App | 当前源码版本 | 主要用途 | 安装位置 |
+| --- | --- | --- | --- |
+| AI Token Meter | `0.2.25 (39)` | 用量、额度、模型、成本、空间与配置 | `/Applications/AI Token Meter.app` |
+| Task Bar | `0.1.22 (23)` | 多来源任务收件箱与快速跳转 | `/Applications/Task Bar.app` |
 
-最新版 GitHub Release 会同时提供两个 DMG：
+> `main` 可能领先于最近一次 GitHub Release。版本号来自当前源码的 bundle 元数据；下载页显示的是最近一次正式发布包。
 
-| App | 安装包 | 安装位置 |
+## 下载与安装
+
+GitHub Release 分别提供两个 DMG，按需要独立安装：
+
+| App | DMG | 安装结果 |
 | --- | --- | --- |
 | AI Token Meter | `AI-Token-Meter-*.dmg` | `/Applications/AI Token Meter.app` |
 | Task Bar | `Task-Bar-*.dmg` | `/Applications/Task Bar.app` |
 
-如果只安装 AI Token Meter，就只会得到 token / 额度面板；Task Bar 是独立状态栏 app，需要下载并安装 `Task-Bar-*.dmg`。
+打开 DMG 后把应用拖进 `Applications`。两个应用都常驻屏幕顶部菜单栏，不显示在 Dock。首次启动、安全提示、权限和版本检查见 [完整安装教程](docs/INSTALL.zh-CN.md)。
 
-普通用户请查看 **[DMG 拖拽安装、首次启动、macOS 安全拦截、权限与安装验证完整教程](docs/INSTALL.zh-CN.md)**。两个应用安装后都显示在屏幕顶部菜单栏，不会出现在 Dock 中。
+## AI Token Meter
 
-## 截图与交互
-
-详情页截图使用内置的 `--redact` 渲染模式生成，仓库名和目录均替换为演示数据。
-
-### Task Bar 总览
+### 菜单栏总览
 
 <p align="center">
-  <img src="docs/images/task-bar-release.webp" alt="Task Bar popover" width="420">
+  <img src="docs/images/ai-token-meter-release.webp" alt="AI Token Meter 菜单栏总览" width="430">
 </p>
 
-Task Bar 把 Codex、Claude Code 和 Claude Desktop Home 最近对话合在一个小面板里，支持 `All / Running / Waiting / Done` 筛选。行内会显示任务状态、来源、标题、最近摘要和未读/等待状态，适合在多个 Codex 线程和 Claude 会话之间快速切换。Home 对话只使用本地缓存的更新时间显示为最近/未读，不会推断运行状态。
+菜单栏面板把最常用的信息放在一屏：
 
-### Task Bar Hover
+- 在 `全部 / Codex / Claude / API` 之间切换来源。
+- 在 `24h / 7d / 30d` 之间切换时间窗口。
+- 查看 Codex 与 Claude 的剩余额度、重置时间和服务状态。
+- 查看输入、输出、缓存、会话/轮次、用量记录数和 API 等价成本。
+- 手动刷新，或进入完整详情窗口。
+
+额度环显示的是**剩余额度**，不是已用比例。30 天总量在 Profile API 可用时优先采用账户聚合值；模型、日历和成本拆分仍来自本地可解释记录。
+
+### 概览：长期用量和额度周期
 
 <p align="center">
-  <img src="docs/images/task-bar-hover-release.webp" alt="Task Bar row hover token detail" width="560">
+  <img src="docs/images/zh-details-overview.webp" alt="AI Token Meter 用量详情概览" width="900">
 </p>
 
-任务行 hover 会显示该任务的可解释 token 摘要：状态、输入、输出、缓存率、对话轮次、压缩次数和模型。只有日志里能拆出来的字段才会展示；如果来源只提供总量，不会伪造输入/输出拆分。
+概览页回答“我整体用了多少、主要花在哪里”：
 
-### AI Token Meter 总览
+- Codex / Claude 周额度进度、重置时间和节奏标记。
+- Codex 可用重置机会及倒计时。
+- 全部、Codex、Claude、API 的总 token 与输入/输出拆分。
+- 模型排行、缓存命中率和 API 等价成本。
+- 过去一年的活动热力图，可按日期、周、月份或拖拽范围选择。
+
+### 小时：最近 24/48 小时
 
 <p align="center">
-  <img src="docs/images/ai-token-meter-release.webp" alt="AI Token Meter menu dashboard" width="420">
+  <img src="docs/images/zh-details-hours.webp" alt="AI Token Meter 小时用量页" width="900">
 </p>
 
-AI Token Meter 的状态栏面板支持 `全部 / Codex / Claude / API` 和 `24h / 7d / 30d` 切换。顶部显示当前窗口总 token，环形图显示订阅剩余额度，表格对比 Codex、Claude 与 API 的输入输出和状态，底部汇总会话/轮次/事件数与 API 成本。
+小时页按模型堆叠每小时 token，适合定位突然增长或某段高强度工作：
 
-`API` 来源表示所有非订阅、按量计费的使用。Token Meter 优先读取 rollout 的 `model_provider`，并识别 OpenRouter 风格的 `厂商/模型` ID，因此 DeepSeek、OpenRouter 和其他自定义 provider 都会从 Codex 订阅统计中移出，避免重复。模型价格每天从 OpenRouter 公共 Models API 更新并只缓存模型 ID 与价格。可选的 `~/Library/Application Support/Codex Token Meter/api-usage.json`（可在 `externalAPICostPath` 偏好中改路径）用于补充 Codex 之外的直接 API 调用；要获得准确的时间窗口和模型成本，建议在 `by_day` 中同时提供每日 `usage` 与 `models`。Token Meter 不读取或保存 API Key，也不会上传请求内容。
+- `24h / 48h` 快速切换，也可选历史日期。
+- 隐藏无活动小时，减少稀疏图表的空白。
+- 点击单柱、按住 Command 多选，或拖拽框选一段时间。
+- 下方同步汇总所选范围的输入、输出、缓存、模型与成本。
+- 页面保持自动刷新，并提供手动刷新、spinner 和上次成功刷新时间。
 
-### AI Token Meter Hover
+### 日历：从一天到一段时间
 
 <p align="center">
-  <img src="docs/images/ai-token-meter-hover-release.webp" alt="AI Token Meter calendar hover detail" width="420">
+  <img src="docs/images/zh-details-calendar.webp" alt="AI Token Meter 活动日历页" width="900">
 </p>
 
-日历柱状图 hover 会显示单日拆分：Codex、Claude、输入、输出、缓存、新输入、占月额度、当日订阅价值估算和 API 等价成本。Profile API 可用时，30 天窗口会优先展示 Profile API 聚合总量；本地日志仍用于补充日历、模型和成本拆分。
+日历页展示过去一年的每日使用强度。可以点选单日、整周、整月、跨月范围，或按住 Command 组合选择。详情区会显示：
 
-### 详情窗口 · 概览
+- 输入、输出、缓存与新输入。
+- Codex、Claude、API 来源占比。
+- 活跃天数、会话/轮次和峰值日期。
+- 对应金额与逐模型 API 等价成本。
+
+“对应金额”是本地订阅价值估算，“API 等价成本”是把已识别 token 按公开 API 价格换算；两者都不是账单。
+
+### 模型：模型结构与价格覆盖
 
 <p align="center">
-  <img src="docs/images/zh-details-overview.webp" alt="AI Token Meter 详情概览页" width="760">
+  <img src="docs/images/zh-details-models.webp" alt="AI Token Meter 模型统计页" width="900">
 </p>
 
-过去 365 天按来源（全部 / Codex / Claude / API）和模型统计的总量、输入/输出拆分、缓存命中率、API 成本，以及全年活动热力图。
+模型页按 `7 天 / 30 天 / 90 天 / 全部 / 自定义` 汇总：
 
-### 详情窗口 · 活动日历
+- token 占比、总量、输入、输出和缓存率。
+- 会话数、用量记录数和逐模型 API 等价成本。
+- 来源筛选、模型搜索和多列排序。
+- 模型识别覆盖率与价格覆盖率。
+
+未知模型保持未定价，并降低覆盖率；应用不会擅自套用另一个模型的价格。
+
+### 思考分析：模型 × 思考强度
 
 <p align="center">
-  <img src="docs/images/zh-details-calendar.webp" alt="AI Token Meter 活动日历页" width="760">
+  <img src="docs/images/zh-details-reasoning.webp" alt="AI Token Meter 思考分析页" width="900">
 </p>
 
-点击某一天查看单日明细：输入/输出/缓存拆分、Codex 与 Claude 占比圆环、当日订阅价值和逐模型 API 等价成本；点击格子上方的圆点可看整周汇总。
+思考分析页把真实会话按“模型 × reasoning effort”组合展开，可比较：
 
-### 详情窗口 · 模型
+- 会话数、总 token、平均 token/会话。
+- 总成本和单会话成本。
+- 时间范围、来源、项目、模型和思考强度筛选。
+- 组合明细、时间趋势与项目分布。
+
+它只使用日志里实际存在的模型和 effort 标签，不会从 token 大小反推“快速模式”或未记录的服务档位。
+
+### 项目配置：Codex 与 Claude 默认策略
 
 <p align="center">
-  <img src="docs/images/zh-details-models.webp" alt="AI Token Meter 模型页" width="760">
+  <img src="docs/images/zh-details-model-routing.webp" alt="AI Token Meter 项目配置页" width="900">
 </p>
 
-按模型聚合的长期 token 用量、占比条、会话/事件数和逐模型 API 等价成本。
+项目配置页统一管理全局默认和项目级覆盖：
 
-### 详情窗口 · 空间
+- Codex 默认模型、思考强度、有效上下文窗口、自动压缩阈值和 Plan 思考强度。
+- Claude Code 默认模型与 effort，以及项目级本地覆盖。
+- 每个项目可选择跟随全局默认或单独覆盖。
+- 可选“保护默认配置”，只恢复 Token Meter 管理的字段，不改写其他配置。
+
+Codex 项目配置写入项目根目录的 `.codex/config.toml`；Claude 项目覆盖写入 `.claude/settings.local.json`。已有文件只做定向字段更新，不整体替换。
+
+### 空间：日志占用与清理风险
 
 <p align="center">
-  <img src="docs/images/zh-details-storage.webp" alt="AI Token Meter 空间页" width="760">
+  <img src="docs/images/zh-details-storage.webp" alt="AI Token Meter 空间详情页" width="900">
 </p>
 
-按来源、项目和类型追踪本地日志磁盘占用：来源分布、最大项目排行、近 14 天增长曲线和清理风险构成，每一类都标注「可安全清理 / 需确认 / 不建议清理」，并支持导出报告和在访达中打开。
+空间页是只读的磁盘分析器：
 
-### 详情窗口 · 设置
+- 按 Codex / Claude、项目和文件类型统计占用。
+- 展示最大项目、文件数和最近 14 天增长。
+- 将内容分为“可安全清理 / 需确认 / 不建议清理”。
+- 支持筛选、搜索、在访达中打开和导出报告。
+
+页面不会自动删除任何文件；风险标签是操作建议，不是清理命令。
+
+### 设置：显示、数据、成本、额度与系统
 
 <p align="center">
-  <img src="docs/images/zh-details-settings.webp" alt="AI Token Meter 设置页" width="760">
+  <img src="docs/images/zh-details-settings.webp" alt="AI Token Meter 设置页" width="900">
 </p>
 
-界面语言、数字单位、日志目录、状态栏显示与来源、额度样式（圆环/子弹图）、首页圆环口径（5 小时/周额度）、开机启动、额度提醒和 Profile API 总量等都可配置。
+设置页分为五组：
 
-## 当前版本
+- **外观显示**：界面语言、金额币种、数字单位、显示来源和菜单栏数字。
+- **数据来源**：Codex / Claude 日志目录、Codex API 身份来源、Profile API 总量与外部 `api-usage.json`。
+- **成本与额度**：订阅计划、OpenRouter 余额/价格目录与自定义模型价格。
+- **额度提醒**：圆环/子弹图样式、首页额度口径和提醒阈值。
+- **系统**：开机启动等应用行为。
 
-| App | Version | Build | Bundle |
-| --- | --- | --- | --- |
-| AI Token Meter | `0.2.19` | `33` | `/Applications/AI Token Meter.app` |
-| Task Bar | `0.1.20` | `21` | `/Applications/Task Bar.app` |
+支持 English、简体中文、繁体中文、日本語、Français、Deutsch、Español 和 한국어。
 
-## 数据来源
+### 诊断：知道数据为什么缺失
 
-AI Token Meter 读取：
+<p align="center">
+  <img src="docs/images/zh-details-diagnostics.webp" alt="AI Token Meter 诊断页" width="900">
+</p>
+
+诊断页把“没有数据”和“功能坏了”分开：
+
+- 当前来源、缓存命中、模型、会话与轮次。
+- 外部 API 成本文件是否存在及其路径。
+- Codex、Claude Code、Cursor、OpenCode、Gemini CLI 等工具覆盖状态。
+- OpenRouter 模型目录、登录状态或网络相关读数的可用性。
+
+`--print-live`、Profile API、服务状态和截图渲染依赖本机登录或网络；这些外部读数不可用，不等同于本地解析器编译失败。
+
+## Task Bar
+
+### 多来源任务收件箱
+
+<p align="center">
+  <img src="docs/images/task-bar-release.webp" alt="Task Bar 任务总览" width="420">
+</p>
+
+Task Bar 把 Codex、Claude Code、Claude Desktop Home 与 OpenCode / OpenChamber 的最近任务放进同一个菜单栏面板：
+
+- 使用 `All / Running / Waiting / Done` 筛选。
+- 显示来源、标题、最近摘要、运行时间和未读状态。
+- 点击任务回到对应客户端或工作区。
+- 支持置顶、折叠子代理，以及从本地列表隐藏任务。
+- 被隐藏的项目不会删除原会话或日志；后续有新活动时可以重新出现。
+
+Claude Desktop Home 的本地缓存不提供生成中状态，因此这里只显示最近/未读，不会伪造 Running。
+
+### Hover：可解释的 token 与成本
+
+<p align="center">
+  <img src="docs/images/task-bar-hover-release.webp" alt="Task Bar token hover card" width="320">
+</p>
+
+任务行 hover 可以显示状态、输入、输出、缓存率、API 等价成本、对话轮次、模型和项目。字段以来源日志实际提供的粒度为准；缺少输入/输出拆分或价格时直接省略，不猜测。
+
+### 计划与子代理进度
+
+<p align="center">
+  <img src="docs/images/task-bar-plan-release.webp" alt="Task Bar 计划步骤预览" width="760">
+</p>
+
+对于包含计划或子代理的 Codex 任务，Task Bar 可以预览步骤完成情况、当前步骤和子任务层级，不必逐个切回窗口判断进度。
+
+## 数据来源与口径
+
+### AI Token Meter 读取
 
 ```text
 ~/.codex/sessions/**/rollout-*.jsonl
-~/.codex/archived_sessions/rollout-*.jsonl
+~/.codex/archived_sessions/**/rollout-*.jsonl
 $CODEX_HOME/sessions/**/rollout-*.jsonl
-$CODEX_HOME/archived_sessions/rollout-*.jsonl
-设置中添加的额外 Codex rollout 目录
+$CODEX_HOME/archived_sessions/**/rollout-*.jsonl
+设置中添加的额外 Codex 日志目录
 ~/.claude/projects/**/*.jsonl
+~/.local/share/opencode/opencode.db
 ~/Library/Application Support/Codex Token Meter/
 ```
 
-Task Bar 读取：
+- Codex `token_count` 是 rollout 内累计计数，应用按前后非负增量计算。
+- Claude Code assistant usage 是每条消息计数，不按 Codex 的累计方式做 delta。
+- OpenCode / OpenChamber assistant 消息按每条消息直接汇总，并归入 API 来源。
+- Codex 与 Claude 订阅用量、订阅价值估算和 API 等价成本是三个不同口径。
+
+实时 Codex 额度通过本机已有 ChatGPT 登录只读请求正常用量接口，不启动 `codex app-server`。成功结果会缓存；失败后按 1、5、15 分钟退避。Claude 额度优先使用已有的只读 OAuth/statusline 数据。服务状态来自 OpenAI 官方状态 JSON。
+
+模型价格优先使用内置规则与 OpenRouter 公共 Models API。应用只缓存模型 ID 和价格，不向 OpenRouter 发送提示词、回复内容或 API Key。
+
+### Task Bar 读取
 
 ```text
-~/.codex/logs_2.sqlite
-~/.codex/state_5.sqlite
-~/.codex/sessions/**/rollout-*.jsonl
-~/.codex-api/logs_2.sqlite
-~/.codex-api/state_5.sqlite
-~/.codex-api/sessions/**/rollout-*.jsonl
-设置中添加的额外 Codex 文件夹下的 logs_2.sqlite / state_5.sqlite / sessions / archived_sessions
-~/.claude/projects/**/*.jsonl
-~/Library/Application Support/Claude/IndexedDB/https_claude.ai_0.indexeddb.blob
+Codex: logs_2.sqlite / state_5.sqlite / sessions / archived_sessions
+Claude Code: ~/.claude/projects/**/*.jsonl
+Claude Desktop Home: 本地 IndexedDB conversation list cache
+OpenCode / OpenChamber: ~/.local/share/opencode/opencode.db
 ```
 
-实时额度通过现有本机 ChatGPT 登录直接只读请求正常的 Codex 用量接口，不会启动 `codex app-server`；成功时仍按 15 秒刷新并缓存，失败后按 1、5、15 分钟退避。Codex 服务状态 chip 会只读请求 `https://status.openai.com/api/v2/summary.json`。
+所有目录都可以在 Task Bar 设置中选择。状态判断以本地可观察证据为准；“长时间无活动”不是服务端明确报告的停止状态。
 
-## 功能概览
+## 隐私
 
-### AI Token Meter
+- 不上传 Codex、Claude 或 OpenCode 会话内容。
+- 不读取或保存第三方 API Key。
+- 不在后台启动 Codex 进程获取额度。
+- 本地缓存只保存聚合结果、额度快照、价格目录和设置。
+- README 截图通过 `--demo-data` 生成；Token、额度、成本、日期、会话、项目与路径均来自内置演示数据，不读取截图作者的真实统计。
 
-- **额度视图**：支持 `All / Codex / Claude / API` 来源筛选，以及 `24h / 7d / 30d` 时间窗口。
-- **剩余额度**：读取 Codex live rate limits 和 Claude statusline，可显示 5 小时、周/月剩余额度与重置时间。
-- **token 明细**：汇总 input、output、cached input、fresh input、total、cache hit rate、会话数和轮次。
-- **详情窗口**：概览、日历、思考分析、模型、成本、空间和诊断均支持 API 来源。
-- **API 成本**：使用 OpenRouter 公共模型目录和内置官方价格回退估算按量费用；未知模型保持未定价并降低价格覆盖率，不会默认套用其他模型价格。
-- **空间管理**：追踪 Codex / Claude 本地日志磁盘占用、近 14 天增长和清理风险构成，可导出报告。
-- **截图渲染**：`--render-dashboard` / `--render-details` 命令行渲染任意页面，`--redact` 把仓库名和目录替换为演示数据。
-- **启动体验**：状态栏和详情窗口会先显示上次完整聚合结果，再后台刷新本机日志。
-- **多语言**：支持 English、简体中文、繁体中文、日本語、Français、Deutsch、Español、한국어。
+为了兼容旧版本，AI Token Meter 继续使用 `~/Library/Application Support/Codex Token Meter/` 保存设置和派生缓存。
 
-### Task Bar
-
-- **任务收件箱**：在状态栏显示需要关注的任务数量，减少在多个窗口里找线程。
-- **状态分组**：按 `All / Running / Waiting / Done` 过滤，区分运行中、等待输入、已完成未读和长时间运行。
-- **多来源合并**：读取 Codex 本地状态、Codex rollout logs、Claude Code JSONL，并尽量合并同一任务的状态。
-- **行内摘要**：展示来源、标题、最近输出摘要、运行时间和未读状态。
-- **hover 详情**：能显示 token、缓存率、轮次、压缩次数和模型，字段以本机日志实际可解释的数据为准。
-- **快速清理**：任意状态的任务悬停时可点按垃圾桶移除，也支持滑动移除；仅从 Task Bar 本地列表隐藏，不会删除原对话或日志。后续有新活动时会重新显示。
-- **视觉一致性**：使用和 AI Token Meter 接近的深色 AppKit 样式、紧凑行距、状态色和 hover card。
-
-## 构建
+## 从源码构建
 
 要求：
 
@@ -183,46 +280,29 @@ Task Bar 读取：
 ./build_petbar.sh
 ```
 
-## 从源码安装（开发者）
+## 从源码安装
 
-普通用户不需要运行下面的命令，请直接使用 [DMG 安装教程](docs/INSTALL.zh-CN.md)。
-
-从源码构建、安装并启动 AI Token Meter：
+普通用户无需执行下面的命令，请使用 GitHub Release 的 DMG。
 
 ```bash
 ./install.sh
-```
-
-从源码构建、安装并启动 Task Bar：
-
-```bash
 ./install_petbar.sh
 ```
 
-## 打包 DMG
+两个安装脚本会分别构建、替换 `/Applications` 中的应用并启动。开发时仍应先完成对应构建和渲染检查。
 
-打包 AI Token Meter：
+## 打包 DMG
 
 ```bash
 ./package_dmg.sh
-```
-
-输出：
-
-```text
-dist/AI-Token-Meter-0.2.19.dmg
-```
-
-打包 Task Bar：
-
-```bash
 ./package_petbar_dmg.sh
 ```
 
-输出：
+当前源码元数据对应的输出文件名：
 
 ```text
-dist/Task-Bar-0.1.20.dmg
+dist/AI-Token-Meter-0.2.25.dmg
+dist/Task-Bar-0.1.22.dmg
 ```
 
 ## 命令行检查
@@ -232,6 +312,7 @@ AI Token Meter：
 ```bash
 "./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --print --window=week --quota=all
 "./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-live
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-profile
 "./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --print-service-status
 ```
 
@@ -239,17 +320,39 @@ Task Bar：
 
 ```bash
 "./build/Task Bar.app/Contents/MacOS/TaskBar" --print
+"./build/Task Bar.app/Contents/MacOS/TaskBar" --self-test-plan-parser
+"./build/Task Bar.app/Contents/MacOS/TaskBar" --self-test-task-routing
+"./build/Task Bar.app/Contents/MacOS/TaskBar" --self-test-hover-cost
 ```
 
-渲染 README 截图（`--redact` 会把仓库名和本机目录替换为演示数据，`-appLanguage` / `-numberUnitStyle` 可临时指定语言，不会改动应用设置）。渲染输出 PNG，入库前用 `cwebp` 压缩成 WebP：
+## 重新生成 README 截图
+
+截图输出为 PNG。公开文档请使用 `--demo-data`：它会用内置演示数据替代账号统计、项目、路径和诊断结果。`--redact` 只适合临时隐藏仓库名与目录，不能代替完整脱敏。以下示例使用简体中文和中文数字单位，不会永久修改应用设置：
 
 ```bash
-"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" -appLanguage zh -numberUnitStyle chinese --render-dashboard=/tmp/ai-token-meter-release.png
-"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/zh-details-overview.png --section=overview --redact
-"./build/Task Bar.app/Contents/MacOS/TaskBar" --render-taskbar=/tmp/task-bar-release.png
-cwebp -q 90 /tmp/zh-details-overview.png -o docs/images/zh-details-overview.webp
+ATM="./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter"
+TASK_BAR="./build/Task Bar.app/Contents/MacOS/TaskBar"
+
+"$ATM" -appLanguage zh -numberUnitStyle chinese --render-dashboard=/tmp/ai-token-meter.png --demo-data
+"$ATM" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/overview.png --section=overview --demo-data
+"$ATM" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/hours.png --section=hours --demo-data
+"$ATM" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/calendar.png --section=calendar --demo-data
+"$ATM" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/models.png --section=models --demo-data
+"$ATM" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/reasoning.png --section=reasoning --demo-data
+"$ATM" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/project-config.png --section=model-routing --demo-data
+"$ATM" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/storage.png --section=storage --demo-data
+"$ATM" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/settings.png --section=settings --demo-data
+"$ATM" -appLanguage zh -numberUnitStyle chinese --render-details=/tmp/diagnostics.png --section=diagnostics --demo-data
+
+"$TASK_BAR" --render-taskbar=/tmp/task-bar.png --count=5
+"$TASK_BAR" --render-taskbar-tooltip=/tmp/task-bar-tooltip.png
+"$TASK_BAR" --render-taskbar-plan-hover=/tmp/task-bar-plan.png --count=4
+
+cwebp -q 88 /tmp/overview.png -o docs/images/zh-details-overview.webp
 ```
 
-## 隐私
+渲染结果仍需逐张视觉检查；成功生成文件并不自动证明文字未裁切、布局没有重叠或真实点击交互已通过。
 
-这个仓库不包含你的 Codex 日志、Claude Code 日志、token 数据、构建产物或 DMG。应用运行时只在本机读取日志和缓存；不会上传会话内容。为了兼容旧版本，AI Token Meter 继续使用 `~/Library/Application Support/Codex Token Meter/` 保存本地设置和派生缓存。
+## License
+
+见 [LICENSE](LICENSE)。

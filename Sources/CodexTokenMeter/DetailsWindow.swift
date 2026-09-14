@@ -402,6 +402,9 @@ final class ContributionWeekHoverOverlayView: NSView {
 }
 
 final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate {
+    /// Set only by the CLI screenshot renderer to keep public documentation
+    /// independent from local account, filesystem, and preference state.
+    var usesDemoData = false
     struct CostRingCache {
         let key: String
         let image: NSImage

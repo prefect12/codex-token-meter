@@ -253,6 +253,21 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
     let window = requestedWindow(from: arguments) ?? .week
     let requestedQuota = requestedQuota(from: arguments) ?? QuotaViewOption.visibleDefault
     let quota = QuotaViewOption.visibleSelectorOptions.contains(requestedQuota) ? requestedQuota : QuotaViewOption.visibleDefault
+    let outputURL = arguments
+        .compactMap { argument -> URL? in
+            guard argument.hasPrefix("--render-dashboard=") else { return nil }
+            return URL(fileURLWithPath: String(argument.dropFirst("--render-dashboard=".count)))
+        }
+        .first ?? URL(fileURLWithPath: "/tmp/codex-token-meter-dashboard.png")
+    if arguments.contains("--demo-data") {
+        let view = DashboardView(frame: NSRect(origin: .zero, size: DashboardView.idealSize))
+        view.update(DemoSnapshotFactory.dashboardState(window: window, quota: quota))
+        let preferredSize = view.preferredPopoverSize
+        view.frame = NSRect(origin: .zero, size: preferredSize)
+        view.layoutSubtreeIfNeeded()
+        try writePNG(of: view, to: outputURL)
+        return outputURL
+    }
     let enabled = Set(QuotaViewOption.visiblePlatformCases)
     let codexReport = quota == .all && enabled.contains(.codex) ? scanner.scan(window: window, partition: .codex) : nil
     let claudeReport = quota == .all && enabled.contains(.claude) ? claudeScanner.scan(window: window) : nil
@@ -282,13 +297,6 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
         )
         : nil
 
-    let outputURL = arguments
-        .compactMap { argument -> URL? in
-            guard argument.hasPrefix("--render-dashboard=") else { return nil }
-            return URL(fileURLWithPath: String(argument.dropFirst("--render-dashboard=".count)))
-        }
-        .first ?? URL(fileURLWithPath: "/tmp/codex-token-meter-dashboard.png")
-
     let state = DashboardState(
         report: report,
         codexReport: codexReport,
@@ -307,7 +315,6 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
         isLoading: false,
         error: nil
     )
-
     let view = DashboardView(frame: NSRect(origin: .zero, size: DashboardView.idealSize))
     view.update(state)
     let preferredSize = view.preferredPopoverSize
@@ -322,6 +329,11 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     let section = requestedDetailsSection(from: arguments)
     let source = requestedDetailsSource(from: arguments) ?? .all
+    let usesDemoData = arguments.contains("--demo-data")
+    var snapshot: DetailsSnapshot
+    if usesDemoData {
+        snapshot = DemoSnapshotFactory.detailsSnapshot(source: source)
+    } else {
     let isInsightsSection = section == .insights
     let isModelRoutingSection = section == .modelRouting
     let canRenderWithoutUsage = isInsightsSection || isModelRoutingSection
@@ -403,8 +415,7 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let codexRepoInsights = codexRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
     let claudeRepoInsights = claudeRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
     let apiRepoInsights = apiRepoInsightReports[90] ?? RepoInsightsReport(rows: [], scannedAt: Date(), windowDays: 90)
-    var redactor = SnapshotRedactor.requested(from: arguments) ? SnapshotRedactor() : nil
-    var snapshot = DetailsSnapshot(
+    snapshot = DetailsSnapshot(
         all: all,
         codex: codex,
         claude: claude,
@@ -431,7 +442,9 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         accountUsage: accountUsage,
         resetCredits: resetCredits
     )
-    if redactor != nil {
+    }
+    var redactor = SnapshotRedactor.requested(from: arguments) ? SnapshotRedactor() : nil
+    if !usesDemoData, redactor != nil {
         snapshot = redactor!.redact(snapshot)
     }
 
@@ -453,6 +466,7 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         return CGFloat(value)
     }.first
     let view = UsageDetailsView(frame: NSRect(x: 0, y: 0, width: renderWidth, height: requestedRenderHeight ?? 760))
+    view.usesDemoData = usesDemoData
     view.includesEmptyContributionWeeksForDebug = arguments.contains("--include-empty-week-selection")
     let windowDays = arguments
         .compactMap { argument -> Int? in
@@ -505,6 +519,9 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         view.configureModelList(query: modelSearch, sort: modelSort)
     }
     if section == .modelRouting {
+        if usesDemoData {
+            view.modelRoutingControls.configureDemoSnapshot(DemoSnapshotFactory.modelRoutingSnapshot())
+        }
         let routingPlatform = arguments
             .compactMap { argument -> ModelRoutingPlatform? in
                 guard argument.hasPrefix("--model-routing-platform=") else { return nil }
@@ -673,8 +690,8 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
         view.selectCalendarHourOffsets(hourOffsets)
     }
     if section == .storage {
-        let storage = StorageScanner.scan()
-        view.storageSnapshot = redactor != nil ? redactor!.redact(storage) : storage
+        let storage = usesDemoData ? DemoSnapshotFactory.storageSnapshot() : StorageScanner.scan()
+        view.storageSnapshot = redactor != nil && !usesDemoData ? redactor!.redact(storage) : storage
         view.isStorageScanning = false
     }
     view.isLoading = false
