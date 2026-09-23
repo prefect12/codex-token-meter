@@ -153,15 +153,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let waitingCount = primaryThreads.filter { $0.status == .waiting }.count
         let unreadCount = primaryThreads.filter { $0.status == .unread }.count
         let actionNeededCount = waitingCount + unreadCount
-        // The menu-bar number is an active-work count. Completed-but-unread
-        // rows still keep the red-dot reminder, but do not turn "Running 2"
-        // into a confusing "3" beside the status icon.
-        let activeCount = runningCount + waitingCount
+        // Match the All tab's count of visible root tasks, including Done.
+        let totalCount = primaryThreads.count
         let statusIconStatus: ThreadRunStatus = waitingCount > 0 ? .waiting : (unreadCount > 0 ? .unread : .running)
         let showsRedDot = actionNeededCount > 0
         // The Island Beta no longer has a summary header, so retain a clear,
         // always-present count beside its menu-bar icon.
-        let title = " \(activeCount)"
+        let title = " \(totalCount)"
         let signature = "\(runningCount)|\(waitingCount)|\(unreadCount)|\(statusIconStatus)|\(showsRedDot)|\(title)"
         guard signature != lastStatusIconSignature else { return }
         lastStatusIconSignature = signature
