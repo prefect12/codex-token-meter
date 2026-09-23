@@ -746,6 +746,10 @@ struct ModelRoutingStoreTests {
                 "opus",
                 "sonnet",
                 "haiku",
+                "claude-fable-5-1",
+                "claude-opus-5-5",
+                "claude-fable-5",
+                "claude-opus-5",
                 "claude-opus-4-8",
                 "claude-opus-4-7",
                 "claude-opus-4-6",
@@ -755,11 +759,15 @@ struct ModelRoutingStoreTests {
         )
         try require(
             models.map(\.displayName) == [
-                "Sonnet 5 · Default",
-                "Fable 5",
-                "Opus 5",
+                "Claude Code Default",
+                "Fable · Latest",
+                "Opus · Latest",
                 "Sonnet 5",
                 "Haiku 4.5",
+                "Fable 5.1",
+                "Opus 5.5",
+                "Fable 5",
+                "Opus 5",
                 "Opus 4.8",
                 "Opus 4.7",
                 "Opus 4.6",
@@ -767,6 +775,18 @@ struct ModelRoutingStoreTests {
             ],
             "Claude model choices should show the versions users see in Claude Code"
         )
+        let fableJSON = try ClaudeModelRoutingStore.updatedJSON(
+            nil,
+            selection: CodexConfigSelection(model: "claude-fable-5-1", reasoningEffort: "high")
+        )
+        let opusJSON = try ClaudeModelRoutingStore.updatedJSON(
+            nil,
+            selection: CodexConfigSelection(model: "claude-opus-5-5", reasoningEffort: "medium")
+        )
+        let fableSettings = try JSONSerialization.jsonObject(with: fableJSON) as? [String: Any]
+        let opusSettings = try JSONSerialization.jsonObject(with: opusJSON) as? [String: Any]
+        try require(fableSettings?["model"] as? String == "claude-fable-5-1", "Fable 5.1 should write the exact model ID")
+        try require(opusSettings?["model"] as? String == "claude-opus-5-5", "Opus 5.5 should write the exact model ID")
     }
 
     private static func testClaudeProjectWritesStayLocal() throws {

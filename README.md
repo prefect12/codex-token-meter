@@ -13,7 +13,7 @@
 
 | App | 当前源码版本 | 主要用途 | 安装位置 |
 | --- | --- | --- | --- |
-| AI Token Meter | `0.2.26 (40)` | 用量、额度、模型、成本、空间与配置 | `/Applications/AI Token Meter.app` |
+| AI Token Meter | `0.2.27 (41)` | 用量、额度、模型、成本、空间与配置 | `/Applications/AI Token Meter.app` |
 | Task Bar | `0.1.22 (23)` | 多来源任务收件箱与快速跳转 | `/Applications/Task Bar.app` |
 
 > `main` 可能领先于最近一次 GitHub Release。版本号来自当前源码的 bundle 元数据；下载页显示的是最近一次正式发布包。
@@ -301,7 +301,7 @@ OpenCode / OpenChamber: ~/.local/share/opencode/opencode.db
 当前源码元数据对应的输出文件名：
 
 ```text
-dist/AI-Token-Meter-0.2.26.dmg
+dist/AI-Token-Meter-0.2.27.dmg
 dist/Task-Bar-0.1.22.dmg
 ```
 
