@@ -340,7 +340,11 @@ final class ClaudeStatuslineStore {
     func capture(stdinData: Data, now: Date = Date()) throws -> ClaudeStatuslineSnapshot? {
         let object = try JSONSerialization.jsonObject(with: stdinData) as? [String: Any] ?? [:]
         guard var rateLimits = object["rate_limits"] as? [String: Any] else {
-            return try writeCapture(rateLimits: nil, now: now)
+            // A payload without rate limits (a signed-out session, or one that
+            // has not received an API response yet) carries no quota data.
+            // Writing it replaced every stored window, OAuth readings included,
+            // with null on each 30-second statusline tick.
+            return read(now: now)
         }
         let stored = storedWindowDicts(now: now)
         // Claude Code can hand the statusline an already-expired window, or one
