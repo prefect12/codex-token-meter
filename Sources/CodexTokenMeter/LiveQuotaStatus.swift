@@ -737,7 +737,10 @@ final class ClaudeOAuthUsageRefresher {
     /// OAuth client id of Claude Code itself; the refresh-token flow must use
     /// the same client the tokens were issued to.
     private static let oauthClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-    private static let tokenURL = URL(string: "https://console.anthropic.com/v1/oauth/token")!
+    /// Same TOKEN_URL Claude Code itself uses. The legacy
+    /// console.anthropic.com host now answers non-browser clients with a
+    /// Cloudflare challenge page (HTTP 403), so refreshes there never succeed.
+    private static let tokenURL = URL(string: "https://platform.claude.com/v1/oauth/token")!
     private static let keychainService = "Claude Code-credentials"
 
     private enum CredentialSource {
@@ -1039,8 +1042,11 @@ final class ClaudeOAuthUsageRefresher {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let accessToken = object["access_token"] as? String,
               !accessToken.isEmpty else {
-            setOutcome("token-refresh-rejected-\(status)")
-            NSLog("AI Token Meter Claude OAuth token refresh rejected with status \(status)")
+            // The OAuth error code (e.g. invalid_grant) separates a dead refresh
+            // token from a malformed request; it never contains credentials.
+            let reason = Self.oauthErrorCode(data).map { "-\($0)" } ?? ""
+            setOutcome("token-refresh-rejected-\(status)\(reason)")
+            NSLog("AI Token Meter Claude OAuth token refresh rejected with status \(status)\(reason)")
             return nil
         }
 
@@ -1068,6 +1074,18 @@ final class ClaudeOAuthUsageRefresher {
 
         cacheToken(accessToken, validUntil: expiresAt.addingTimeInterval(-60))
         return accessToken
+    }
+
+    /// Error code from an OAuth (`{"error": "invalid_grant"}`) or Anthropic API
+    /// (`{"error": {"type": "rate_limit_error"}}`) error body.
+    private static func oauthErrorCode(_ data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let raw = object["error"] as? String
+            ?? (object["error"] as? [String: Any])?["type"] as? String
+        let code = String((raw ?? "").filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }.prefix(40))
+        return code.isEmpty ? nil : code
     }
 
     private func updateKeychainCredentials(data: Data) -> Bool {
