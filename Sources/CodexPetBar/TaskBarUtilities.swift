@@ -361,8 +361,28 @@ func tooltipRow(for field: TaskHoverField, item: CodexThreadItem) -> ThreadToolt
         return ThreadTooltipRow("压缩次数", "\(compressionCount)")
     case .model:
         guard let model = item.model, !model.isEmpty else { return nil }
-        return ThreadTooltipRow("模型", model)
+        return ThreadTooltipRow("模型", tooltipModelName(model))
     }
+}
+
+func tooltipModelName(_ model: String) -> String {
+    let parts = model.split(separator: "-", omittingEmptySubsequences: false)
+    if parts.count >= 3,
+       parts[0] == "claude",
+       ["opus", "sonnet", "haiku", "fable", "mythos"].contains(parts[1]),
+       !parts[2].isEmpty, parts[2].allSatisfy(\.isNumber) {
+        let minor = parts.count > 3 && !parts[3].isEmpty && parts[3].allSatisfy(\.isNumber)
+            ? ".\(parts[3])" : ""
+        return "\(parts[1].capitalized) \(parts[2])\(minor)"
+    }
+    if parts.count >= 3,
+       parts[0] == "gpt",
+       parts[1].first?.isNumber == true,
+       parts[1].allSatisfy({ $0.isNumber || $0.isLetter || $0 == "." }),
+       parts.dropFirst(2).allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isLetter) }) {
+        return "GPT \(parts[1]) \(parts.dropFirst(2).map(\.capitalized).joined(separator: " "))"
+    }
+    return model
 }
 
 func cleanedTooltipRows(_ rows: [ThreadTooltipRow]) -> [ThreadTooltipRow] {
