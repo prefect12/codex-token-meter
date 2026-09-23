@@ -205,23 +205,23 @@ final class ClaudeModelRoutingStore {
         [
             CodexModelOption(
                 slug: "default",
-                displayName: "Sonnet 5 · Default",
-                description: "Use Claude Code's default model, currently Sonnet 5.",
+                displayName: "Claude Code Default",
+                description: "Use the runtime default for your account and provider.",
                 defaultReasoningEffort: "high",
                 supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
             ),
             CodexModelOption(
                 slug: "fable",
-                displayName: "Fable 5",
-                description: "Claude's model for the hardest and longest-running tasks.",
+                displayName: "Fable · Latest",
+                description: "Use the Fable version selected by Claude Code and your provider.",
                 defaultReasoningEffort: "high",
                 supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
             ),
             CodexModelOption(
                 slug: "opus",
-                displayName: "Opus 5",
-                description: "Claude's model for everyday complex tasks.",
-                defaultReasoningEffort: "xhigh",
+                displayName: "Opus · Latest",
+                description: "Use the Opus version selected by Claude Code and your provider.",
+                defaultReasoningEffort: "medium",
                 supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
             ),
             CodexModelOption(
@@ -237,6 +237,34 @@ final class ClaudeModelRoutingStore {
                 description: "Claude's fastest model for quick answers.",
                 defaultReasoningEffort: "",
                 supportedReasoningEfforts: []
+            ),
+            CodexModelOption(
+                slug: "claude-fable-5-1",
+                displayName: "Fable 5.1",
+                description: "Pin Fable 5.1; requires Claude Code 2.1.257 or newer and provider access.",
+                defaultReasoningEffort: "high",
+                supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
+            ),
+            CodexModelOption(
+                slug: "claude-opus-5-5",
+                displayName: "Opus 5.5",
+                description: "Pin Opus 5.5; requires Claude Code 2.1.280 or newer and provider access.",
+                defaultReasoningEffort: "medium",
+                supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
+            ),
+            CodexModelOption(
+                slug: "claude-fable-5",
+                displayName: "Fable 5",
+                description: "Previous Claude Fable version.",
+                defaultReasoningEffort: "high",
+                supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
+            ),
+            CodexModelOption(
+                slug: "claude-opus-5",
+                displayName: "Opus 5",
+                description: "Previous Claude Opus version.",
+                defaultReasoningEffort: "high",
+                supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
             ),
             CodexModelOption(
                 slug: "claude-opus-4-8",

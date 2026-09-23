@@ -180,7 +180,7 @@ private func modelRoutingGlobalColumns(in row: NSRect) -> ModelRoutingGlobalColu
         x: row.minX + horizontalInset,
         y: row.minY + 64,
         width: strategyWidth,
-        height: 126
+        height: max(0, row.height - 86)
     )
     let context = NSRect(
         x: strategy.maxX + columnGap,
@@ -1531,10 +1531,11 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         for project in snapshot.projects {
             installPopups(scope: .project(project.project.id), project: project)
         }
-        if selectedPlatform == .codex,
-           let project = selectedProject,
+        if let project = selectedProject,
            let host {
-            for section in ProjectSection.allCases {
+            let sections: [ProjectSection] = selectedPlatform == .codex
+                ? ProjectSection.allCases : [.runStrategy]
+            for section in sections {
                 let checkbox = makeSectionInheritanceCheckbox(project: project, section: section)
                 sectionInheritanceCheckboxes[section] = checkbox
                 sectionInheritanceBindings[ObjectIdentifier(checkbox)] = SectionInheritanceBinding(
@@ -1568,7 +1569,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             host.addSubview(planEffortPopup)
         }
 
-        let supportsContextControls = project != nil || (scope == .global && selectedPlatform == .codex)
+        let supportsContextControls = selectedPlatform == .codex
         if supportsContextControls {
             let contextSlider = makeContextSlider()
             let contextValueField = makeContextValueField()
@@ -1745,12 +1746,13 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         project: CodexProjectRoutingSnapshot,
         layout: ModelRoutingPageLayout
     ) {
-        guard selectedPlatform == .codex else { return }
-        let panels: [(ProjectSection, NSRect)] = [
-            (.runStrategy, layout.runStrategyRect),
-            (.contextAndCompaction, layout.contextRect),
-            (.planMode, layout.planRect),
-        ]
+        let panels: [(ProjectSection, NSRect)] = selectedPlatform == .codex
+            ? [
+                (.runStrategy, layout.runStrategyRect),
+                (.contextAndCompaction, layout.contextRect),
+                (.planMode, layout.planRect),
+            ]
+            : [(.runStrategy, layout.runStrategyRect)]
         for (section, panel) in panels {
             guard let checkbox = sectionInheritanceCheckboxes[section] else { continue }
             checkbox.frame = NSRect(
@@ -2134,26 +2136,26 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     }
 
     private func layoutGlobalPopups(in row: NSRect) {
-        if selectedPlatform == .codex {
-            let columns = modelRoutingGlobalColumns(in: row)
-            let strategyLabelWidth: CGFloat = 96
-            let strategyControlX = columns.strategy.minX + strategyLabelWidth + 12
-            let strategyControlWidth = max(0, columns.strategy.maxX - strategyControlX)
-            modelPopups[.global]?.frame = NSRect(
-                x: strategyControlX,
-                y: columns.strategy.minY,
-                width: strategyControlWidth,
-                height: 34
-            )
-            effortPopups[.global]?.frame = NSRect(
-                x: strategyControlX,
-                y: columns.strategy.minY + 42,
-                width: strategyControlWidth,
-                height: 34
-            )
-            modelPopups[.global]?.isHidden = false
-            effortPopups[.global]?.isHidden = false
+        let columns = modelRoutingGlobalColumns(in: row)
+        let strategyLabelWidth: CGFloat = 96
+        let strategyControlX = columns.strategy.minX + strategyLabelWidth + 12
+        let strategyControlWidth = max(0, columns.strategy.maxX - strategyControlX)
+        modelPopups[.global]?.frame = NSRect(
+            x: strategyControlX,
+            y: columns.strategy.minY,
+            width: strategyControlWidth,
+            height: 34
+        )
+        effortPopups[.global]?.frame = NSRect(
+            x: strategyControlX,
+            y: columns.strategy.minY + 42,
+            width: strategyControlWidth,
+            height: 34
+        )
+        modelPopups[.global]?.isHidden = false
+        effortPopups[.global]?.isHidden = false
 
+        if selectedPlatform == .codex {
             let contextLayout = modelRoutingGlobalContextControlsLayout(in: columns.context)
             contextSliders[.global]?.frame = contextLayout.contextSliderRect
             contextValueFields[.global]?.frame = contextLayout.contextValueRect
@@ -2174,17 +2176,6 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
             return
         }
 
-        let rightPadding: CGFloat = 156
-        let effortWidth: CGFloat = row.width >= 900 ? 174 : 120
-        let modelWidth: CGFloat = row.width >= 900 ? 238 : 180
-        let gap: CGFloat = row.width >= 900 ? 112 : 12
-        let effortX = row.maxX - rightPadding - effortWidth
-        let modelX = effortX - gap - modelWidth
-        let y = row.midY - 18
-        modelPopups[.global]?.frame = NSRect(x: modelX, y: y, width: modelWidth, height: 36)
-        effortPopups[.global]?.frame = NSRect(x: effortX, y: y, width: effortWidth, height: 36)
-        modelPopups[.global]?.isHidden = false
-        effortPopups[.global]?.isHidden = false
         planModeEffortPopups[.global]?.isHidden = true
     }
 
@@ -2204,10 +2195,10 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         contextValueFields[scope]?.frame = contextLayout.contextValueRect
         compressionSliders[scope]?.frame = contextLayout.sliderRect
         compressionPercentageFields[scope]?.frame = contextLayout.percentageRect
-        contextSliders[scope]?.isHidden = false
-        contextValueFields[scope]?.isHidden = false
-        compressionSliders[scope]?.isHidden = false
-        compressionPercentageFields[scope]?.isHidden = false
+        contextSliders[scope]?.isHidden = selectedPlatform != .codex
+        contextValueFields[scope]?.isHidden = selectedPlatform != .codex
+        compressionSliders[scope]?.isHidden = selectedPlatform != .codex
+        compressionPercentageFields[scope]?.isHidden = selectedPlatform != .codex
         planModeEffortPopups[scope]?.frame = NSRect(
             x: controlX,
             y: layout.planRect.minY + 61,
@@ -2276,7 +2267,7 @@ extension UsageDetailsView {
             x: content.minX,
             y: content.minY + 58,
             width: content.width,
-            height: modelRoutingControls.selectedPlatform == .codex ? 212 : 96
+            height: modelRoutingControls.selectedPlatform == .codex ? 212 : 170
         )
         let toolbarRect = NSRect(x: content.minX, y: globalRect.maxY + 18, width: min(332, content.width * 0.37), height: 34)
         let projects = modelRoutingControls.visibleProjects
@@ -2294,7 +2285,7 @@ extension UsageDetailsView {
             x: projectListRect.maxX + 14,
             y: bodyY,
             width: max(0, content.maxX - projectListRect.maxX - 14),
-            height: listHeight
+            height: modelRoutingControls.selectedPlatform == .codex ? listHeight : 230
         )
         let panelX = inspectorRect.minX + 14
         let panelWidth = inspectorRect.width - 28
@@ -2368,16 +2359,15 @@ extension UsageDetailsView {
             color: .white
         )
 
+        let columns = modelRoutingGlobalColumns(in: row)
+        let contextLayout = modelRoutingGlobalContextControlsLayout(in: columns.context)
+        NSColor.white.withAlphaComponent(0.09).setStroke()
+        let horizontalDivider = NSBezierPath()
+        horizontalDivider.move(to: NSPoint(x: row.minX + 20, y: row.minY + 52))
+        horizontalDivider.line(to: NSPoint(x: row.maxX - 20, y: row.minY + 52))
+        horizontalDivider.lineWidth = 1
+        horizontalDivider.stroke()
         if modelRoutingControls.selectedPlatform == .codex {
-            let columns = modelRoutingGlobalColumns(in: row)
-            let contextLayout = modelRoutingGlobalContextControlsLayout(in: columns.context)
-
-            NSColor.white.withAlphaComponent(0.09).setStroke()
-            let horizontalDivider = NSBezierPath()
-            horizontalDivider.move(to: NSPoint(x: row.minX + 20, y: row.minY + 52))
-            horizontalDivider.line(to: NSPoint(x: row.maxX - 20, y: row.minY + 52))
-            horizontalDivider.lineWidth = 1
-            horizontalDivider.stroke()
             let verticalDivider = NSBezierPath()
             verticalDivider.move(to: NSPoint(x: columns.strategy.maxX + 14, y: columns.strategy.minY))
             verticalDivider.line(to: NSPoint(x: columns.strategy.maxX + 14, y: columns.strategy.maxY))
@@ -2386,18 +2376,6 @@ extension UsageDetailsView {
 
             let labelColor = NSColor.white.withAlphaComponent(0.62)
             let labelFont = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
-            drawText(
-                modelRoutingLocalized(chinese: "默认模型", english: "Model", japanese: "モデル"),
-                rect: NSRect(x: columns.strategy.minX, y: columns.strategy.minY + 8, width: 96, height: 18),
-                font: labelFont,
-                color: labelColor
-            )
-            drawText(
-                modelRoutingLocalized(chinese: "思考强度", english: "Effort", japanese: "思考強度"),
-                rect: NSRect(x: columns.strategy.minX, y: columns.strategy.minY + 50, width: 96, height: 18),
-                font: labelFont,
-                color: labelColor
-            )
             drawText(
                 modelRoutingLocalized(chinese: "Plan 思考强度", english: "Plan effort", japanese: "Plan 思考強度"),
                 rect: NSRect(x: columns.strategy.minX, y: columns.strategy.minY + 92, width: 96, height: 18),
@@ -2420,25 +2398,34 @@ extension UsageDetailsView {
                 modelRoutingControls.globalCompressionTokenLimitText(),
                 rect: contextLayout.tokenLimitRect
             )
-        } else if !compact {
-            let effortWidth: CGFloat = 174
-            let modelWidth: CGFloat = 238
-            let rightPadding: CGFloat = 156
-            let effortX = row.maxX - rightPadding - effortWidth
-            let modelX = effortX - 112 - modelWidth
-            drawRight(
-                modelRoutingLocalized(chinese: "默认模型", english: "Model", japanese: "モデル"),
-                rect: NSRect(x: modelX - 86, y: row.minY + 34, width: 72, height: 18),
-                color: NSColor.white.withAlphaComponent(0.60),
-                font: .systemFont(ofSize: 11.5, weight: .semibold)
+        } else {
+            drawText(
+                modelRoutingLocalized(chinese: "仅管理模型和思考强度", english: "Model and effort only", japanese: "モデルと思考強度のみ管理"),
+                rect: NSRect(x: columns.context.minX, y: columns.context.minY + 8, width: columns.context.width, height: 20),
+                font: .systemFont(ofSize: 12, weight: .semibold),
+                color: NSColor.white.withAlphaComponent(0.70)
             )
-            drawRight(
-                modelRoutingLocalized(chinese: "思考强度", english: "Effort", japanese: "思考強度"),
-                rect: NSRect(x: effortX - 98, y: row.minY + 34, width: 84, height: 18),
-                color: NSColor.white.withAlphaComponent(0.60),
-                font: .systemFont(ofSize: 11.5, weight: .semibold)
+            drawText(
+                modelRoutingLocalized(chinese: "不会改动 Claude Code 的上下文、压缩或 Plan 设置", english: "Context, compaction, and Plan settings stay with Claude Code", japanese: "コンテキスト、圧縮、Plan 設定は Claude Code 側で管理"),
+                rect: NSRect(x: columns.context.minX, y: columns.context.minY + 38, width: columns.context.width, height: 20),
+                font: .systemFont(ofSize: 11, weight: .medium),
+                color: NSColor.white.withAlphaComponent(0.52)
             )
         }
+        let labelColor = NSColor.white.withAlphaComponent(0.62)
+        let labelFont = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
+        drawText(
+            modelRoutingLocalized(chinese: "默认模型", english: "Model", japanese: "モデル"),
+            rect: NSRect(x: columns.strategy.minX, y: columns.strategy.minY + 8, width: 96, height: 18),
+            font: labelFont,
+            color: labelColor
+        )
+        drawText(
+            modelRoutingLocalized(chinese: "思考强度", english: "Effort", japanese: "思考強度"),
+            rect: NSRect(x: columns.strategy.minX, y: columns.strategy.minY + 50, width: 96, height: 18),
+            font: labelFont,
+            color: labelColor
+        )
 
         let hasExplicitGlobal = modelRoutingControls.snapshot.global.model != nil
             && (
@@ -2499,10 +2486,10 @@ extension UsageDetailsView {
             guard let row = layout.projectRows[project.project.id] else { continue }
             let followsSystem = modelRoutingControls.followsSystemConfiguration(project)
             let selected = modelRoutingControls.selectedProject?.project.id == project.project.id
-            if selected && !followsSystem {
-                accentBlue.withAlphaComponent(0.26).setFill()
+            if selected {
+                accentBlue.withAlphaComponent(followsSystem ? 0.18 : 0.26).setFill()
                 NSBezierPath(roundedRect: row, xRadius: 8, yRadius: 8).fill()
-                accentBlue.withAlphaComponent(0.86).setStroke()
+                accentBlue.withAlphaComponent(followsSystem ? 0.55 : 0.86).setStroke()
                 let border = NSBezierPath(roundedRect: row.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
                 border.lineWidth = 1
                 border.stroke()
@@ -2546,6 +2533,8 @@ extension UsageDetailsView {
         )
         drawText(modelRoutingLocalized(chinese: "默认模型", english: "Default model", japanese: "既定モデル"), rect: NSRect(x: layout.runStrategyRect.minX + 16, y: layout.runStrategyRect.minY + 69, width: 112, height: 18), font: .systemFont(ofSize: 11.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62))
         drawText(modelRoutingLocalized(chinese: "思考强度", english: "Reasoning effort", japanese: "思考強度"), rect: NSRect(x: layout.runStrategyRect.minX + 16, y: layout.runStrategyRect.minY + 115, width: 112, height: 18), font: .systemFont(ofSize: 11.5, weight: .semibold), color: NSColor.white.withAlphaComponent(0.62))
+
+        guard modelRoutingControls.selectedPlatform == .codex else { return }
 
         drawInspectorSection(
             title: modelRoutingLocalized(chinese: "上下文与压缩", english: "Context & compaction", japanese: "コンテキストと圧縮"),

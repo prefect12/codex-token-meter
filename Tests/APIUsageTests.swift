@@ -8,6 +8,9 @@ struct APIUsageTests {
         try testOpenRouterPricingCatalog()
         try testDeepSeekPrices()
         try testAstraPricingAndFallback()
+        try testGPT6Prices()
+        try testGPT56Prices()
+        try testClaudeNewModelPrices()
         try testUnknownModelsRemainUnpriced()
         try testImportCanonicalizationAndWindowFiltering()
         try testVisibleSourceSelectorOptions()
@@ -102,23 +105,95 @@ struct APIUsageTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let store = CodexModelRoutingStore(codexHomeURL: root)
-        try require(store.loadModels().first?.slug == "gpt-6-astra", "Offline model list should offer Astra")
+        try require(
+            Array(store.loadModels().prefix(3).map(\.slug)) == ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"],
+            "Offline model list should offer the GPT-6 family"
+        )
 
         let staleFixture = """
         {"models":[{"slug":"gpt-5.6-sol","display_name":"GPT-5.6-Sol","visibility":"list","priority":4,"supported_reasoning_levels":[{"effort":"medium","description":"Medium"}]}]}
         """
         try Data(staleFixture.utf8).write(to: root.appendingPathComponent("models_cache.json"))
         let staleModels = store.loadModels()
-        try require(staleModels.map(\.slug) == ["gpt-6-astra", "gpt-5.6-sol"], "A stale non-empty Codex catalog should still offer Astra once")
-        try require(staleModels[1].supportedReasoningEfforts == ["medium"], "Cached metadata should remain authoritative for cached models")
+        try require(
+            staleModels.map(\.slug) == ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol"],
+            "A stale non-empty Codex catalog should still offer each GPT-6 model once"
+        )
+        try require(staleModels[3].supportedReasoningEfforts == ["medium"], "Cached metadata should remain authoritative for cached models")
 
         let fixture = """
         {"models":[{"slug":"gpt-6-astra","display_name":"GPT-6-Astra","visibility":"list","supported_reasoning_levels":[{"effort":"high","description":"High"},{"effort":"ultra","description":"Ultra"}]}]}
         """
         try Data(fixture.utf8).write(to: root.appendingPathComponent("models_cache.json"))
         let liveModels = store.loadModels()
-        try require(liveModels.count == 1, "A live Astra entry must not be duplicated")
+        try require(liveModels.map(\.slug) == ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"], "Missing GPT-6 entries should be added without duplicating Astra")
         try require(liveModels.first?.supportedReasoningEfforts == ["high", "ultra"], "Live Codex catalog must remain authoritative")
+        for model in ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"] {
+            try require(APICostEstimator.estimate(usage: usage, modelName: model).coveragePercent == 100, "GPT-6 model should use its published API rate: \(model)")
+        }
+        try store.writeGlobal(CodexConfigSelection(model: "gpt-6-sol", reasoningEffort: "high"))
+        try require(store.loadSnapshot().global.model == "gpt-6-sol", "GPT-6 Sol should be selectable as a global default")
+        let projectConfig = root.appendingPathComponent("project/.codex/config.toml")
+        try store.writeSelection(CodexConfigSelection(model: "gpt-6-luna", reasoningEffort: "high"), at: projectConfig)
+        let projectSelection = try store.readSelection(at: projectConfig)
+        try require(projectSelection.model == "gpt-6-luna", "GPT-6 Luna should be selectable as a project default")
+        try require(BuiltInAPIModelRates.rate(for: "gpt-6-unknown") == nil, "Unknown GPT-6 names must not inherit a published rate")
+    }
+
+    private static func testGPT6Prices() throws {
+        let expected: [(String, Double)] = [
+            ("gpt-6-astra", 73.5),
+            ("gpt-6-sol", 14.7),
+            ("gpt-6-luna", 0.735)
+        ]
+        for (model, usd) in expected {
+            for alias in [model, "\(model)-wm", "openai/\(model)"] {
+                let rate = try requireRate(alias)
+                let estimated = (
+                    rate.inputPerMillionUSD + rate.cachedInputPerMillionUSD
+                        + (rate.cacheCreationInputPerMillionUSD ?? 0) + rate.outputPerMillionUSD
+                )
+                try require(abs(estimated - usd) < 0.000_000_1, "\(alias) should use official Standard short-context rates")
+            }
+        }
+    }
+
+    private static func requireRate(_ model: String) throws -> APIModelRate {
+        guard let rate = BuiltInAPIModelRates.rate(for: model) else {
+            throw TestFailure(message: "Missing built-in price for \(model)")
+        }
+        return rate
+    }
+
+    private static func testGPT56Prices() throws {
+        let usage = Usage(input: 2_000_000, cachedInput: 1_000_000, output: 1_000_000, total: 3_000_000)
+        let expected: [(String, Double)] = [
+            ("gpt-5.6-sol", 24.4),
+            ("gpt-5.6-terra", 14.2),
+            ("gpt-5.6-luna", 1.42)
+        ]
+        for (model, usd) in expected {
+            let estimate = APICostEstimator.estimate(usage: usage, modelName: model)
+            try require(abs(estimate.usdValue - usd) < 0.000_000_1, "\(model) should use the current official API price")
+        }
+    }
+
+    private static func testClaudeNewModelPrices() throws {
+        let expected: [(String, APIModelRate)] = [
+            ("claude-fable-5-1", APIModelRate(inputPerMillionUSD: 10, cachedInputPerMillionUSD: 0.25, outputPerMillionUSD: 50, cacheCreationInputPerMillionUSD: 12.5, cacheCreationInput1hPerMillionUSD: 20)),
+            ("claude-mythos-5-1", APIModelRate(inputPerMillionUSD: 10, cachedInputPerMillionUSD: 0.25, outputPerMillionUSD: 50, cacheCreationInputPerMillionUSD: 12.5, cacheCreationInput1hPerMillionUSD: 20)),
+            ("claude-opus-5-5", APIModelRate(inputPerMillionUSD: 4, cachedInputPerMillionUSD: 0.2, outputPerMillionUSD: 20, cacheCreationInputPerMillionUSD: 5, cacheCreationInput1hPerMillionUSD: 8))
+        ]
+        for (model, rate) in expected {
+            let direct = try requireRate(model)
+            let qualified = try requireRate("anthropic/\(model)")
+            try require(direct == rate, "\(model) should use Anthropic's published rates")
+            try require(qualified == rate, "Provider-qualified \(model) should use the same rates")
+        }
+        let oldFable = try requireRate("claude-fable-5")
+        let oldOpus = try requireRate("claude-opus-5")
+        try require(oldFable.cachedInputPerMillionUSD == 1, "Fable 5 must retain its older cache price")
+        try require(oldOpus.inputPerMillionUSD == 5, "Opus 5 must retain its older input price")
     }
 
     private static func testImportCanonicalizationAndWindowFiltering() throws {

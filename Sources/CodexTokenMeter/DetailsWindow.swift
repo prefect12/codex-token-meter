@@ -3580,6 +3580,16 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         if selectedSection == .hours {
             return hourlyWindowSubtitle()
         }
+        if selectedSection == .modelRouting, modelRoutingControls.selectedPlatform == .claude {
+            switch AppLanguage.current {
+            case .chinese, .traditionalChinese:
+                return "为每个项目管理 Claude Code 的模型与思考强度"
+            case .japanese:
+                return "プロジェクトごとの Claude Code モデルと思考強度を管理"
+            default:
+                return "Manage Claude Code models and effort per project"
+            }
+        }
         return selectedSection.subtitle
     }
 

@@ -326,16 +326,15 @@ final class CodexModelRoutingStore {
             if !visible.isEmpty {
                 // Codex's local catalog can lag behind newly enabled models. Keep
                 // its metadata authoritative for every model it contains, while
-                // ensuring the current flagship remains selectable when an older
-                // non-empty cache omits it entirely.
-                if visible.contains(where: { $0.slug == "gpt-6-astra" }) {
-                    return visible
-                }
-                return [Self.astraFallbackModel] + visible
+                // ensuring the current GPT-6 family remains selectable when an
+                // older non-empty cache omits one or more entries.
+                let cachedBySlug = Dictionary(visible.map { ($0.slug, $0) }, uniquingKeysWith: { first, _ in first })
+                let gpt6Models = Self.gpt6FallbackModels.map { cachedBySlug[$0.slug] ?? $0 }
+                let gpt6Slugs = Set(Self.gpt6FallbackModels.map(\.slug))
+                return gpt6Models + visible.filter { !gpt6Slugs.contains($0.slug) }
             }
         }
-        return [
-            Self.astraFallbackModel,
+        return Self.gpt6FallbackModels + [
             CodexModelOption(
                 slug: "gpt-5.6-sol",
                 displayName: "GPT-5.6-Sol",
@@ -513,13 +512,29 @@ final class CodexModelRoutingStore {
 
     private static let fallbackReasoningEfforts = ["low", "medium", "high", "xhigh", "max", "ultra"]
 
-    private static let astraFallbackModel = CodexModelOption(
-        slug: "gpt-6-astra",
-        displayName: "GPT-6-Astra",
-        description: "Most capable model for complex reasoning and coding.",
-        defaultReasoningEffort: "medium",
-        supportedReasoningEfforts: fallbackReasoningEfforts
-    )
+    private static let gpt6FallbackModels = [
+        CodexModelOption(
+            slug: "gpt-6-astra",
+            displayName: "GPT-6-Astra",
+            description: "Our most capable model for complex, demanding work.",
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: fallbackReasoningEfforts
+        ),
+        CodexModelOption(
+            slug: "gpt-6-sol",
+            displayName: "GPT-6-Sol",
+            description: "GPT-6 Sol Codex model.",
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: fallbackReasoningEfforts
+        ),
+        CodexModelOption(
+            slug: "gpt-6-luna",
+            displayName: "GPT-6-Luna",
+            description: "GPT-6 Luna Codex model.",
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"]
+        )
+    ]
 
     /// Writes only the project-configuration keys at an already resolved project
     /// config URL. The protection controller uses this for a task-scoped

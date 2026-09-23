@@ -164,6 +164,8 @@ enum DemoSnapshotFactory {
     static func modelRoutingSnapshot() -> CodexModelRoutingSnapshot {
         let models = [
             CodexModelOption(slug: "gpt-6-astra", displayName: "GPT-6 Astra", description: "Complex, demanding work", defaultReasoningEffort: "high", supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]),
+            CodexModelOption(slug: "gpt-6-sol", displayName: "GPT-6 Sol", description: "Strong reasoning for demanding tasks", defaultReasoningEffort: "medium", supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"]),
+            CodexModelOption(slug: "gpt-6-luna", displayName: "GPT-6 Luna", description: "Efficient everyday work", defaultReasoningEffort: "medium", supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"]),
             CodexModelOption(slug: "gpt-5.6-sol", displayName: "GPT-5.6 Sol", description: "Reliable everyday work", defaultReasoningEffort: "medium", supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]),
             CodexModelOption(slug: "gpt-5.6-luna", displayName: "GPT-5.6 Luna", description: "Fast agentic coding", defaultReasoningEffort: "medium", supportedReasoningEfforts: ["low", "medium", "high"]),
         ]

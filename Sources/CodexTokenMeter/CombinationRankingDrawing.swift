@@ -79,8 +79,10 @@ extension UsageDetailsView {
             let currentSubscriptionModels = models.filter { model in
                 let normalized = model.lowercased()
                 let isOpenAI56 = normalized == "gpt-5.6" || normalized.hasPrefix("gpt-5.6-")
-                let isAstra = normalized == "gpt-6-astra" || normalized == "gpt-6-astra-wm"
-                return (isOpenAI56 || isAstra) && rows.contains {
+                let isOpenAI6 = normalized == "gpt-6-astra" || normalized == "gpt-6-astra-wm"
+                    || normalized == "gpt-6-sol" || normalized == "gpt-6-sol-wm"
+                    || normalized == "gpt-6-luna" || normalized == "gpt-6-luna-wm"
+                return (isOpenAI56 || isOpenAI6) && rows.contains {
                     $0.platform == "Codex" && $0.model.caseInsensitiveCompare(model) == .orderedSame
                 }
             }
