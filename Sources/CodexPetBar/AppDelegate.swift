@@ -327,11 +327,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ThreadHoverPanel.shared.hideAll()
 
         if let selectedItem, isClaudeThread(selectedItem) {
-            openClaudeThread(id: selectedItem.id, fallbackFolder: selectedItem.cwd)
+            openClaudeApp()
             return
         }
-        if id.hasPrefix("claude:") {
-            openClaudeThread(id: id, fallbackFolder: nil)
+        if id.hasPrefix("claude:") || id.hasPrefix("claude-home:") {
+            openClaudeApp()
             return
         }
 
@@ -483,88 +483,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return registeredURL
     }
 
-    /// Claude Home thread ids are `claude-home:<conversation-uuid>` and use the
-    /// desktop app's native conversation route. Claude Code thread ids are
-    /// `claude:<session-uuid>` and are ordered to avoid both
-    /// duplicate imports and full page reloads as far as the desktop app's deep
-    /// links allow: (1) if the desktop app is already showing this session
-    /// (its `lastFocusedAt` is the store-wide maximum), just activate the app;
-    /// (2) an imported entry is reachable smoothly via `claude://resume`, whose
-    /// import step dedupes by the deterministic `local_<uuid>` key — which is
-    /// also why (3) natively created entries (random desktop id) must instead
-    /// use `claude://claude.ai/claude-code-desktop/<id>`, the only route that
-    /// reaches them without importing a duplicate, at the cost of a full page
-    /// load; (4) sessions the desktop app has never seen resume normally.
-    /// Fall back to just foregrounding the app (or the working folder) when we
-    /// don't have a usable session id.
-    ///
-    /// One CLI session can own both an imported and a natively created desktop
-    /// entry, so the route is chosen from the entry the user most recently
-    /// focused or worked in. Always preferring the imported one lands on a stale
-    /// copy whenever the live conversation is the native entry.
-    ///
-    /// The activate-only shortcut in (1) additionally requires a *fresh* focus
-    /// stamp. `lastFocusedAt` is written when the desktop app opens a session,
-    /// not when the user switches between already-open ones, so an hours-old
-    /// maximum says nothing about what is on screen — activating on it foregrounds
-    /// the desktop app still showing some other conversation.
-    private func openClaudeThread(id: String, fallbackFolder: String?) {
-        if id.hasPrefix("claude-home:") {
-            let conversationID = String(id.dropFirst("claude-home:".count))
-            guard UUID(uuidString: conversationID) != nil,
-                  let url = URL(string: "claude://claude.ai/chat/\(conversationID)") else {
-                openClaudeApp(fallbackFolder: fallbackFolder)
-                return
-            }
-            NSWorkspace.shared.open(url)
-            return
-        }
-        let sessionID = id.hasPrefix("claude:") ? String(id.dropFirst("claude:".count)) : id
-        guard UUID(uuidString: sessionID) != nil else {
-            openClaudeApp(fallbackFolder: fallbackFolder)
-            return
-        }
-        let index = ClaudeDesktopSessionIndex.shared
-        let desktopSessions = index.sessions(forCLISession: sessionID)
-        let targetLastFocused = desktopSessions.map(\.lastFocusedAt).max() ?? 0
-        let focusAge = Date().timeIntervalSince1970 - targetLastFocused / 1000
-        if targetLastFocused > 0, targetLastFocused >= index.globalLastFocused(),
-           focusAge >= 0, focusAge <= claudeDesktopFocusTrustWindow,
-           let running = NSRunningApplication.runningApplications(withBundleIdentifier: claudeDesktopBundleID).first {
+    private let claudeDesktopBundleID = "com.anthropic.claudefordesktop"
+
+    /// Claude's session deep links reload its window. Keep the current view by
+    /// activating the running app, or launch it when it is not already open.
+    private func openClaudeApp() {
+        if let running = NSRunningApplication.runningApplications(withBundleIdentifier: claudeDesktopBundleID).first {
             running.activate()
             return
         }
-        // `sessions(forCLISession:)` is ordered newest first, so the head is the
-        // entry the desktop app last focused or ran a turn in.
-        let current = desktopSessions.first
-        if let current, current.isImported, !current.isArchived,
-           let url = URL(string: "claude://resume?session=\(sessionID)") {
-            NSWorkspace.shared.open(url)
-            return
-        }
-        if let current, let url = URL(string: "claude://claude.ai/claude-code-desktop/\(current.desktopID)") {
-            NSWorkspace.shared.open(url)
-            return
-        }
-        if let url = URL(string: "claude://resume?session=\(sessionID)") {
-            NSWorkspace.shared.open(url)
-            return
-        }
-        openClaudeApp(fallbackFolder: fallbackFolder)
-    }
-
-    private let claudeDesktopBundleID = "com.anthropic.claudefordesktop"
-    /// How recent a `lastFocusedAt` stamp has to be before it is taken as proof
-    /// that the desktop app is still showing that session.
-    private let claudeDesktopFocusTrustWindow: TimeInterval = 60
-
-    private func openClaudeApp(fallbackFolder: String?) {
-        let claudeURL = URL(fileURLWithPath: "/Applications/Claude.app")
-        if FileManager.default.fileExists(atPath: claudeURL.path) {
-            NSWorkspace.shared.open(claudeURL)
-        } else if let fallbackFolder {
-            NSWorkspace.shared.open(URL(fileURLWithPath: fallbackFolder, isDirectory: true))
-        }
+        let installedURL = URL(fileURLWithPath: "/Applications/Claude.app", isDirectory: true)
+        let appURL = FileManager.default.fileExists(atPath: installedURL.path)
+            ? installedURL
+            : NSWorkspace.shared.urlForApplication(withBundleIdentifier: claudeDesktopBundleID)
+        guard let appURL else { return }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, _ in }
     }
 
     @objc private func quit() {
