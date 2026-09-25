@@ -3570,11 +3570,11 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         if selectedSection == .modelRouting, modelRoutingControls.selectedPlatform == .claude {
             switch AppLanguage.current {
             case .chinese, .traditionalChinese:
-                return "为每个项目管理 Claude Code 的模型与思考强度"
+                return "为每个项目管理 Claude Code 的模型、思考强度与自动压缩"
             case .japanese:
-                return "プロジェクトごとの Claude Code モデルと思考強度を管理"
+                return "プロジェクトごとの Claude Code モデル、思考強度、自動圧縮を管理"
             default:
-                return "Manage Claude Code models and effort per project"
+                return "Manage Claude Code models, effort, and auto-compaction per project"
             }
         }
         return selectedSection.subtitle

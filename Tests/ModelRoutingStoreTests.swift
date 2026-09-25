@@ -14,8 +14,11 @@ struct ModelRoutingStoreTests {
         try testTokenMeterGlobalSaveDoesNotRewriteProject()
         try testAppLifetimeProtectionKeepsConversationOverrideBriefly()
         try testClaudeJSONUpdatePreservesOtherSettings()
+        try testClaudeCompactionSettingsRoundTrip()
+        try testClaudeOpusEffortUsesPerModelSettings()
         try testClaudeModelCatalogMatchesCurrentSelector()
         try testClaudeProjectWritesStayLocal()
+        try testClaudeWorktreeUsesMainCheckoutLocalSettings()
         try testClaudeSharedProjectSettingsRemainUntouched()
         try testClaudeProtectedDefaultsRestoreOnlyPrivateRoutingKeys()
         try testClaudeAppLifetimeProtectionRestoresExternalRewrite()
@@ -737,6 +740,62 @@ struct ModelRoutingStoreTests {
         try require(inheritedObject?["permissions"] != nil, "clearing routing must preserve other settings")
     }
 
+    private static func testClaudeCompactionSettingsRoundTrip() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-compaction-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectRoot = root.appendingPathComponent("project", isDirectory: true)
+        let project = CodexSavedProject(id: "project", name: "Project", rootPaths: [projectRoot.path])
+        let store = ClaudeModelRoutingStore(claudeHomeURL: root.appendingPathComponent(".claude"), projectsProvider: { [project] })
+        try FileManager.default.createDirectory(at: projectRoot.appendingPathComponent(".claude"), withIntermediateDirectories: true)
+        let source = Data("""
+        {"env":{"KEEP_ME":"yes","CLAUDE_CODE_AUTO_COMPACT_WINDOW":"300000"},"permissions":{"deny":["Read(.env)"]}}
+        """.utf8)
+        try source.write(to: store.projectConfigURL(rootPath: projectRoot.path))
+        try store.writeProject(id: project.id, model: "opus[1m]", reasoningEffort: "high", compactWindow: 500_000, compactPercent: 75)
+        let selection = try store.readSelection(at: store.projectConfigURL(rootPath: projectRoot.path))
+        try require(selection.model == "opus[1m]" && selection.contextWindow == 500_000 && selection.autoCompactTokenLimit == 75,
+                    "Claude compact settings should round-trip without changing the model identifier")
+        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: store.projectConfigURL(rootPath: projectRoot.path))) as? [String: Any]
+        let env = object?["env"] as? [String: String]
+        try require(env?["KEEP_ME"] == "yes" && env?["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == nil
+                    && env?["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] == "75"
+                    && object?["autoCompactWindow"] as? Int == 500_000,
+                    "Claude compaction should use the ordinary setting and preserve unrelated env values")
+        try require(object?["permissions"] != nil, "Claude compaction must preserve permissions")
+        try store.writeProject(id: project.id, model: nil, reasoningEffort: nil)
+        let inherited = store.loadSnapshot().projects[0]
+        try require(inherited.inheritsEverything, "Claude project compaction must support global inheritance")
+        let cleared = try JSONSerialization.jsonObject(with: Data(contentsOf: store.projectConfigURL(rootPath: projectRoot.path))) as? [String: Any]
+        try require((cleared?["env"] as? [String: String])?["KEEP_ME"] == "yes", "clearing managed env keys must retain unrelated values")
+        try require(cleared?["autoCompactWindow"] == nil, "project inheritance should clear its compact window")
+    }
+
+    private static func testClaudeOpusEffortUsesPerModelSettings() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-opus-effort-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let store = ClaudeModelRoutingStore(claudeHomeURL: root, projectsProvider: { [] })
+        let original = Data("""
+        {"model":"opus[1m]","effortLevel":"high","modelSettings":{"claude-sonnet-5":{"effortLevel":"xhigh"}},"tui":{"theme":"dark"}}
+        """.utf8)
+        try original.write(to: store.globalConfigURL)
+        let initial = try store.readSelection(at: store.globalConfigURL)
+        try require(initial.reasoningEffort == nil, "legacy user effort must not be shown as effective for Opus 5.5")
+        try store.writeGlobal(model: "opus[1m]", reasoningEffort: nil, compactWindow: 500_000)
+        var object = try JSONSerialization.jsonObject(with: Data(contentsOf: store.globalConfigURL)) as? [String: Any]
+        try require(object?["effortLevel"] as? String == "high", "saving context must retain older CLI effort")
+        try require(object?["autoCompactWindow"] as? Int == 500_000, "compact window should use Claude's settings key")
+        try store.writeGlobal(model: "opus[1m]", reasoningEffort: "xhigh", compactWindow: 500_000)
+        object = try JSONSerialization.jsonObject(with: Data(contentsOf: store.globalConfigURL)) as? [String: Any]
+        let settings = object?["modelSettings"] as? [String: [String: String]]
+        try require(settings?["claude-opus-5-5"]?["effortLevel"] == "xhigh", "Opus 5.5 effort must be saved per model")
+        try require(settings?["claude-sonnet-5"]?["effortLevel"] == "xhigh", "other model effort must be preserved")
+        let saved = try store.readSelection(at: store.globalConfigURL)
+        try require(saved.reasoningEffort == "xhigh", "Opus 5.5 effort must read back")
+    }
+
     private static func testClaudeModelCatalogMatchesCurrentSelector() throws {
         let models = ClaudeModelRoutingStore(projectsProvider: { [] }).loadModels()
         try require(
@@ -761,7 +820,7 @@ struct ModelRoutingStoreTests {
             models.map(\.displayName) == [
                 "Claude Code Default",
                 "Fable · Latest",
-                "Opus · Latest",
+                "Opus",
                 "Sonnet 5",
                 "Haiku 4.5",
                 "Fable 5.1",
@@ -865,6 +924,36 @@ struct ModelRoutingStoreTests {
         try store.writeProject(id: project.id, model: nil, reasoningEffort: nil)
         let inherited = store.loadSnapshot()
         try require(inherited.projects[0].inheritsEverything, "Claude project should be able to follow global")
+    }
+
+    private static func testClaudeWorktreeUsesMainCheckoutLocalSettings() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-worktree-routing-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let main = root.appendingPathComponent("main", isDirectory: true)
+        let worktree = root.appendingPathComponent("worktree", isDirectory: true)
+        let gitDirectory = main.appendingPathComponent(".git/worktrees/example", isDirectory: true)
+        let nested = worktree.appendingPathComponent("Sources", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Data("../..\n".utf8).write(to: gitDirectory.appendingPathComponent("commondir"))
+        try Data("gitdir: \(gitDirectory.path)\n".utf8).write(to: worktree.appendingPathComponent(".git"))
+
+        let project = CodexSavedProject(id: "linked-project", name: "Linked Project", rootPaths: [nested.path])
+        let store = ClaudeModelRoutingStore(claudeHomeURL: root.appendingPathComponent(".claude"),
+                                            projectsProvider: { [project] })
+        let local = main.appendingPathComponent(".claude/settings.local.json")
+        try require(store.projectConfigURL(rootPath: nested.path).standardizedFileURL == local.standardizedFileURL,
+                    "Claude worktree local settings should resolve to the main checkout")
+        try store.writeProject(id: project.id, model: "sonnet", reasoningEffort: "high", compactWindow: 500_000)
+        let saved = try store.readSelection(at: local)
+        try require(saved.model == "sonnet" && saved.reasoningEffort == "high" && saved.contextWindow == 500_000,
+                    "Claude worktree project settings should be written and read at the main checkout")
+        try require(!FileManager.default.fileExists(atPath: worktree.appendingPathComponent(".claude/settings.local.json").path),
+                    "Claude worktree settings should not be written in the linked checkout")
+        let snapshot = store.loadSnapshot()
+        try require(snapshot.projects[0].model == .value("sonnet"),
+                    "Claude worktree settings should appear as an explicit project override")
     }
 
     private static func testClaudeSharedProjectSettingsRemainUntouched() throws {
