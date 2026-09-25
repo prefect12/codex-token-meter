@@ -9,6 +9,8 @@ enum ClaudeQuotaParsingTests {
         parsesStringModelAndAlternatePercentField()
         ignoresOtherScopedModels()
         rejectsNonWeeklyFableLimits()
+        parsesAvailableResetGrant()
+        rejectsIneligibleAndExpiredResets()
 
         if failures.isEmpty {
             print("PASS: ClaudeQuotaParsing")
@@ -64,6 +66,46 @@ enum ClaudeQuotaParsingTests {
         expect(
             ClaudeScopedQuotaParser.fableWeeklyLimit(from: raw) == nil,
             "a non-weekly Fable limit must not be shown as weekly"
+        )
+    }
+
+    private static func parsesAvailableResetGrant() {
+        let now = ISO8601DateFormatter().date(from: "2026-09-25T12:00:00Z")!
+        let raw: [String: Any] = [
+            "eligible": true,
+            "grants": [[
+                "resets_left": 1,
+                "starts_at": "2026-09-22T16:00:00+00:00",
+                "ends_at": "2026-10-22T16:00:00+00:00",
+                "clears": ["five_hour", "seven_day"],
+                "usable_now": true,
+                "paused": false
+            ]]
+        ]
+        let parsed = ClaudeResetGrantParser.parse(raw, now: now)
+        expect(parsed?.availableCount == 1, "available reset count should parse")
+        expect(parsed?.clears.contains("seven_day") == true, "weekly reset scope should parse")
+        expect(parsed?.nextExpiry != nil, "grant expiry should parse")
+        expect(parsed?.usableNow == true, "usable-now flag should parse")
+    }
+
+    private static func rejectsIneligibleAndExpiredResets() {
+        let now = ISO8601DateFormatter().date(from: "2026-09-25T12:00:00Z")!
+        expect(
+            ClaudeResetGrantParser.parse(["eligible": false, "grants": []], now: now) == nil,
+            "surface-ineligible response must remain unknown"
+        )
+        let raw: [String: Any] = [
+            "eligible": true,
+            "grants": [
+                ["resets_left": 2, "ends_at": "2026-09-24T12:00:00Z"],
+                ["resets_left": 1, "paused": true],
+                ["resets_left": true]
+            ]
+        ]
+        expect(
+            ClaudeResetGrantParser.parse(raw, now: now)?.availableCount == 0,
+            "expired, paused, and malformed grants must not count"
         )
     }
 

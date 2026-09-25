@@ -965,6 +965,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self.claudeQuotaRefreshInFlight = false
                 self.scheduleClaudeQuotaRefresh()
                 self.applyClaudeLimits(claudeLimits)
+                self.detailsController.detailsView.updateResetCreditCountdownTimer()
+                self.detailsController.detailsView.onPreferredHeightChanged?()
+                self.detailsController.detailsView.needsDisplay = true
             }
         }
     }

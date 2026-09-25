@@ -1011,16 +1011,12 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     }
 
     var shouldAnimateResetCreditCountdown: Bool {
-        guard window != nil,
-              !isLoading,
-              selectedSection == .overview,
-              selectedDetailsSource == .all || selectedDetailsSource == .codex,
-              let resetCredits = snapshot?.resetCredits,
-              resetCredits.availableCount > 0,
-              resetCredits.nextExpiringAvailableCredit?.expiresAt != nil else {
-            return false
-        }
-        return true
+        guard window != nil, !isLoading, selectedSection == .overview else { return false }
+        let codex = (selectedDetailsSource == .all || selectedDetailsSource == .codex)
+            && snapshot?.resetCredits?.nextExpiringAvailableCredit?.expiresAt != nil
+        let claude = (selectedDetailsSource == .all || selectedDetailsSource == .claude)
+            && claudeResetCredits?.nextExpiringAvailableCredit?.expiresAt != nil
+        return codex || claude
     }
 
     func updateResetCreditCountdownTimer() {
@@ -1871,13 +1867,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             // Keep this in lockstep with drawOverview: source rows can grow as
             // platforms are enabled, and reset credits can wrap to another row.
             let quotaHeight = quotaRowsPreferredHeight()
-            if selectedDetailsSource == .claude {
-                targetHeight = max(840, 736 + quotaHeight)
-            } else if let snapshot {
-                targetHeight = 736 + resetCreditPanelHeight(for: snapshot) + quotaHeight
-            } else {
-                targetHeight = 736 + 88 + quotaHeight
-            }
+            targetHeight = 590 + overviewResetPanelsHeight(snapshot: snapshot, width: normalizedWidth) + quotaHeight
         case .insights:
             let heatmapHeight: CGFloat = 148
             let topOffset: CGFloat = 78
@@ -1932,7 +1922,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         case .diagnostics:
             targetHeight = 714
         case .storage:
-            if storageSnapshot != nil {
+            if selectedDetailsSource == .api {
+                targetHeight = 660
+            } else if storageSnapshot != nil {
                 let content = NSRect(x: 0, y: 28, width: contentWidth, height: 0)
                 targetHeight = storagePageLayout(content: content).totalHeight
             } else {
@@ -3370,12 +3362,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 resetCreditTooltipRows.removeAll()
                 NSGradient(starting: appBackgroundTop, ending: appBackgroundBottom)?
                     .draw(in: bounds, angle: -90)
-                drawResetCreditCountdownRow(
-                    snapshot: snapshot,
-                    content: content,
-                    y: resetRect.minY,
-                    height: resetRect.height
-                )
+                drawOverviewResetRows(snapshot: snapshot, content: content, y: resetRect.minY)
                 return
             }
         }
