@@ -330,6 +330,9 @@ func renderDetailsSnapshot(arguments: [String]) throws -> URL {
     let section = requestedDetailsSection(from: arguments)
     let source = requestedDetailsSource(from: arguments) ?? .all
     let usesDemoData = arguments.contains("--demo-data")
+    if !usesDemoData, section == .overview, source == .all || source == .claude {
+        _ = ClaudeOAuthUsageRefresher.shared.refreshIfNeeded(store: ClaudeStatuslineStore())
+    }
     var snapshot: DetailsSnapshot
     if usesDemoData {
         snapshot = DemoSnapshotFactory.detailsSnapshot(source: source)

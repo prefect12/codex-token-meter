@@ -616,9 +616,12 @@ final class ClaudeCaptureFileWatcher {
 final class ClaudeOAuthUsageRefresher {
     static let shared = ClaudeOAuthUsageRefresher()
 
-    private static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
+    private static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage?cedar_ember=1")!
+    private static let plainUsageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     private let lock = NSLock()
     private var nextAttemptAt = Date.distantPast
+    private var _resetGrants: ClaudeResetGrantSnapshot?
+    private var resetGrantsCheckedAt = Date.distantPast
     /// Floor between fetches. Below the refresh TTL so a poll landing just
     /// before the TTL elapses does not push the next real fetch a full cycle
     /// out.
@@ -631,6 +634,7 @@ final class ClaudeOAuthUsageRefresher {
         let fiveHour: ClaudeStatuslineWindow
         let sevenDay: ClaudeStatuslineWindow
         let fableSevenDay: ClaudeStatuslineWindow?
+        let resetGrants: ClaudeResetGrantSnapshot?
     }
 
     private init() {
@@ -649,7 +653,8 @@ final class ClaudeOAuthUsageRefresher {
         // until present or its absence was recently confirmed.
         if let snapshot = store.read(now: now), !snapshot.needsRefresh,
            snapshot.fiveHour != nil, snapshot.sevenDay != nil,
-           snapshot.fableSevenDay != nil || fableConfirmedAbsent(now: now) {
+           snapshot.fableSevenDay != nil || fableConfirmedAbsent(now: now),
+           resetGrantsCheckedRecently(now: now) {
             setOutcome("fresh-cache")
             return false
         }
@@ -677,6 +682,10 @@ final class ClaudeOAuthUsageRefresher {
             if windows.fableSevenDay == nil {
                 markFableAbsent(now: now)
             }
+            lock.lock()
+            _resetGrants = windows.resetGrants
+            resetGrantsCheckedAt = now
+            lock.unlock()
             setOutcome("refreshed")
             return true
         } catch {
@@ -696,6 +705,24 @@ final class ClaudeOAuthUsageRefresher {
     }
 
     private var _lastOutcome = "not-attempted"
+
+    var resetGrants: ClaudeResetGrantSnapshot? {
+        lock.lock()
+        defer { lock.unlock() }
+        let now = Date()
+        guard let snapshot = _resetGrants,
+              now.timeIntervalSince(snapshot.capturedAt) < ClaudeCaptureMerge.displayTTLSeconds else { return nil }
+        return ClaudeResetGrantSnapshot(
+            capturedAt: snapshot.capturedAt,
+            grants: snapshot.grants.filter { $0.endsAt.map { now < $0 } ?? true }
+        )
+    }
+
+    private func resetGrantsCheckedRecently(now: Date) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return now.timeIntervalSince(resetGrantsCheckedAt) < ClaudeCaptureMerge.refreshTTLSeconds
+    }
 
     private func setOutcome(_ value: String) {
         lock.lock()
@@ -1174,8 +1201,16 @@ final class ClaudeOAuthUsageRefresher {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // The extension is surfaced to recent Claude Code clients. Name both
+        // the compatible client surface and this read-only companion app.
+        request.setValue("claude-cli/2.1.282 (external, cli) ai-token-meter/0.2.27", forHTTPHeaderField: "User-Agent")
 
-        guard let result = performRequest(request) else {
+        var response = performRequest(request)
+        if response?.status == 400 {
+            request.url = Self.plainUsageURL
+            response = performRequest(request)
+        }
+        guard let result = response else {
             NSLog("AI Token Meter Claude OAuth usage fetch failed")
             return nil
         }
@@ -1192,7 +1227,8 @@ final class ClaudeOAuthUsageRefresher {
         return UsageWindows(
             fiveHour: fiveHour,
             sevenDay: sevenDay,
-            fableSevenDay: Self.parseFableScopedLimit(object["limits"])
+            fableSevenDay: Self.parseFableScopedLimit(object["limits"]),
+            resetGrants: ClaudeResetGrantParser.parse(object["cedar_ember"], now: now)
         )
     }
 

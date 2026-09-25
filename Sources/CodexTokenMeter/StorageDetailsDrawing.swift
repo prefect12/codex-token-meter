@@ -322,7 +322,7 @@ extension UsageDetailsView {
     }
 
     func layoutStorageControls() {
-        let visible = selectedSection == .storage && storageSnapshot != nil
+        let visible = selectedSection == .storage && selectedDetailsSource != .api && storageSnapshot != nil
         storageFilterPopup.isHidden = !visible
         storageSortPopup.isHidden = !visible
         storageSearchField.isHidden = !visible
@@ -405,18 +405,25 @@ extension UsageDetailsView {
     func drawStoragePage(content: NSRect) {
         let copy = AppLanguage.current.storageCopy
         if selectedDetailsSource == .api {
-            let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 136)
-            drawPanel(rect)
             let isChinese = AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese
+            let message = isChinese
+                ? "通过 Codex 运行的 API 会话保存在 rollout 文件中，物理磁盘占用归入 Codex，避免在“总和”中重复计算。API 页只负责非订阅用量和成本归属。"
+                : "API sessions run through Codex live inside rollout files. Their physical bytes stay under Codex to avoid double-counting in Total; API is the non-subscription usage and billing attribution."
+            let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = .byWordWrapping
+            paragraph.lineSpacing = 2
+            let textHeight = ceil((message as NSString).boundingRect(
+                with: NSSize(width: content.width - 32, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: font, .paragraphStyle: paragraph]
+            ).height)
+            let rect = NSRect(x: content.minX, y: content.minY + 78, width: content.width, height: 50 + textHeight + 18)
+            drawPanel(rect)
             drawText(isChinese ? "API 日志存储" : "API log storage", rect: NSRect(x: rect.minX + 16, y: rect.minY + 16, width: rect.width - 32, height: 22), font: .systemFont(ofSize: 16, weight: .bold), color: .white)
-            drawMultilineText(
-                isChinese
-                    ? "通过 Codex 运行的 API 会话保存在 rollout 文件中，物理磁盘占用归入 Codex，避免在“总和”中重复计算。API 页只负责非订阅用量和成本归属。"
-                    : "API sessions run through Codex live inside rollout files. Their physical bytes stay under Codex to avoid double-counting in Total; API is the non-subscription usage and billing attribution.",
-                rect: NSRect(x: rect.minX + 16, y: rect.minY + 50, width: rect.width - 32, height: 58),
-                font: .systemFont(ofSize: 12, weight: .medium),
-                color: NSColor.white.withAlphaComponent(0.58)
-            )
+            drawMultilineText(message,
+                rect: NSRect(x: rect.minX + 16, y: rect.minY + 50, width: rect.width - 32, height: textHeight),
+                font: font, color: NSColor.white.withAlphaComponent(0.58))
             return
         }
         guard let snap = storageSnapshot else {

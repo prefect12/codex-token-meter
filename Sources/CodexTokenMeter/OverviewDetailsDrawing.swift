@@ -64,56 +64,86 @@ final class WeeklyQuotaHoverOverlayView: NSView {
 
 extension UsageDetailsView {
     func drawOverview(snapshot: DetailsSnapshot, content: NSRect) {
-        // Reset credits are a Codex-only concept, so hide the row in the Claude view
-        // and pull the panels below it up to fill the gap.
-        let showResetCredits = selectedDetailsSource == .all || selectedDetailsSource == .codex
         let cardsY = content.minY + 78
         let cardsHeight: CGFloat = 176
         let resetY = cardsY + cardsHeight + 16
-        let resetHeight = resetCreditPanelHeight(for: snapshot)
-        let quotaY = showResetCredits ? resetY + resetHeight + 16 : resetY
+        let resetPanelsHeight = overviewResetPanelsHeight(snapshot: snapshot)
+        let quotaY = resetY + (resetPanelsHeight > 0 ? resetPanelsHeight + 16 : 0)
         // The "All" source includes a total row plus every enabled platform.
         // Keep the source panel and all following panels driven by the same
         // measured height so a newly enabled source cannot draw outside its card.
         let quotaHeight = quotaRowsPreferredHeight()
-        let modelsY = quotaY + quotaHeight + 16
-        let gridY = modelsY + 146
+        let gridY = quotaY + quotaHeight + 16
         let gridReport = calendarReport(for: snapshot)
         let gridTitle = usesProfileAPIReport(for: snapshot)
             ? "\(t(.pastYear)) · \(t(.profileAPISource))"
             : t(.pastYear)
         drawMetricCards(snapshot: snapshot, content: content)
-        if showResetCredits {
-            drawResetCreditCountdownRow(snapshot: snapshot, content: content, y: resetY, height: resetHeight)
-        }
+        drawOverviewResetRows(snapshot: snapshot, content: content, y: resetY)
         drawQuotaRows(snapshot: snapshot, content: content, y: quotaY, height: quotaHeight)
-        drawModelRows(snapshot: snapshot, content: content, y: modelsY, height: 130, maxRows: 4)
         let gridHeight = contributionGridPreferredHeight(report: gridReport, width: content.width, compact: true)
         let gridRect = NSRect(x: content.minX, y: gridY, width: content.width, height: min(gridHeight, max(168, content.maxY - gridY)))
         drawContributionGrid(report: gridReport, rect: gridRect, title: gridTitle, compact: true)
     }
 
-    func overviewResetCreditRect(snapshot: DetailsSnapshot, content: NSRect) -> NSRect? {
-        guard selectedSection == .overview,
-              selectedDetailsSource == .all || selectedDetailsSource == .codex else {
-            return nil
+    // Adapt the Claude grants for the same read-only presentation used by Codex.
+    // No reset-consumption action is exposed by this view.
+    var claudeResetCredits: RateLimitResetCreditsSnapshot? {
+        guard let grants = ClaudeOAuthUsageRefresher.shared.resetGrants else { return nil }
+        let credits = grants.grants.flatMap { grant in
+            (0..<grant.resetsLeft).map { _ in
+                RateLimitResetCredit(status: "available", grantedAt: nil,
+                                     expiresAt: grant.endsAt, expirationIsEstimated: false)
+            }
         }
-        let cardsY = content.minY + 78
-        let cardsHeight: CGFloat = 176
-        let resetY = cardsY + cardsHeight + 16
-        return NSRect(
-            x: content.minX,
-            y: resetY,
-            width: content.width,
-            height: resetCreditPanelHeight(for: snapshot)
-        )
+        return RateLimitResetCreditsSnapshot(availableCount: credits.count, totalEarnedCount: nil,
+                                             credits: credits, readAt: grants.capturedAt, source: "claude")
     }
 
-    func resetCreditPanelHeight(for snapshot: DetailsSnapshot) -> CGFloat {
-        let columns = 3
-        let availableCount = max(0, snapshot.resetCredits?.availableCount ?? 0)
-        let rowCount = max(1, (availableCount + columns - 1) / columns)
-        return 88 + CGFloat(rowCount - 1) * 52
+    func resetPanelHeight(count: Int, columns: Int) -> CGFloat {
+        88 + CGFloat(max(1, (count + columns - 1) / columns) - 1) * 52
+    }
+
+    func resetColumns(width: CGFloat) -> Int {
+        max(1, min(3, Int((width - 14) / 170)))
+    }
+
+    func overviewResetPanelsHeight(snapshot: DetailsSnapshot?, width: CGFloat? = nil) -> CGFloat {
+        let contentWidth = (width ?? bounds.width) - detailsSidebarWidth - 56
+        let codexWidth = selectedDetailsSource == .all ? (contentWidth - 12) * 0.65 : contentWidth
+        let codex = resetPanelHeight(count: snapshot?.resetCredits?.availableCount ?? 0,
+                                     columns: resetColumns(width: codexWidth))
+        let claude = resetPanelHeight(count: claudeResetCredits?.availableCount ?? 0,
+                                     columns: selectedDetailsSource == .all ? 1 : resetColumns(width: contentWidth))
+        switch selectedDetailsSource {
+        case .all: return max(codex, claude)
+        case .codex: return codex
+        case .claude: return claude
+        case .api: return 0
+        }
+    }
+
+    func overviewResetCreditRect(snapshot: DetailsSnapshot, content: NSRect) -> NSRect? {
+        guard selectedSection == .overview, selectedDetailsSource != .api else { return nil }
+        return NSRect(x: content.minX, y: content.minY + 78 + 176 + 16,
+                      width: content.width, height: overviewResetPanelsHeight(snapshot: snapshot))
+    }
+
+    func drawOverviewResetRows(snapshot: DetailsSnapshot, content: NSRect, y: CGFloat) {
+        let height = overviewResetPanelsHeight(snapshot: snapshot)
+        guard height > 0 else { return }
+        let combined = selectedDetailsSource == .all
+        let gap: CGFloat = 12
+        let codexWidth = combined ? (content.width - gap) * 0.65 : content.width
+        if combined || selectedDetailsSource == .codex {
+            let rect = NSRect(x: content.minX, y: y, width: codexWidth, height: height)
+            drawResetCreditCountdownRow(resetCredits: snapshot.resetCredits, title: "\(t(.codex)) \(t(.resetCredits))", rect: rect, columns: resetColumns(width: rect.width))
+        }
+        if combined || selectedDetailsSource == .claude {
+            let x = combined ? content.minX + codexWidth + gap : content.minX
+            let rect = NSRect(x: x, y: y, width: content.maxX - x, height: height)
+            drawResetCreditCountdownRow(resetCredits: claudeResetCredits, title: "Claude \(t(.resetCredits))", rect: rect, columns: combined ? 1 : resetColumns(width: rect.width))
+        }
     }
 
     func drawMetricCards(snapshot: DetailsSnapshot, content: NSRect) {
@@ -396,13 +426,12 @@ extension UsageDetailsView {
         return .monospacedDigitSystemFont(ofSize: size, weight: .bold)
     }
 
-    func drawResetCreditCountdownRow(snapshot: DetailsSnapshot, content: NSRect, y: CGFloat, height: CGFloat) {
-        let rect = NSRect(x: content.minX, y: y, width: content.width, height: height)
+    func drawResetCreditCountdownRow(resetCredits: RateLimitResetCreditsSnapshot?, title: String,
+                                     rect: NSRect, columns: Int) {
         drawPanel(rect)
-
-        let title = "\(t(.codex)) \(t(.resetCredits))"
-        guard let resetCredits = snapshot.resetCredits else {
-            drawText(title, rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 240, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+        let titleWidth = rect.width - 32
+        guard let resetCredits else {
+            drawText(title, rect: NSRect(x: rect.minX + 16, y: rect.minY + 12, width: titleWidth, height: 20), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
             drawText(t(.resetCreditExpiryUnavailable), rect: NSRect(x: rect.minX + 16, y: rect.minY + 42, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
             return
         }
@@ -410,8 +439,12 @@ extension UsageDetailsView {
         let count = max(0, resetCredits.availableCount)
         let countText = String(format: t(.resetCreditCountFormat), count)
         let titleText = "\(title) · \(countText)"
-        let titleRect = NSRect(x: rect.minX + 16, y: rect.minY + 12, width: 280, height: 20)
-        drawText(titleText, rect: titleRect, font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+        let titleRect = NSRect(x: rect.minX + 16, y: rect.minY + 12, width: titleWidth, height: 20)
+        var titleSize: CGFloat = 15
+        while titleSize > 11 && measuredTextWidth(titleText, font: .systemFont(ofSize: titleSize, weight: .bold)) > titleWidth {
+            titleSize -= 0.5
+        }
+        drawText(titleText, rect: titleRect, font: .systemFont(ofSize: titleSize, weight: .bold), color: .white)
 
         guard count > 0 else {
             drawText(t(.resetCreditNoCredits), rect: NSRect(x: rect.minX + 16, y: rect.minY + 42, width: rect.width - 32, height: 18), font: .systemFont(ofSize: 12, weight: .medium), color: NSColor.white.withAlphaComponent(0.48))
@@ -425,7 +458,7 @@ extension UsageDetailsView {
             return
         }
 
-        let columnCount = 3
+        let columnCount = columns
         let horizontalGap: CGFloat = 18
         let verticalGap: CGFloat = 10
         let columnH: CGFloat = 42
