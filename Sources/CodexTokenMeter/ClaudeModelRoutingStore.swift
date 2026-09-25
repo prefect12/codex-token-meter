@@ -5,6 +5,7 @@ enum ClaudeModelRoutingStoreError: LocalizedError {
     case invalidRootObject(String)
     case missingProject(String)
     case unsupportedPersistentEffort(String)
+    case invalidCompactionSetting(String)
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ enum ClaudeModelRoutingStoreError: LocalizedError {
             return "The Claude project could not be found: \(id)"
         case let .unsupportedPersistentEffort(effort):
             return "Claude effort \"\(effort)\" is session-only and cannot be saved in settings."
+        case let .invalidCompactionSetting(path):
+            return "The Claude compaction settings are invalid: \(path)"
         }
     }
 }
@@ -75,20 +78,23 @@ final class ClaudeModelRoutingStore {
                 let local = (try? readSelection(
                     at: projectConfigURL(rootPath: rootPath)
                 )) ?? CodexConfigSelection()
-                if shared.model != nil || shared.reasoningEffort != nil {
+                if shared.model != nil || shared.reasoningEffort != nil
+                    || shared.contextWindow != nil || shared.autoCompactTokenLimit != nil {
                     hasSharedProjectOverride = true
                 }
                 return CodexConfigSelection(
                     model: local.model ?? shared.model,
-                    reasoningEffort: local.reasoningEffort ?? shared.reasoningEffort
+                    reasoningEffort: local.reasoningEffort ?? shared.reasoningEffort,
+                    contextWindow: local.contextWindow ?? shared.contextWindow,
+                    autoCompactTokenLimit: local.autoCompactTokenLimit ?? shared.autoCompactTokenLimit
                 )
             }
             return CodexProjectRoutingSnapshot(
                 project: project,
                 model: mergedValue(rootSelections.map(\.model)),
                 reasoningEffort: mergedValue(rootSelections.map(\.reasoningEffort)),
-                contextWindow: .inherited,
-                autoCompactTokenLimit: .inherited,
+                contextWindow: mergedIntegerValue(rootSelections.map(\.contextWindow)),
+                autoCompactTokenLimit: mergedIntegerValue(rootSelections.map(\.autoCompactTokenLimit)),
                 planModeReasoningEffort: .inherited,
                 blocksGlobalInheritance: hasSharedProjectOverride
             )
@@ -133,7 +139,7 @@ final class ClaudeModelRoutingStore {
         return CodexProtectedRoutingState(selectionsByPath: selections)
     }
 
-    /// Restores only `model` and `effortLevel`, preserving all unrelated JSON.
+    /// Restores only the routing and compaction keys managed by Token Meter.
     @discardableResult
     func restoreProtectedRoutingState(_ state: CodexProtectedRoutingState) throws -> Bool {
         guard state.version == CodexProtectedRoutingState.currentVersion else { return false }
@@ -157,12 +163,15 @@ final class ClaudeModelRoutingStore {
         return changed
     }
 
-    func writeGlobal(model: String, reasoningEffort: String?) throws {
+    func writeGlobal(model: String, reasoningEffort: String?, compactWindow: Int? = nil, compactPercent: Int? = nil) throws {
         try validatePersistentEffort(reasoningEffort)
+        try validateCompaction(window: compactWindow, percent: compactPercent)
         try writeSelection(
             CodexConfigSelection(
-                model: model == "default" ? nil : model,
-                reasoningEffort: reasoningEffort
+                model: model.isEmpty || model == "default" ? nil : model,
+                reasoningEffort: reasoningEffort,
+                contextWindow: compactWindow,
+                autoCompactTokenLimit: compactPercent
             ),
             at: globalConfigURL
         )
@@ -171,15 +180,20 @@ final class ClaudeModelRoutingStore {
     func writeProject(
         id: String,
         model: String?,
-        reasoningEffort: String?
+        reasoningEffort: String?,
+        compactWindow: Int? = nil,
+        compactPercent: Int? = nil
     ) throws {
         try validatePersistentEffort(reasoningEffort)
+        try validateCompaction(window: compactWindow, percent: compactPercent)
         guard let project = loadProjects().first(where: { $0.id == id }) else {
             throw ClaudeModelRoutingStoreError.missingProject(id)
         }
         let selection = CodexConfigSelection(
             model: model == "default" ? nil : model,
-            reasoningEffort: reasoningEffort
+            reasoningEffort: reasoningEffort,
+            contextWindow: compactWindow,
+            autoCompactTokenLimit: compactPercent
         )
         for rootPath in project.rootPaths {
             try writeSelection(selection, at: projectConfigURL(rootPath: rootPath))
@@ -191,9 +205,22 @@ final class ClaudeModelRoutingStore {
             return CodexConfigSelection()
         }
         let object = try readObject(at: url)
+        let env = object["env"] as? [String: Any] ?? [:]
+        let model = object["model"] as? String
+        var effort = object["effortLevel"] as? String
+        if url.standardizedFileURL == globalConfigURL.standardizedFileURL,
+           let model, Self.canonicalEffortModelID(for: model) == "claude-opus-5-5" {
+            let modelSettings = object["modelSettings"] as? [String: Any]
+            let opusSettings = modelSettings?["claude-opus-5-5"] as? [String: Any]
+            // Opus 5.5 ignores the legacy top-level effortLevel in user settings.
+            effort = opusSettings?["effortLevel"] as? String
+        }
         return CodexConfigSelection(
-            model: object["model"] as? String,
-            reasoningEffort: object["effortLevel"] as? String
+            model: model,
+            reasoningEffort: effort,
+            contextWindow: Self.integer(env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"])
+                ?? Self.integer(object["autoCompactWindow"]),
+            autoCompactTokenLimit: Self.integer(env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"])
         )
     }
 
@@ -219,7 +246,7 @@ final class ClaudeModelRoutingStore {
             ),
             CodexModelOption(
                 slug: "opus",
-                displayName: "Opus · Latest",
+                displayName: "Opus",
                 description: "Use the Opus version selected by Claude Code and your provider.",
                 defaultReasoningEffort: "medium",
                 supportedReasoningEfforts: ["low", "medium", "high", "xhigh"]
@@ -298,9 +325,41 @@ final class ClaudeModelRoutingStore {
     }
 
     func projectConfigURL(rootPath: String) -> URL {
-        URL(fileURLWithPath: rootPath, isDirectory: true)
+        projectLocalSettingsRoot(rootPath: rootPath)
             .appendingPathComponent(".claude", isDirectory: true)
             .appendingPathComponent("settings.local.json")
+    }
+
+    /// Claude Code v2.1.211+ keeps project-local settings at the main checkout
+    /// root for every linked Git worktree, including sessions started below it.
+    private func projectLocalSettingsRoot(rootPath: String) -> URL {
+        let start = URL(fileURLWithPath: rootPath, isDirectory: true).standardizedFileURL
+        var directory = start
+        while true {
+            let gitEntry = directory.appendingPathComponent(".git")
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: gitEntry.path, isDirectory: &isDirectory) {
+                if isDirectory.boolValue { return directory }
+                if let contents = try? String(contentsOf: gitEntry, encoding: .utf8),
+                   let gitdir = contents.split(separator: "\n").first,
+                   gitdir.hasPrefix("gitdir: ") {
+                    let rawGitdir = String(gitdir.dropFirst("gitdir: ".count))
+                    let gitDirectory = URL(fileURLWithPath: rawGitdir,
+                        relativeTo: directory).standardizedFileURL
+                    let commonFile = gitDirectory.appendingPathComponent("commondir")
+                    if let rawCommon = try? String(contentsOf: commonFile, encoding: .utf8) {
+                        let common = URL(fileURLWithPath: rawCommon.trimmingCharacters(in: .whitespacesAndNewlines),
+                            relativeTo: gitDirectory).standardizedFileURL
+                        if common.lastPathComponent == ".git" {
+                            return common.deletingLastPathComponent()
+                        }
+                    }
+                }
+                return directory
+            }
+            if directory.path == "/" { return start }
+            directory = directory.deletingLastPathComponent().standardizedFileURL
+        }
     }
 
     func sharedProjectConfigURL(rootPath: String) -> URL {
@@ -312,7 +371,8 @@ final class ClaudeModelRoutingStore {
     static func updatedJSON(
         _ source: Data?,
         selection: CodexConfigSelection,
-        path: String = "settings.json"
+        path: String = "settings.json",
+        globalUserSettings: Bool = false
     ) throws -> Data {
         var object: [String: Any] = [:]
         if let source, !source.isEmpty {
@@ -335,8 +395,50 @@ final class ClaudeModelRoutingStore {
         }
         if let reasoningEffort = selection.reasoningEffort {
             object["effortLevel"] = reasoningEffort
-        } else {
+        } else if !globalUserSettings {
             object.removeValue(forKey: "effortLevel")
+        }
+
+        if globalUserSettings, let model = selection.model,
+           let canonical = canonicalEffortModelID(for: model) {
+            if object["modelSettings"] != nil && !(object["modelSettings"] is [String: Any]) {
+                throw ClaudeModelRoutingStoreError.invalidRootObject(path)
+            }
+            var modelSettings = object["modelSettings"] as? [String: Any] ?? [:]
+            var perModel = modelSettings[canonical] as? [String: Any] ?? [:]
+            if let reasoningEffort = selection.reasoningEffort {
+                perModel["effortLevel"] = reasoningEffort
+            } else {
+                perModel.removeValue(forKey: "effortLevel")
+            }
+            if perModel.isEmpty { modelSettings.removeValue(forKey: canonical) }
+            else { modelSettings[canonical] = perModel }
+            if !modelSettings.isEmpty { object["modelSettings"] = modelSettings }
+            else { object.removeValue(forKey: "modelSettings") }
+        }
+
+        if let window = selection.contextWindow {
+            object["autoCompactWindow"] = window
+        } else {
+            object.removeValue(forKey: "autoCompactWindow")
+        }
+
+        if object["env"] != nil && !(object["env"] is [String: Any]) {
+            throw ClaudeModelRoutingStoreError.invalidCompactionSetting(path)
+        }
+        var env = object["env"] as? [String: Any] ?? [:]
+        // Migrate the earlier Token Meter env override so /autocompact and
+        // --autocompact can control the new, ordinary settings key.
+        env.removeValue(forKey: "CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+        if let percent = selection.autoCompactTokenLimit {
+            env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = String(percent)
+        } else {
+            env.removeValue(forKey: "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")
+        }
+        if !env.isEmpty {
+            object["env"] = env
+        } else {
+            object.removeValue(forKey: "env")
         }
 
         var data = try JSONSerialization.data(
@@ -349,11 +451,15 @@ final class ClaudeModelRoutingStore {
 
     private func writeSelection(_ selection: CodexConfigSelection, at url: URL) throws {
         let exists = fileManager.fileExists(atPath: url.path)
-        if !exists, selection.model == nil, selection.reasoningEffort == nil {
+        if !exists, selection.model == nil, selection.reasoningEffort == nil,
+           selection.contextWindow == nil, selection.autoCompactTokenLimit == nil {
             return
         }
         let existing = exists ? try Data(contentsOf: url) : nil
-        let updated = try Self.updatedJSON(existing, selection: selection, path: url.path)
+        let updated = try Self.updatedJSON(
+            existing, selection: selection, path: url.path,
+            globalUserSettings: url.standardizedFileURL == globalConfigURL.standardizedFileURL
+        )
         if !exists {
             try fileManager.createDirectory(
                 at: url.deletingLastPathComponent(),
@@ -366,6 +472,35 @@ final class ClaudeModelRoutingStore {
     private func validatePersistentEffort(_ effort: String?) throws {
         guard let effort, !Self.persistentEfforts.contains(effort) else { return }
         throw ClaudeModelRoutingStoreError.unsupportedPersistentEffort(effort)
+    }
+
+    private func validateCompaction(window: Int?, percent: Int?) throws {
+        if let window, !(100_000...1_000_000).contains(window) {
+            throw ClaudeModelRoutingStoreError.invalidCompactionSetting("compact window")
+        }
+        if let percent, !(1...100).contains(percent) {
+            throw ClaudeModelRoutingStoreError.invalidCompactionSetting("compact percent")
+        }
+    }
+
+    private static func integer(_ value: Any?) -> Int? {
+        if let value = value as? String { return Int(value) }
+        if let value = value as? NSNumber { return value.intValue }
+        return nil
+    }
+
+    private static func canonicalEffortModelID(for model: String) -> String? {
+        let base = model.replacingOccurrences(of: "[1m]", with: "")
+        switch base {
+        case "opus": return "claude-opus-5-5"
+        case "sonnet": return "claude-sonnet-5"
+        case "fable": return "claude-fable-5-1"
+        default: return base.hasPrefix("claude-") ? base : nil
+        }
+    }
+
+    private func mergedIntegerValue(_ values: [Int?]) -> CodexProjectConfigValue {
+        mergedValue(values.map { $0.map(String.init) })
     }
 
     private func readObject(at url: URL) throws -> [String: Any] {
