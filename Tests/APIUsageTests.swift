@@ -106,7 +106,7 @@ struct APIUsageTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let store = CodexModelRoutingStore(codexHomeURL: root)
         try require(
-            Array(store.loadModels().prefix(3).map(\.slug)) == ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"],
+            Array(store.loadModels().prefix(3).map(\.slug)) == ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"],
             "Offline model list should offer the GPT-6 family"
         )
 
@@ -116,7 +116,7 @@ struct APIUsageTests {
         try Data(staleFixture.utf8).write(to: root.appendingPathComponent("models_cache.json"))
         let staleModels = store.loadModels()
         try require(
-            staleModels.map(\.slug) == ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol"],
+            staleModels.map(\.slug) == ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna", "gpt-5.6-sol"],
             "A stale non-empty Codex catalog should still offer each GPT-6 model once"
         )
         try require(staleModels[3].supportedReasoningEfforts == ["medium"], "Cached metadata should remain authoritative for cached models")
@@ -126,13 +126,13 @@ struct APIUsageTests {
         """
         try Data(fixture.utf8).write(to: root.appendingPathComponent("models_cache.json"))
         let liveModels = store.loadModels()
-        try require(liveModels.map(\.slug) == ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"], "Missing GPT-6 entries should be added without duplicating Astra")
+        try require(liveModels.map(\.slug) == ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"], "Missing GPT-6 entries should be added without duplicating Astra")
         try require(liveModels.first?.supportedReasoningEfforts == ["high", "ultra"], "Live Codex catalog must remain authoritative")
-        for model in ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"] {
+        for model in ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"] {
             try require(APICostEstimator.estimate(usage: usage, modelName: model).coveragePercent == 100, "GPT-6 model should use its published API rate: \(model)")
         }
-        try store.writeGlobal(CodexConfigSelection(model: "gpt-6-sol", reasoningEffort: "high"))
-        try require(store.loadSnapshot().global.model == "gpt-6-sol", "GPT-6 Sol should be selectable as a global default")
+        try store.writeGlobal(CodexConfigSelection(model: "gpt-6.1-sol", reasoningEffort: "high"))
+        try require(store.loadSnapshot().global.model == "gpt-6.1-sol", "GPT-6.1 Sol should be selectable as a global default")
         let projectConfig = root.appendingPathComponent("project/.codex/config.toml")
         try store.writeSelection(CodexConfigSelection(model: "gpt-6-luna", reasoningEffort: "high"), at: projectConfig)
         let projectSelection = try store.readSelection(at: projectConfig)
@@ -143,6 +143,7 @@ struct APIUsageTests {
     private static func testGPT6Prices() throws {
         let expected: [(String, Double)] = [
             ("gpt-6-astra", 73.5),
+            ("gpt-6.1-sol", 14.6),
             ("gpt-6-sol", 14.7),
             ("gpt-6-luna", 0.735)
         ]

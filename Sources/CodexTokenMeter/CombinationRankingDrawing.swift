@@ -80,6 +80,7 @@ extension UsageDetailsView {
                 let normalized = model.lowercased()
                 let isOpenAI56 = normalized == "gpt-5.6" || normalized.hasPrefix("gpt-5.6-")
                 let isOpenAI6 = normalized == "gpt-6-astra" || normalized == "gpt-6-astra-wm"
+                    || normalized == "gpt-6.1-sol" || normalized == "gpt-6.1-sol-wm"
                     || normalized == "gpt-6-sol" || normalized == "gpt-6-sol-wm"
                     || normalized == "gpt-6-luna" || normalized == "gpt-6-luna-wm"
                 return (isOpenAI56 || isOpenAI6) && rows.contains {

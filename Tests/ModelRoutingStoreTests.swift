@@ -187,6 +187,28 @@ struct ModelRoutingStoreTests {
         let mixedSnapshot = store.loadSnapshot()
         try require(mixedSnapshot.projects[0].hasMixedValues, "different root settings should produce a mixed project state")
 
+        try store.writeSelection(
+            CodexConfigSelection(model: "gpt-5.6-sol", reasoningEffort: "high", contextWindow: 512_000,
+                                 autoCompactTokenLimit: 307_200, planModeReasoningEffort: "low"),
+            at: store.projectConfigURL(rootPath: firstRoot.path)
+        )
+        try store.writeSelection(
+            CodexConfigSelection(model: "gpt-5.6-terra", reasoningEffort: "medium", contextWindow: 258_400,
+                                 autoCompactTokenLimit: 219_640, planModeReasoningEffort: "high"),
+            at: store.projectConfigURL(rootPath: secondRoot.path)
+        )
+        try store.clearProjectRunStrategy(id: "local-test")
+        let firstCleared = try store.readSelection(at: store.projectConfigURL(rootPath: firstRoot.path))
+        let secondCleared = try store.readSelection(at: store.projectConfigURL(rootPath: secondRoot.path))
+        try require(firstCleared.model == nil && firstCleared.reasoningEffort == nil
+                    && secondCleared.model == nil && secondCleared.reasoningEffort == nil,
+                    "clearing run strategy should remove model and effort in every root")
+        try require(firstCleared.contextWindow == 512_000 && firstCleared.autoCompactTokenLimit == 307_200
+                    && firstCleared.planModeReasoningEffort == "low"
+                    && secondCleared.contextWindow == 258_400 && secondCleared.autoCompactTokenLimit == 219_640
+                    && secondCleared.planModeReasoningEffort == "high",
+                    "clearing run strategy must preserve each root's compaction and Plan settings")
+
         try store.writeProject(id: "local-test", selection: CodexConfigSelection())
         let inheritedSnapshot = store.loadSnapshot()
         try require(inheritedSnapshot.projects[0].inheritsEverything, "following global should clear every root override")
@@ -763,6 +785,11 @@ struct ModelRoutingStoreTests {
                     && object?["autoCompactWindow"] as? Int == 500_000,
                     "Claude compaction should use the ordinary setting and preserve unrelated env values")
         try require(object?["permissions"] != nil, "Claude compaction must preserve permissions")
+        try store.clearProjectRunStrategy(id: project.id)
+        let runStrategyCleared = try store.readSelection(at: store.projectConfigURL(rootPath: projectRoot.path))
+        try require(runStrategyCleared.model == nil && runStrategyCleared.reasoningEffort == nil
+                    && runStrategyCleared.contextWindow == 500_000 && runStrategyCleared.autoCompactTokenLimit == 75,
+                    "clearing Claude model and effort must retain compaction")
         try store.writeProject(id: project.id, model: nil, reasoningEffort: nil)
         let inherited = store.loadSnapshot().projects[0]
         try require(inherited.inheritsEverything, "Claude project compaction must support global inheritance")
