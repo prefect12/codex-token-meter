@@ -255,6 +255,19 @@ final class CodexModelRoutingStore {
         }
     }
 
+    func clearProjectRunStrategy(id: String) throws {
+        guard let project = loadProjects().first(where: { $0.id == id }) else {
+            throw CodexModelRoutingStoreError.missingProject(id)
+        }
+        for rootPath in project.rootPaths {
+            let url = projectConfigURL(rootPath: rootPath)
+            var selection = try readSelection(at: url)
+            selection.model = nil
+            selection.reasoningEffort = nil
+            try writeSelection(selection, at: url)
+        }
+    }
+
     func readSelection(at url: URL) throws -> CodexConfigSelection {
         guard fileManager.fileExists(atPath: url.path) else {
             return CodexConfigSelection()
@@ -521,9 +534,9 @@ final class CodexModelRoutingStore {
             supportedReasoningEfforts: fallbackReasoningEfforts
         ),
         CodexModelOption(
-            slug: "gpt-6-sol",
-            displayName: "GPT-6-Sol",
-            description: "GPT-6 Sol Codex model.",
+            slug: "gpt-6.1-sol",
+            displayName: "GPT-6.1-Sol",
+            description: "Latest workhorse model for coding and everyday work.",
             defaultReasoningEffort: "medium",
             supportedReasoningEfforts: fallbackReasoningEfforts
         ),

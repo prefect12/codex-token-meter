@@ -381,6 +381,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
     private let refreshButton = NSButton(title: "", target: nil, action: nil)
     private let discardButton = NSButton(title: "", target: nil, action: nil)
     private let saveButton = NSButton(title: "", target: nil, action: nil)
+    private let deleteButton = NSButton(title: "", target: nil, action: nil)
 
     init(
         codexStore: CodexModelRoutingStore = CodexModelRoutingStore(),
@@ -772,7 +773,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         )
         host.addSubview(refreshButton)
 
-        for button in [discardButton, saveButton] {
+        for button in [discardButton, saveButton, deleteButton] {
             button.isBordered = true
             button.bezelStyle = .rounded
             button.controlSize = .regular
@@ -786,6 +787,16 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         discardButton.contentTintColor = NSColor.white.withAlphaComponent(0.76)
         discardButton.setAccessibilityLabel(
             localized(chinese: "放弃未保存的修改", english: "Discard unsaved changes", japanese: "未保存の変更を破棄")
+        )
+        deleteButton.target = self
+        deleteButton.action = #selector(deleteRequested)
+        deleteButton.isBordered = false
+        deleteButton.wantsLayer = true
+        deleteButton.layer?.cornerRadius = 6
+        deleteButton.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.13).cgColor
+        deleteButton.contentTintColor = NSColor.systemRed
+        deleteButton.setAccessibilityLabel(
+            localized(chinese: "删除所选项目的模型和思考强度", english: "Clear selected project's model and reasoning effort", japanese: "選択したプロジェクトのモデルと思考強度を削除")
         )
         saveButton.target = self
         saveButton.action = #selector(saveRequested)
@@ -922,6 +933,7 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         refreshButton.isHidden = !visible
         discardButton.isHidden = !visible
         saveButton.isHidden = !visible
+        deleteButton.isHidden = !visible
 
         for popup in modelPopups.values {
             popup.isHidden = true
@@ -989,6 +1001,16 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         discardButton.frame = actionRects.discard
         discardButton.isEnabled = hasUnsavedChanges
         discardButton.alphaValue = hasUnsavedChanges ? 1 : 0.42
+
+        deleteButton.title = localized(chinese: "删除配置", english: "Delete config", japanese: "設定を削除")
+        deleteButton.frame = NSRect(
+            x: layout.inspectorRect.maxX - 161,
+            y: layout.inspectorRect.minY + 8,
+            width: 143,
+            height: 38
+        )
+        deleteButton.isEnabled = selectedProject != nil
+        deleteButton.alphaValue = selectedProject == nil ? 0.42 : 1
 
         saveButton.title = hasUnsavedChanges
             ? localized(
@@ -1388,6 +1410,49 @@ final class ModelRoutingControls: NSObject, NSSearchFieldDelegate {
         draftSelections.removeAll()
         statusMessage = localized(chinese: "已放弃未保存的修改", english: "Discarded unsaved changes", japanese: "未保存の変更を破棄しました")
         statusIsError = false
+        reload()
+    }
+
+    @objc private func deleteRequested() {
+        guard let project = selectedProject else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = localized(
+            chinese: "删除“\(project.project.name)”的模型配置？",
+            english: "Clear model settings for “\(project.project.name)” ?",
+            japanese: "「\(project.project.name)」のモデル設定を削除しますか？"
+        )
+        alert.informativeText = localized(
+            chinese: "仅清除该项目的默认模型和思考强度覆盖值。上下文压缩、Plan 模式及其他设置保持不变。",
+            english: "Clears only the project's default model and reasoning effort overrides. Compaction, Plan mode, and other settings stay unchanged.",
+            japanese: "既定モデルと思考強度の上書きだけを消去します。圧縮、Plan モード、その他の設定は維持します。"
+        )
+        alert.addButton(withTitle: localized(chinese: "删除配置", english: "Delete config", japanese: "設定を削除"))
+        alert.addButton(withTitle: localized(chinese: "取消", english: "Cancel", japanese: "キャンセル"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        do {
+            switch selectedPlatform {
+            case .codex:
+                try codexStore.clearProjectRunStrategy(id: project.project.id)
+            case .claude:
+                try claudeStore.clearProjectRunStrategy(id: project.project.id)
+            }
+            if var draft = draftSelections[.project(project.project.id)] {
+                draft.model = nil
+                draft.reasoningEffort = nil
+                draftSelections[.project(project.project.id)] = draft
+            }
+            recordProtectedCodexDefaultsIfNeeded()
+            statusMessage = localized(
+                chinese: "已删除“\(project.project.name)”的模型与思考强度配置；新建聊天后生效",
+                english: "Cleared model and reasoning settings for “\(project.project.name)”; applies to new chats",
+                japanese: "「\(project.project.name)」のモデルと思考強度を削除しました。新しい会話から有効です"
+            )
+            statusIsError = false
+        } catch {
+            statusMessage = error.localizedDescription
+            statusIsError = true
+        }
         reload()
     }
 
@@ -2623,7 +2688,7 @@ extension UsageDetailsView {
             )
             return
         }
-        drawText(project.project.name, rect: NSRect(x: layout.inspectorRect.minX + 18, y: layout.inspectorRect.minY + 17, width: layout.inspectorRect.width - 168, height: 24), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
+        drawText(project.project.name, rect: NSRect(x: layout.inspectorRect.minX + 18, y: layout.inspectorRect.minY + 17, width: layout.inspectorRect.width - 195, height: 24), font: .systemFont(ofSize: 15, weight: .bold), color: .white)
         drawInspectorSection(
             title: modelRoutingLocalized(chinese: "运行策略", english: "Run strategy", japanese: "実行戦略"),
             rect: layout.runStrategyRect

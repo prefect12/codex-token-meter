@@ -17,6 +17,10 @@ enum BuiltInAPIModelRates {
         if ["gpt-6-astra", "gpt-6 astra", "gpt-6-astra-wm", "openai/gpt-6-astra"].contains(name) {
             return APIModelRate(inputPerMillionUSD: 10, cachedInputPerMillionUSD: 1, outputPerMillionUSD: 50, cacheCreationInputPerMillionUSD: 12.5)
         }
+        if ["gpt-6.1-sol", "gpt-6.1 sol", "gpt-6.1-sol-wm", "openai/gpt-6.1-sol"].contains(name) {
+            return APIModelRate(inputPerMillionUSD: 2, cachedInputPerMillionUSD: 0.1, outputPerMillionUSD: 10, cacheCreationInputPerMillionUSD: 2.5)
+        }
+        // Keep the former Sol rate for historical usage records.
         if ["gpt-6-sol", "gpt-6 sol", "gpt-6-sol-wm", "openai/gpt-6-sol"].contains(name) {
             return APIModelRate(inputPerMillionUSD: 2, cachedInputPerMillionUSD: 0.2, outputPerMillionUSD: 10, cacheCreationInputPerMillionUSD: 2.5)
         }
