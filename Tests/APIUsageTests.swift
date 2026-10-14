@@ -5,6 +5,7 @@ struct APIUsageTests {
     static func main() throws {
         try testProviderBasedPartition()
         try testScannerSeparatesSameModelByProvider()
+        try testCompressedRolloutAccounting()
         try testOpenRouterPricingCatalog()
         try testDeepSeekPrices()
         try testAstraPricingAndFallback()
@@ -65,6 +66,58 @@ struct APIUsageTests {
         }
         try require(parsed.modelCount == 1, "catalog should retain the provider model count")
         try require(rate == APIModelRate(inputPerMillionUSD: 3, cachedInputPerMillionUSD: 0.3, outputPerMillionUSD: 15, cacheCreationInputPerMillionUSD: 3.75), "per-token OpenRouter prices should convert to per-million rates")
+    }
+
+    private static func testCompressedRolloutAccounting() throws {
+        guard let executable = RolloutDataReader.zstdExecutable else {
+            throw TestFailure(message: "Compressed rollout tests require zstd")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("compressed-rollout-tests-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeRollout(root: root, name: "compressed", provider: "openai", model: "gpt-6.1-sol", total: 100)
+        let plain = root.appendingPathComponent("rollout-compressed.jsonl")
+        let archive = plain.appendingPathExtension("zst")
+        let first = try Data(contentsOf: plain)
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let second = Data("{\"timestamp\":\"\(timestamp)\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"input_tokens\":175,\"cached_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":175}}".utf8)
+        func compress(_ data: Data) throws -> Data {
+            let input = root.appendingPathComponent("frame-input")
+            let output = root.appendingPathComponent("frame-output")
+            try data.write(to: input)
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = ["--quiet", "--force", input.path, "-o", output.path]
+            try process.run()
+            process.waitUntilExit()
+            try require(process.terminationStatus == 0, "fixture compression must succeed")
+            return try Data(contentsOf: output)
+        }
+        // Codex's paginated format uses concatenated frames. Last record has no newline.
+        let ignoredMessage = Data(("{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"content\":\""
+            + String(repeating: "x", count: 1_100_000) + "\"}}\n").utf8)
+        let compressed = try compress(first + ignoredMessage) + compress(second)
+        try compressed.write(to: archive)
+        let decoded = try RolloutDataReader.read(archive)
+        try require(decoded == first + second + Data([10]), "all frames and final unterminated record must survive while a message spanning read chunks is discarded")
+        let overlapping = CodexTokenScanner(rootURL: root).scan(hours: 24)
+        try require(overlapping.usage.total == 100, "plain and compressed representations must not double count")
+        try FileManager.default.removeItem(at: plain)
+        let scanner = CodexTokenScanner(rootURL: root)
+        let events = scanner.scan(hours: 24, partition: .codex)
+        let daily = scanner.scan(days: 7, partition: .codex)
+        try require(events.usage.total == 175 && events.events == 2, "compressed cumulative counters must use deltas")
+        try require(daily.usage.total == events.usage.total, "daily cache and rolling events must agree")
+        try require(events.modelBreakdown.first?.name == "gpt-6.1-sol", "compressed model attribution must survive")
+        try require(scanner.scanRepoInsights(days: 7).rows.reduce(Int64(0), { $0 + $1.tokens }) == 175, "repository insights must include compressed tokens")
+        try require(CodexTokenScanner(rootURL: root).scan(hours: 24).usage.total == 175, "compressed disk cache must survive a new scanner")
+
+        let broken = root.appendingPathComponent("rollout-corrupt.jsonl.zst")
+        try Data("broken frame".utf8).write(to: broken)
+        let retry = CodexTokenScanner(rootURL: root)
+        try require(retry.scan(hours: 24).usage.total == 175, "corrupt archives must not invent tokens")
+        try compressed.write(to: broken)
+        try require(retry.scan(hours: 24).usage.total == 350, "a failed decode must remain retryable")
     }
 
     private static func testDeepSeekPrices() throws {

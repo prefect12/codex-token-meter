@@ -1209,7 +1209,12 @@ final class CodexTokenScanner {
             }
         }
 
-        return files.sorted { $0.path < $1.path }
+        // A migration may briefly leave both representations in place. The
+        // plain rollout is authoritative while it still exists.
+        let plainPaths = Set(files.filter { $0.pathExtension == "jsonl" }.map { RolloutDataReader.logicalPath($0) })
+        return files.filter {
+            $0.pathExtension != "zst" || !plainPaths.contains(RolloutDataReader.logicalPath($0))
+        }.sorted { $0.path < $1.path }
     }
 
     private func isExplicitAPIRoot(_ fileURL: URL) -> Bool {
@@ -1231,7 +1236,7 @@ final class CodexTokenScanner {
 
         return enumerator.compactMap { item -> URL? in
             guard let url = item as? URL else { return nil }
-            guard url.lastPathComponent.hasPrefix("rollout-"), url.pathExtension == "jsonl" else { return nil }
+            guard RolloutDataReader.isRollout(url) else { return nil }
             let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
             if let modifiedAt = values?.contentModificationDate, modifiedAt < start {
                 return nil
@@ -1241,6 +1246,13 @@ final class CodexTokenScanner {
     }
 
     private func cachedFile(_ fileURL: URL) -> FileCache {
+        // A cold migration scan can visit thousands of compressed files in one
+        // background task. Release Foundation decoding/formatting temporaries
+        // per file rather than retaining them until the entire scan finishes.
+        autoreleasepool { loadCachedFile(fileURL) }
+    }
+
+    private func loadCachedFile(_ fileURL: URL) -> FileCache {
         let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
         let modifiedAt = values?.contentModificationDate ?? .distantPast
         let size = Int64(values?.fileSize ?? 0)
@@ -1255,14 +1267,23 @@ final class CodexTokenScanner {
             return cached
         }
 
-        let parsed = parse(fileURL: fileURL)
+        let data: Data
+        do {
+            data = try RolloutDataReader.read(fileURL)
+        } catch {
+            // Never persist an empty success for an unreadable/corrupt archive.
+            fputs("Codex history read failed: \(fileURL.lastPathComponent): \(error.localizedDescription)\n", stderr)
+            return FileCache(size: size, modifiedAt: modifiedAt, events: [], turns: [], days: [],
+                             repoInsight: FileRepoInsightAggregate(cwd: nil, days: [], hours: [], reasoningRuns: []))
+        }
+        let parsed = parse(data: data)
         let file = FileCache(
             size: size,
             modifiedAt: modifiedAt,
             events: parsed.events,
             turns: parsed.turns,
             days: dayAggregates(events: parsed.events, turns: parsed.turns),
-            repoInsight: repoInsightAggregate(fileURL: fileURL)
+            repoInsight: repoInsightAggregate(data: data)
         )
         cache[key] = file
         writeDiskCache(file, fileURL: fileURL)
@@ -1411,9 +1432,13 @@ final class CodexTokenScanner {
     }
 
     private func repoInsightAggregate(fileURL: URL) -> FileRepoInsightAggregate {
-        guard let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]) else {
+        guard let data = try? RolloutDataReader.read(fileURL) else {
             return FileRepoInsightAggregate(cwd: nil, days: [], hours: [], reasoningRuns: [])
         }
+        return repoInsightAggregate(data: data)
+    }
+
+    private func repoInsightAggregate(data: Data) -> FileRepoInsightAggregate {
 
         var previousTotal = Usage()
         var dayBuckets: [String: FileRepoInsightDayAggregate] = [:]
@@ -1762,11 +1787,7 @@ final class CodexTokenScanner {
         return key
     }
 
-    private func parse(fileURL: URL) -> (events: [TokenEvent], turns: [Date]) {
-        guard let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]) else {
-            return ([], [])
-        }
-
+    private func parse(data: Data) -> (events: [TokenEvent], turns: [Date]) {
         var previousTotal = Usage()
         var events: [TokenEvent] = []
         var turns: [Date] = []
