@@ -209,3 +209,39 @@ Recommended rules:
 4. Keep parser/cost/accounting changes covered by CLI `--print` checks.
 5. Keep UI-only work in view files and verify with `--render-dashboard`.
 6. Do not combine large structural refactors with feature work.
+
+## Aiberm provider billing
+
+`AibermBilling.swift` reads the existing Claude Code Aiberm configuration, falling
+back to the applied Claude Desktop 3p profile. It only accepts HTTPS
+`aiberm.com` / `aiberm.org` and never follows redirects or borrows browser cookies.
+The API key is used for read-only `/api/usage/token/`; public `/api/status`
+provides the quota-to-USD conversion. Unlimited key quota is not wallet balance.
+
+The independent **API Billing** page shows key lifetime charges and optional
+account balance / lifetime request count. Account connection validates a console
+system access token and user ID using `/api/user/self` before saving it in macOS
+Keychain. Background Keychain reads cannot prompt. Local
+`aiberm-billing.json` contains only normalized counters, sampling time, host, and
+credential fingerprints (mode 0600). Failed refreshes preserve the last successful
+reading; key changes/disconnection invalidate mismatched readings. Neither these
+counters nor account-level amounts are added to local token-price estimates.
+
+The app refreshes billing every 60 seconds. **Aiberm account balance** is also an
+option for either existing menu-bar number. It shows `$99.98` for an authorized
+fresh balance, `~$99.98` for a cached/failed reading, and `A$—` when account balance
+is unavailable. The tooltip names Aiberm, the timestamp, and connection/cache state.
+
+Verification:
+
+```sh
+swiftc -parse-as-library Sources/CodexTokenMeter/AibermBilling.swift Tests/AibermBillingTests.swift -o /tmp/aiberm-tests
+/tmp/aiberm-tests
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --refresh-aiberm-billing
+"./build/AI Token Meter.app/Contents/MacOS/CodexTokenMeter" --render-details=/tmp/aiberm-billing.png --section=billing
+```
+
+Rendering uses cached billing only; `--demo-data` is a synthetic authorized-wallet
+fixture, never live balance evidence. `--use-aiberm-menu-balance` replaces Claude
+menu-bar slots with the wallet metric, preserving any Codex slot. It is an explicit
+local preference command, not an automatic migration for other users.

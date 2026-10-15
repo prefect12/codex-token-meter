@@ -226,6 +226,7 @@ enum DetailsSection: CaseIterable {
     case insights
     case costs
     case storage
+    case billing
     case modelRouting
     case settings
     case diagnostics
@@ -258,6 +259,7 @@ enum DetailsSection: CaseIterable {
         case .modelRouting:
             if AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese { return "项目配置" }
             return AppLanguage.current == .japanese ? "プロジェクト設定" : "Project Configuration"
+        case .billing: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "API 账单" : "API Billing"
         case .calendar: return t(.calendar)
         case .costs: return t(.costs)
         case .storage: return AppLanguage.current.storageCopy.sidebarTitle
@@ -285,6 +287,7 @@ enum DetailsSection: CaseIterable {
             return AppLanguage.current == .japanese
                 ? "プロジェクトごとの実行戦略、コンテキスト圧縮、Plan 既定値を管理"
                 : "Manage per-project run strategy, context compaction, and Plan defaults"
+        case .billing: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "Aiberm 实扣、账户余额与 API key 额度" : "Aiberm charges, wallet balance, and API key budget"
         case .calendar: return t(.calendarSubtitle)
         case .costs: return t(.costsSubtitle)
         case .storage: return AppLanguage.current.storageCopy.headerSubtitle
@@ -313,7 +316,7 @@ enum DetailsSection: CaseIterable {
 
     var canRenderWithoutSnapshot: Bool {
         switch self {
-        case .settings, .about, .storage, .modelRouting:
+        case .settings, .about, .storage, .modelRouting, .billing:
             return true
         default:
             return false
@@ -714,6 +717,9 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
                 hoveredStorageCellKey = nil
                 hoveredStorageSourceID = nil
             }
+            if selectedSection == .billing, !usesDemoData, !CommandLine.arguments.contains(where: { $0.hasPrefix("--render-details=") }) {
+                AibermBillingStore.shared.refresh()
+            }
             if selectedSection == .storage {
                 requestStorageScanIfNeeded()
             }
@@ -726,6 +732,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             needsLayout = true
         }
     }
+    let billingView = AibermBillingView(frame: .zero)
     var resetCreditCountdownTimer: Timer?
     var isResetCreditCountdownOnlyInvalidationPending = false
     var hoveredResetCreditIndex: Int?
@@ -1123,7 +1130,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         switch selectedSection {
         case .overview, .models, .calendar, .hours, .costs, .reasoning, .combinationRanking, .diagnostics, .storage:
             return true
-        case .insights, .modelRouting, .settings, .about:
+        case .insights, .modelRouting, .settings, .about, .billing:
             return false
         }
     }
@@ -1224,15 +1231,21 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupControls()
+        addSubview(billingView)
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupControls()
+        addSubview(billingView)
     }
 
     override func layout() {
         super.layout()
+        let billingContent = sectionContent(for: .billing, in: bounds, sidebarWidth: detailsSidebarWidth)
+        billingView.isHidden = selectedSection != .billing
+        billingView.frame = NSRect(x: billingContent.minX, y: billingContent.minY + 78, width: billingContent.width, height: 584)
+        billingView.needsLayout = true
         contributionWeekHoverOverlay.frame = bounds
         layoutCostControls()
         layoutSettingsControls()
@@ -1919,6 +1932,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             } else {
                 targetHeight = topOffset + 150 + sectionGap + 96 + sectionGap + fiveHourPanelHeight + bottomPadding
             }
+        case .billing:
+            targetHeight = 720
         case .diagnostics:
             targetHeight = 714
         case .storage:
@@ -3452,6 +3467,8 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawDetailsSourceSelector(content: content, width: sourceSelectorWidth)
         }
 
+        if selectedSection == .billing { return }
+
         if selectedSection == .storage {
             drawStoragePage(content: content)
             drawStorageGrowthTooltip(container: content)
@@ -3497,7 +3514,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
             drawSettingsPage(content: content)
         case .diagnostics:
             drawDiagnosticsPage(snapshot: snapshot, content: content)
-        case .storage:
+        case .storage, .billing:
             break
         case .about:
             drawAboutPage(content: content)
@@ -3679,7 +3696,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
 
     var sidebarNavigationGroups: [(title: String, sections: [DetailsSection])] {
         [
-            (sidebarGroupTitle(chinese: "用量", traditionalChinese: "用量", english: "Usage", japanese: "使用量"), [.overview, .hours, .calendar, .models]),
+            (sidebarGroupTitle(chinese: "用量", traditionalChinese: "用量", english: "Usage", japanese: "使用量"), [.overview, .hours, .calendar, .models, .billing]),
             (sidebarGroupTitle(chinese: "分析", traditionalChinese: "分析", english: "Analysis", japanese: "分析"), [.reasoning, .storage]),
             (sidebarGroupTitle(chinese: "偏好设置", traditionalChinese: "偏好設定", english: "Preferences", japanese: "環境設定"), [.modelRouting, .settings, .diagnostics, .about])
         ]
@@ -3705,6 +3722,7 @@ final class UsageDetailsView: NSView, NSTextFieldDelegate, NSSearchFieldDelegate
         case .costs: return "clock.arrow.circlepath"
         case .models: return "cpu"
         case .modelRouting: return "switch.2"
+        case .billing: return "creditcard"
         case .storage: return "internaldrive"
         case .settings: return "gearshape"
         case .diagnostics: return "stethoscope"

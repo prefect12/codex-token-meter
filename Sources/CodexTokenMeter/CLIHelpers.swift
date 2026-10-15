@@ -105,6 +105,7 @@ func requestedDetailsSection(from arguments: [String]) -> DetailsSection {
     case "costs": return .costs
     case "models": return .models
     case "model-defaults", "model_defaults", "model-routing", "model_routing": return .modelRouting
+    case "billing", "api-billing": return .billing
     case "storage": return .storage
     case "settings": return .settings
     case "diagnostics": return .diagnostics
@@ -325,6 +326,23 @@ func renderDashboardSnapshot(arguments: [String]) throws -> URL {
 }
 
 func renderDetailsSnapshot(arguments: [String]) throws -> URL {
+    if requestedDetailsSection(from: arguments) == .billing {
+        let outputPath = arguments.first { $0.hasPrefix("--render-details=") }.map { String($0.dropFirst("--render-details=".count)) } ?? "/tmp/aiberm-billing.png"
+        let width = arguments.first { $0.hasPrefix("--render-width=") }.flatMap { Double($0.dropFirst("--render-width=".count)) } ?? 1280
+        let view = UsageDetailsView(frame: NSRect(x: 0, y: 0, width: width, height: 760))
+        view.usesDemoData = arguments.contains("--demo-data")
+        if view.usesDemoData {
+            let date = Date()
+            view.billingView.demoCache = AibermBillingCache(
+                key: AibermBillingSnapshot(fingerprint: "demo", fetchedAt: date, host: "aiberm.com", spentUSD: 0.018832, remainingUSD: nil, unlimited: true, requestCount: nil, expiresAt: nil),
+                account: AibermBillingSnapshot(fingerprint: "demo-account", fetchedAt: date, host: "aiberm.com", spentUSD: 0.018832, remainingUSD: 99.981168, unlimited: false, requestCount: 16, expiresAt: nil))
+        }
+        view.selectedSection = .billing
+        view.layoutSubtreeIfNeeded()
+        let output = URL(fileURLWithPath: outputPath)
+        try writePNG(of: view, to: output)
+        return output
+    }
     let scanner = CodexTokenScanner(rootURLs: AppSettings.logFolderURLs)
     let claudeScanner = ClaudeTokenScanner(rootURLs: AppSettings.claudeLogFolderURLs)
     let section = requestedDetailsSection(from: arguments)

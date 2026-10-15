@@ -5,6 +5,43 @@ import UserNotifications
 
 // MARK: - Command Line Entrypoints
 
+if CommandLine.arguments.contains("--use-aiberm-menu-balance") {
+    let claudeMetrics: Set<StatusBarMetric> = [.claudeFiveHour, .claudeWeekly, .fableWeekly]
+    if claudeMetrics.contains(AppSettings.statusBarPrimaryMetric) { AppSettings.statusBarPrimaryMetric = .aibermBalance }
+    if let secondary = AppSettings.statusBarSecondaryMetric, claudeMetrics.contains(secondary) { AppSettings.statusBarSecondaryMetric = .aibermBalance }
+    if !AppSettings.statusBarMetrics.contains(.aibermBalance) { AppSettings.statusBarSecondaryMetric = .aibermBalance }
+    if AppSettings.statusBarPrimaryMetric == .aibermBalance && AppSettings.statusBarSecondaryMetric == .aibermBalance { AppSettings.statusBarSecondaryMetric = nil }
+    print("Menu bar metrics: " + AppSettings.statusBarMetrics.map(\.rawValue).joined(separator: ", "))
+    exit(0)
+}
+
+// Read-only provider diagnostics. No model inference calls and no credentials in output.
+if CommandLine.arguments.contains("--refresh-aiberm-billing") {
+    var cache = AibermBillingCache()
+    var errors: [String: String] = [:]
+    for (scope, credential) in [("key", AibermCredential.discover()), ("account", AibermAccountKeychain.read())] {
+        guard let credential else { errors[scope] = "not_configured"; continue }
+        do {
+            let snapshot = try AibermBillingClient().fetch(credential)
+            if scope == "key" { cache.key = snapshot } else { cache.account = snapshot }
+        } catch { errors[scope] = (error as? AibermBillingError)?.rawValue ?? "network" }
+    }
+    // Preserve a last successful reading on transient failure, but bind it to the current credential.
+    if let data = try? Data(contentsOf: AibermBillingStore.cacheURL),
+       let old = try? JSONDecoder().decode(AibermBillingCache.self, from: data) {
+        let matched = old.matching(key: AibermCredential.discover(), account: AibermAccountKeychain.read())
+        if cache.key == nil { cache.key = matched.key }
+        if cache.account == nil { cache.account = matched.account }
+    }
+    try? AibermBillingStore.persist(cache)
+    let payload: [String: Any] = ["key_spent_usd": cache.key?.spentUSD as Any? ?? NSNull(),
+        "key_unlimited": cache.key?.unlimited as Any? ?? NSNull(),
+        "account_balance_usd": cache.account?.remainingUSD as Any? ?? NSNull(), "errors": errors]
+    if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+       let text = String(data: data, encoding: .utf8) { print(text) }
+    exit(errors["key"] == nil || errors["account"] == nil ? 0 : 1)
+}
+
 if let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--export-machine-report=") }) {
     let rawPath = String(argument.dropFirst("--export-machine-report=".count))
     guard !rawPath.isEmpty else {

@@ -168,6 +168,7 @@ enum StatusBarMetric: String, CaseIterable {
     case claudeFiveHour
     case claudeWeekly
     case fableWeekly
+    case aibermBalance
 
     var title: String {
         switch self {
@@ -176,11 +177,13 @@ enum StatusBarMetric: String, CaseIterable {
         case .claudeFiveHour: return t(.statusClaudeFiveHour)
         case .claudeWeekly: return t(.statusClaudeWeekly)
         case .fableWeekly: return t(.statusFableWeekly)
+        case .aibermBalance: return AppLanguage.current == .chinese || AppLanguage.current == .traditionalChinese ? "Aiberm 账户余额" : "Aiberm account balance"
         }
     }
 
     var source: QuotaViewOption {
         switch self {
+        case .aibermBalance: return .api
         case .codexFiveHour, .codexWeekly:
             return .codex
         case .claudeFiveHour, .claudeWeekly, .fableWeekly:
@@ -188,8 +191,9 @@ enum StatusBarMetric: String, CaseIterable {
         }
     }
 
-    var quotaMetric: HomeQuotaRingMetric {
+    var quotaMetric: HomeQuotaRingMetric? {
         switch self {
+        case .aibermBalance: return nil
         case .codexFiveHour, .claudeFiveHour:
             return .fiveHour
         case .codexWeekly, .claudeWeekly, .fableWeekly:
