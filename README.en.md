@@ -171,7 +171,7 @@ Example external API cost file:
 
 If OpenAI resets or refreshes your quota during a week, the live weekly percentage follows the new `usedPercent`, so the menu bar and weekly quota ring may suddenly show more remaining quota. Local token logs are not cleared. The cost page records observed weekly-percentage drops and keeps the highest weekly percentage seen for historical weeks so past estimated value is not overwritten by a later low live percentage. This is still a local observation-based estimate, not an official billing export.
 
-If you run work through Codex CLI or the Codex app with API-based authentication, local token usage can still be counted as long as Codex continues writing local `rollout-*.jsonl` logs. ChatGPT subscription quota requires a local ChatGPT login in one of the configured Codex homes; API-key-only homes do not expose that subscription quota. Direct OpenAI API calls that bypass the local Codex client can be represented through the optional local `api-usage.json` file; the app does not call billing APIs itself.
+If you run work through Codex CLI or the Codex app with API-based authentication, local token usage can still be counted as long as Codex continues writing local `rollout-*.jsonl` logs. ChatGPT subscription quota requires a local ChatGPT login in one of the configured Codex homes; API-key-only homes do not expose that subscription quota. Direct OpenAI API calls that bypass the local Codex client can be represented through the optional local `api-usage.json` file; this path does not call OpenAI billing APIs. The separate API Billing page can read Aiberm provider charges and, after account connection, show the wallet balance as a menu bar metric.
 
 ## Recent Updates
 
@@ -241,6 +241,8 @@ $CODEX_HOME/archived_sessions
 ```
 
 Those files are used locally on your Mac. The app does not upload session logs. For upgrade compatibility, the App Support folder name remains `Codex Token Meter`. It makes read-only requests to `https://status.openai.com/api/v2/summary.json` for the Codex status chip and to normal `https://chatgpt.com/backend-api/wham/` usage endpoints for live quota, Profile totals, and reset credits. It reads the existing local ChatGPT access token only to authenticate those requests and never starts a Codex runtime for polling.
+
+Aiberm billing makes read-only requests to `aiberm.com` / `aiberm.org`, using the API key from existing Claude configuration. Optional system access tokens carry account API permissions, not a read-only scope; this app uses them only to read the balance and request count, validates them before saving to this Mac's Keychain, and never includes them in the billing cache. Wallet balance, key budget, and local cost estimates remain separate.
 
 ## Build
 

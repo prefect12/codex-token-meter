@@ -31,6 +31,7 @@ private struct ModelRangeReports {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+    private var aibermBillingObserver: NSObjectProtocol?
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let dashboardController = DashboardViewController()
@@ -106,6 +107,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         selectedWindow = .day
         OpenRouterPricingCatalog.shared.refreshIfNeeded()
+        aibermBillingObserver = NotificationCenter.default.addObserver(forName: AibermBillingStore.updated, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.updateStatusTitle(report: self.latestState.report, limits: self.liveLimits, quota: self.selectedQuota)
+        }
+        AibermBillingStore.shared.start()
         if let rawQuota = UserDefaults.standard.string(forKey: "selectedQuotaView"),
            let quota = QuotaViewOption.option(from: rawQuota),
            QuotaViewOption.visibleSelectorOptions.contains(quota) {
@@ -213,6 +219,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         RunLoop.main.add(timer, forMode: .common)
         refreshClaudeQuota()
         startClaudeCaptureWatcher()
+        if CommandLine.arguments.contains("--open-details=billing") {
+            detailsController.detailsView.showSection(.billing)
+            DispatchQueue.main.async { [weak self] in
+                self?.openDetailsWindow()
+            }
+        }
         if CommandLine.arguments.contains("--open-details=models") {
             detailsController.detailsView.showSection(.models)
             DispatchQueue.main.async { [weak self] in
@@ -1224,6 +1236,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let title = statusTitle(metrics: metrics, limits: limits)
         let pending = latestState.isLoading || statusValueIsPending(metrics: metrics, limits: limits)
         button.title = title ?? "--"
+        if metrics.contains(.aibermBalance) {
+            let store = AibermBillingStore.shared
+            let balance = AibermBalancePresentation(snapshot: store.cache.account, failed: store.accountError != nil)
+            button.toolTip = balance.tooltip
+        } else { button.toolTip = "AI Token Meter" }
         setStatusLoading(pending)
     }
 
@@ -1234,6 +1251,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func statusMetricText(_ metric: StatusBarMetric, limits: [LiveRateLimit]) -> String? {
+        if metric == .aibermBalance {
+            let store = AibermBillingStore.shared
+            return AibermBalancePresentation(snapshot: store.cache.account, failed: store.accountError != nil).title
+        }
         let limit = limits.first { $0.id == metric.liveLimitID }
         let text: String?
         switch metric.quotaMetric {
@@ -1241,6 +1262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             text = statusPercentText(limit?.primary?.remainingPercent, source: metric.source)
         case .weekly:
             text = statusPercentText(limit?.secondary?.remainingPercent, source: metric.source)
+        case nil: text = nil
         }
         guard let text else { return nil }
         return text

@@ -5,7 +5,7 @@
 - **AI Token Meter**：汇总 token、缓存、模型、额度周期、API 等价成本和本地磁盘占用。
 - **Task Bar**：集中显示正在运行、等待输入、已完成未读的 AI 编程任务，并快速回到原任务。
 
-应用只读取本机日志、数据库和已有登录状态，不上传会话内容，也不需要把 API Key 交给应用。
+应用从本机日志、数据库和已有登录状态统计用量，不上传会话内容。可选的 Aiberm 账单功能使用已有 API 配置和用户授权读取平台余额。
 
 [普通用户安装教程](docs/INSTALL.zh-CN.md) · [中文详细说明](README.zh-CN.md) · [English](README.en.md) · [下载最新版](https://github.com/prefect12/codex-token-meter/releases/latest)
 
@@ -13,7 +13,7 @@
 
 | App | 当前源码版本 | 主要用途 | 安装位置 |
 | --- | --- | --- | --- |
-| AI Token Meter | `0.2.28 (42)` | 用量、额度、模型、成本、空间与配置 | `/Applications/AI Token Meter.app` |
+| AI Token Meter | `0.2.29 (43)` | 用量、额度、模型、成本、空间与配置 | `/Applications/AI Token Meter.app` |
 | Task Bar | `0.1.22 (23)` | 多来源任务收件箱与快速跳转 | `/Applications/Task Bar.app` |
 
 > `main` 可能领先于最近一次 GitHub Release。版本号来自当前源码的 bundle 元数据；下载页显示的是最近一次正式发布包。
@@ -239,6 +239,14 @@ $CODEX_HOME/archived_sessions/**/rollout-*.jsonl
 
 模型价格优先使用内置规则与 OpenRouter 公共 Models API。应用只缓存模型 ID 和价格，不向 OpenRouter 发送提示词、回复内容或 API Key。
 
+### Aiberm 实际账单与菜单栏余额
+
+在详情侧栏打开「API 账单」，可查看 Claude Code / Claude App 已配置 Aiberm key 的累计实际扣费。账户钱包余额需要单独点击「连接账户」，填写控制台个人设置中的用户 ID 和系统访问令牌。系统访问令牌具有账户 API 权限，并非只读专用；本应用只用它读取余额与累计请求数，验证后保存到 macOS 钥匙串。
+
+在设置的菜单栏指标中选择「Aiberm 余额」，即可用美元余额替换 Claude 百分比并保留 Codex 指标。数据每 60 秒刷新；未连接账户时显示 `A$—`，刷新失败或数据过期时用 `~` 标记上次余额。
+
+账户余额、API key 配额和 key 累计扣费分别展示。共用 key 的扣费包含所有设备，不能视作本机或今日费用；实际账单与本地 token 价格估算独立，不重复相加。
+
 ### Task Bar 读取
 
 ```text
@@ -253,7 +261,8 @@ OpenCode / OpenChamber: ~/.local/share/opencode/opencode.db
 ## 隐私
 
 - 不上传 Codex、Claude 或 OpenCode 会话内容。
-- 不读取或保存第三方 API Key。
+- Aiberm 账单从已有 Claude Code / Claude App 配置读取 API key，仅用于向 Aiberm 认证只读账单请求；不会复制到缓存或日志。
+- 可选的 Aiberm 账户访问令牌经验证后仅存入本机 macOS 钥匙串；普通缓存只保存金额、时间和凭据指纹。
 - 不在后台启动 Codex 进程获取额度。
 - 本地缓存只保存聚合结果、额度快照、价格目录和设置。
 - README 截图通过 `--demo-data` 生成；Token、额度、成本、日期、会话、项目与路径均来自内置演示数据，不读取截图作者的真实统计。
@@ -302,7 +311,7 @@ OpenCode / OpenChamber: ~/.local/share/opencode/opencode.db
 当前源码元数据对应的输出文件名：
 
 ```text
-dist/AI-Token-Meter-0.2.28.dmg
+dist/AI-Token-Meter-0.2.29.dmg
 dist/Task-Bar-0.1.22.dmg
 ```
 

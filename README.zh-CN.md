@@ -173,7 +173,7 @@ AI Token Meter 使用本机数据源：
 
 如果一周内 OpenAI 重置或刷新了额度，实时周比例会按新的 `usedPercent` 更新，所以状态栏和周额度圆环可能会突然显示更多剩余额度。本地 token 日志不会被清零；金额页会记录观察到的周使用比例下降，并保留历史周见过的最大周使用比例，避免历史金额在重置后被当前低比例冲掉。这个处理仍然是本地观测估算，不等同于官方账单导出。
 
-如果通过 Codex CLI 或 Codex app 使用 API 登录状态启动任务，只要 Codex 仍然写入本地 `rollout-*.jsonl` 日志，本地 token 用量就可以继续统计；ChatGPT 订阅额度需要配置的 Codex home 中存在本机 ChatGPT 登录，只有 API key 的 home 不提供该订阅额度。如果直接调用 OpenAI API 而不经过本机 Codex 客户端，可以通过可选的本地 `api-usage.json` 表示；应用本身不会主动调用账单 API。
+如果通过 Codex CLI 或 Codex app 使用 API 登录状态启动任务，只要 Codex 仍然写入本地 `rollout-*.jsonl` 日志，本地 token 用量就可以继续统计；ChatGPT 订阅额度需要配置的 Codex home 中存在本机 ChatGPT 登录，只有 API key 的 home 不提供该订阅额度。如果直接调用 OpenAI API 而不经过本机 Codex 客户端，可以通过可选的本地 `api-usage.json` 表示；这部分不会主动调用 OpenAI 账单 API。另可在「API 账单」页读取 Aiberm 实际扣费，连接账户后显示钱包余额并将其设为菜单栏指标。
 
 ## 最近更新
 
@@ -243,6 +243,8 @@ $CODEX_HOME/archived_sessions
 ```
 
 这些数据只在本机使用。应用不会上传会话日志。为了兼容旧版本，App Support 目录名仍保留为 `Codex Token Meter`。应用会只读请求 `https://status.openai.com/api/v2/summary.json` 展示 Codex 状态，并请求正常的 `https://chatgpt.com/backend-api/wham/` 用量接口读取实时额度、Profile 汇总和 reset credits。应用只用现有本机 ChatGPT access token 验证这些请求，不会为轮询启动 Codex 运行时。
+
+Aiberm 账单功能只向 `aiberm.com` / `aiberm.org` 发起只读请求，使用已有 Claude 配置中的 API key。可选账户系统访问令牌具备账户 API 权限，并非只读专用；本应用只用它读取余额和累计请求数，验证后保存在本机 macOS 钥匙串。缓存不包含密钥或访问令牌。账户余额、key 配额与本地估算分别展示。
 
 ## 构建与源码安装（开发者）
 
