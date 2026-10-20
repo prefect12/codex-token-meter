@@ -1635,7 +1635,8 @@ enum AppSettings {
     }
 
     static var claudeLogFolderURLs: [URL] {
-        uniqueDirectoryURLs(environmentClaudeProjectsURLs + [xdgClaudeProjectsURL, defaultClaudeProjectsURL])
+        let remote = USRelayHours.isConfigured ? [USRelayHours.usageURL] : []
+        return uniqueDirectoryURLs(environmentClaudeProjectsURLs + [xdgClaudeProjectsURL, defaultClaudeProjectsURL] + remote)
     }
 
     static var claudeLogFolderDisplayPath: String {

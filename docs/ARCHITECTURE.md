@@ -1,5 +1,41 @@
 # Architecture Notes
 
+## Optional US VPS relay
+
+When `~/Library/Application Support/Claude VPS Relay/policy.json` exists, the app
+adds a colored New York clock (`NY HH:mm`) to the menu bar and schedule row to the dashboard. The
+approved window is Monday-Friday 09:00 inclusive to 18:00 exclusive, using
+`America/New_York` for daylight saving. Missing relay configuration keeps existing
+behavior; malformed configuration is gray and never appears open.
+
+The relay's SSH accounting sync writes usage-only Claude JSONL under its `usage/`
+directory and normalized quota windows to `quota-capture.json`. Assistant records
+contain only timestamps, hashed session/message IDs, model IDs and token counters;
+user records contain only timestamps and hashed IDs for turn counting. No prompts,
+responses, source files, original project paths or OAuth credentials are copied.
+The existing Claude scanner reads this additional source, retaining local history.
+Cache creation totals and split counters are canonicalized by the exporter so a
+single write is never counted twice.
+
+In this mode the app reads Claude quota only from the VPS snapshot, disables its
+local Claude OAuth refresh and local Claude service-status request, and does not
+borrow local credentials as a fallback. Unknown remote quota stays unavailable;
+old quota keeps the existing stale marker. The SSH synchronizer can download
+accounting and refresh remote quota at any hour. Policy version 2 uses
+`outside_hours_mode: warn`: the colored schedule and terminal messages are
+reminders only, so outside-hours calls remain available and sessions are not
+terminated at 18:00. Existing local model-routing
+settings still describe local configuration; remote model choices belong to the
+VPS Claude Code session.
+
+Read-only verification: `CodexTokenMeter --print-us-relay`. This reads local
+accounting snapshots and never contacts a model or queries credentials.
+`--use-claude-menu-quota` replaces an Aiberm menu slot with Claude's five-hour
+remaining quota, preserving an existing Codex slot. It changes only local display
+preferences; the quota itself continues to come from the VPS snapshot.
+`--open-dashboard` opens the installed app's actual popover for manual inspection;
+it uses the normal status-button flow and does not substitute demo data.
+
 ## Current Assessment
 
 The app is a small native macOS menu bar utility built directly with `swiftc`. Source is split by responsibility under `Sources/CodexTokenMeter`, while `main.swift` remains the only file with top-level command-line and `NSApplication` startup code.

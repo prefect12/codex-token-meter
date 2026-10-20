@@ -327,9 +327,16 @@ final class ClaudeStatuslineStore {
         self.url = url
     }
 
-    var path: String { url.path }
+    var path: String {
+        (USRelayHours.isConfigured && url == AppSettings.claudeStatuslineCaptureURL ? USRelayHours.quotaURL : url).path
+    }
 
     func read(now: Date = Date()) -> ClaudeStatuslineSnapshot? {
+        if USRelayHours.isConfigured, url == AppSettings.claudeStatuslineCaptureURL {
+            guard let data = try? Data(contentsOf: USRelayHours.quotaURL),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+            return parseCapture(object, now: now)
+        }
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return readLegacyMonitorCapture(now: now)
@@ -647,6 +654,12 @@ final class ClaudeOAuthUsageRefresher {
 
     @discardableResult
     func refreshIfNeeded(store: ClaudeStatuslineStore, now: Date = Date()) -> Bool {
+        // The VPS owns OAuth credentials and all Claude network requests in relay mode.
+        // A separate SSH sync downloads only normalized accounting, never credentials.
+        if USRelayHours.isConfigured {
+            setOutcome("us-vps-relay")
+            return false
+        }
         // Skipping a fetch requires a recent *server* confirmation. Statusline
         // writes keep the file's own timestamp fresh without ever proving the
         // numbers are current, so they must not gate this. Fable is fetched
@@ -1394,6 +1407,9 @@ final class CodexServiceStatusReader {
     }
 
     func read(timeout: TimeInterval = 12) -> CodexServiceStatusSnapshot? {
+        if USRelayHours.isConfigured, summaryURL.host == "status.claude.com" {
+            return nil // No direct Claude requests from the client in VPS relay mode.
+        }
         guard let data = fetch(url: summaryURL, timeout: timeout) else {
             return nil
         }

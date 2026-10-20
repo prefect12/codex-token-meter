@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var serviceStatus: CodexServiceStatusSnapshot?
     private var claudeServiceStatus: CodexServiceStatusSnapshot?
     private var refreshTimer: Timer?
+    private var usRelayHoursTimer: Timer?
     private var liveRefreshTimer: Timer?
     private var claudeQuotaTimer: Timer?
     private var claudeQuotaRefreshInFlight = false
@@ -127,6 +128,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.delegate = self
         configureStatusButton()
+        let hoursTimer = Timer(timeInterval: 15, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.updateStatusTitle(report: self.latestState.report, limits: self.liveLimits, quota: self.selectedQuota)
+            self.dashboardController.dashboardView.refreshUSRelayHours()
+        }
+        usRelayHoursTimer = hoursTimer
+        RunLoop.main.add(hoursTimer, forMode: .common)
 
         dashboardController.dashboardView.onWindowChanged = { [weak self] option in self?.selectWindow(option) }
         dashboardController.dashboardView.onQuotaChanged = { [weak self] option in self?.selectQuota(option) }
@@ -219,6 +227,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         RunLoop.main.add(timer, forMode: .common)
         refreshClaudeQuota()
         startClaudeCaptureWatcher()
+        if CommandLine.arguments.contains("--open-dashboard") {
+            DispatchQueue.main.async { [weak self] in self?.togglePopover() }
+        }
         if CommandLine.arguments.contains("--open-details=billing") {
             detailsController.detailsView.showSection(.billing)
             DispatchQueue.main.async { [weak self] in
@@ -248,6 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// New or revoked grants must be requested explicitly by the user through
     /// `--grant-claude-keychain`; automatic app lifecycle work stays silent.
     private func configureClaudeKeychainAccess() {
+        guard !USRelayHours.isConfigured else { return }
         let refresher = ClaudeOAuthUsageRefresher.shared
         guard refresher.needsInitialKeychainAccess else {
             AppSettings.claudeKeychainAccessRequested = true
@@ -1019,7 +1031,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// A statusline write from any Claude Code session is a free, immediate
     /// signal that the numbers moved; reflect it without waiting for a poll.
     private func startClaudeCaptureWatcher() {
-        let watcher = ClaudeCaptureFileWatcher { [weak self] in
+        let url = USRelayHours.isConfigured ? USRelayHours.quotaURL : AppSettings.claudeStatuslineCaptureURL
+        let watcher = ClaudeCaptureFileWatcher(url: url) { [weak self] in
             guard let self else { return }
             let snapshot = ClaudeStatuslineStore().read()
             self.applyClaudeLimits(
@@ -1241,6 +1254,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             let balance = AibermBalancePresentation(snapshot: store.cache.account, failed: store.accountError != nil)
             button.toolTip = balance.tooltip
         } else { button.toolTip = "AI Token Meter" }
+        if let hours = USRelayHours.current() {
+            let metricSummary = metrics.map { $0.title + ": " + (statusMetricText($0, limits: limits) ?? "--") }.joined(separator: "\n")
+            let attributed = NSMutableAttributedString(string: button.title,
+                attributes: [.font: button.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize), .foregroundColor: NSColor.labelColor])
+            let nyTitle = hours.menuClock.isEmpty ? "  ● NY --:--" : "  ● NY " + hours.menuClock
+            attributed.append(NSAttributedString(string: nyTitle, attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: hours.color]))
+            button.attributedTitle = attributed
+            button.toolTip = (button.toolTip ?? "AI Token Meter") + "\n" + metricSummary + "\n\n" + hours.tooltip
+            button.setAccessibilityLabel("AI Token Meter, " + (title ?? "--") + ", " + hours.label + ", " + hours.clock)
+        }
         setStatusLoading(pending)
     }
 
