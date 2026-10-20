@@ -5,6 +5,48 @@ import UserNotifications
 
 // MARK: - Command Line Entrypoints
 
+if CommandLine.arguments.contains("--print-us-relay") {
+    let hours = USRelayHours.current()
+    let quota = ClaudeStatuslineStore().read()
+    let report = ClaudeTokenScanner(rootURLs: [USRelayHours.usageURL]).scan(window: .week)
+    let payload: [String: Any] = [
+        "enabled": USRelayHours.isConfigured,
+        "source": "US VPS Claude Code",
+        "timezone": "America/New_York",
+        "window": "Mon-Fri 09:00-18:00",
+        "allowed": hours?.allowed ?? false,
+        "in_working_hours": hours?.inWorkingHours ?? false,
+        "outside_hours_mode": "warn",
+        "status_bar_metrics": AppSettings.statusBarMetrics.map(\.rawValue),
+        "state": hours?.state.rawValue ?? "not_configured",
+        "clock": hours?.clock ?? "",
+        "menu_clock": hours?.menuClock ?? "",
+        "remote_week_tokens": report.usage.total,
+        "remote_week_events": report.events,
+        "five_hour_used_percent": quota?.fiveHour?.usedPercent as Any? ?? NSNull(),
+        "seven_day_used_percent": quota?.sevenDay?.usedPercent as Any? ?? NSNull(),
+        "quota_is_stale": quota?.isStale as Any? ?? NSNull()
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+       let text = String(data: data, encoding: .utf8) { print(text) }
+    exit(0)
+}
+
+if CommandLine.arguments.contains("--use-claude-menu-quota") {
+    // Replace the requested Aiberm slot while retaining an existing Codex metric.
+    if AppSettings.statusBarPrimaryMetric == .aibermBalance {
+        AppSettings.statusBarPrimaryMetric = .claudeFiveHour
+    }
+    if AppSettings.statusBarSecondaryMetric == .aibermBalance || !AppSettings.statusBarMetrics.contains(.claudeFiveHour) {
+        AppSettings.statusBarSecondaryMetric = .claudeFiveHour
+    }
+    if AppSettings.statusBarPrimaryMetric == .claudeFiveHour && AppSettings.statusBarSecondaryMetric == .claudeFiveHour {
+        AppSettings.statusBarSecondaryMetric = nil
+    }
+    print("Menu bar metrics: " + AppSettings.statusBarMetrics.map(\.rawValue).joined(separator: ", "))
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--use-aiberm-menu-balance") {
     let claudeMetrics: Set<StatusBarMetric> = [.claudeFiveHour, .claudeWeekly, .fableWeekly]
     if claudeMetrics.contains(AppSettings.statusBarPrimaryMetric) { AppSettings.statusBarPrimaryMetric = .aibermBalance }

@@ -1636,6 +1636,9 @@ final class DashboardView: NSView {
     private let dayChart = UsageChartView()
     private let platformQuotaView = PlatformQuotaRingsOverviewView()
     private let serviceStatusView = CodexStatusChipView()
+    private let usRelayStatusView = USRelayStatusView()
+    private var usRelaySnapshot = USRelayHours.current()
+    private var usRelayRowHeight: CGFloat { usRelaySnapshot == nil ? 0 : 36 }
     private let sessionsLabel = NSTextField(labelWithString: "")
     private let buttonsStack = NSStackView()
     private var buttonsByKey: [L10nKey: NSButton] = [:]
@@ -1664,11 +1667,21 @@ final class DashboardView: NSView {
     override var isFlipped: Bool { true }
     override var intrinsicContentSize: NSSize { preferredPopoverSize }
     var preferredPopoverSize: NSSize {
-        state.selectedQuota == .all ? Self.allOverviewSize : Self.singlePlatformSize
+        let base = state.selectedQuota == .all ? Self.allOverviewSize : Self.singlePlatformSize
+        return NSSize(width: base.width, height: base.height + usRelayRowHeight)
+    }
+
+    func refreshUSRelayHours() {
+        usRelaySnapshot = USRelayHours.current()
+        usRelayStatusView.snapshot = usRelaySnapshot
+        usRelayStatusView.isHidden = usRelaySnapshot == nil
+        needsLayout = true
+        onPreferredSizeChanged?(preferredPopoverSize)
     }
 
     func update(_ state: DashboardState) {
         self.state = state
+        refreshUSRelayHours()
         let report = state.report
         let profileTotalReport = state.selectedWindow != .day && state.selectedQuota.usesCodexProfileAPI
             ? state.profileReport
@@ -1900,6 +1913,7 @@ final class DashboardView: NSView {
         quotaSegment.frame = NSRect(x: content.minX, y: content.minY + 52, width: quotaSegmentWidth, height: 24)
         usageLabel.frame = NSRect(x: content.minX + usageOffset, y: content.minY + 55, width: content.width - usageOffset, height: 16)
         segment.frame = NSRect(x: content.minX, y: content.minY + 82, width: content.width, height: 30)
+        usRelayStatusView.frame = NSRect(x: content.minX, y: content.minY + 118, width: content.width, height: 28)
     }
 
     private func fittedHeaderTotalFont(maxWidth: CGFloat) -> NSFont {
@@ -1947,7 +1961,7 @@ final class DashboardView: NSView {
         let sourceWidth = quotaSelectorWidth
         layoutHeader(in: content, totalWidth: 132, quotaSegmentWidth: sourceWidth, usageOffset: sourceWidth + 12)
 
-        let tableY = content.minY + 128
+        let tableY = content.minY + 128 + usRelayRowHeight
         platformQuotaView.frame = NSRect(x: content.minX, y: tableY, width: content.width, height: platformQuotaView.preferredHeight)
         primaryRing.frame = .zero
         weeklyRing.frame = .zero
@@ -1974,7 +1988,7 @@ final class DashboardView: NSView {
         layoutHeader(in: content, totalWidth: 132, quotaSegmentWidth: sourceWidth, usageOffset: sourceWidth + 12)
 
         platformQuotaView.frame = .zero
-        let ringY = content.minY + 132
+        let ringY = content.minY + 132 + usRelayRowHeight
         let ringW = (content.width - 24) / 3
         if state.selectedQuota == .api {
             primaryRing.frame = .zero
@@ -2102,7 +2116,8 @@ final class DashboardView: NSView {
         segment.toolTip = t(.usageWindow)
         addSubview(segment)
 
-        [primaryRing, weeklyRing, primaryBullet, weeklyBullet, cacheBullet, cacheRing, apiUsageMetrics, platformQuotaView, serviceStatusView].forEach { addSubview($0) }
+        [primaryRing, weeklyRing, primaryBullet, weeklyBullet, cacheBullet, cacheRing, apiUsageMetrics, platformQuotaView, serviceStatusView, usRelayStatusView].forEach { addSubview($0) }
+        refreshUSRelayHours()
         serviceStatusView.toolTip = "Open OpenAI Status"
 
         buttonsStack.orientation = .horizontal
